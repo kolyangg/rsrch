@@ -58,7 +58,8 @@ pipe.scheduler = EulerDiscreteScheduler.from_config(pipe.scheduler.config)
 pipe.enable_model_cpu_offload()
 
 ### define the input ID images
-input_folder_name = './examples/scarletthead_woman'
+# input_folder_name = './examples/scarletthead_woman'
+input_folder_name = './examples/yangmi_woman'
 image_basename_list = os.listdir(input_folder_name)
 image_path_list = sorted([os.path.join(input_folder_name, basename) for basename in image_basename_list])
 
