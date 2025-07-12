@@ -16,6 +16,8 @@ pip install git+https://github.com/TencentARC/PhotoMaker.git
 # Run inference
 python3 inference_scripts/inference_pmv2.py
 
+python3 inference_scripts/inference_pmv2_seed_NS2.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts.txt --output_dir ../compare/results/PM
+
 ```
 
 
@@ -47,5 +49,5 @@ conda activate metrics
 pip install -r requirements.txt
 
 # Run inference
-python3 ###
+python3 pulid_generate2.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts.txt --output_dir ../compare/results/PL
 ```
