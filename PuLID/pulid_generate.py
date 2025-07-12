@@ -96,9 +96,10 @@ def main():
     parser.add_argument("--scale",      type=float, default=1.2,  help="CFG scale (≃1-1.5)")
     parser.add_argument("--id_scale",   type=float, default=0.8,  help="ID scale (0-5)")
     parser.add_argument("--steps",      type=int,   default=4,    help="DDIM steps")
-    parser.add_argument("--n_samples",  type=int,   default=4,    help="Images to generate")
+    parser.add_argument("--n_samples",  type=int,   default=3,    help="Images to generate")
     parser.add_argument("--height",     type=int,   default=1024, help="Output image height")
-    parser.add_argument("--width",      type=int,   default=768,  help="Output image width")
+    # parser.add_argument("--width",      type=int,   default=768,  help="Output image width")
+    parser.add_argument("--width",      type=int,   default=1024,  help="Output image width")
     parser.add_argument("--seed",       type=int,   default=42,   help="Random seed")
     parser.add_argument("--mode",       choices=["fidelity", "extremely style"],
                         default="fidelity", help="Attention mode")

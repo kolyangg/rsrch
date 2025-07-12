@@ -10,8 +10,17 @@ from huggingface_hub import hf_hub_download
 from photomaker import PhotoMakerStableDiffusionXLPipeline
 from photomaker import FaceAnalysis2, analyze_faces
 
+import argparse                              # ⭐ for CLI seed
+import random                                # ⭐ optional; keep runs reproducible
+
 face_detector = FaceAnalysis2(providers=['CUDAExecutionProvider'], allowed_modules=['detection', 'recognition'])
 face_detector.prepare(ctx_id=0, det_size=(640, 640))
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--seed", type=int, default=42,
+                    help="Random seed (int); leave blank for a random run")
+args = parser.parse_args()
 
 try:
     if torch.cuda.is_available():
@@ -26,6 +35,15 @@ except:
 torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 if device == "mps":
     torch_dtype = torch.float16
+    
+
+if args.seed is None:
+    args.seed = random.randint(0, 2**32 - 1)
+print(f"[Seed] Using seed = {args.seed}")
+
+generator = torch.Generator(device).manual_seed(args.seed)  # ⭐
+
+
 
 output_dir = "./outputs"
 os.makedirs(output_dir, exist_ok=True)
@@ -87,8 +105,9 @@ images = pipe(
     negative_prompt=negative_prompt, 
     input_id_images=input_id_images,
     id_embeds=id_embeds,
-    num_images_per_prompt=2,
+    num_images_per_prompt=3, # 3 images per prompt
     start_merge_step=10,
+    generator=generator, # ⭐ use the generator with the specified seed
 ).images
 
 for idx, img in enumerate(images): 
