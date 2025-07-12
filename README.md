@@ -34,3 +34,19 @@ pip install -r pl_requirements.txt
 # Run inference
 python3 pulid_generate.py
 ```
+
+
+## Metrics
+
+```bash
+cd persongen
+conda create --name metrics python=3.10
+conda activate metrics
+
+# Install requirements
+cd ..
+pip install -r requirements.txt
+
+# Run inference
+python3 ###
+```
