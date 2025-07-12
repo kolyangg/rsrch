@@ -47,8 +47,8 @@ importlib_metadata==8.6.1
 insightface==0.7.3
 ip-adapter @ git+https://github.com/tencent-ailab/IP-Adapter.git@62e4af9d0c1ac7d5f8dd386a0ccf2211346af1a2
 ipykernel==6.29.5
-ipython==9.1.0
-ipython_pygments_lexers==1.1.1
+ipython
+ipython_pygments_lexers
 isort==6.0.1
 jedi==0.19.2
 Jinja2==3.1.6
