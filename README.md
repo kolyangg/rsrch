@@ -34,7 +34,7 @@ cd ..
 pip install -r pl_requirements.txt
 
 # Run inference
-python3 pulid_generate.py
+python3 pulid_generate2.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts.txt --output_dir ../compare/results/PL
 ```
 
 
@@ -48,6 +48,7 @@ conda activate metrics
 # Install requirements
 pip install -r requirements.txt
 
-# Run inference
-python3 pulid_generate2.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts.txt --output_dir ../compare/results/PL
+# Run eval
+cd persongen
+python3 src/metrics/eval_NS.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts.txt --new_images ../compare/results/PM  --out ../compare/results/metrics_PM.csv
 ```
