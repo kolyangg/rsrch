@@ -4,3 +4,6 @@ InfiniteYou/
 compare/results/PM/
 compare/results/PL/
 compare/results
+
+# all pdf files in testing
+compare/testing/*.pdf

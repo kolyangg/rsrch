@@ -51,4 +51,13 @@ pip install -r requirements.txt
 # Run eval
 cd persongen
 python3 src/metrics/eval_NS.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts.txt --new_images ../compare/results/PM  --out ../compare/results/metrics_PM.csv
+
+python3 src/metrics/eval_NS.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts.txt --new_images ../compare/results/PL  --out ../compare/results/metrics_PL.csv
+
+# Create a pdf output
+cd ..
+python3 ../compare/testing/pdf_output.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts.txt --new_images ../compare/results/PM  --metrics_file ../compare/results/metrics_PM.csv --output_pdf ../compare/testing/output_PM.pdf
+
+python3 ../compare/testing/pdf_output.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts.txt --new_images ../compare/results/PL  --metrics_file ../compare/results/metrics_PL.csv --output_pdf ../compare/testing/output_PL.pdf
+
 ```

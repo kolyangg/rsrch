@@ -1,4 +1,4 @@
-# scripts/eval_folders.py
+# src/metrics/eval_NS.py
 """
 Evaluate ID-similarity and CLIP prompt-similarity for a set of generated images.
 
@@ -34,6 +34,7 @@ from pathlib import Path
 from PIL import Image
 from tqdm import tqdm
 import torch
+import clip
 
 from src.metrics.text_sim_metric        import TextSimMetric
 from src.metrics.id_sim_metric_NS import IDSimOnDemand   # see previous answer
@@ -67,9 +68,21 @@ def main(image_folder, new_images, prompt_file, out_csv, device):
     id_metric   = IDSimOnDemand(device=device)
     text_metric = TextSimMetric(device=device)
 
+    # pre-encode all prompts for estimated-prompt search
+    clip_model, clip_pre = text_metric.model, text_metric.preprocess
+    clip_model.eval()
+    with torch.no_grad():
+        all_tokens    = clip.tokenize(prompts).to(device)
+        text_features = clip_model.encode_text(all_tokens)
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+
+
     records = []
 
-    for gen_path in tqdm(sorted(Path(new_images).glob("*")), desc="generated"):
+    gen_paths = sorted(Path(new_images).glob("*"))
+    for gen_path in tqdm(gen_paths, total=len(gen_paths),
+                         desc="processing images", unit="img"):
+    # for gen_path in tqdm(sorted(Path(new_images).glob("*")), desc="generated"):
         m = GEN_NAME_RE.match(gen_path.name)
         if m is None:
             print(f"[WARN]   {gen_path.name} does not follow naming rule – skipped")
@@ -88,21 +101,35 @@ def main(image_folder, new_images, prompt_file, out_csv, device):
             continue
 
         # debug print ---------------------------------------------------------
-        print(f"[DEBUG]  {gen_path.name:20s} -> ref: {ref_path.name:15s} "
-              f"prompt[{pidx}]: {prompt[:60]}")
+        # print(f"[DEBUG]  {gen_path.name:20s} -> ref: {ref_path.name:15s} "
+        #       f"prompt[{pidx}]: {prompt[:60]}")
 
         ref_img = Image.open(ref_path).convert("RGB")
         gen_img = Image.open(gen_path).convert("RGB")
 
-        id_batch   = {"reference":[ref_img], "generated":[gen_img]}
+        # id_batch   = {"reference":[ref_img], "generated":[gen_img]}
+        id_batch   = {"reference":[ref_img], "generated":[gen_img],
+                      "reference_name": ref_path.name,
+                      "generated_name": gen_path.name}
         text_batch = {"prompt": prompt,      "generated":[gen_img]}
 
         with torch.no_grad():
             id_score   = id_metric(**id_batch)
+            no_face_flag = id_metric.last_no_face
             text_score = text_metric(**text_batch).item()
 
+            # choose prompt with highest CLIP similarity
+            img_tensor = clip_pre(gen_img).unsqueeze(0).to(device)
+            img_feat   = clip_model.encode_image(img_tensor)
+            img_feat   = img_feat / img_feat.norm(dim=-1, keepdim=True)
+            logits     = img_feat @ text_features.T
+            est_idx    = logits.argmax(dim=-1).item()
+            est_prompt = prompts[est_idx]
+
+
         records.append(
-            [base, gen_path.name, ref_path.name, pidx, prompt, id_score, text_score]
+            [base, gen_path.name, ref_path.name, pidx, prompt, est_prompt,
+             id_score, text_score, no_face_flag]
         )
 
     # save results ------------------------------------------------------------
@@ -111,8 +138,11 @@ def main(image_folder, new_images, prompt_file, out_csv, device):
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(
-            ["person_id", "generated_file", "reference_file",
-             "prompt_idx", "prompt_text", "id_similarity", "text_similarity"]
+            # ["person_id", "generated_file", "reference_file",
+            #  "prompt_idx", "real_prompt", "estimated_prompt", "id_similarity", "text_similarity"]
+             ["person_id", "generated_file", "reference_file",
+             "prompt_idx", "real_prompt", "estimated_prompt",
+             "id_similarity", "text_similarity", "no_face_flag"]
         )
         writer.writerows(records)
 
