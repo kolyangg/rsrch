@@ -1,0 +1,30 @@
+Cyberpunk <class> portrait, neon visor portrait
+High-fashion <class> portrait, metallic couture
+80s arcade <class> portrait, Polaroid glow
+Alpine <class> portrait, snowy peak portrait
+Noir <class> portrait, rainy streetlamp scene
+Renaissance <class> portrait, ornate oil portrait
+Underwater <class> portrait, turquoise dreamy portrait
+Holi festival <class> portrait, vibrant powder
+Futuristic <class> portrait, AR visor lab
+Desert sunset <class> portrait, serene dunes
+Carnival <class> portrait, neon scream portrait
+Graffiti <class> portrait, laughing street portrait
+Old West <class> portrait, tintype glare
+Astronaut <class> portrait, cosmic wonder
+Rococo <class> portrait, laughing ballroom
+Matrix-style <class> portrait, trench coat code
+X-men <class> portrait, mutant power aura
+Samurai <class> portrait, katana moonlit stance
+Viking <class> portrait, stormy fjord fury
+Disco <class> portrait, rainbow glitter spotlight
+Pirate <class> portrait, salty sea smirk
+Baroque <class> portrait, gilded opulence swirl
+Alien planet <class> portrait, bioluminescent jungle
+Holo DJ <class> portrait, prism lightwave
+Retro diner <class> portrait, chrome shine
+Techno rave <class> portrait, laser haze
+Ice cave <class> portrait, frozen shimmer
+<class> portrait, Ukiyo-e Painting style, playing
+Surfing <class> portrait, breaking-wave spray
+Formula One <class> portrait, carbon-fiber blur
