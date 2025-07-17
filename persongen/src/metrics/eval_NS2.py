@@ -29,7 +29,7 @@ repo_root = pathlib.Path(__file__).resolve().parents[2]   # climb 2 levels: src/
 sys.path.append(str(repo_root))
 
 
-import argparse, csv, re
+import argparse, csv, re, json
 from pathlib import Path
 from PIL import Image
 from tqdm import tqdm
@@ -59,11 +59,17 @@ def match_reference(ref_dir: Path, base: str) -> Path | None:
 # --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
-def main(image_folder, new_images, prompt_file, out_csv, device):
+def main(image_folder, new_images, prompt_file, out_csv, device, class_file=None):
+
 
     # load all prompts
     prompts = [ln.rstrip("\n") for ln in open(prompt_file, encoding="utf-8")]
     print(f"Loaded {len(prompts)} prompts from {prompt_file}")
+
+    # optional class-name map for "<class>" substitution
+    class_map = {}
+    if class_file:
+        class_map = json.load(open(class_file, "r", encoding="utf-8"))
 
     id_metric   = IDSimOnDemand(device=device)
     text_metric = TextSimMetric(device=device)
@@ -90,10 +96,22 @@ def main(image_folder, new_images, prompt_file, out_csv, device):
 
         base   = m["base"]                 # e.g. lenna
         pidx   = int(m["pidx"])            # prompt index
-        prompt = prompts[pidx] if pidx < len(prompts) else None
-        if prompt is None:
+        # prompt = prompts[pidx] if pidx < len(prompts) else None
+        # if prompt is None:
+        prompt_raw = prompts[pidx] if pidx < len(prompts) else None
+        if prompt_raw is None:
             print(f"[WARN]   prompt idx {pidx} missing for {gen_path.name} – skipped")
             continue
+
+        # ref_path = match_reference(Path(image_folder), base)
+        # replace dynamic token
+        cur_prompt = prompt_raw
+        if "<class>" in cur_prompt:
+            cls = class_map.get(base)
+            if cls:
+                cur_prompt = cur_prompt.replace("<class>", cls)
+            else:
+                print(f"⚠️  no class for '{base}', kept '<class>'")
 
         ref_path = match_reference(Path(image_folder), base)
         if ref_path is None:
@@ -111,7 +129,8 @@ def main(image_folder, new_images, prompt_file, out_csv, device):
         id_batch   = {"reference":[ref_img], "generated":[gen_img],
                       "reference_name": ref_path.name,
                       "generated_name": gen_path.name}
-        text_batch = {"prompt": prompt,      "generated":[gen_img]}
+        # text_batch = {"prompt": prompt,      "generated":[gen_img]}
+        text_batch = {"prompt": cur_prompt,  "generated":[gen_img]}
 
         with torch.no_grad():
             id_score   = id_metric(**id_batch)
@@ -128,7 +147,8 @@ def main(image_folder, new_images, prompt_file, out_csv, device):
 
 
         records.append(
-            [base, gen_path.name, ref_path.name, pidx, prompt, est_prompt,
+            # [base, gen_path.name, ref_path.name, pidx, prompt, est_prompt,
+            [base, gen_path.name, ref_path.name, pidx, cur_prompt, est_prompt,
              id_score, text_score, no_face_flag]
         )
 
@@ -161,7 +181,8 @@ if __name__ == "__main__":
     parser.add_argument("--out",          default="results/metrics.csv",
                         help="Output CSV path")
     parser.add_argument("--device",       default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--class_file",   help="JSON mapping <basename> → class name")
     args = parser.parse_args()
 
     main(args.image_folder, args.new_images, args.prompt_file,
-         args.out, args.device)
+         args.out, args.device, args.class_file)

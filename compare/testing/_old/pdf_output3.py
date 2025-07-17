@@ -80,7 +80,7 @@ def build_pdf(ref_dir, gen_dir, prompt_file, metrics_csv, out_pdf,
 
 
         # reference thumbnail
-        for ref_ext in (".jpg", ".png", ".jpeg", ".bmp"):
+        for ref_ext in (".jpg", ".png", ".jpeg", ".bmp", ".webp"):
             rp = Path(ref_dir)/f"{person}{ref_ext}"
             if rp.exists():
                 ref_thumb = load_image(rp, thumb_side//3)

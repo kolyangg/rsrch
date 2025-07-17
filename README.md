@@ -78,6 +78,11 @@ python3 src/metrics/eval_NS.py --image_folder ../compare/testing/images --prompt
 
 python3 src/metrics/eval_NS.py --image_folder ../compare/testing/ref1 --prompt_file ../compare/testing/prompts4.txt --new_images ../compare/results/PL_new_one  --out ../compare/results/metrics_PL_new_one.csv
 
+# new_full
+cd persongen
+python3 src/metrics/eval_NS2.py --image_folder ../compare/testing/references --prompt_file ../compare/testing/prompts4.txt --new_images ../compare/results/PM_full --class_file ../compare/testing/classes_ref.json  --out ../compare/results/metrics_PM_full.csv
+
+python3 src/metrics/eval_NS2.py --image_folder ../compare/testing/references --prompt_file ../compare/testing/prompts4.txt --new_images ../compare/results/PL_full --class_file ../compare/testing/classes_ref.json  --out ../compare/results/metrics_PL_full.csv
 
 
 # Create a pdf output
@@ -92,6 +97,12 @@ python3 ../compare/testing/pdf_output3.py --image_folder ../compare/testing/imag
 python3 ../compare/testing/pdf_output3.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts3.txt --new_images ../compare/results/PL3  --metrics_file ../compare/results/metrics_PL3.csv --output_pdf ../compare/testing/output_PL3.pdf
 
 python3 ../compare/testing/pdf_output3.py --image_folder ../compare/testing/ref1 --prompt_file ../compare/testing/prompts4.txt --new_images ../compare/results/PL_new_one --metrics_file ../compare/results/metrics_PL_new_one.csv --output_pdf ../compare/testing/output_PL_new_one.pdf
+
+# new_full
+
+python3 ../compare/testing/pdf_output4.py --image_folder ../compare/testing/references --prompt_file ../compare/testing/prompts4.txt --new_images ../compare/results/PM_full --metrics_file ../compare/results/metrics_PM_full.csv --output_pdf ../compare/testing/output_PM_full.pdf
+
+python3 ../compare/testing/pdf_output4.py --image_folder ../compare/testing/references --prompt_file ../compare/testing/prompts4.txt --new_images ../compare/results/PL_full --metrics_file ../compare/results/metrics_PL_full.csv --output_pdf ../compare/testing/output_PL_full.pdf
 
 
 ```

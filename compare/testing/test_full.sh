@@ -29,4 +29,4 @@ conda activate pulid
 python3 pulid_generate3.py  --image_folder ../compare/testing/references --prompt_file ../compare/testing/prompts4.txt --class_file ../compare/testing/classes_ref.json --output_dir ../compare/results/PL_full
 
 sleep 5 # wait 5 seconds
-echo "PhotoMaker done"
+echo "PuLID done"

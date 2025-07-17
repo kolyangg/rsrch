@@ -155,28 +155,7 @@ def main():
 
     H, W = args.height, args.width
     out_size = (1, H, W)
-    # print(f"Generating {args.n_samples} image(s) at {H}×{W} …")
 
-    # images = []
-    # for i in range(args.n_samples):
-    #     img = pipeline.inference(
-    #         args.prompt,
-    #         out_size,
-    #         args.neg_prompt,
-    #         id_embeddings,
-    #         args.id_scale,
-    #         args.scale,
-    #         args.steps,
-    #     )[0]
-    #     images.append(img)
-
-    #     # Save immediately
-    #     filename = os.path.join(
-    #         OUT_DIR, f"{uuid.uuid4().hex[:8]}_pulid.jpg"
-    #     )
-    #     img.save(filename)
-    #     print("✅ saved", filename)
-    
     
     total = len(id_image_paths) * len(prompt_list) * args.n_samples
     print(f"Generating {total} images …")

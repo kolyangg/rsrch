@@ -84,7 +84,7 @@ def build_pdf(ref_dir, gen_dir, prompt_file, metrics_csv, out_pdf,
 
 
         # reference thumbnail
-        for ref_ext in (".jpg", ".png", ".jpeg", ".bmp"):
+        for ref_ext in (".jpg", ".png", ".jpeg", ".bmp", ".webp"):
             rp = Path(ref_dir)/f"{person}{ref_ext}"
             if rp.exists():
                 ref_thumb = load_image(rp, thumb_side//3)
@@ -110,8 +110,8 @@ def build_pdf(ref_dir, gen_dir, prompt_file, metrics_csv, out_pdf,
                 ax.imshow(ref_thumb)
                 ax.axis("off")
             # header for AVG column
-            # fig.text(1-avg_w+0.005, 0.985, "AVG", weight="bold",
-            #          va="top", ha="left", fontsize=8)
+            fig.text(1 - avg_w + 0.005, 0.985, "AVG",
+            weight="bold", va="top", ha="left", fontsize=8)
             
             fig.text(1-avg_w+0.005, 0.965, "id",  va="top",
                      ha="left", fontsize=6)
@@ -200,13 +200,13 @@ def build_pdf(ref_dir, gen_dir, prompt_file, metrics_csv, out_pdf,
             if r.empty:
                 row.append("")
             else:
-                s = f"{r.id_mean.values[0]:.2f}\n{r.txt_mean.values[0]:.2f}"
+                row.append(f"{r.id_mean.values[0]:.2f}\n"
+                           f"{r.txt_mean.values[0]:.2f}")
 
-                row.append(s)
-                # overall across persons for this prompt
-                row_vals = df[df.prompt_idx == pidx]
-                row.append(f"{row_vals.id_similarity.mean():.2f}\n"
-                           f"{row_vals.text_similarity.mean():.2f}")
+        # overall across *all* persons for this prompt
+        row_vals = df[df.prompt_idx == pidx]
+        row.append(f"{row_vals.id_similarity.mean():.2f}\n"
+                   f"{row_vals.text_similarity.mean():.2f}")
         cell_txt.append(row)
     # column-wise averages
     last = ["ALL-prompts"]
@@ -225,19 +225,40 @@ def build_pdf(ref_dir, gen_dir, prompt_file, metrics_csv, out_pdf,
     fig = plt.figure(figsize=inches)
     # cols = ["Prompt"] + persons
     # cw   = [0.20] + [0.80/len(persons)]*len(persons)          # 20 % + equal rest
-    cols = ["Prompt"] + persons + ["Overall"]
-    cw   = [0.23] + [0.73/(len(persons)+1)]*len(persons) + [0.04]  # wider prompt
-    
+    # cols = ["Prompt"] + persons + ["Overall"]
+    # cw   = [0.23] + [0.73/(len(persons)+1)]*len(persons) + [0.04]  # wider prompt
+
+    # cols = ["Prompt"] + persons + ["Overall"]
+
+    # keep headers horizontal: wrap long person IDs to max-two 10-char lines
+    wrap_hdr = lambda s: "\n".join(textwrap.wrap(str(s), 10)[:2])
+    cols = ["Prompt"] + [wrap_hdr(p) for p in persons] + ["AVG"]
+
+    # ensure every row in cell_txt has exactly len(cols) cells
+    need = len(cols)
+    for row in cell_txt:
+        if len(row) < need:
+            row.extend([""] * (need - len(row)))
+
+    # cw   = [0.23] + [0.73/(len(persons)+1)]*len(persons) + [0.04]  # wider prompt
+    cw   = [0.23] + [0.73/len(persons)]*len(persons) + [0.04]       # wider prompt
+
     table = plt.table(cellText=cell_txt, colLabels=cols,
                       colWidths=cw, loc="center", cellLoc="center",
                       fontsize=6)
     
-    # rotate reference headers 
+    # # rotate reference headers 
+    # for c in range(1, len(cols)-1):             # skip “Prompt” header
+    #     cell = table[(0, c)]
+    #     cell.get_text().set_rotation(90)
+    #     cell.get_text().set_verticalalignment("center")
+    #     cell.get_text().set_horizontalalignment("right")
+    
+        
+    # headers are already wrapped → just center them
     for c in range(1, len(cols)-1):             # skip “Prompt” header
         cell = table[(0, c)]
-        cell.get_text().set_rotation(90)
-        cell.get_text().set_verticalalignment("center")
-        cell.get_text().set_horizontalalignment("right")
+        cell.get_text().set_horizontalalignment("center")
     
     # bold grand-average cell (bottom-right)
     br = table[(len(cell_txt), len(cols)-1)]

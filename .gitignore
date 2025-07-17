@@ -7,3 +7,4 @@ compare/results
 
 # all pdf files in testing
 compare/testing/*.pdf
+compare/testing/_old_res
