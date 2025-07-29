@@ -1,3 +1,5 @@
+# photomaker/pipeline.py
+
 #####
 # Modified from https://github.com/huggingface/diffusers/blob/v0.29.1/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py
 # PhotoMaker v2 @ TencentARC and MCG-NKU 

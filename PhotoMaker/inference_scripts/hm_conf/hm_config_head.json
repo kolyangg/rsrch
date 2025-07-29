@@ -1,0 +1,7 @@
+{
+  "reference_image_path": "keanu.jpg",
+  "prompt": "a man img with a beard and a head in a space shuttle",
+  "TOKEN_FOCUS": "head",          
+  "AUX_PROMPT": "a head",      
+  "output_pdf_file": "attn_hm_head.pdf"
+}

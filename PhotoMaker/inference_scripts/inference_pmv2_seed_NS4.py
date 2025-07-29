@@ -1,7 +1,10 @@
+# inferece_scripts/inference_pmv2_seed_NS4.py
+
 # !pip install opencv-python transformers accelerate
 import os
 import sys
 import argparse    
+import json
 
 import numpy as np
 import torch
@@ -25,6 +28,8 @@ parser.add_argument("--image_folder", type=str, required=True,
                     help="Folder with reference images (one face per image)")
 parser.add_argument("--prompt_file", type=str, required=True,
                     help="Text file with one prompt per line")
+parser.add_argument("--class_file", type=str, required=True,
+                    help="JSON mapping reference basenames → class names (e.g. {\"elon\":\"man\"})")
 parser.add_argument("--num_images_per_prompt", type=int, default=3,
                     help="Images to generate for each prompt / ID")
 parser.add_argument("--output_dir", type=str, default="./outputs",
@@ -63,6 +68,10 @@ photomaker_ckpt = hf_hub_download(repo_id="TencentARC/PhotoMaker-V2", filename="
 # prompt = "instagram photo, portrait photo of a woman img, colorful, perfect face, natural skin, hard shadows, film grain, best quality"
 with open(args.prompt_file, "r", encoding="utf-8") as f:
     prompt_list = [l.strip() for l in f if l.strip()]
+    
+# ⭐ load class-mapping once
+with open(args.class_file, "r", encoding="utf-8") as f:
+    class_map = json.load(f)
 
 negative_prompt = "(asymmetry, worst quality, low quality, illustration, 3d, 2d, painting, cartoons, sketch), open mouth"
 
@@ -88,12 +97,6 @@ pipe.scheduler = EulerDiscreteScheduler.from_config(pipe.scheduler.config)
 
 pipe.enable_model_cpu_offload()
 
-# ### define the input ID images
-# input_folder_name = './examples/scarletthead_woman'
-# # input_folder_name = './examples/yangmi_woman'
-# image_basename_list = os.listdir(input_folder_name)
-# image_path_list = sorted([os.path.join(input_folder_name, basename) for basename in image_basename_list])
-
 
 ### define the input ID images
 image_basename_list = os.listdir(args.image_folder)
@@ -105,14 +108,7 @@ for image_path in image_path_list:
 
 id_embed_list = []
 
-# for img in input_id_images:
-#     img = np.array(img)
-#     img = img[:, :, ::-1]
-#     faces = analyze_faces(face_detector, img)
-#     if len(faces) > 0:
-#         id_embed_list.append(torch.from_numpy((faces[0]['embedding'])))
-        
-        
+   
 # load images, run face detector and keep lists aligned
 input_id_images, id_embed_list, id_basename_list = [], [], []
 for image_path in image_path_list:
@@ -128,31 +124,21 @@ for image_path in image_path_list:
 if len(id_embed_list) == 0:
     raise ValueError(f"No face detected in input image pool")
 
-# id_embeds = torch.stack(id_embed_list)
-
-# # generate image
-# images = pipe(
-#     prompt, 
-#     negative_prompt=negative_prompt, 
-#     input_id_images=input_id_images,
-#     id_embeds=id_embeds,
-#     num_images_per_prompt=3, # 3 images per prompt
-#     start_merge_step=10,
-#     generator=generator, # ⭐ use the generator with the specified seed
-# ).images
-
-# for idx, img in enumerate(images): 
-#     img.save(os.path.join(output_dir, f"output_pmv2_{idx}.jpg"))
-
-
-# for id_idx, (ref_img, ref_embed) in enumerate(zip(input_id_images, id_embed_list)):
-#     img_basename = os.path.splitext(image_basename_list[id_idx])[0]
     
 for ref_img, ref_embed, img_basename in zip(input_id_images, id_embed_list, id_basename_list):
     id_embeds = ref_embed.unsqueeze(0)
+
+    class_name = class_map.get(img_basename)              # ⭐ lookup class
     for p_idx, prompt in enumerate(prompt_list):
+        cur_prompt = prompt
+        if "<class>" in prompt:
+            if class_name:
+                replace_str = f"{class_name}" + " img"
+                cur_prompt = prompt.replace("<class>", replace_str)
+            else:
+                print(f"⚠️  No class found for '{img_basename}', keeping '<class>'")
         images = pipe(
-            prompt,
+            cur_prompt,
             negative_prompt=negative_prompt,
             input_id_images=[ref_img],
             id_embeds=id_embeds,

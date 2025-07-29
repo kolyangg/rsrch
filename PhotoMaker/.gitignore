@@ -6,3 +6,6 @@ __pycache__/
 .idea/
 *.bin
 *.safetensors
+inference_scripts/_old
+inference_scripts/heatmaps/
+inference_scripts/hm_results/

@@ -1,0 +1,7 @@
+{
+    "reference_image_path": "keanu.jpg",
+    "prompt": "a man img with a beard in a space shuttle",
+    "TOKEN_FOCUS": "face",
+    "ADD_TO_PROMPT": false,
+    "output_pdf_file": "attn_hm1_nsm3_2.pdf"
+}

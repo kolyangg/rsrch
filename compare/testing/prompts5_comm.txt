@@ -1,0 +1,32 @@
+Cyberpunk <class> portrait, neon visor portrait # ok
+80s arcade <class> portrait, Polaroid glow # ok
+Alpine <class> portrait, snowy peak portrait # ?
+Desert sunset <class> portrait, serene dunes # change portrait
+X-men <class> portrait, mutant power aura # replace
+Samurai <class> portrait, katana moonlit stance # ok
+Techno rave <class> portrait, laser haze # replace?
+<class> portrait, Ukiyo-e Painting style, playing # ok
+Sprinter <class> full-body, stadium dash # change sprinter
+Skater <class> full-body, neon city grind # ok but change neon
+Rockstar <class> full-body, stage jump # ok
+Snowboarder <class> full-body, alpine trick # ok + face visible
+Astronaut <class> full-body, moonwalk stride # ok + face visible
+Swimming <class> full-body, underwater glide # ok
+Surfing <class> full-body, barrel wave carve # ok
+Yoga <class> full-body, mountain-peak lotus # ok + realistic?
+Viking <class> portrait, stormy fjord fury, battle rage # not portrait
+High-fashion <class> portrait, metallic couture, confident poise # ok
+Futuristic <class> portrait, AR visor lab, focused curiosity # ok
+Formula One <class> portrait, carbon-fiber blur, intense focus # add action (podium)
+Carnival <class> portrait, neon scream portrait, ecstatic thrill # ok
+Matrix-style <class> portrait, trench coat code, stoic resolve # full body
+Retro diner <class> portrait, chrome shine, nostalgic delight # ok
+Noir <class> portrait, rainy streetlamp scene, brooding intensity # ok
+Graffiti <class> portrait, laughing street portrait, rebellious joy # ok
+Battle-worn gladiator <class> portrait, coliseum dusk, unbridled rage # ok
+Post-apocalyptic <class> portrait, burning skyline, desperate resolve # ok
+Lunar eclipse <class> portrait, crimson glow, awe-struck wonder # change
+Olympic podium <class> portrait, gold medal, ecstatic pride # full-body
+Forbidden love <class> portrait, moonlit balcony, heartfelt yearning # change
+Storm-tossed sea <class> portrait, ship deck chaos, unyielding courage
+Neon underground club <class> portrait, strobe haze, wild euphoria # change
