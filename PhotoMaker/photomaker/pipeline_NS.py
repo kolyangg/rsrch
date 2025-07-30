@@ -57,9 +57,10 @@ else:
     XLA_AVAILABLE = False
 
 # NEW IMPORTS 30 JUL
-import warnings
-import math
-import types
+import warnings, math, types
+# mask helper cloned from `attn_hm_NS_nosm7.py`
+from .mask_utils import MASK_LAYERS_CONFIG, compute_binary_face_mask
+import numpy as np
 
 
 from . import (
@@ -797,6 +798,68 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             )
 
         # 11. Denoising loop
+        # num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
+
+        # Prepare branched-attention bookkeeping
+        use_branched_attention     = use_branched_attention
+        face_embed_strategy        = face_embed_strategy.lower()
+        branched_attn_start_step   = branched_attn_start_step
+
+        attn_maps_current: Dict[str, List[np.ndarray]] = {}
+        orig_attn_forwards: Dict[str, Callable] = {}
+
+        if use_branched_attention:
+            # make sure we run *regular* PyTorch attention
+            self.unet.set_attn_processor(self.unet.attn_processor)
+
+            from diffusers.models.attention_processor import Attention as CrossAttention
+
+            wanted_layers = {spec["name"] for spec in MASK_LAYERS_CONFIG}
+
+            def _make_hook(layer_name: str, module):
+                orig_fwd = module.forward
+                orig_attn_forwards[layer_name] = orig_fwd
+
+                def hook(hs, encoder_hidden_states=None, attention_mask=None):
+                    out = orig_fwd(hs, encoder_hidden_states, attention_mask)
+
+                    if layer_name in wanted_layers and encoder_hidden_states is not None:
+                        B_all = hs.shape[0]
+                        if self.do_classifier_free_guidance and B_all % 2 == 0:
+                            hs_ = hs[B_all // 2 :]
+                            enc = encoder_hidden_states[B_all // 2 :]
+                        else:
+                            hs_, enc = hs, encoder_hidden_states
+
+                        q_proj = (module.to_q if hasattr(module, "to_q") else module.q_proj)(hs_)
+                        k_proj = (module.to_k if hasattr(module, "to_k") else module.k_proj)(enc)
+
+                        B, Lq, C = q_proj.shape
+                        h = module.heads
+                        d = C // h
+                        Q = q_proj.view(B, Lq, h, d).permute(0, 2, 1, 3)
+                        K = k_proj.view(B, -1, h, d).permute(0, 2, 1, 3)
+
+                        if class_tokens_mask is not None:
+                            tok_idx = class_tokens_mask[0].to(hs.device).nonzero(as_tuple=True)[0]
+                        else:
+                            tok_idx = torch.arange(K.shape[2] - self.num_tokens, K.shape[2], device=hs.device)
+
+                        logits = (Q @ K.transpose(-2, -1)) * module.scale
+                        sim = logits[..., tok_idx].mean(-1).mean(1)[0]  # (Lq,)
+                        H = int(math.sqrt(sim.numel()))
+                        att = sim.view(H, H).detach().cpu().to(torch.float32).numpy()
+                        attn_maps_current.setdefault(layer_name, []).append(att)
+                    return out
+
+                return hook
+
+            # install hooks
+            for n, m in self.unet.named_modules():
+                if isinstance(m, CrossAttention) and n in wanted_layers:
+                    m.forward = _make_hook(n, m)
+
+        # now the scheduler warm-up calculation
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
 
         # 11.1 Apply denoising_end
@@ -962,21 +1025,19 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                         callback(step_idx, t, latents)
                 
                 # NEW 30 JUL
-                # At the step we activate branched attention, compute face mask and switch attention forward
+                # ───────────── activate branched attention & build mask ─────────────
                 if use_branched_attention and i == branched_attn_start_step - 1:
-                    # Consolidate captured attention maps to derive face region mask
-                    if len(attn_maps_current) == 0:
-                        warnings.warn("Branched attention: no attention maps captured for face mask computation.")
+                    if not attn_maps_current:
+                        warnings.warn("[BranchedAttn] no attention maps captured – mask disabled.")
                     else:
-                        # Use the largest spatial resolution attention map for mask
-                        max_layer = max(attn_maps_current, key=lambda k: attn_maps_current[k].shape[0])
-                        att_map = attn_maps_current[max_layer]
-                        L_map = att_map.size if hasattr(att_map, "size") else att_map.shape[0]
-                        H_map = int(math.sqrt(L_map))
-                        heatmap = att_map.reshape(H_map, H_map)
-                        thr = heatmap.max() * 0.5
-                        face_mask_2d = (heatmap >= thr)
-                        self._face_mask = face_mask_2d.cpu().numpy().astype(bool)
+                        # average duplicates then compute binary face-mask identical
+                        # to `attn_hm_NS_nosm7.py`
+                        snapshot = {
+                            ln: np.stack(v).mean(0) for ln, v in attn_maps_current.items()
+                        }
+                        self._face_mask = compute_binary_face_mask(snapshot, MASK_LAYERS_CONFIG)
+ 
+             
                     # Remove hooks (restore original forwards)
                     for name, module in self.unet.named_modules():
                         if name in orig_attn_forwards:
