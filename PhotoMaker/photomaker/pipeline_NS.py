@@ -1,4 +1,4 @@
-# photomaker/pipeline.py
+# photomaker/pipeline_NS.py
 
 #####
 # Modified from https://github.com/huggingface/diffusers/blob/v0.29.1/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py
@@ -23,6 +23,7 @@
 import inspect
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import PIL
+from PIL import Image   
 
 import torch
 from transformers import CLIPImageProcessor
@@ -58,15 +59,61 @@ else:
 
 # NEW IMPORTS 30 JUL
 import warnings, math, types
+import matplotlib.cm as cm  
+from pathlib import Path
+from PIL import ImageDraw, ImageFont   
+import cv2
+import os
 # mask helper cloned from `attn_hm_NS_nosm7.py`
-from .mask_utils import MASK_LAYERS_CONFIG, compute_binary_face_mask
+# ──────────────────────────────────────────────────────────────────────────────
+#  Shared utils
+# ──────────────────────────────────────────────────────────────────────────────
+from .mask_utils import (
+    MASK_LAYERS_CONFIG,
+    compute_binary_face_mask,         # weighted-union (legacy / spec)
+    _resize_map,
+    simple_threshold_mask,            # NEW helper ❶ (see mask_utils.py patch)
+)
+
+
+# `identity` will now use the inline hook copied from the known-good version;
+# token-based maps still rely on the helper from heatmap_utils.
+from .heatmap_utils import build_hook_focus_token, build_hook_identity
+
+
 import numpy as np
+
+# import nn
+import torch.nn as nn
+import torch.nn.functional as F
+
 
 
 from . import (
     PhotoMakerIDEncoder, # PhotoMaker v1
     PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken, # PhotoMaker v2
 )
+
+
+# --------------------------------------------------------------------------- #
+#  Debug helpers
+# --------------------------------------------------------------------------- #
+
+DEBUG_DIR = os.getenv("PM_DEBUG_DIR", "./branched_debug")
+os.makedirs(DEBUG_DIR, exist_ok=True)
+
+def _save_gray(arr: np.ndarray, fp: str):
+    """
+    Save a 2-D numpy array as an 8-bit grayscale PNG.
+    """
+    if arr.ndim != 2:
+        return
+    arr = arr.astype(np.float32)
+    arr = (255 * (arr - arr.min()) / (np.ptp(arr) + 1e-8)).clip(0, 255).astype(np.uint8)
+    Image.fromarray(arr, mode="L").save(fp)
+
+
+
 
 PipelineImageInput = Union[
     PIL.Image.Image,
@@ -151,7 +198,7 @@ def retrieve_timesteps(
     return timesteps, num_inference_steps
     
 
-class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
+class PhotoMakerStableDiffusionXLPipeline2(StableDiffusionXLPipeline):
     @validate_hf_hub_args
     def load_photomaker_adapter(
         self,
@@ -252,6 +299,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         # load lora into models
         print(f"Loading PhotoMaker {pm_version} components [2] lora_weights from [{pretrained_model_name_or_path_or_dict}]")
         self.load_lora_weights(state_dict["lora_weights"], adapter_name="photomaker")
+        print(f'[DEBUG] Using upgraded pipeline_NS.py') # ADD 30 JUL
 
         # Add trigger word token
         if self.tokenizer is not None: 
@@ -546,7 +594,16 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         # Added parameters (for branched attention) # NEW 30 JUL
         use_branched_attention: bool = False,
         face_embed_strategy: str = "faceanalysis",  # "faceanalysis" or "heatmap"
+        save_heatmaps: bool = False,                # ← NEW flag
+        # ---------------- NEW SWITCHES ----------------
+        heatmap_mode: str =  "identity", # "token",  # "identity", # "token", # "identity",             # "identity" | "token"
+        focus_token: str = "face",
+        mask_mode: str = "spec", # "simple", # "spec",                    # "spec" | "simple"
         branched_attn_start_step: int = 10,
+        # ────── DEBUG MASK STRIP ───────────────────────────────
+        debug_save_masks: bool = False,
+        mask_save_dir: str = "hm_debug",
+        mask_interval: int = 5,
         **kwargs,
     ):
         r"""
@@ -624,6 +681,15 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         self._interrupt = False
 
         #        
+        
+        if class_tokens_mask is None:
+            print("[WARN] class_tokens_mask is None – will fallback to last "
+                f"{self.num_tokens} tokens")
+        else:
+            idx = class_tokens_mask[0].nonzero(as_tuple=True)[1].tolist()
+            print(f"[DBG] class_tokens_mask indices = {idx}")
+                
+        
         if prompt_embeds is not None and class_tokens_mask is None:
             raise ValueError(
                 "If `prompt_embeds` are provided, `class_tokens_mask` also have to be passed. Make sure to generate `class_tokens_mask` from the same tokenizer that was used to generate `prompt_embeds`."
@@ -715,13 +781,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
         id_pixel_values = id_pixel_values.unsqueeze(0).to(device=device, dtype=dtype) # TODO: multiple prompts
 
-        # 7. Get the update text embedding with the stacked ID embedding
-        # if id_embeds is not None:
-        #     id_embeds = id_embeds.unsqueeze(0).to(device=device, dtype=dtype)
-        #     prompt_embeds = self.id_encoder(id_pixel_values, prompt_embeds, class_tokens_mask, id_embeds)
-        # else:
-        #     prompt_embeds = self.id_encoder(id_pixel_values, prompt_embeds, class_tokens_mask)
-        
+
         # NEW 30 JUL
         # Decide identity embedding usage based on strategy
         if use_branched_attention and face_embed_strategy.lower() == "heatmap":
@@ -797,67 +857,107 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 self.do_classifier_free_guidance,
             )
 
-        # 11. Denoising loop
-        # num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
-
+        # 11. Denoising loop ──────────────────────────────────────────────────
         # Prepare branched-attention bookkeeping
-        use_branched_attention     = use_branched_attention
-        face_embed_strategy        = face_embed_strategy.lower()
-        branched_attn_start_step   = branched_attn_start_step
 
+        # ─── DEBUG ①: echo run-time flags ────────────────────────────────────
+        print(
+            f"[DEBUG] branched={use_branched_attention}  "
+            f"save_heatmaps={save_heatmaps}  "
+            f"start_step={branched_attn_start_step}  "
+            f"strategy={face_embed_strategy}"
+        )
+        
+        
+        # ------------ validate new switches ------------
+        heatmap_mode  = heatmap_mode.lower()
+        if heatmap_mode not in ("identity", "token"):
+            raise ValueError("heatmap_mode must be 'identity' or 'token'")
+
+        mask_mode = mask_mode.lower()
+        if mask_mode not in ("spec", "simple"):
+            raise ValueError("mask_mode must be 'spec' or 'simple'")
+
+        face_embed_strategy   = face_embed_strategy.lower()
+        use_branched_attention = bool(use_branched_attention)
+        collect_hm = use_branched_attention or save_heatmaps  # ← NEW
+        branched_attn_start_step = int(branched_attn_start_step)
+
+        # collect maps across several steps so that we have something to
+        # aggregate when we reach `branched_attn_start_step`
         attn_maps_current: Dict[str, List[np.ndarray]] = {}
         orig_attn_forwards: Dict[str, Callable] = {}
 
-        if use_branched_attention:
+        # if use_branched_attention:
+        if collect_hm:            # allow --save_heatmaps to capture maps
             # make sure we run *regular* PyTorch attention
-            self.unet.set_attn_processor(self.unet.attn_processor)
-
+            if hasattr(self.unet, "attn_processors"):          # diffusers ≥ 0.25
+                self.unet.set_attn_processor(dict(self.unet.attn_processors))
+            else:                                              # legacy (< 0.25)
+                self.unet.set_attn_processor(self.unet.attn_processor)
+            
             from diffusers.models.attention_processor import Attention as CrossAttention
-
             wanted_layers = {spec["name"] for spec in MASK_LAYERS_CONFIG}
 
-            def _make_hook(layer_name: str, module):
-                orig_fwd = module.forward
-                orig_attn_forwards[layer_name] = orig_fwd
+            # # ❶ choose hook builder -----------------------------------------
+            # if heatmap_mode == "identity":
+            #     hook_builder = lambda ln, mod: build_hook_identity(
+            #         ln, mod, wanted_layers, class_tokens_mask,
+            #         self.num_tokens, attn_maps_current, orig_attn_forwards,
+            #         self.do_classifier_free_guidance)
+            
+            if heatmap_mode == "identity":
+                # use the rock-solid implementation that already lives in heatmap_utils
+                hook_builder = lambda ln, mod: build_hook_identity(
+                    ln,                                  # layer name
+                    mod,                                 # module itself
+                    wanted_layers,                       # set of layers we care about
+                    class_tokens_mask,                   # marks the duplicated ID tokens
+                    self.num_tokens,                     # e.g. 2 for PM-v2
+                    attn_maps_current,                   # dict that collects numpy maps
+                    orig_attn_forwards,                  # backup dict for clean-up
+                    self.do_classifier_free_guidance,    # CFG flag – same as old code
+                )
+                        
+                
+            
+            else:  # "token" (auxiliary prompt)
+                # build `focus_latents` & token indices ONCE
+                aux_prompt   = f"a {focus_token}"
+                with torch.no_grad():
+                    focus_lat, *_ = self.encode_prompt(
+                        prompt      = aux_prompt,
+                        device      = device,
+                        num_images_per_prompt = 1,
+                        do_classifier_free_guidance = False,
+                    )
+                tok  = self.tokenizer or self.tokenizer_2
+                idsA = tok(aux_prompt        , add_special_tokens=False).input_ids
+                idsW = tok(" " + focus_token , add_special_tokens=False).input_ids
+                def _find_sub(seq, sub):
+                    for i in range(len(seq)-len(sub)+1):
+                        if seq[i:i+len(sub)] == sub:
+                            return list(range(i,i+len(sub)))
+                    return []
+                token_idx_global = _find_sub(idsA, idsW)
+                if not token_idx_global:
+                    raise RuntimeError(f"focus token '{focus_token}' not found")
 
-                def hook(hs, encoder_hidden_states=None, attention_mask=None):
-                    out = orig_fwd(hs, encoder_hidden_states, attention_mask)
+                hook_builder = lambda ln, mod: build_hook_focus_token(
+                    ln, mod, wanted_layers, focus_lat, token_idx_global,
+                    attn_maps_current, orig_attn_forwards,
+                    self.do_classifier_free_guidance)
 
-                    if layer_name in wanted_layers and encoder_hidden_states is not None:
-                        B_all = hs.shape[0]
-                        if self.do_classifier_free_guidance and B_all % 2 == 0:
-                            hs_ = hs[B_all // 2 :]
-                            enc = encoder_hidden_states[B_all // 2 :]
-                        else:
-                            hs_, enc = hs, encoder_hidden_states
-
-                        q_proj = (module.to_q if hasattr(module, "to_q") else module.q_proj)(hs_)
-                        k_proj = (module.to_k if hasattr(module, "to_k") else module.k_proj)(enc)
-
-                        B, Lq, C = q_proj.shape
-                        h = module.heads
-                        d = C // h
-                        Q = q_proj.view(B, Lq, h, d).permute(0, 2, 1, 3)
-                        K = k_proj.view(B, -1, h, d).permute(0, 2, 1, 3)
-
-                        if class_tokens_mask is not None:
-                            tok_idx = class_tokens_mask[0].to(hs.device).nonzero(as_tuple=True)[0]
-                        else:
-                            tok_idx = torch.arange(K.shape[2] - self.num_tokens, K.shape[2], device=hs.device)
-
-                        logits = (Q @ K.transpose(-2, -1)) * module.scale
-                        sim = logits[..., tok_idx].mean(-1).mean(1)[0]  # (Lq,)
-                        H = int(math.sqrt(sim.numel()))
-                        att = sim.view(H, H).detach().cpu().to(torch.float32).numpy()
-                        attn_maps_current.setdefault(layer_name, []).append(att)
-                    return out
-
-                return hook
-
-            # install hooks
-            for n, m in self.unet.named_modules():
+            
+            
+            hook_count = 0
+            for n, m in self.unet.named_modules():          # ← **keep this**
                 if isinstance(m, CrossAttention) and n in wanted_layers:
-                    m.forward = _make_hook(n, m)
+                    m.forward = hook_builder(n, m)
+                    hook_count += 1
+
+            print(f"[DEBUG] wanted_layers={len(wanted_layers)}  "
+                  f"hooks_loaded={hook_count}")
 
         # now the scheduler warm-up calculation
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
@@ -887,62 +987,17 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             ).to(device=device, dtype=latents.dtype)
 
         self._num_timesteps = len(timesteps)
+
+        # ── prepare containers for DEBUG strip ──────────────────────────
+        if debug_save_masks:
+            Path(mask_save_dir).mkdir(parents=True, exist_ok=True)
+            mask_frames: list[Image.Image] = []
+            step_labels: list[str] = []
+
+
         with self.progress_bar(total=num_inference_steps) as progress_bar:
-            # for i, t in enumerate(timesteps):
+
             
-            # NEW 30 JUL
-            # Prepare branched attention if enabled
-            attn_maps_current = {}
-            orig_attn_forwards = {}
-            if use_branched_attention:
-                # Disable memory-efficient attention to allow custom forward
-                self.unet.set_attn_processor(self.unet.attn_processor)  # ensure using default pytorch attention
-                from diffusers.models.attention_processor import Attention as CrossAttention
-                def make_attn_hook(layer_name, module):
-                    orig_fwd = module.forward
-                    orig_attn_forwards[layer_name] = orig_fwd
-                    def hooked_forward(hidden_states, encoder_hidden_states=None, attention_mask=None):
-                        # call original forward (to get output) but capture attention weights if cross-attn with text
-                        out = orig_fwd(hidden_states, encoder_hidden_states, attention_mask)
-                        if encoder_hidden_states is not None:
-                            # Only consider conditional batch (if CFG used)
-                            hs = hidden_states
-                            enc = encoder_hidden_states
-                            B_all = hs.shape[0]
-                            if self.do_classifier_free_guidance and B_all % 2 == 0:
-                                hs = hs[B_all//2:]
-                                enc = enc[B_all//2:]
-                            # Compute attention logits focusing on class/identity tokens
-                            # Project Q (from latent hidden_states) and K (from text encoders)
-                            q_proj = module.to_q(hs) if hasattr(module, "to_q") else module.q_proj(hs)
-                            k_proj = module.to_k(enc) if hasattr(module, "to_k") else module.k_proj(enc)
-                            # Reshape into (B_cond, heads, seq, dim_head)
-                            B_cond, L_q, C_q = q_proj.shape
-                            _, L_k, C_k = k_proj.shape
-                            h = module.heads
-                            d = C_q // h
-                            Q = q_proj.view(B_cond, L_q, h, d).permute(0, 2, 1, 3)  # (B_cond, h, L_q, d)
-                            K = k_proj.view(B_cond, L_k, h, d).permute(0, 2, 1, 3)  # (B_cond, h, L_k, d)
-                            # Determine identity token indices from class_tokens_mask
-                            if class_tokens_mask is not None:
-                                # class_tokens_mask has True for each inserted token (identity tokens)
-                                token_idx = class_tokens_mask[0].to(device=device).nonzero(as_tuple=True)[0]
-                            else:
-                                # Fallback: assume last self.num_tokens tokens correspond to identity if mask not provided
-                                token_idx = torch.arange(L_k - self.num_tokens, L_k, device=device)
-                            # Compute attention scores for those token indices
-                            logits = torch.matmul(Q, K.transpose(-1, -2)) * module.scale  # (B_cond, h, L_q, L_k)
-                            # Average attention logits over identity token indices and heads
-                            att_map = logits[..., token_idx].mean(dim=-1).mean(dim=1)  # shape (B_cond, L_q)
-                            # Average over batch (assuming one reference identity per batch)
-                            att_map = att_map.mean(dim=0)  # shape (L_q,)
-                            attn_maps_current[layer_name] = att_map.detach().cpu().numpy()
-                        return out
-                    return hooked_forward
-                # Register hooks on all cross-attention layers
-                for name, module in self.unet.named_modules():
-                    if isinstance(module, CrossAttention):
-                        module.forward = make_attn_hook(name, module)
             # Start denoising loop
             for i, t in enumerate(timesteps):
 
@@ -972,6 +1027,143 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
                 if ip_adapter_image is not None or ip_adapter_image_embeds is not None:
                     added_cond_kwargs["image_embeds"] = image_embeds
+                    
+                    
+                # ---------------------------------------------------------- #
+                #  diagnostics
+                # ---------------------------------------------------------- #
+                # if i % 1 == 0:  # every step
+                #     print(
+                #         f"[STEP {i:03d}]  σ={t.item():>6}  "
+                #         f"latents={tuple(latents.shape)}[{latents.dtype}]"
+                #     )
+                #     print(f"        prompt emb norm={current_prompt_embeds.norm():.4f}")
+                
+                print(f"[DBG] hook alive?  any('{n}' in orig_attn_forwards for n in wanted_layers) = "
+                    f"{any(n in orig_attn_forwards for n in wanted_layers)}")
+                
+                # NEW ─── how many maps do we have for every layer right now?
+                if collect_hm:
+                    sizes = {k: len(v) for k, v in attn_maps_current.items()}
+                    print(f"[DBG] attn_maps_current sizes: {sizes}")
+
+                
+                # ───────────────────────────────────────────────────────────
+                #  ❶ Drop the maps gathered **before** the ID-tokens are
+                #     merged in – they are pure noise.
+                # ───────────────────────────────────────────────────────────
+                if collect_hm and i == start_merge_step - 1:
+                    attn_maps_current.clear()            # flush noise
+
+                # ───────────────────────────────────────────────────────────
+                #  ❷ Save a visual overlay only after the merge step
+                # ───────────────────────────────────────────────────────────
+                if (
+                    collect_hm
+                    and i >= start_merge_step            # NEW guard
+                    and (i % mask_interval == 0 or i == len(timesteps) - 1)
+                    and attn_maps_current                # anything captured yet?
+                ):
+                    print(f"[HM] step={i:3d}   layers with maps={len(attn_maps_current)}")
+    
+                    print(f"[DEBUG] saving attention maps for step {i:03d}...")
+                    for ln, maps in attn_maps_current.items():
+                        if not maps:                 # safety guard
+                            print(f"[DEBUG] no maps for layer {ln} at step {i:03d}")
+                            continue
+                        amap = maps[-1]              # most-recent map this step
+                        safe_ln = ln.replace("/", "_").replace(".", "_")
+  
+                        fname_png = f"{DEBUG_DIR}/heat_{i:03d}_{safe_ln}.png"
+                        _save_gray(amap, fname_png)          # keep PNG as before
+
+
+                    # ── 1. consolidate -> snapshot (mean over heads) ─────────
+                    # snapshot = {ln: np.stack(maps).mean(0)
+                    #             for ln, maps in attn_maps_current.items() if maps}
+                    
+                    # ── 1. consolidate -> snapshot (mean over heads) ─────────
+                    snapshot = {}
+                    for ln, lst in attn_maps_current.items():
+                        # keep only proper 2-D maps
+                        lst2 = [m for m in lst if m.ndim == 2]
+                        if not lst2:
+                            continue
+                        # bring every map to the largest H×H in that list
+                        max_H = max(m.shape[0] for m in lst2)
+                        aligned = [
+                            m if m.shape[0] == max_H else _resize_map(m, max_H)
+                            for m in lst2
+                        ]
+                        snapshot[ln] = np.stack(aligned, axis=0).mean(0)
+            
+                    # --- DEBUG: quality of the consolidated map -----------------
+                    print("[SNAP]", {ln: (m.max(), m.mean()) for ln, m in snapshot.items()})
+                    
+                    if not snapshot:
+                        pass
+                    else:
+                        # ── allocate bookkeeping on first hit ───────────────
+                        if not hasattr(self, "_hm_layers"):
+                            self._hm_layers  = list(snapshot)          # keep *all* layers
+                            self._heatmaps   = {ln: [] for ln in self._hm_layers}
+                            self._step_tags  = []
+
+                        # ── 2. decode current latent → base RGB 1024² ──────
+                        vae_dev = next(self.vae.parameters()).device
+                        img = self.vae.decode(
+                            (latents / self.vae.config.scaling_factor)
+                            .to(device=vae_dev, dtype=self.vae.dtype)
+                        ).sample[0]
+                        img_np = ((img.float() / 2 + 0.5)
+                                  .clamp_(0, 1)
+                                  .permute(1, 2, 0)
+                                  .cpu()
+                                  .numpy() * 255).astype(np.uint8)
+
+                        cmap  = cm.get_cmap("jet")
+                        font  = ImageFont.load_default()
+
+                        for ln in self._hm_layers:
+                            if ln not in snapshot:
+                                continue
+                            amap = snapshot[ln]
+                            amap_n = amap / amap.max() if amap.max() > 0 else amap
+
+                            hmap = (cmap(amap_n)[..., :3] * 255).astype(np.uint8)
+                            hmap = np.array(Image.fromarray(hmap)
+                                            .resize((1024, 1024), Image.BILINEAR))
+                            heat_np = (0.5 * img_np + 0.5 * hmap).astype(np.uint8)
+                            heat_im = Image.fromarray(heat_np)
+
+                            # ----- numeric 5×5 grid ------------------------
+                            draw   = ImageDraw.Draw(heat_im)
+                            H_blk  = amap.shape[0] // 5
+                            W_blk  = amap.shape[1] // 5
+                            vis_h  = 1024 // 5
+                            vis_w  = 1024 // 5
+                            for bi in range(5):
+                                for bj in range(5):
+                                    blk = amap[bi*H_blk:(bi+1)*H_blk,
+                                                bj*W_blk:(bj+1)*W_blk]
+                                    mv  = blk.mean()
+                                    cx  = bj*vis_w + vis_w//2
+                                    cy  = bi*vis_h + vis_h//2
+                                    txt = f"{mv:.2f}"
+                                    tw, th = draw.textbbox((0,0), txt, font=font)[2:]
+                                    draw.text((cx-tw//2, cy-th//2), txt,
+                                              font=font, fill="white",
+                                              stroke_width=1, stroke_fill="black")
+
+                            self._heatmaps[ln].append(heat_im)
+
+                        self._step_tags.append(i)
+
+                        self.__dict__.setdefault("_heat_pngs", []).append(fname_png)
+                        
+                        # reset cache so the next step starts fresh
+                        attn_maps_current.clear()
+
 
                 # predict the noise residual
                 noise_pred = self.unet(
@@ -1000,7 +1192,9 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     if torch.backends.mps.is_available():
                         # some platforms (eg. apple mps) misbehave due to a pytorch bug: https://github.com/pytorch/pytorch/pull/99272
                         latents = latents.to(latents_dtype)
-
+                    
+   
+      
                 if callback_on_step_end is not None:
                     callback_kwargs = {}
                     for k in callback_on_step_end_tensor_inputs:
@@ -1023,183 +1217,553 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     if callback is not None and i % callback_steps == 0:
                         step_idx = i // getattr(self.scheduler, "order", 1)
                         callback(step_idx, t, latents)
+
                 
-                # NEW 30 JUL
-                # ───────────── activate branched attention & build mask ─────────────
-                if use_branched_attention and i == branched_attn_start_step - 1:
+                # ───────────────────────── update mask BEFORE user callback ──
+                # if (
+                #     collect_hm
+                #     and i >= start_merge_step
+                #     and (i % mask_interval == 0 or i == len(timesteps) - 1)
+                #     and attn_maps_current
+                # ):
+
+                if (
+                    collect_hm
+                    # start drawing from step 0 (no ≥ start_merge_step gate)
+                    and (i % mask_interval == 0 or i == len(timesteps) - 1)
+                    and attn_maps_current
+                ):
+                    from .mask_utils import _resize_map
+                    snapshot = {}
+                    for ln, lst in attn_maps_current.items():
+                        maps2d = [m for m in lst if m.ndim == 2]
+                        if not maps2d:
+                            continue
+                        max_H = max(m.shape[0] for m in maps2d)
+                        aligned = [
+                            m if m.shape[0] == max_H else _resize_map(m, max_H)
+                            for m in maps2d
+                        ]
+                        snapshot[ln] = np.stack(aligned, 0).mean(0)
+
+                    if mask_mode == "spec":
+                        self._face_mask = compute_binary_face_mask(
+                            snapshot, MASK_LAYERS_CONFIG)
+                    else:
+                        self._face_mask = simple_threshold_mask(snapshot)
+
+                    attn_maps_current.clear()   # reset → one-step snapshot
+
+                # call the callback, if provided (now sees fresh mask)
+                if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                    progress_bar.update()
+                    if callback is not None and i % callback_steps == 0:
+                        step_idx = i // getattr(self.scheduler, "order", 1)
+                        callback(step_idx, t, latents)
+
+                
+                # NEW 30 JUL                    
+                
+                
+                # # ───────────── build mask right AFTER the merge step ─────────────
+                # # (not one iteration before).  Only needed when branched-attention
+                # # is enabled – otherwise keep the hooks alive so we can keep
+                # # collecting heat-maps for the whole diffusion trajectory.
+                # if use_branched_attention and i == branched_attn_start_step:
+                    
+                    
+                # ───────────── build mask right AFTER the merge step ─────────────
+                # (not one iteration before). We *always* build the mask once we
+                # have enough maps (`collect_hm`), but we only detach hooks and
+                # patch the UNet when branched-attention is actually requested.
+                if collect_hm and i == branched_attn_start_step:
+                    
                     if not attn_maps_current:
                         warnings.warn("[BranchedAttn] no attention maps captured – mask disabled.")
                     else:
-                        # average duplicates then compute binary face-mask identical
-                        # to `attn_hm_NS_nosm7.py`
-                        snapshot = {
-                            ln: np.stack(v).mean(0) for ln, v in attn_maps_current.items()
-                        }
-                        self._face_mask = compute_binary_face_mask(snapshot, MASK_LAYERS_CONFIG)
- 
-             
-                    # Remove hooks (restore original forwards)
-                    for name, module in self.unet.named_modules():
-                        if name in orig_attn_forwards:
-                            module.forward = orig_attn_forwards[name]
-                    attn_maps_current.clear()
-                    orig_attn_forwards.clear()
-                    # Monkey-patch UNet self-attention layers for branched mechanism
-                    from diffusers.models.attention_processor import Attention as CrossAttention
-                    def custom_attn_forward(module, hidden_states, encoder_hidden_states=None, attention_mask=None):
-                        # Use branched attention for self-attn (no encoder_hidden_states)
-                        if encoder_hidden_states is None and hasattr(self, "_face_mask") and self._face_mask is not None:
-                            # separate unconditional and conditional parts if CFG
-                            B, L, C = hidden_states.shape
-                            if self.do_classifier_free_guidance and B % 2 == 0:
-                                B_half = B // 2
-                                hidden_uncond = hidden_states[:B_half]
-                                hidden_cond = hidden_states[B_half:]
-                            else:
-                                B_half = 0
-                                hidden_uncond = None
-                                hidden_cond = hidden_states
-                            # Do standard self-attn for unconditional part (no face injection)
-                            out_uncond = None
-                            if hidden_uncond is not None:
-                                out_uncond = module._orig_forward(hidden_uncond, None, attention_mask)
-                            # Prepare for conditional branch attention
-                            hs = hidden_cond
-                            B_cond = hs.shape[0]
-                            # Project Q, K, V for current latent
-                            q_proj = module.to_q(hs) if hasattr(module, "to_q") else module.q_proj(hs)  # (B_cond, L, inner_dim)
-                            k_proj = module.to_k(hs) if hasattr(module, "to_k") else module.k_proj(hs)  # (B_cond, L, inner_dim)
-                            v_proj = module.to_v(hs) if hasattr(module, "to_v") else module.v_proj(hs)  # (B_cond, L, inner_dim)
-                            # Reshape for multi-head
-                            Bc, Lc, Ci = q_proj.shape
-                            h = module.heads
-                            d = Ci // h
-                            Q = q_proj.view(Bc, Lc, h, d).permute(0, 2, 1, 3)  # (B_cond, h, L, d)
-                            Kc = k_proj.view(Bc, Lc, h, d).permute(0, 2, 1, 3)  # (B_cond, h, L, d)
-                            Vc = v_proj.view(Bc, Lc, h, d).permute(0, 2, 1, 3)  # (B_cond, h, L, d)
-                            # Determine face vs background query indices for this resolution
-                            L_curr = Lc
-                            H_curr = int(math.sqrt(L_curr))
-                            mask = torch.from_numpy(self._face_mask)  # shape (H_map, W_map)
-                            H_map = mask.shape[0]
-                            if H_map != H_curr:
-                                # Downsample or upsample mask to current resolution
-                                # Compute factor (assuming integer scale)
-                                if H_map % H_curr == 0:
-                                    factor = H_map // H_curr
-                                    # Downsample: group factor x factor blocks
-                                    mask = mask.view(H_curr, factor, H_curr, factor).any(dim=(1, 3))
-                                elif H_curr % H_map == 0:
-                                    factor = H_curr // H_map
-                                    mask = mask.repeat_interleave(factor, dim=0).repeat_interleave(factor, dim=1)
+
+                        # Average all collected maps per layer.  Normalise each
+                        # map to the *largest* H×H in its list to avoid
+                        # “all input arrays must have the same shape”.
+                        from .mask_utils import _resize_map
+
+                        snapshot = {}
+                        for ln, lst in attn_maps_current.items():
+                                
+                            # ── drop any malformed (e.g. 1-D) maps ───────────
+                            lst2 = [m for m in lst if m.ndim == 2]
+                            if not lst2:
+                                continue
+                            
+                            # bring every map to a common resolution ― keep tile
+                            # alignment with the helper used in attn_hm_NS_nosm7.py
+                            max_H = max(m.shape[0] for m in lst2)
+
+                            normed = []
+                            for m in lst2:
+                                if m.shape[0] != max_H:
+                                    m = _resize_map(m, max_H)    # ← grid-aware
+                                normed.append(m)
+                            
+                            
+                            
+                            snapshot[ln] = np.stack(normed, axis=0).mean(0)
+                            
+                        # self._face_mask = compute_binary_face_mask(snapshot, MASK_LAYERS_CONFIG)
+                        
+                        if mask_mode == "spec":          # weighted-union (default)
+                            self._face_mask = compute_binary_face_mask(
+                                snapshot, MASK_LAYERS_CONFIG)
+                        else:                           # "simple" → single-layer top-k
+                            self._face_mask = simple_threshold_mask(snapshot)
+                    
+                        # save the binary mask for visual inspection
+                        _save_gray(
+                            self._face_mask.astype(np.uint8) * 255,
+                            f"{DEBUG_DIR}/mask_final.png",
+                        )
+                        
+                        # ─── DEBUG ③: mask statistics
+                        print(
+                            f"[DEBUG] mask built ✓  size={self._face_mask.shape}  "
+                            f"face_pixels={(self._face_mask>0).sum()}"
+                        )
+
+
+                    # # Remove hooks (restore original forwards)
+                    # for name, module in self.unet.named_modules():
+                    #     if name in orig_attn_forwards:
+                    #         module.forward = orig_attn_forwards[name]
+                    # attn_maps_current.clear()
+                    
+                    
+                    
+                    
+                    # orig_attn_forwards.clear()
+                    # # Monkey-patch UNet self-attention layers for branched mechanism
+                    # if use_branched_attention:
+                        
+                    # -------------------------------------------------------------
+                    # ❶ Build the mask exactly *once* (or whenever you like)
+                    # -------------------------------------------------------------
+                    if (use_branched_attention and
+                        i == branched_attn_start_step):
+                        # Average heads collected so far
+                        snapshot = {ln: np.stack(m).mean(0)
+                                    for ln, m in attn_maps_current.items()
+                                    if len(m)}
+        
+                        if snapshot:                         # we have something!
+                            if mask_mode == "simple":
+                                mask_np = simple_threshold_mask(snapshot)
+                            else:                            # "spec"
+                                mask_np = compute_binary_face_mask(
+                                            snapshot, MASK_LAYERS_CONFIG)
+        
+                            # save for optional callbacks / debugging -------------
+                            self._face_mask = torch.from_numpy(mask_np) \
+                                                .to(device=latents.device,
+                                                    dtype=latents.dtype) \
+                                                .unsqueeze(0)            # (1,H,W)
+                            
+                            # keep a plain H×W NumPy array – the forward hook will turn it into
+                            # a tensor on-the-fly and cache the result, avoiding dtype mix-ups
+                            self._face_mask = mask_np.astype(bool)        # ← 2-D numpy                    
+                            
+                        else:
+                            warnings.warn("[BranchedAttn] no attention maps "
+                                          "captured – mask disabled.")
+        
+                        # maps no longer needed – free memory
+                        attn_maps_current.clear()
+        
+                    # -------------------------------------------------------------
+                    # ❷ DO NOT clear the buffer at the *start* of every step.
+                    #    Only wipe it *after* we are done using it (see above).
+                    # -------------------------------------------------------------    
+                        
+                    
+                    # ───────────── activate branched attention (optional) ────────
+                    # if use_branched_attention:
+                    #     # Remove hooks (restore original forwards) – we won't
+                    #     # collect any more heat-maps once we fork the branches.
+                    #     for name, module in self.unet.named_modules():
+                    #         if name in orig_attn_forwards:
+                    #             module.forward = orig_attn_forwards[name]
+                    #     attn_maps_current.clear()
+                    #     orig_attn_forwards.clear()
+
+                    #     # Monkey-patch UNet self-attention layers for the
+                    #     # face / background split
+                    
+                    # 🔸 **Do *NOT* restore the cross-attention forwards.**
+                        #     Their tiny hooks must stay in place so we can
+                        #     keep harvesting attention grids every
+                        #     `mask_interval` steps and refine the mask.
+                        #
+                        #     We *only* monkey-patch the **self-attention**
+                        #     modules ('.attn1') below; their original call is
+                        #     stored in `module._orig_forward`, while the
+                        #     cross-attention ('.attn2') layers – where the
+                        #     heat-map hooks live – remain untouched.
+
+                        # Monkey-patch UNet self-attention layers for the
+                        # face / background split
+                    
+                        
+                        from diffusers.models.attention_processor import Attention as CrossAttention
+                        def custom_attn_forward(module, hidden_states, encoder_hidden_states=None, attention_mask=None):
+                            # Use branched attention for self-attn (no encoder_hidden_states)
+                            if encoder_hidden_states is None and hasattr(self, "_face_mask") and self._face_mask is not None:
+                                # separate unconditional and conditional parts if CFG
+                                B, L, C = hidden_states.shape
+                                if self.do_classifier_free_guidance and B % 2 == 0:
+                                    B_half = B // 2
+                                    hidden_uncond = hidden_states[:B_half]
+                                    hidden_cond = hidden_states[B_half:]
                                 else:
-                                    mask = F.interpolate(mask.float().unsqueeze(0).unsqueeze(0),
-                                                         size=(H_curr, H_curr), mode="nearest")[0,0] > 0.5
-                            mask_flat = mask.view(-1).to(device=hidden_states.device)
-                            face_idx = mask_flat.nonzero(as_tuple=True)[0]  # indices of face region queries
-                            bg_idx = (~mask_flat).nonzero(as_tuple=True)[0]  # indices of background queries
-                            L_face = face_idx.shape[0]
-                            L_bg = bg_idx.shape[0]
-                            # Compute standard self-attention output for all queries (we will override face part)
-                            # shape for bmm: flatten batch and heads
-                            Q_flat = Q.reshape(Bc * h, Lc, d)
-                            Kc_flat = Kc.reshape(Bc * h, Lc, d)
-                            Vc_flat = Vc.reshape(Bc * h, Lc, d)
-                            attn_scores = torch.baddbmm(
-                                torch.empty(Bc * h, Lc, Lc, device=Q_flat.device, dtype=Q_flat.dtype),
-                                Q_flat,
-                                Kc_flat.transpose(-1, -2),
-                                beta=0,
-                                alpha=module.scale,
-                            )  # (B_cond*heads, L, L)
-                            attn_probs = attn_scores.softmax(dim=-1)
-                            context_all = torch.bmm(attn_probs, Vc_flat)  # (B_cond*heads, L, d)
-                            context_all = context_all.view(Bc, h, Lc, d)
-                            # Compute face-branch attention for face query positions
-                            if L_face > 0:
-                                # Prepare reference image keys/values
-                                # Use CLIP patch features for reference face region if available, else fall back to id_embeds
-                                if face_embed_strategy.lower() == "heatmap":
-                                    # Use CLIP vision patch features directly for reference
-                                    # (Already processed via id_encoder in else branch, which uses CLIP global. 
-                                    # For patch-level features, we reuse internal CLIP features)
-                                    last_hidden = self.id_encoder.vision_model(id_pixel_values.to(device=device))[0]  # (1, n_patches+1, 1024)
-                                    # Identify face region patches (approx): use same mask scaled to CLIP patch grid
-                                    # CLIP ViT-L/14 yields 16x16 patches for 224x224 input
-                                    clip_patches = last_hidden[:, 1:, :]  # exclude CLS
-                                    n_patches = clip_patches.shape[1]
-                                    H_patch = W_patch = int(math.sqrt(n_patches))
-                                    # If face_mask at output resolution, roughly assume face occupies similar area in CLIP input
-                                    face_mask_patch = F.interpolate(mask.float().view(1,1,H_curr,H_curr), size=(H_patch, W_patch), mode="nearest")
-                                    face_mask_patch = face_mask_patch.view(-1) >= 0.5
-                                    ref_keys = clip_patches[0, face_mask_patch, :].to(device=hidden_states.device)  # shape (M, 1024)
-                                    if ref_keys.numel() == 0:
-                                        ref_keys = clip_patches[0:1, 0:1, :].to(device=hidden_states.device)  # fallback to CLS if no face patch
-                                    # Project CLIP patch features to UNet latent dim via a linear
-                                    proj_dim = hs.shape[-1]
-                                    k_proj_layer = nn.Linear(ref_keys.shape[-1], d).to(device=hidden_states.device)
-                                    v_proj_layer = nn.Linear(ref_keys.shape[-1], d).to(device=hidden_states.device)
-                                    K_ref = k_proj_layer(ref_keys)  # (M, d)
-                                    V_ref = v_proj_layer(ref_keys)  # (M, d)
-                                else:
-                                    # face_embed_strategy == "faceanalysis": use ArcFace embedding vector
-                                    ref_vec = id_embeds.to(device=hidden_states.device).float()  # (512,)
-                                    # Project to head dimension
-                                    k_proj_layer = nn.Linear(ref_vec.shape[0], d).to(device=hidden_states.device)
-                                    v_proj_layer = nn.Linear(ref_vec.shape[0], d).to(device=hidden_states.device)
-                                    K_ref = k_proj_layer(ref_vec).unsqueeze(0)  # (1, d)
-                                    V_ref = v_proj_layer(ref_vec).unsqueeze(0)  # (1, d)
-                                # Compute face-query attention
-                                Q_face = Q[:, :, face_idx, :]  # (B_cond, h, L_face, d)
-                                # Expand K_ref, V_ref to include head dimension
-                                K_ref_h = K_ref.unsqueeze(0).expand(h, -1, -1)  # (h, M, d)
-                                V_ref_h = V_ref.unsqueeze(0).expand(h, -1, -1)  # (h, M, d)
-                                # Compute dot-product attention for face queries
-                                # Reshape Q_face to (B_cond*h, L_face, d)
-                                Q_face_flat = Q_face.permute(0,2,1,3).reshape(Bc * L_face, h, d)  # Actually, easier to loop per head than flatten differently
-                                Q_face_flat = Q_face.reshape(Bc * h, L_face, d)  # (B_cond* h, L_face, d)
-                                # Prepare K_ref repeated for batch
-                                K_ref_flat = K_ref_h.unsqueeze(0).expand(Bc, -1, -1, -1).reshape(Bc * h, -1, d)
-                                V_ref_flat = V_ref_h.unsqueeze(0).expand(Bc, -1, -1, -1).reshape(Bc * h, -1, d)
-                                attn_scores_face = torch.baddbmm(
-                                    torch.empty(Bc * h, L_face, K_ref_flat.shape[1], device=Q_face_flat.device, dtype=Q_face_flat.dtype),
-                                    Q_face_flat,
-                                    K_ref_flat.transpose(-1, -2),
+                                    B_half = 0
+                                    hidden_uncond = None
+                                    hidden_cond = hidden_states
+                                # Do standard self-attn for unconditional part (no face injection)
+                                out_uncond = None
+                                if hidden_uncond is not None:
+                                    out_uncond = module._orig_forward(hidden_uncond, None, attention_mask)
+                                # Prepare for conditional branch attention
+                                hs = hidden_cond
+                                B_cond = hs.shape[0]
+                                # Project Q, K, V for current latent
+                                q_proj = module.to_q(hs) if hasattr(module, "to_q") else module.q_proj(hs)  # (B_cond, L, inner_dim)
+                                k_proj = module.to_k(hs) if hasattr(module, "to_k") else module.k_proj(hs)  # (B_cond, L, inner_dim)
+                                v_proj = module.to_v(hs) if hasattr(module, "to_v") else module.v_proj(hs)  # (B_cond, L, inner_dim)
+                                # Reshape for multi-head
+                                Bc, Lc, Ci = q_proj.shape
+                                h = module.heads
+                                d = Ci // h
+                                Q = q_proj.view(Bc, Lc, h, d).permute(0, 2, 1, 3)  # (B_cond, h, L, d)
+                                Kc = k_proj.view(Bc, Lc, h, d).permute(0, 2, 1, 3)  # (B_cond, h, L, d)
+                                Vc = v_proj.view(Bc, Lc, h, d).permute(0, 2, 1, 3)  # (B_cond, h, L, d)
+                                # Determine face vs background query indices for this resolution
+                                L_curr = Lc
+                                H_curr = int(math.sqrt(L_curr))
+                                # mask = torch.from_numpy(self._face_mask)  # shape (H_map, W_map)
+                                # ── ① get / cache the mask as a (H,W) torch.bool on *this* device ──
+                                if isinstance(self._face_mask, np.ndarray):
+                                    mask_np   = self._face_mask
+                                else:                           # just in case someone changes it later
+                                    mask_np   = self._face_mask.squeeze().cpu().numpy()
+                                mask = torch.from_numpy(mask_np).to(device=hidden_states.device)
+                                H_map = mask.shape[0]
+                                if H_map != H_curr:
+                                    # Downsample or upsample mask to current resolution
+                                    # Compute factor (assuming integer scale)
+                                    if H_map % H_curr == 0:
+                                        factor = H_map // H_curr
+                                        # Downsample: group factor x factor blocks
+                                        mask = mask.view(H_curr, factor, H_curr, factor).any(dim=(1, 3))
+                                    elif H_curr % H_map == 0:
+                                        factor = H_curr // H_map
+                                        mask = mask.repeat_interleave(factor, dim=0).repeat_interleave(factor, dim=1)
+                                    else:
+                                        mask = F.interpolate(mask.float().unsqueeze(0).unsqueeze(0),
+                                                            size=(H_curr, H_curr), mode="nearest")[0,0] > 0.5
+                                mask_flat = mask.view(-1).to(device=hidden_states.device)
+                                face_idx = mask_flat.nonzero(as_tuple=True)[0]  # indices of face region queries
+                                bg_idx = (~mask_flat).nonzero(as_tuple=True)[0]  # indices of background queries
+                                L_face = face_idx.shape[0]
+                                L_bg = bg_idx.shape[0]
+                                # Compute standard self-attention output for all queries (we will override face part)
+                                # shape for bmm: flatten batch and heads
+                                Q_flat = Q.reshape(Bc * h, Lc, d)
+                                Kc_flat = Kc.reshape(Bc * h, Lc, d)
+                                Vc_flat = Vc.reshape(Bc * h, Lc, d)
+                                attn_scores = torch.baddbmm(
+                                    torch.empty(Bc * h, Lc, Lc, device=Q_flat.device, dtype=Q_flat.dtype),
+                                    Q_flat,
+                                    Kc_flat.transpose(-1, -2),
                                     beta=0,
                                     alpha=module.scale,
-                                )
-                                attn_probs_face = attn_scores_face.softmax(dim=-1)
-                                context_face = torch.bmm(attn_probs_face, V_ref_flat)  # (B_cond*h, L_face, d)
-                                context_face = context_face.view(Bc, h, L_face, d)
-                                # Replace corresponding outputs in context_all
-                                context_all[:, :, face_idx, :] = context_face
-                            # Merge heads back and project out
-                            context_flat = context_all.permute(0, 2, 1, 3).reshape(Bc, Lc, Ci)
-                            hidden_cond_out = module.to_out[0](context_flat)
-                            hidden_cond_out = module.to_out[1](hidden_cond_out)
-                            # Combine with unconditional (if exists)
-                            if out_uncond is not None:
-                                hidden_out = torch.cat([out_uncond, hidden_cond_out], dim=0)
+                                )  # (B_cond*heads, L, L)
+                                attn_probs = attn_scores.softmax(dim=-1)
+                                context_all = torch.bmm(attn_probs, Vc_flat)  # (B_cond*heads, L, d)
+                                context_all = context_all.view(Bc, h, Lc, d)
+                                # Compute face-branch attention for face query positions
+                                if L_face > 0:
+                                    # Prepare reference image keys/values
+                                    # Use CLIP patch features for reference face region if available, else fall back to id_embeds
+                                    if face_embed_strategy.lower() == "heatmap":
+                                        # Use CLIP vision patch features directly for reference
+                                        # (Already processed via id_encoder in else branch, which uses CLIP global. 
+                                        # For patch-level features, we reuse internal CLIP features)
+                                        last_hidden = self.id_encoder.vision_model(id_pixel_values.to(device=device))[0]  # (1, n_patches+1, 1024)
+                                        # Identify face region patches (approx): use same mask scaled to CLIP patch grid
+                                        # CLIP ViT-L/14 yields 16x16 patches for 224x224 input
+                                        clip_patches = last_hidden[:, 1:, :]  # exclude CLS
+                                        n_patches = clip_patches.shape[1]
+                                        H_patch = W_patch = int(math.sqrt(n_patches))
+                                        # If face_mask at output resolution, roughly assume face occupies similar area in CLIP input
+                                        face_mask_patch = F.interpolate(mask.float().view(1,1,H_curr,H_curr), size=(H_patch, W_patch), mode="nearest")
+                                        face_mask_patch = face_mask_patch.view(-1) >= 0.5
+                                        
+                                        
+                                        
+                                        # ref_keys = clip_patches[0, face_mask_patch, :].to(device=hidden_states.device)  # shape (M, 1024)
+                                        # if ref_keys.numel() == 0:
+                                        #     ref_keys = clip_patches[0:1, 0:1, :].to(device=hidden_states.device)  # fallback to CLS if no face patch
+                                        # # Project CLIP patch features to UNet latent dim via a linear
+                                        # proj_dim = hs.shape[-1]
+                                        # # k_proj_layer = nn.Linear(ref_keys.shape[-1], d).to(device=hidden_states.device)
+                                        # # v_proj_layer = nn.Linear(ref_keys.shape[-1], d).to(device=hidden_states.device)
+                                        
+                                        # # ── ② *initialise these layers only once* – re-use afterwards ──
+                                        # if not hasattr(module, "_ref_proj"):
+                                        #     module._ref_proj = nn.Linear(ref_keys.shape[-1], 2 * d, bias=False)
+                                        #     nn.init.xavier_uniform_(module._ref_proj.weight, gain=0.2)
+                                        # kv_ref = module._ref_proj(ref_keys)           # (M, 2d)
+                                        # K_ref, V_ref = kv_ref.chunk(2, dim=-1)        # each (M, d)
+                                        
+                                        # # make dtype match UNet attention tensors (bfloat16/fp16)
+                                        # # K_ref = k_proj_layer(ref_keys).to(dtype=Q.dtype)  # (M, d)
+                                        # # V_ref = v_proj_layer(ref_keys).to(dtype=Q.dtype)  # 
+                                        
+                                        # K_ref = K_ref.to(dtype=Q.dtype)
+                                        # V_ref = V_ref.to(dtype=Q.dtype)
+                                        
+                                        ref_feats = clip_patches[0, face_mask_patch, :].to(device=hidden_states.device)  # (M, 1024)
+                                        if ref_feats.numel() == 0:                     # safety fallback
+                                            ref_feats = clip_patches[0:1, 0:1, :].to(device=hidden_states.device)
+
+                                        # ── project *with the SAME matrices as the UNet* ──
+                                        with torch.no_grad():
+                                            K_ref = module.to_k(ref_feats)             # (M, inner_dim)
+                                            V_ref = module.to_v(ref_feats)             # (M, inner_dim)
+
+                                        # split heads → (h, M, d) and cast
+                                        K_ref = K_ref.view(-1, h, d).transpose(0, 1).to(dtype=Q.dtype, device=Q.device)
+                                        V_ref = V_ref.view(-1, h, d).transpose(0, 1).to(dtype=Q.dtype, device=Q.device)
+                                        
+                                        
+                                    else:
+                                        ref_vec = id_embeds.squeeze().to(hidden_states.device).float()
+                                        if ref_vec.dim() == 1:                       # (512,) → (1, 512)
+                                            ref_vec = ref_vec.unsqueeze(0)
+
+                                        in_feats = ref_vec.shape[-1]                 # usually 512
+
+                                        # project to the head dimension `d`
+                                        k_proj_layer = torch.nn.Linear(
+                                            in_feats, d, bias=False
+                                        ).to(hidden_states.device)
+                                        v_proj_layer = torch.nn.Linear(
+                                            in_feats, d, bias=False
+                                        ).to(hidden_states.device)
+
+                                        # K_ref = k_proj_layer(ref_vec).to(dtype=Q.dtype)       # (1, d) – dtype aligned
+                                        # V_ref = v_proj_layer(ref_vec).to(dtype=Q.dtype)       # (1, d) – dtype aligned
+                                        
+                                        # project once …
+                                        K_ref = k_proj_layer(ref_vec).to(dtype=Q.dtype)       # (1, d)
+                                        V_ref = v_proj_layer(ref_vec).to(dtype=Q.dtype)       # (1, d)
+                                        # … then replicate for every head → (h, 1, d)
+                                        K_ref = K_ref.repeat(h, 1, 1)
+                                        V_ref = V_ref.repeat(h, 1, 1)    
+                                        
+                                    # Compute face-query attention
+                                    Q_face = Q[:, :, face_idx, :]  # (B_cond, h, L_face, d)
+                                    # Expand K_ref, V_ref to include head dimension
+                                    # K_ref_h = K_ref.unsqueeze(0).expand(h, -1, -1)  # (h, M, d)
+                                    # V_ref_h = V_ref.unsqueeze(0).expand(h, -1, -1)  # (h, M, d)
+                                    
+                                    
+                                    # # Already per-head
+                                    # K_ref_h = K_ref                                  # (h, M, d)
+                                    # V_ref_h = V_ref                                  # (h, M, d)
+                                    
+                                    
+                                    # ──────────────────────────────────────────────────────────────────
+                                    #  (1)  reference tensors per head
+                                    # ──────────────────────────────────────────────────────────────────
+                                    K_ref_h = K_ref          # (h, M_ref, d)
+                                    V_ref_h = V_ref          # (h, M_ref, d)
+                                    
+                                    # fresh – *local* – reference-length (don’t reuse the old `M`)
+                                    M_ref = K_ref_h.shape[1]
+                                    
+                                    # -------  DEBUG  --------------------------------------------------
+                                    # print once per step so we know what shapes we are feeding to
+                                    # the broadcast / reshape logic.
+                                    # print(
+                                    #         f"[BRANCHED] step={i:03d}  Bc={Bc}  h={h}  d={d}  "
+                                    #         f"M_ref={M_ref}  "
+                                    #         f"K_ref_h={tuple(K_ref_h.shape)}  "
+                                    #         f"Q_face_flat={tuple(Q_face.reshape(Bc * h, L_face, d).shape)}"
+                                    # )
+                                    
+                                    
+                                    print(
+                                            f"[BRANCHED] step={i:03d}  Bc={Bc}  h={h}  d={d}  "
+                                            f"M_ref={M_ref}  "
+                                            f"K_ref_h={tuple(K_ref_h.shape)}"
+                                    )
+                                        # ------------------------------------------------------------------
+                                    
+                                    # ──────────────────────────────────────────────────────────────────
+                                    #  (2)  make K/V reference batch-wise
+                                    #       use **repeat** so the tensor owns real memory
+                                    # ──────────────────────────────────────────────────────────────────
+                                    K_ref_flat = (
+                                            K_ref_h.unsqueeze(0)               # (1, h, M_ref, d)
+                                                   .repeat(Bc, 1, 1, 1)        # (Bc, h, M_ref, d)
+                                                   .view(Bc * h, M_ref, d)     # (Bc·h, M_ref, d)
+                                    )
+                                    
+                                    V_ref_flat = (
+                                            V_ref_h.unsqueeze(0)
+                                                   .repeat(Bc, 1, 1, 1)
+                                                   .view(Bc * h, M_ref, d)
+                                    )
+                                    # sanity check
+                                    if K_ref_flat.numel() != Bc * h * M_ref * d:
+                                        print("[ERR] broadcast produced unexpected element count!")
+                                    
+                                    
+ 
+                                    
+                                    # NOTE: repeat *allocates* real memory, so the element count matches the
+                                    # upcoming reshape.  clone() would work too.
+                                    # K_ref_flat = (
+                                    #         K_ref_h.unsqueeze(0)                 # (1, h, M, d)
+                                    #                .repeat(Bc, 1, 1, 1)          # (Bc, h, M, d)
+                                    #               .reshape(Bc * h, -1, d)       # (Bc·h, M, d)
+                                    # )
+                                    
+                                    # V_ref_flat = (
+                                    #         V_ref_h.unsqueeze(0)
+                                    #                .repeat(Bc, 1, 1, 1)
+                                    #                .reshape(Bc * h, -1, d)
+                                    # )
+                                    
+                                    
+                                    # # Keep `M` explicit so the product of dimensions is always correct
+                                    # M = K_ref_h.shape[1]                     # number of reference tokens
+                                    # K_ref_flat = (
+                                    #     K_ref_h.unsqueeze(0)                 # (1, h, M, d)
+                                    #            .repeat(Bc, 1, 1, 1)          # (Bc, h, M, d)
+                                    #            .reshape(Bc * h, M, d)        # (Bc·h, M, d)   ✓
+                                    # )
+                                
+                                    # V_ref_flat = (
+                                    #     V_ref_h.unsqueeze(0)
+                                    #            .repeat(Bc, 1, 1, 1)
+                                    #            .reshape(Bc * h, M, d)        # (Bc·h, M, d)   ✓
+                                    # )
+                                    
+                                    # ── make the reference batch-wise ─────────────────────────────────
+                                    M_ref = K_ref_h.shape[1]                    # number of reference tokens
+                                    
+                                    K_ref_flat = (
+                                            K_ref_h.unsqueeze(0)                    # (1, h, M_ref, d)
+                                                   .expand(Bc, -1, -1, -1)          # (Bc, h, M_ref, d)  – broadcast
+                                                   .contiguous()                    # materialise memory
+                                                   .view(Bc * h, M_ref, d)          # (Bc·h, M_ref, d)
+                                        )
+                                    
+                                    V_ref_flat = (
+                                            V_ref_h.unsqueeze(0)
+                                                   .expand(Bc, -1, -1, -1)
+                                                   .contiguous()
+                                                   .view(Bc * h, M_ref, d)
+                                        )
+                                    
+                                    
+                                    # Compute dot-product attention for face queries
+                                    # Reshape Q_face to (B_cond*h, L_face, d)
+                                    Q_face_flat = Q_face.permute(0,2,1,3).reshape(Bc * L_face, h, d)  # Actually, easier to loop per head than flatten differently
+                                    Q_face_flat = Q_face.reshape(Bc * h, L_face, d)  # (B_cond* h, L_face, d)
+                                                                       
+                                    attn_scores_face = torch.baddbmm(
+                                        torch.empty(Bc * h, L_face, K_ref_flat.shape[1], device=Q_face_flat.device, dtype=Q_face_flat.dtype),
+                                        Q_face_flat,
+                                        K_ref_flat.transpose(-1, -2),
+                                        beta=0,
+                                        alpha=module.scale,
+                                    )
+                                    attn_probs_face = attn_scores_face.softmax(dim=-1)
+                                    context_face = torch.bmm(attn_probs_face, V_ref_flat)  # (B_cond*h, L_face, d)
+                                    context_face = context_face.view(Bc, h, L_face, d)
+                                    if i >= branched_attn_start_step:
+                                        print("mean|std context_face:", context_face.mean().item(),
+                                                                        context_face.std().item())
+                                        
+                                    # Replace corresponding outputs in context_all
+                                    context_all[:, :, face_idx, :] = context_face
+                                # Merge heads back and project out
+                                context_flat = context_all.permute(0, 2, 1, 3).reshape(Bc, Lc, Ci)
+                                hidden_cond_out = module.to_out[0](context_flat)
+                                hidden_cond_out = module.to_out[1](hidden_cond_out)
+                                # Combine with unconditional (if exists)
+                                if out_uncond is not None:
+                                    hidden_out = torch.cat([out_uncond, hidden_cond_out], dim=0)
+                                else:
+                                    hidden_out = hidden_cond_out
+                                # Add residual connection if applicable
+                                if getattr(module, "residual_connection", False):
+                                    hidden_out = hidden_out + hidden_states
+                                return hidden_out
                             else:
-                                hidden_out = hidden_cond_out
-                            # Add residual connection if applicable
-                            if getattr(module, "residual_connection", False):
-                                hidden_out = hidden_out + hidden_states
-                            return hidden_out
-                        else:
-                            # For cross-attention or if branched mask not set, use original forward
-                            return module._orig_forward(hidden_states, encoder_hidden_states, attention_mask)
-                    # end custom_attn_forward
-                    # Patch all Attention modules that are self-attn
-                    for name, module in self.unet.named_modules():
-                        if isinstance(module, CrossAttention):
-                            # Only patch if not cross-only (module.is_cross_attention == False)
-                            if not getattr(module, "is_cross_attention", False):
-                                module._orig_forward = module.forward  # backup original
-                                module.forward = types.MethodType(custom_attn_forward, module)
+                                # For cross-attention or if branched mask not set, use original forward
+                                return module._orig_forward(hidden_states, encoder_hidden_states, attention_mask)
+                            
+                            
+                            
+                        # end custom_attn_forward
+                        # Patch all Attention modules that are self-attn
+                        for name, module in self.unet.named_modules():
+                            if isinstance(module, CrossAttention):
+                                # Only patch if not cross-only (module.is_cross_attention == False)
+                                
+                                # Patch self-attention only – leave cross-attn
+                                # (where hooks sit) unchanged.
+                                if not getattr(module, "is_cross_attention", False):
+                                    module._orig_forward = module.forward  # backup original
+                                    module.forward = types.MethodType(custom_attn_forward, module)
 
                 if XLA_AVAILABLE:
                     xm.mark_step()
+                    
+
+
+        # ── AFTER denoising: build coloured montage strips per layer ──────
+        if hasattr(self, "_heatmaps"):
+            header_h    = 30
+            final_clean = self._heatmaps[self._hm_layers[0]][-1] \
+                          if self._heatmaps[self._hm_layers[0]] else None
+
+            for ln, frames in self._heatmaps.items():
+                if not frames:
+                    continue
+                cols = frames + ([final_clean] if final_clean else [])
+
+                img_w, img_h = cols[0].width, cols[0].height
+                strip = Image.new("RGB",
+                                  (img_w * len(cols), img_h + header_h),
+                                  "black")
+                draw  = ImageDraw.Draw(strip)
+                font  = ImageFont.load_default()
+
+                for idx, frm in enumerate(cols):
+                    x = idx * img_w
+                    strip.paste(frm, (x, header_h))
+                    label = ("Final" if idx >= len(self._step_tags)
+                             else f"S{self._step_tags[idx]}")
+                    tw, th = draw.textbbox((0,0), label, font=font)[2:]
+                    draw.text((x + (img_w-tw)//2, (header_h-th)//2),
+                              label, font=font, fill="white")
+
+                safe_ln = ln.replace("/", "_").replace(".", "_")
+                out_jpg = Path(DEBUG_DIR) / f"{safe_ln}_attn_hm.jpg"
+                strip.save(out_jpg, quality=95)
+                print(f"[DEBUG] heat-map strip saved → {out_jpg}")
 
         if not output_type == "latent":
             # make sure the VAE is in float32 mode, as it overflows in float16
@@ -1213,8 +1777,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     # some platforms (eg. apple mps) misbehave due to a pytorch bug: https://github.com/pytorch/pytorch/pull/99272
                     self.vae = self.vae.to(latents.dtype)
 
-            # unscale/denormalize the latents
-            # denormalize with the mean and std if available and not None
             has_latents_mean = hasattr(self.vae.config, "latents_mean") and self.vae.config.latents_mean is not None
             has_latents_std = hasattr(self.vae.config, "latents_std") and self.vae.config.latents_std is not None
             if has_latents_mean and has_latents_std:
@@ -1236,10 +1798,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         else:
             image = latents
             return StableDiffusionXLPipelineOutput(images=image)
-
-        # apply watermark if available
-        # if self.watermark is not None:
-        #     image = self.watermark.apply_watermark(image)
 
         image = self.image_processor.postprocess(image, output_type=output_type)
 

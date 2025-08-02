@@ -7,10 +7,11 @@ from PIL import Image, ImageDraw, ImageFont
 import matplotlib.cm as cm
 from diffusers.utils import load_image
 from diffusers import EulerDiscreteScheduler
-from photomaker import PhotoMakerStableDiffusionXLPipeline, FaceAnalysis2, analyze_faces
+# from photomaker import PhotoMakerStableDiffusionXLPipeline
+from photomaker import PhotoMakerStableDiffusionXLPipeline2 as PhotoMakerStableDiffusionXLPipeline
+from photomaker import FaceAnalysis2, analyze_faces
 from transformers import CLIPTokenizer            # ← add (needed later if you keep tokenizer logic)
 
-from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
@@ -155,7 +156,7 @@ def create_heatmap(reference_image_path,
 
 
     # Seed for reproducibility
-    seed = 56789
+    seed = 42 # 56789
     generator = torch.Generator(device=device).manual_seed(seed)
 
 

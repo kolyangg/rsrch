@@ -27,6 +27,15 @@ python3 inference_scripts/inference_pmv2_seed_NS3.py --image_folder ../compare/t
 # new_full
 python3 inference_scripts/inference_pmv2_seed_NS3.py --image_folder ../compare/testing/references --prompt_file ../compare/testing/prompts4.txt --class_file ../compare/testing/classes_ref.json --output_dir ../compare/results/PM_full
 
+# testing our upgrade (in PhotoMaker dir)
+pip uninstall -y photomaker
+pip install -e .
+
+python3 inference_scripts/inference_pmv2_seed_NS4.py --image_folder ../compare/testing/ref1 --prompt_file ../compare/testing/prompt_one.txt --class_file ../compare/testing/classes_ref.json --output_dir ../compare/results/PM_upgrade0
+
+python3 inference_scripts/inference_pmv2_seed_NS4_upd.py --image_folder ../compare/testing/ref1 --prompt_file ../compare/testing/prompt_one.txt --class_file ../compare/testing/classes_ref.json --output_dir ../compare/results/PM_upgrade1
+
+
 ```
 
 
