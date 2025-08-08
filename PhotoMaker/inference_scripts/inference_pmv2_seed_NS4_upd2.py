@@ -11,14 +11,15 @@ import torch
 from diffusers.utils import load_image
 from diffusers import EulerDiscreteScheduler
 from huggingface_hub import hf_hub_download
-from photomaker import PhotoMakerStableDiffusionXLPipeline2 as PhotoMakerStableDiffusionXLPipeline
+# from photomaker import PhotoMakerStableDiffusionXLPipeline2 as PhotoMakerStableDiffusionXLPipeline
+from photomaker import PhotoMakerStableDiffusionXLPipeline
 from photomaker import FaceAnalysis2, analyze_faces
 
 import argparse                              # ⭐ for CLI seed
 import random                                # ⭐ optional; keep runs reproducible
 
 # ── debug helpers (new)
-from pm_debug import make_mask_callback, save_strip
+from pm_debug import make_mask_callback, save_strip, make_image_callback
 
 face_detector = FaceAnalysis2(providers=['CUDAExecutionProvider'], allowed_modules=['detection', 'recognition'])
 face_detector.prepare(ctx_id=0, det_size=(640, 640))
@@ -45,8 +46,8 @@ parser.add_argument("--save_heatmaps", action="store_true", default=False,
                     help="Save heatmaps during inference")
 parser.add_argument("--branched_start_step", type=int, default=10,
                     help="Denoising step at which branched attention kicks in")
-parser.add_argument("--face_embed_strategy", choices=["faceanalysis", "heatmap"],
-                    default="faceanalysis",
+parser.add_argument("--face_embed_strategy", choices=["face", "id_embeds"],
+                    default="face", # default="faceanalysis",
                     help="Reference-face embedding to use in the face branch")
 args = parser.parse_args()
 
@@ -130,9 +131,24 @@ pipe.scheduler = EulerDiscreteScheduler.from_config(pipe.scheduler.config)
 # pipe.enable_model_cpu_offload()
 
 
-# ── create one reusable callback & frame-store ───────────────────────────
-frames_holder = []
-mask_cb       = make_mask_callback(pipe, mask_interval=5, container=frames_holder)
+# # ── create one reusable callback & frame-store ───────────────────────────
+# frames_holder = []
+# mask_cb       = make_mask_callback(pipe, mask_interval=5, container=frames_holder)
+
+
+# ── create two parallel callbacks & frame-stores ─────────────────────────
+frames_mask = []   # with red overlay
+frames_img  = []   # clean images
+
+mask_cb = make_mask_callback (pipe, mask_interval=5, container=frames_mask)
+img_cb  = make_image_callback(pipe, mask_interval=5, container=frames_img)
+
+# tiny helper to drive both collectors with one handle
+def dual_cb(pipeline, step_index, t, tensors):
+    mask_cb(pipeline, step_index, t, tensors)
+    img_cb (pipeline, step_index, t, tensors)
+    
+    return tensors
 
 
 
@@ -198,7 +214,9 @@ for ref_img, ref_embed, img_basename in zip(input_id_images, id_embed_list, id_b
             # debug_save_masks=True,          # ← NEW
             # mask_interval=5,                # ← NEW (optional)
             # debugging (handled by callback)
-            callback_on_step_end            = mask_cb,
+            # callback_on_step_end            = mask_cb,
+            # debugging (handled by *both* callbacks)
+            callback_on_step_end            = dual_cb,
             callback_on_step_end_tensor_inputs=["latents"],          
         ).images
 
@@ -210,9 +228,21 @@ for ref_img, ref_embed, img_basename in zip(input_id_images, id_embed_list, id_b
             ))
 
         
-        # save the mask-evolution strip (then clear for next run) --------------
-        strip_path = os.path.join(
-            output_dir, f"{img_basename}_p{p_idx}_mask_evolution.jpg"
+        # # save the mask-evolution strip (then clear for next run) --------------
+        # strip_path = os.path.join(
+        #     output_dir, f"{img_basename}_p{p_idx}_mask_evolution.jpg"
+        # )
+        # save_strip(frames_holder, strip_path)
+        # frames_holder.clear()
+        
+        # save both evolution strips, then clear buffers -----------------------
+        save_strip(
+            frames_mask,
+            os.path.join(output_dir, f"{img_basename}_p{p_idx}_mask_evolution.jpg"),
         )
-        save_strip(frames_holder, strip_path)
-        frames_holder.clear()
+        save_strip(
+            frames_img,
+            os.path.join(output_dir, f"{img_basename}_p{p_idx}_img_evolution.jpg"),
+        )
+        frames_mask.clear()
+        frames_img .clear()

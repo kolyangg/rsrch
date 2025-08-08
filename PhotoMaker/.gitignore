@@ -9,3 +9,7 @@ __pycache__/
 inference_scripts/_old
 inference_scripts/heatmaps/
 inference_scripts/hm_results/
+
+branched_debug/
+hm_debug/
+photomaker/_old/

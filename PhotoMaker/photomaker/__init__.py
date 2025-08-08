@@ -1,11 +1,22 @@
 from .model import PhotoMakerIDEncoder
 from .model_v2 import PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken
 from .resampler import FacePerceiverResampler
-from .pipeline import PhotoMakerStableDiffusionXLPipeline
+# from .pipeline import PhotoMakerStableDiffusionXLPipeline
 # from .pipeline_NS import PhotoMakerStableDiffusionXLPipeline2
 # from .pipeline_NS_old2 import PhotoMakerStableDiffusionXLPipeline2
 # from .pipeline_NS_old3 import PhotoMakerStableDiffusionXLPipeline2
-from .pipeline_NS2 import PhotoMakerStableDiffusionXLPipeline2
+# from .pipeline_NS2 import PhotoMakerStableDiffusionXLPipeline2
+# from .pipeline_NS2_03Aug import PhotoMakerStableDiffusionXLPipeline2
+# from .pipeline_NS2_03Aug2 import PhotoMakerStableDiffusionXLPipeline2
+# from .pipeline_NS2_03Aug5 import PhotoMakerStableDiffusionXLPipeline2 as PhotoMakerStableDiffusionXLPipeline
+# from .pipeline_NS2_04Aug5 import PhotoMakerStableDiffusionXLPipeline2
+
+# from .pipeline_NS2_04Aug4 import PhotoMakerStableDiffusionXLPipeline2 as PhotoMakerStableDiffusionXLPipeline
+# from .pipeline_NS3_v3 import PhotoMakerStableDiffusionXLPipeline
+
+from .pipeline_br import PhotoMakerStableDiffusionXLPipeline
+
+
 from .pipeline_controlnet import PhotoMakerStableDiffusionXLControlNetPipeline
 from .pipeline_t2i_adapter import PhotoMakerStableDiffusionXLAdapterPipeline
 

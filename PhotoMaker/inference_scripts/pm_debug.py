@@ -131,3 +131,44 @@ def save_strip(frames: list[Image.Image],
     strip.save(out_path, quality=95)
     print(f"[DEBUG] mask strip saved → {out_path}")
 # ---------------------------------------------------------------------------
+
+
+
+# ---------------------------------------------------------------------------
+# NEW: identical to `make_mask_callback`, but NEVER overlays the mask
+#      → collects the clean image evolution frames.
+# ---------------------------------------------------------------------------
+def make_image_callback(pipe,
+                        mask_interval: int = 5,
+                        container: list | None = None):
+    """
+    Grab decoder snapshots every `mask_interval` steps, *without* the red mask.
+    Returned callback exposes `cb.frames` and `cb.labels`, just like the mask
+    variant, so `save_strip()` works unmodified.
+    """
+    frames = [] if container is None else container
+    labels = []
+    steps  = {"total": None}
+
+    def cb(pipeline, step_index, t, tensors):
+        if steps["total"] is None:
+            steps["total"] = pipeline._num_timesteps - 1
+
+        want = (step_index % mask_interval == 0 or
+                step_index == 0 or
+                step_index == steps["total"])
+        if not want:
+            return
+
+        lat = tensors["latents"].detach().to("cpu", torch.float32)
+        img = _decode(pipeline, lat)              # (H,W,3) float 0-1
+        img = (img * 255).round().clip(0, 255).astype(np.uint8)
+
+        frames.append(Image.fromarray(img))
+        lbl = "Final" if step_index == steps["total"] else f"S{step_index}"
+        labels.append(lbl)
+        return tensors
+
+    cb.frames  = frames
+    cb.labels  = labels
+    return cb
