@@ -588,12 +588,16 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         focus_token: str = "",
         mask_mode: str = "spec",                 # or "simple"
         # face_embed_strategy: str = "faceanalysis",
-        face_embed_strategy: str = "id_embeds", # "face", #  "face" or "id_embeds"
-        # face_embed_strategy: str = "face", # "face", #  "face" or "id_embeds"
+        # face_embed_strategy: str = "id_embeds", # "face", #  "face" or "id_embeds"
+        face_embed_strategy: str = "face", # "face", #  "face" or "id_embeds"
         # import_mask: Optional[str] = "hm_debug/keanu_gen_mask.png",
         # import_mask_ref: Optional[str] = "hm_debug/keanu_ref_mask.png",
         import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask.jpg",
         import_mask_ref: Optional[str] = "../compare/testing/ref3_masks/eddie_mask.jpg",
+        # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_white.jpg",
+        # import_mask_ref: Optional[str] = "../compare/testing/ref3_masks/eddie_mask_white.jpg",
+        # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_square.jpg",
+        # import_mask_ref: Optional[str] = "../compare/testing/ref3_masks/eddie_mask_triangle.jpg",
         # ───────── Debug / branch-preview switches ─────────
         debug_save_face_branch: bool = True,
         debug_save_bg_branch: bool = True,
@@ -836,12 +840,48 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 )
                 
                 # Store ID embeddings for potential use in attention
-                if id_embeds is not None:
-                    self._id_embeds = id_embeds
-                else:
-                    # Get ID embeddings from encoder if not provided
-                    self._id_embeds = prompt_embeds  # After ID encoder processing
+                # if id_embeds is not None:
+                #     self._id_embeds = id_embeds
+                #     # Ensure proper shape for attention [B, seq_len, dim]
+                #     if id_embeds.dim() == 2:
+                #         self._id_embeds = id_embeds.unsqueeze(0)
+                #     else:
+                #         self._id_embeds = id_embeds
+                # else:
+                #     # Get ID embeddings from encoder if not provided
+                #     self._id_embeds = prompt_embeds  # After ID encoder processing
+                #     # Use the face-specific part of prompt_embeds
+                #     if hasattr(self, 'class_tokens_mask') and class_tokens_mask is not None:
+                #         # Extract face tokens from prompt_embeds
+                #         face_mask = class_tokens_mask.unsqueeze(-1).expand_as(prompt_embeds)
+                #         self._id_embeds = prompt_embeds * face_mask
+                #     else:
+                #         self._id_embeds = prompt_embeds
                 
+                
+                if id_embeds is not None:
+                    self._face_prompt_embeds = id_embeds.to(device=device, dtype=dtype)
+                else:
+                    # Use the face-specific part of prompt_embeds after ID encoder
+                    if class_tokens_mask is not None:
+                        # Extract only the face tokens
+                        face_indices = class_tokens_mask[0].nonzero(as_tuple=True)[0]
+                        if len(face_indices) > 0:
+                            self._face_prompt_embeds = prompt_embeds[:, face_indices, :]
+                        else:
+                            # Fallback: encode "face" text
+                            face_text_embeds, _ = self.encode_prompt(
+                                prompt="a face",
+                                prompt_2="a face",
+                                device=device,
+                                num_images_per_prompt=num_images_per_prompt,
+                                do_classifier_free_guidance=self.do_classifier_free_guidance,
+                            )[:2]
+                            self._face_prompt_embeds = face_text_embeds
+                    else:
+                        # No mask available, use full prompt embeds
+                        self._face_prompt_embeds = prompt_embeds
+                            
                 # Set face embedding strategy (can be controlled via parameter)
                 self.face_embed_strategy = face_embed_strategy  # 'id_embeds' or 'face'
                 
@@ -876,6 +916,49 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 num_images_per_prompt=num_images_per_prompt,
                 do_classifier_free_guidance=self.do_classifier_free_guidance,
             )
+            
+            # # Pre-encode face prompt with proper shape
+            # # Use the pipeline's encode_prompt to get correct shape [B, 77, dim]
+            # face_prompt_embeds, face_negative_embeds, _, _ = self.encode_prompt(
+            #     prompt="a face",
+            #     prompt_2="a face",
+            #     device=device,
+            #     num_images_per_prompt=num_images_per_prompt,
+            #     do_classifier_free_guidance=self.do_classifier_free_guidance,
+            #     negative_prompt="" if self.do_classifier_free_guidance else None,
+            #     negative_prompt_2="" if self.do_classifier_free_guidance else None,
+            # )
+            
+            # if self.do_classifier_free_guidance:
+            #     # Combine negative and positive for CFG
+            #     self._face_prompt_embeds = torch.cat([face_negative_embeds, face_prompt_embeds])
+            # else:
+            #     self._face_prompt_embeds = face_prompt_embeds
+            
+            
+            
+            
+            # Set face embeddings based on strategy
+            if face_embed_strategy == "id_embeds":
+                # Use PhotoMaker ID embeddings (already computed)
+                self._face_prompt_embeds = prompt_embeds  # This contains ID embeddings after id_encoder
+                
+            elif face_embed_strategy == "face":
+                # Encode "face" text prompt
+                face_text_embeds, _ = self.encode_prompt(
+                    prompt="face",
+                    prompt_2="face",
+                    device=device,
+                    num_images_per_prompt=num_images_per_prompt,
+                    do_classifier_free_guidance=self.do_classifier_free_guidance,
+                    negative_prompt="",
+                    negative_prompt_2="",
+                )[:2]  # Only need prompt_embeds
+                self._face_prompt_embeds = face_text_embeds
+            
+            # Store strategy for processors
+            self.face_embed_strategy = face_embed_strategy
+
         ##### END NEW BRANCHED ATTENTION LOGIC #####
 
         # 9. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
@@ -950,7 +1033,12 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         
         #### NEW BRANCHED ATTENTION LOGIC #### - check face_prompt_embeds as id_embeds
         if use_branched_attention:
-            self._face_prompt_embeds = id_embeds
+            # self._face_prompt_embeds = id_embeds            
+            # Use the ID embeddings from PhotoMaker encoder
+            if id_embeds is not None:
+                self._face_prompt_embeds = id_embeds.to(device=device, dtype=prompt_embeds.dtype)
+            else:
+                self._face_prompt_embeds = prompt_embeds  # Use full prompt embeds as fallback
         #### NEW BRANCHED ATTENTION LOGIC #### - check face_prompt_embeds as id_embeds
 
 

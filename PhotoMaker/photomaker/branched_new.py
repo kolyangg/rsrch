@@ -15,8 +15,10 @@ def patch_unet_attention_processors(
     mask_ref: torch.Tensor, 
     reference_latents: torch.Tensor,
     face_prompt_embeds: torch.Tensor,
+    timestep,
     step_idx: int = 0,
     scale: float = 1.0,
+    latent_model_input: torch.Tensor | None = None,
 ):
     """
     Patch UNet with custom branched attention processors.
@@ -76,22 +78,134 @@ def patch_unet_attention_processors(
                     scale=scale,
                 ).to(reference_latents.device)
                 proc = proc.to(dtype=pipeline.unet.dtype, device=pipeline.unet.device)  # Move to correct dtype/device
+                # proc.set_masks(mask, mask_ref)
+                # proc.set_reference(reference_latents)
                 proc.set_masks(mask, mask_ref)
-                proc.set_reference(reference_latents)
+                # match timestep: add noise and keep only ref-face region
+                # ensure noise & proper device/shape for timestep
+                # if not hasattr(pipeline, "_ref_noise") or pipeline._ref_noise.shape != reference_latents.shape:
+                #     pipeline._ref_noise = torch.randn_like(reference_latents)
+                # t = timestep
+                # if not torch.is_tensor(t):
+                #     t = torch.tensor([t], device=reference_latents.device, dtype=torch.long)
+                # if t.ndim == 0:
+                #     t = t[None]
+                # t = t.to(reference_latents.device)
+                # if t.shape[0] != reference_latents.shape[0]:
+                #     t = t.expand(reference_latents.shape[0])
+                # ref_noised = pipeline.scheduler.add_noise(
+                #     reference_latents,
+                #     pipeline._ref_noise[: reference_latents.shape[0]],
+                #     t,
+                # )
+
+                # # Match ref to current-noise stats to stabilize face K/V
+                # if latent_model_input is not None:
+                #     cur_m = latent_model_input.mean(dim=(1,2,3), keepdim=True)
+                #     cur_s = latent_model_input.std (dim=(1,2,3), keepdim=True).clamp_min(1e-5)
+                #     ref_m = ref_noised.mean(dim=(1,2,3), keepdim=True)
+                #     ref_s = ref_noised.std (dim=(1,2,3), keepdim=True).clamp_min(1e-5)
+                #     ref_noised = (ref_noised - ref_m) / ref_s * cur_s + cur_m
+                #     ref_noised = ref_noised.clamp(cur_m - 3*cur_s, cur_m + 3*cur_s)
+
+                # ## NEW!
+                # # Normalize ref to current noise stats to avoid attention blow-ups
+                # with torch.no_grad():
+                #     cur_m = latent_model_input.mean(dim=(1,2,3), keepdim=True)
+                #     cur_s = latent_model_input.std (dim=(1,2,3), keepdim=True).clamp_min(1e-5)
+                #     ref_m = ref_noised.mean(dim=(1,2,3), keepdim=True)
+                #     ref_s = ref_noised.std (dim=(1,2,3), keepdim=True).clamp_min(1e-5)
+                #     ref_noised = (ref_noised - ref_m) / ref_s * cur_s + cur_m
+                #     ref_noised = ref_noised.clamp(cur_m - 3*cur_s, cur_m + 3*cur_s)
+
+   
+                # if mask_ref is not None:
+                #     ref_noised = ref_noised * mask_ref
+                # proc.set_reference(ref_noised)
+
+
+                # Add noise to reference to match current timestep
+                if not hasattr(pipeline, "_ref_noise"):
+                    pipeline._ref_noise = torch.randn_like(reference_latents)
+                
+                t = timestep
+                if not torch.is_tensor(t):
+                    t = torch.tensor([t], device=reference_latents.device, dtype=torch.long)
+                if t.ndim == 0:
+                    t = t[None]
+                t = t.to(reference_latents.device)
+                
+                # Use same scheduler as main pipeline
+                ref_noised = pipeline.scheduler.add_noise(
+                    reference_latents,
+                    pipeline._ref_noise[:reference_latents.shape[0]],
+                    t.expand(reference_latents.shape[0])
+                )
+                
+                # DON'T normalize too aggressively - just clamp extremes
+                # ref_std = ref_noised.std()
+                # if ref_std > 0:
+                #     ref_noised = ref_noised.clamp(-3*ref_std, 3*ref_std)
+                
+                # Apply mask to reference AFTER noising
+                if mask_ref is not None:
+                    mask_ref_4ch = mask_ref.repeat(1, 4, 1, 1) if mask_ref.shape[1] == 1 else mask_ref
+                    mask_ref_4ch = mask_ref_4ch.to(dtype=ref_noised.dtype, device=ref_noised.device)
+                    # Keep only face region in reference
+                    ref_noised = ref_noised * mask_ref_4ch
+                 
+                
+                # proc.set_reference(ref_noised)
+                # Don't set reference - it will be passed as batched input
+                
+                # Pass face embeddings correctly
+                if face_prompt_embeds is not None:
+                    proc.set_face_embeds(face_prompt_embeds)
+                
+                # Apply mask to keep only face region
+                if mask_ref is not None:
+                    mask_ref_4ch = mask_ref.repeat(1, 4, 1, 1) if mask_ref.shape[1] == 1 else mask_ref
+                    ref_noised = ref_noised * mask_ref_4ch
+                
+                # proc.set_reference(ref_noised)
+
+
+
+                # Set face embeddings based on strategy
+                if hasattr(pipeline, 'face_embed_strategy'):
+                    if pipeline.face_embed_strategy == "id_embeds" and hasattr(pipeline, '_face_prompt_embeds'):
+                        proc.set_face_embeds(pipeline._face_prompt_embeds)
+                    elif pipeline.face_embed_strategy == "face":
+                        # For "face" strategy, use encoded face caption
+                        proc.set_face_embeds(face_prompt_embeds)
+                
+                else:
+                    # Fallback: no face embeddings
+                    print("Warning - no face embed strategy, using None")
+                    proc.set_face_embeds(None)
+
                 new_procs[name] = proc
                 
+            # elif name.endswith("attn2.processor"):
+            #     # Cross-attention: use branched cross processor
+            #     num_tokens = 77  # Standard CLIP text token count
+            #     if hasattr(pipeline, 'tokenizer') and hasattr(pipeline.tokenizer, 'model_max_length'):
+            #         num_tokens = pipeline.tokenizer.model_max_length
+
             elif name.endswith("attn2.processor"):
-                # Cross-attention: use branched cross processor
                 num_tokens = 77  # Standard CLIP text token count
                 if hasattr(pipeline, 'tokenizer') and hasattr(pipeline.tokenizer, 'model_max_length'):
                     num_tokens = pipeline.tokenizer.model_max_length
-                    
+                # Cross-attention: branched (BG→gen prompt, FACE→face prompt)
                 proc = BranchedCrossAttnProcessor(
                     hidden_size=hidden_size,
                     cross_attention_dim=cross_attention_dim,
                     scale=scale,
                     num_tokens=num_tokens,
                 ).to(reference_latents.device)
+                proc.set_masks(mask, mask_ref)
+                if face_prompt_embeds is not None:
+                    proc.set_face_prompt(face_prompt_embeds.to(reference_latents.device))
                 new_procs[name] = proc
             else:
                 # Keep original processor
@@ -104,7 +218,22 @@ def patch_unet_attention_processors(
         for name, proc in pipeline.unet.attn_processors.items():
             if isinstance(proc, BranchedAttnProcessor):
                 proc.set_masks(mask, mask_ref)
-                proc.set_reference(reference_latents)
+                # proc.set_reference(reference_latents)
+
+                # # Update face embeddings
+                # if hasattr(pipeline, 'face_embed_strategy'):
+                #     if pipeline.face_embed_strategy == "id_embeds" and hasattr(pipeline, '_id_embeds'):
+                #         proc.set_face_embeds(pipeline._id_embeds)
+                #     elif pipeline.face_embed_strategy == "face" and face_prompt_embeds is not None:
+                #         proc.set_face_embeds(face_prompt_embeds)
+                
+                # Update face embeddings
+                if hasattr(pipeline, 'face_embed_strategy'):
+                    if pipeline.face_embed_strategy == "id_embeds" and hasattr(pipeline, '_face_prompt_embeds'):
+                        proc.set_face_embeds(pipeline._face_prompt_embeds)
+                    elif pipeline.face_embed_strategy == "face":
+                        proc.set_face_embeds(face_prompt_embeds)
+
             # Note: BranchedCrossAttnProcessor doesn't need per-step updates
             # as it uses the face_prompt_embeds passed through encoder_hidden_states
 
@@ -143,33 +272,167 @@ def two_branch_predict(
     device = latent_model_input.device
     dtype = latent_model_input.dtype
     
+    # Batch noise and reference latents together
+    if reference_latents is not None:
+        # Ensure reference latents match batch size and add noise
+        ref_noised = reference_latents  # Already noised in patch_unet_attention_processors
+        if ref_noised.shape[0] < batch_size:
+            ref_noised = ref_noised.expand(batch_size, -1, -1, -1)
+        # Concatenate: [noise_latents, reference_latents]
+        batched_latents = torch.cat([latent_model_input, ref_noised], dim=0)
+    else:
+        batched_latents = latent_model_input
+        print("no reference latents")
+
     # Patch processors with current step data
     patch_unet_attention_processors(
         pipeline, mask4, mask4_ref, reference_latents,
-        face_prompt_embeds, step_idx, scale
+        face_prompt_embeds, t, step_idx, scale,
+        latent_model_input=latent_model_input,
     )
     
     # Prepare encoder hidden states
-    if face_prompt_embeds is not None and prompt_embeds.shape[1] < face_prompt_embeds.shape[1]:
-        # Concatenate text and face embeddings
-        encoder_hidden_states = torch.cat([prompt_embeds, face_prompt_embeds], dim=1)
+    # if face_prompt_embeds is not None and prompt_embeds.shape[1] < face_prompt_embeds.shape[1]:
+    #     # Concatenate text and face embeddings
+    #     encoder_hidden_states = torch.cat([prompt_embeds, face_prompt_embeds], dim=1)
+    
+    if face_prompt_embeds is not None:
+        # For cross-attention: batch [generation_prompt, face_prompt]
+        
+        # # Ensure face_prompt_embeds has correct shape [B, seq_len, dim]
+        # if face_prompt_embeds.dim() == 2:
+        #     face_prompt_embeds = face_prompt_embeds.unsqueeze(0)
+        
+        # # Match sequence length with prompt_embeds
+        # if face_prompt_embeds.shape[1] != prompt_embeds.shape[1]:
+        #     # Pad or truncate to match
+        #     target_len = prompt_embeds.shape[1]
+        #     if face_prompt_embeds.shape[1] < target_len:
+        #         padding = target_len - face_prompt_embeds.shape[1]
+        #         face_prompt_embeds = F.pad(face_prompt_embeds, (0, 0, 0, padding))
+        #     else:
+        #         face_prompt_embeds = face_prompt_embeds[:, :target_len, :]
+        
+        # Fix shape if needed - face_prompt_embeds might be [B, dim] or [B, 1, dim]
+        if face_prompt_embeds.dim() == 2:
+            # Expand to match prompt_embeds shape [B, seq_len, dim]
+            B, dim = face_prompt_embeds.shape
+            seq_len = prompt_embeds.shape[1]  # Should be 77 for CLIP
+            # Repeat the embedding across all token positions
+            face_prompt_embeds = face_prompt_embeds.unsqueeze(1).expand(B, seq_len, dim)
+        elif face_prompt_embeds.shape[1] == 1:
+            # [B, 1, dim] -> [B, seq_len, dim]
+            B, _, dim = face_prompt_embeds.shape
+            seq_len = prompt_embeds.shape[1]
+            face_prompt_embeds = face_prompt_embeds.expand(B, seq_len, dim)
+            
+        
+        # Project face embeddings to match text embedding dimension
+        if face_prompt_embeds.shape[-1] != prompt_embeds.shape[-1]:
+            # Create a linear projection if dimensions don't match
+            in_dim = face_prompt_embeds.shape[-1]
+            out_dim = prompt_embeds.shape[-1]
+            # Simple projection: pad with zeros or use a learned projection
+            if in_dim < out_dim:
+                # Pad with zeros to match dimension
+                padding = out_dim - in_dim
+                face_prompt_embeds = F.pad(face_prompt_embeds, (0, padding))
+            else:
+                # Truncate if larger (shouldn't happen)
+                face_prompt_embeds = face_prompt_embeds[..., :out_dim]
+        
+        # Now face_prompt_embeds should be [B, 77, dim] matching prompt_embeds
+        
+          
+        if pipeline.do_classifier_free_guidance:
+            # Handle CFG: [uncond, cond] for both prompts
+            B_half = prompt_embeds.shape[0] // 2
+            face_prompt_batched = torch.cat([
+               face_prompt_embeds[:B_half],  # uncond face
+                face_prompt_embeds[B_half:]   # cond face
+            ], dim=0)
+        else:
+            face_prompt_batched = face_prompt_embeds
+        # Batch: [generation_prompt, face_prompt]
+        encoder_hidden_states = torch.cat([prompt_embeds, face_prompt_batched], dim=0)
+    
+    
     else:
         encoder_hidden_states = prompt_embeds
+        print('no face embeds')
     
-    # Handle timestep
-    if t.dim() == 0:
-        t = t.expand(batch_size)
+    # # Handle timestep
+    # if t.dim() == 0:
+    #     t = t.expand(batch_size)
+        
+    
+    # # Expand timestep to match batched latents size
+    
+    # # Expand timestep to match batched latents size
+    # if reference_latents is not None:
+    #     # We have doubled the batch with [noise, reference]
+    #     t = torch.cat([t, t], dim=0)  # Duplicate timesteps for reference batch
+        
+    # --- Ensure timesteps length matches the ACTUAL input batch (batched_latents) ---
+    b_in = batched_latents.shape[0]
+    t_in = t
+    if not torch.is_tensor(t_in):
+        t_in = torch.tensor(t_in, device=batched_latents.device)
+    t_in = t_in.to(device=batched_latents.device)
+    if t_in.ndim == 0:
+        t_in = t_in.expand(b_in)
+    elif t_in.shape[0] != b_in:
+        # keep value, fix length
+        t_in = t_in[:1].expand(b_in)
+    
+    # # Expand timestep to match batched latents size
+    # if reference_latents is not None:
+    #     # We have doubled the batch with [noise, reference]
+    #     t = torch.cat([t, t], dim=0)  # Duplicate timesteps for reference batch
+    
+    
+    # Build timestep to exactly match input batch (avoid cat on 0-D)
+    b_in = batched_latents.shape[0]
+    t_in = t
+    if not torch.is_tensor(t_in):
+        t_in = torch.tensor(t_in, device=batched_latents.device)
+    t_in = t_in.to(device=batched_latents.device)
+    if t_in.ndim == 0:
+        t_in = t_in.expand(b_in)
+    elif t_in.shape[0] != b_in:
+        t_in = t_in[:1].expand(b_in)
     
     # Single forward pass - processors handle branching internally
+    
+    # --- make added_cond_kwargs match UNet batch ---
+    ack = added_cond_kwargs
+    if isinstance(ack, dict):
+        b = batched_latents.shape[0]
+        new_ack = {}
+        for k, v in ack.items():
+            if torch.is_tensor(v) and v.shape[:1] != (b,):
+                if v.shape[0] == 1:
+                    v = v.expand(b, *v.shape[1:])
+                else:
+                    repeat = b // v.shape[0]
+                    v = v.repeat_interleave(repeat, dim=0) if repeat >= 1 else v[:1].expand(b, *v.shape[1:])
+            new_ack[k] = v
+        ack = new_ack
+    
     noise_pred = pipeline.unet(
-        latent_model_input,
-        t,
+        # latent_model_input,
+        batched_latents,
+        t_in,
         encoder_hidden_states=encoder_hidden_states,
         timestep_cond=timestep_cond,
         cross_attention_kwargs=getattr(pipeline, 'cross_attention_kwargs', None),
-        added_cond_kwargs=added_cond_kwargs,
+        added_cond_kwargs=ack,
         return_dict=False,
     )[0]
+    
+    # Extract only the noise prediction (first half of batch)
+    if reference_latents is not None:
+        noise_pred = noise_pred[:batch_size]
     
     # Extract branch outputs for debugging (approximate)
     mask_4ch = mask4.to(dtype=dtype)

@@ -108,20 +108,26 @@ def build_hook_identity(
         q_proj = (module.to_q if hasattr(module, "to_q") else module.q_proj)(hs_)
         k_proj = (module.to_k if hasattr(module, "to_k") else module.k_proj)(enc_)
 
-        B, Lq, C = q_proj.shape
-        h = module.heads
-        d = C // h
+        # B, Lq, C = q_proj.shape
+        # h = module.heads
+        # d = C // h
 
-        Q = q_proj.view(B, Lq, h, d).permute(0, 2, 1, 3)   # (B,h,Lq,d)
-        K = k_proj.view(B, -1, h, d).permute(0, 2, 1, 3)   # (B,h,Lk,d)
+        # Q = q_proj.view(B, Lq, h, d).permute(0, 2, 1, 3)   # (B,h,Lq,d)
+        # K = k_proj.view(B, -1, h, d).permute(0, 2, 1, 3)   # (B,h,Lk,d)
 
-        if class_tokens_mask is not None:
-            tok_idx = class_tokens_mask[0].to(hs.device).nonzero(as_tuple=True)[0]
-        else:
-            tok_idx = torch.arange(K.shape[2] - num_tokens, K.shape[2], device=hs.device)
+        # if class_tokens_mask is not None:
+        #     tok_idx = class_tokens_mask[0].to(hs.device).nonzero(as_tuple=True)[0]
+        # else:
+        #     tok_idx = torch.arange(K.shape[2] - num_tokens, K.shape[2], device=hs.device)
 
-        logits = (Q @ K.transpose(-2, -1)) * module.scale          # raw logits
-        sim    = logits[..., tok_idx].mean(-1).mean(1)[0]          # (Lq,)
+        # logits = (Q @ K.transpose(-2, -1)) * module.scale          # raw logits
+        # sim    = logits[..., tok_idx].mean(-1).mean(1)[0]          # (Lq,)
+        
+        tok_idx = torch.arange(k_proj.shape[1] - num_tokens, k_proj.shape[1], device=hs.device)
+
+        # compute logits without splitting into heads (robust to dim mismatches)
+        logits = (q_proj @ k_proj.transpose(-1, -2)) * module.scale   # (B, Lq, Lk)
+        sim    = logits[..., tok_idx].mean(-1)[0]                      # (Lq,)
         
 
         H = int(math.sqrt(sim.numel()))
@@ -155,14 +161,18 @@ def build_hook_focus_token(
         q_proj = (module.to_q if hasattr(module, "to_q") else module.q_proj)(hs_)
         k_proj = (module.to_k if hasattr(module, "to_k") else module.k_proj)(focus_latents.to(hs_.device))
 
-        B, Lq, C = q_proj.shape
-        h = module.heads
-        d = C // h
-        Q = q_proj.view(B, Lq, h, d).permute(0, 2, 1, 3)
-        K = k_proj.view(1, -1, h, d).permute(0, 2, 1, 3)           # (1,h,Lk,d)
+        # B, Lq, C = q_proj.shape
+        # h = module.heads
+        # d = C // h
+        # Q = q_proj.view(B, Lq, h, d).permute(0, 2, 1, 3)
+        # K = k_proj.view(1, -1, h, d).permute(0, 2, 1, 3)           # (1,h,Lk,d)
 
-        logits = (Q @ K.transpose(-2, -1)) * module.scale
-        sim    = logits[..., token_idx_global].mean(-1).mean(1)[0]
+        # logits = (Q @ K.transpose(-2, -1)) * module.scale
+        # sim    = logits[..., token_idx_global].mean(-1).mean(1)[0]
+        
+        # direct logits (no head splitting)
+        logits = (q_proj @ k_proj.transpose(-1, -2)) * module.scale     # (B, Lq, Lk)
+        sim    = logits[..., token_idx_global].mean(-1)[0]
 
         H = int(math.sqrt(sim.numel()))
         maps_buf.setdefault(layer_name, []).append(
