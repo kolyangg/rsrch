@@ -153,6 +153,77 @@ def prepare_mask4(pipeline, latents: torch.Tensor, suffix) -> torch.Tensor:
 # ────────────────────────────────────────────────────────────────
 
 
+# def save_branch_previews(
+#     pipeline,
+#     latents: torch.Tensor,               # clone BEFORE scheduler.step
+#     noise_face: torch.Tensor,
+#     noise_bg: torch.Tensor,
+#     mask4: torch.Tensor,
+#     mask4_ref: torch.Tensor | None,
+#     t: torch.Tensor,
+#     step_idx: int,
+#     debug_dir: str,
+#     save_face: bool,
+#     save_bg: bool,
+#     extra_step_kwargs: dict,
+# ) -> None:
+
+#     if mask4 is None or noise_face is None or noise_bg is None:
+#         return
+#     if not (save_face or save_bg):
+#         return
+
+#     def _step_and_decode(noise):
+#         # preserve scheduler’s internal step counter
+#         saved_idx = getattr(pipeline.scheduler, "_step_index", None)
+#         lat_next = pipeline.scheduler.step(
+#             noise, t, latents.detach().clone(),
+#             **extra_step_kwargs, return_dict=False
+#         )[0]
+#         if saved_idx is not None:
+#             pipeline.scheduler._step_index = saved_idx
+
+#         img = pipeline.vae.decode(
+#            (lat_next / pipeline.vae.config.scaling_factor)
+#             .to(device=next(pipeline.vae.parameters()).device,
+#                 dtype=pipeline.vae.dtype)
+#         ).sample[0]
+#         return (
+#             (img.float() / 2 + 0.5)
+#             .clamp_(0, 1)
+#             .permute(1, 2, 0)
+#             .cpu()
+#             .numpy() * 255
+#         ).astype("uint8")
+
+#     os.makedirs(debug_dir, exist_ok=True)
+#     mask_np_lat = mask4[0, 0].float().cpu().numpy().astype(bool)
+
+#     if save_face:
+#         img_np = _step_and_decode(noise_face)
+#         H, W = img_np.shape[:2]
+#         m_big = np.array(
+#            Image.fromarray(mask_np_lat.astype(np.uint8) * 255)
+#                  .resize((W, H), Image.NEAREST)
+#         ).astype(bool)
+#         # img_np[~m_big] = 127          # uncomment to grey background
+#         Image.fromarray(img_np).save(
+#             os.path.join(debug_dir, f"face_branch_{step_idx:03d}.png"))
+
+#     if save_bg:
+#         img_np = _step_and_decode(noise_bg)
+#         H, W = img_np.shape[:2]
+#         m_big = np.array(
+#             Image.fromarray(mask_np_lat.astype(np.uint8) * 255)
+#                  .resize((W, H), Image.NEAREST)
+#         ).astype(bool)
+#         # img_np[m_big] = 127           # uncomment to grey face
+#         Image.fromarray(img_np).save(
+#             os.path.join(debug_dir, f"background_branch_{step_idx:03d}.png"))
+
+#     print(f"[DBG] branch previews saved for step {step_idx:03d}")
+
+
 ### NEW VERSION ###
 def save_branch_previews(
     pipeline,

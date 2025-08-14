@@ -569,7 +569,9 @@ def create_heatmap(reference_image_path,
         else:                                            # legacy auto name
             safe = "_".join([re.sub(r"[^\w\-]+", "_", m["name"])
                              for m in MASK_LAYERS if m["name"]])
-            fname_out = f"{safe}_mask.jpg"
+            # fname_out = f"{safe}_mask.jpg"
+            fname_out = f"final_mask.jpg"
+        
         
         out_dir = Path("hm_results"); out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / fname_out

@@ -154,26 +154,23 @@ def two_branch_predict(
     Execute two-branch prediction with doubled batch for both latents and prompts.
     """
 
-    full_debug = False
-
     # --- quick shape + CFG sanity ---
-    if full_debug:
-        if step_idx in (0, 1) or step_idx % 10 == 0:
-            def stat(x): 
-                x = x.float()
-                return f"shape={tuple(x.shape)} μ={x.mean().item():.4f} σ={x.std().item():.4f}"
-            print(f"[2BP] step={step_idx}  CFG={pipeline.do_classifier_free_guidance}")
+    if step_idx in (0, 1) or step_idx % 10 == 0:
+        def stat(x): 
+            x = x.float()
+            return f"shape={tuple(x.shape)} μ={x.mean().item():.4f} σ={x.std().item():.4f}"
+        print(f"[2BP] step={step_idx}  CFG={pipeline.do_classifier_free_guidance}")
         print(f"[2BP]   latent_in:   {stat(latent_model_input)}")
         print(f"[2BP]   ref_latents: {stat(reference_latents)}")
 
 
-        # --- quick mask stats ---
-        if step_idx in (0, 1) or step_idx % 10 == 0:
-            m = mask4.detach().float()
-            mr = mask4_ref.detach().float()
-            def mstat(m):
-                return f"{tuple(m.shape)}  mean={m.mean().item():.4f}  ones={(m>0.5).float().mean().item():.4f}"
-            print(f"[2BP]   mask gen: {mstat(m)}   mask ref: {mstat(mr)}   |diff|={(m-mr).abs().mean().item():.4f}")
+    # --- quick mask stats ---
+    if step_idx in (0, 1) or step_idx % 10 == 0:
+        m = mask4.detach().float()
+        mr = mask4_ref.detach().float()
+        def mstat(m):
+            return f"{tuple(m.shape)}  mean={m.mean().item():.4f}  ones={(m>0.5).float().mean().item():.4f}"
+        print(f"[2BP]   mask gen: {mstat(m)}   mask ref: {mstat(mr)}   |diff|={(m-mr).abs().mean().item():.4f}")
 
 
 
@@ -214,9 +211,8 @@ def two_branch_predict(
     # critical: match UNet’s expected scaling at this timestep
     ref_noised = pipeline.scheduler.scale_model_input(ref_noised, t_ref).to(latent_model_input.dtype)
 
-    if full_debug:
-        if step_idx in (0, 1) or step_idx % 10 == 0:
-            print(f"[2BP]   ref_noised:  {stat(ref_noised)}  Δ(noise,ref)σ={(latent_model_input.std()-ref_noised.std()).item():.4f}")
+    if step_idx in (0, 1) or step_idx % 10 == 0:
+        print(f"[2BP]   ref_noised:  {stat(ref_noised)}  Δ(noise,ref)σ={(latent_model_input.std()-ref_noised.std()).item():.4f}")
 
     
     # Ensure same batch size
@@ -230,16 +226,15 @@ def two_branch_predict(
     patch_unet_attention_processors(pipeline, mask4, mask4_ref, scale)
 
     # --- quick patch check
-    if full_debug:
-        if step_idx == 0:
-            procs = pipeline.unet.attn_processors
-            n_sa = sum("attn1.processor" in k for k in procs)  # self-attn slots
-            n_ca = sum("attn2.processor" in k for k in procs)  # cross-attn slots
-            any_branched = any(p.__class__.__name__.startswith("Branched") for p in procs.values())
-            sample_k = next(iter(procs))
-            print(f"[2BP]   processors patched? {any_branched}  (SA={n_sa}, CA={n_ca})  sample={procs[sample_k].__class__.__name__}")
+    if step_idx == 0:
+        procs = pipeline.unet.attn_processors
+        n_sa = sum("attn1.processor" in k for k in procs)  # self-attn slots
+        n_ca = sum("attn2.processor" in k for k in procs)  # cross-attn slots
+        any_branched = any(p.__class__.__name__.startswith("Branched") for p in procs.values())
+        sample_k = next(iter(procs))
+        print(f"[2BP]   processors patched? {any_branched}  (SA={n_sa}, CA={n_ca})  sample={procs[sample_k].__class__.__name__}")
 
-        
+    
     # Prepare timesteps for doubled batch
     t_batched = t if torch.is_tensor(t) else torch.tensor([t], device=device)
     if t_batched.ndim == 0:
@@ -286,17 +281,16 @@ def two_branch_predict(
         std_face = face_prompt_embeds.float().std(dim=-1, keepdim=True).clamp_min(eps)
         # face_prompt_embeds = (face_prompt_embeds / std_face) * std_gen
         face_prompt_embeds = ((face_prompt_embeds.float() / std_face) * std_gen).to(d)
-    
-    if full_debug:
-        # ---quick prompt stats---
-        if step_idx in (0, 1) or step_idx % 10 == 0:
-            pe = prompt_embeds.detach().float()
-            fe = face_prompt_embeds.detach().float()
-            same_shape = pe.shape == fe.shape
-            # frac of zeros in face prompt (detect padding/truncation artefacts)
-            frac_zero = (fe.abs() < 1e-8).float().mean().item()
-            diff_mean = (pe - fe).abs().mean().item() if same_shape else float('nan')
-            print(f"[2BP]   prompts: gen={tuple(pe.shape)}  face={tuple(fe.shape)}  zero_frac(face)={frac_zero:.3f}  Δμ={diff_mean:.4f}")
+        
+    # ---quick prompt stats---
+    if step_idx in (0, 1) or step_idx % 10 == 0:
+        pe = prompt_embeds.detach().float()
+        fe = face_prompt_embeds.detach().float()
+        same_shape = pe.shape == fe.shape
+        # frac of zeros in face prompt (detect padding/truncation artefacts)
+        frac_zero = (fe.abs() < 1e-8).float().mean().item()
+        diff_mean = (pe - fe).abs().mean().item() if same_shape else float('nan')
+        print(f"[2BP]   prompts: gen={tuple(pe.shape)}  face={tuple(fe.shape)}  zero_frac(face)={frac_zero:.3f}  Δμ={diff_mean:.4f}")
 
 
     
@@ -314,18 +308,17 @@ def two_branch_predict(
     #   second half → face prompt
     encoder_hidden_states = torch.cat([prompt_embeds, face_prompt_embeds], dim=0)
 
-    if full_debug:
-        # quick sanity – these should *not* be identical
-        if (step_idx in (0, 1)) or (step_idx % 10 == 0):
-            diff_mu = (prompt_embeds.detach().float() - face_prompt_embeds.detach().float()).abs().mean().item()
-            print(f"[2BP]   encoder_hidden_states Δ(gen,face)μ={diff_mu:.4f}")
-        # if step_idx == 0:
-        #     pe = prompt_embeds.detach().float().mean(dim=1)
-        #     fe = face_prompt_embeds.detach().float().mean(dim=1)
-        #     cs = torch.nn.functional.cosine_similarity(pe.flatten(1), fe.flatten(1)).mean().item()
-        #     print(f"[2BP]   cos(prompt,face)={cs:.3f}")
-        #     if cs > 0.95:
-        #         print("[2BP][WARN] face prompt ~== gen prompt; identity guidance ineffective.")
+   # quick sanity – these should *not* be identical
+    if (step_idx in (0, 1)) or (step_idx % 10 == 0):
+        diff_mu = (prompt_embeds.detach().float() - face_prompt_embeds.detach().float()).abs().mean().item()
+        print(f"[2BP]   encoder_hidden_states Δ(gen,face)μ={diff_mu:.4f}")
+    # if step_idx == 0:
+    #     pe = prompt_embeds.detach().float().mean(dim=1)
+    #     fe = face_prompt_embeds.detach().float().mean(dim=1)
+    #     cs = torch.nn.functional.cosine_similarity(pe.flatten(1), fe.flatten(1)).mean().item()
+    #     print(f"[2BP]   cos(prompt,face)={cs:.3f}")
+    #     if cs > 0.95:
+    #         print("[2BP][WARN] face prompt ~== gen prompt; identity guidance ineffective.")
 
 
     # Double added_cond_kwargs
@@ -359,19 +352,18 @@ def two_branch_predict(
     B2 = noise_pred.shape[0] // 2
     first, second = noise_pred[:B2].float(), noise_pred[B2:].float()
 
-    if full_debug:
-        # If CFG is on, each half is [uncond, cond]
-        if pipeline.do_classifier_free_guidance and B2 % 2 == 0:
-            fU, fC = first.chunk(2)
-            sU, sC = second.chunk(2)
-            def s2(x): return f"σ={x.std().item():.4f}"
-            print(f"[2BP]   out halves: first({s2(first)})  second({s2(second)})  | first U/C {s2(fU)}/{s2(fC)}  second U/C {s2(sU)}/{s2(sC)}")
-        else:
-            print(f"[2BP]   out halves: first σ={first.std().item():.4f}  second σ={second.std().item():.4f}")
+    # If CFG is on, each half is [uncond, cond]
+    if pipeline.do_classifier_free_guidance and B2 % 2 == 0:
+        fU, fC = first.chunk(2)
+        sU, sC = second.chunk(2)
+        def s2(x): return f"σ={x.std().item():.4f}"
+        print(f"[2BP]   out halves: first({s2(first)})  second({s2(second)})  | first U/C {s2(fU)}/{s2(fC)}  second U/C {s2(sU)}/{s2(sC)}")
+    else:
+        print(f"[2BP]   out halves: first σ={first.std().item():.4f}  second σ={second.std().item():.4f}")
 
-        # Mean cosine sim between halves → should NOT be ~1.0
-        cos = torch.nn.functional.cosine_similarity(first.flatten(1), second.flatten(1), dim=1).mean().item()
-        print(f"[2BP]   cos(first,second)={cos:.3f}")
+    # Mean cosine sim between halves → should NOT be ~1.0
+    cos = torch.nn.functional.cosine_similarity(first.flatten(1), second.flatten(1), dim=1).mean().item()
+    print(f"[2BP]   cos(first,second)={cos:.3f}")
     # --- end of quick check
 
 
@@ -399,12 +391,11 @@ def two_branch_predict(
     noise_face = noise_pred_merged * mask_4ch
     
     # Debug logging
-    if full_debug:
-        if step_idx < 3 or step_idx % 10 == 0:
-            print(f"[Branch] Step {step_idx}: "
-                f"merged_norm={noise_pred_merged.std().item():.4f}, "
-                f"face={noise_face.std().item():.4f}, "
-                f"bg={noise_bg.std().item():.4f}")
+    if step_idx < 3 or step_idx % 10 == 0:
+        print(f"[Branch] Step {step_idx}: "
+              f"merged_norm={noise_pred_merged.std().item():.4f}, "
+              f"face={noise_face.std().item():.4f}, "
+              f"bg={noise_bg.std().item():.4f}")
    
     return noise_pred_merged, noise_face, noise_bg
 

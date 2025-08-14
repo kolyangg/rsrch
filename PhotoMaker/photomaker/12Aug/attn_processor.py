@@ -58,9 +58,6 @@ class BranchedAttnProcessor(nn.Module):
         Input: doubled batch [noise_hidden, ref_hidden]
         Output: doubled batch [merged_hidden, face_hidden]
         """
-
-        full_debug = False
-
         residual = hidden_states
         
         # Handle spatial norm
@@ -73,6 +70,12 @@ class BranchedAttnProcessor(nn.Module):
             batch_size, channel, height, width = hidden_states.shape
             hidden_states = hidden_states.view(batch_size, channel, height * width).transpose(1, 2)
         
+        # For cross-attention, use standard processing (handled by BranchedCrossAttnProcessor)
+        if encoder_hidden_states is not None:
+            return self._standard_cross_attention( # TODO check if needed
+                attn, hidden_states, encoder_hidden_states, 
+                attention_mask, residual, input_ndim
+            )
         
         # Split doubled batch
         total_batch = hidden_states.shape[0]
@@ -105,13 +108,11 @@ class BranchedAttnProcessor(nn.Module):
             raise ValueError("Branched attention requires a mask for the background branch")
         
         # --- quick check 
-        
         # print a few times per run only
         if not hasattr(self, "_dbg_sa"): self._dbg_sa = 0
         if self._dbg_sa < 3 and mask_gate is not None:
             mg = mask_gate.float()
-            if full_debug:
-                print(f"[BrSA] L={seq_len}  mask_mean={mg.mean().item():.4f}  mask_>0.5={(mg>0.5).float().mean().item():.4f}")
+            print(f"[BrSA] L={seq_len}  mask_mean={mg.mean().item():.4f}  mask_>0.5={(mg>0.5).float().mean().item():.4f}")
 
         
         # === BACKGROUND BRANCH ===
@@ -129,8 +130,6 @@ class BranchedAttnProcessor(nn.Module):
             
         hidden_bg = F.scaled_dot_product_attention(q_bg, key_bg, value_bg, dropout_p=0.0, is_causal=False)
         hidden_bg = hidden_bg.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
-        # === BACKGROUND BRANCH ===
-
         
         # === FACE BRANCH ===
         # Q: face from noise, K/V: face from reference
@@ -186,16 +185,14 @@ class BranchedAttnProcessor(nn.Module):
             
         hidden_face = F.scaled_dot_product_attention(q_face, key_face, value_face, dropout_p=0.0, is_causal=False)
         hidden_face = hidden_face.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
-        # === FACE BRANCH ===
         
 
         #### DEBUG ####
-        if full_debug:
-            # --- quick check 1
-            if self._dbg_sa < 3:
-                bg = hidden_bg.float(); fc = hidden_face.float()
-                cos = torch.nn.functional.cosine_similarity(bg.flatten(1), fc.flatten(1), dim=1).mean().item()
-                print(f"[BrSA]  σ(bg)={bg.std().item():.4f}  σ(face)={fc.std().item():.4f}  cos(bg,face)={cos:.3f}")
+        # --- quick check 1
+        if self._dbg_sa < 3:
+            bg = hidden_bg.float(); fc = hidden_face.float()
+            cos = torch.nn.functional.cosine_similarity(bg.flatten(1), fc.flatten(1), dim=1).mean().item()
+            print(f"[BrSA]  σ(bg)={bg.std().item():.4f}  σ(face)={fc.std().item():.4f}  cos(bg,face)={cos:.3f}")
 
 
         # --- quick check 2 (broadcast-safe) ---
@@ -223,34 +220,14 @@ class BranchedAttnProcessor(nn.Module):
 
             contrib_bg   = (hidden_bg * (1 - mf)).float().std().item()
             contrib_face = (hidden_face * mf).float().std().item()
-            if full_debug:
-                print(f"[BrSA]  merge parts σ: bg_part={contrib_bg:.4f}  face_part={contrib_face:.4f}")
+            print(f"[BrSA]  merge parts σ: bg_part={contrib_bg:.4f}  face_part={contrib_face:.4f}")
         self._dbg_sa += 1
         #### DEBUG ####
 
         ### NEW DEBUG 12 AUG
-        # print(f"BG std: {hidden_bg.std()}, Face std: {hidden_face.std()}")
+        print(f"BG std: {hidden_bg.std()}, Face std: {hidden_face.std()}")
         ### NEW DEBUG 12 AUG
 
-
-        # === NEW BRANCH - SELF-ATTN FOR REFERENCE ===
-        # Q: face from reference, K/V: face from as well
-        key_ref = attn.to_k(ref_hidden)
-        value_ref = attn.to_v(ref_hidden)
-        query_ref = attn.to_q(ref_hidden)
-        
-        # Reshape for multi-head attention
-        head_dim = attn.heads
-        dim_per_head = noise_hidden.shape[-1] // head_dim
-        query_ref = query_ref.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
-
-        key_ref = key_ref.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
-        value_ref = value_ref.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
-
-        # hidden_ref needs to be without any masks
-        hidden_ref = F.scaled_dot_product_attention(query_ref, key_ref, value_ref, dropout_p=0.0, is_causal=False)
-        hidden_ref = hidden_ref.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
-        # === NEW BRANCH - SELF-ATTN FOR REFERENCE ===
 
 
         # === MERGE ===
@@ -284,10 +261,7 @@ class BranchedAttnProcessor(nn.Module):
             raise ValueError("Branched attention requires a mask for the background branch")
         
         # Combine: [merged_result, face_branch_output]
-        # hidden_states = torch.cat([merged, hidden_face], dim=0) # merged = updated noise and face branch output
-
-        # NEW - now using hidden_ref for referenc part of output
-        hidden_states = torch.cat([merged, hidden_ref], dim=0) # merged = updated noise and face branch output
+        hidden_states = torch.cat([merged, hidden_face], dim=0) # merged = updated noise and face branch output
 
         # Apply output projection
         hidden_states = attn.to_out[0](hidden_states)
@@ -374,6 +348,8 @@ class BranchedAttnProcessor(nn.Module):
         
         return hidden_states
 
+
+
 class BranchedCrossAttnProcessor(nn.Module):
     """
     Simplified cross-attention processor with branching.
@@ -450,7 +426,6 @@ class BranchedCrossAttnProcessor(nn.Module):
             # Self-attention fallback
             gen_prompt = noise_hidden
             face_prompt = ref_hidden
-            raise ValueError ("Branched cross-attention requires encoder_hidden_states")
         
         batch_size = half_batch
         seq_len = noise_hidden.shape[1]
@@ -463,23 +438,20 @@ class BranchedCrossAttnProcessor(nn.Module):
         # ========== PROCESS FIRST HALF (NOISE BATCH) WITH BRANCHING ==========
         
         # Compute query from noise
-        query_bg = attn.to_q(noise_hidden)
+        query = attn.to_q(noise_hidden)
         
         # Get attention parameters
         head_dim = attn.heads
         dim_per_head = noise_hidden.shape[-1] // head_dim
-
-        q_bg = query_bg.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         
-        # Compute query from ref
-        query_ref = attn.to_q(ref_hidden)
-
-        # Get attention parameters
-        head_dim = attn.heads
-        dim_per_head = noise_hidden.shape[-1] // head_dim
-
-        q_ref = query_ref.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
-
+        q = query.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
+        
+        # Prepare mask
+        mask_gate = None
+        if self.mask is not None:
+            mask_gate = self._prepare_mask(self.mask, seq_len, batch_size)
+            mask_gate = mask_gate.to(dtype=q.dtype, device=q.device)
+        
         # === BACKGROUND BRANCH ===
         # Q: background from noise, K/V: generation prompt
         key_bg = attn.to_k(gen_prompt)
@@ -487,25 +459,80 @@ class BranchedCrossAttnProcessor(nn.Module):
         key_bg = key_bg.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         value_bg = value_bg.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         
+        if mask_gate is not None:
+            q_bg = q * (1.0 - mask_gate)
+        else:
+            q_bg = q
+        
         hidden_bg = F.scaled_dot_product_attention(q_bg, key_bg, value_bg, dropout_p=0.0, is_causal=False)
         hidden_bg = hidden_bg.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
         
         # === FACE BRANCH ===
         # Q: face from noise, K/V: face prompt (should be different from gen_prompt!)
-        key_ref = attn.to_k(face_prompt)
+        key_face = attn.to_k(face_prompt)
+        value_face = attn.to_v(face_prompt)
+
+        key_face = key_face.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
+        value_face = value_face.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
+        
+        if mask_gate is not None:
+            q_face = q * mask_gate
+        else:
+            q_face = q
+        
+        hidden_face = F.scaled_dot_product_attention(q_face, key_face, value_face, dropout_p=0.0, is_causal=False)
+        hidden_face = hidden_face.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
+        
+        # === MERGE ===
+        if mask_gate is not None:
+            mask_flat = mask_gate.squeeze(1).squeeze(-1).to(dtype=hidden_bg.dtype)
+            if mask_flat.dim() == 1:
+                mask_flat = mask_flat.unsqueeze(0)
+            if mask_flat.dim() == 2:
+                mask_flat = mask_flat.unsqueeze(-1)
+            merged = hidden_bg * (1 - mask_flat) + hidden_face * mask_flat * self.scale
+        else:
+            merged = hidden_bg + hidden_face * self.scale
+        
+        # ========== PROCESS SECOND HALF (REFERENCE BATCH) - STANDARD ==========
+        # The reference batch just needs standard cross-attention
+        # (it's only here to maintain shape consistency through UNet)
+
+
+        # Prepare mask_ref
+        mask_ref_gate = None
+        if self.mask_ref is not None:
+            mask_ref_gate = self._prepare_mask(self.mask_ref, seq_len, batch_size)
+            mask_ref_gate = mask_ref_gate.to(dtype=q.dtype, device=q.device)
+        else:
+            raise ValueError("Branched attention requires a mask for the background branch")
+        
+        query_ref = attn.to_q(ref_hidden)
+        key_ref = attn.to_k(face_prompt)  # Could use either prompt, doesn't matter
         value_ref = attn.to_v(face_prompt)
+        
+        query_ref = query_ref.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         key_ref = key_ref.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         value_ref = value_ref.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
 
-        hidden_ref = F.scaled_dot_product_attention(q_ref, key_ref, value_ref, dropout_p=0.0, is_causal=False)
-        hidden_ref = hidden_ref.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
+        USE_MASK_REF = True
         
-        
+        if USE_MASK_REF:
+            if mask_ref_gate is not None:
+                query_ref = query_ref * mask_ref_gate
+            else:
+                raise ValueError("Branched attention requires a mask for the reference branch")
+
+
+        hidden_ref = F.scaled_dot_product_attention(query_ref, key_ref, value_ref, dropout_p=0.0, is_causal=False)
+        hidden_ref = hidden_ref.transpose(1, 2).reshape(batch_size, -1, ref_hidden.shape[-1])
         
         # ========== COMBINE RESULTS ==========
-        hidden_states = torch.cat([hidden_bg, hidden_ref], dim=0)
+        hidden_states = torch.cat([merged, hidden_ref], dim=0)
 
 
+        # # ========== COMBINE RESULTS ==========
+        # # Keep semantics consistent with self-attn: second half carries the face stream.
         # hidden_states = torch.cat([merged, hidden_face], dim=0)
 
 

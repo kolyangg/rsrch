@@ -1,4 +1,4 @@
-# photomaker/pipeline.py
+# photomaker/pipeline_NS.py
 
 #####
 # Modified from https://github.com/huggingface/diffusers/blob/v0.29.1/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py
@@ -22,52 +22,8 @@
 
 import inspect
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-# ------------------------------------------------------------------
-# Branched-attention helpers (all the heavy code is in branched.py)
-# ------------------------------------------------------------------
-from .branched_new import (
-    two_branch_predict,
-    prepare_reference_latents,
-    encode_face_prompt,
-    patch_unet_attention_processors,
-    restore_original_processors,
-    save_debug_images,
-)
-
-# Keep existing imports:
-from .branched_v4 import (
-    MASK_LAYERS_CONFIG,
-    compute_binary_face_mask,
-    simple_threshold_mask,
-    encode_face_latents,
-)
-
-
-from .branch_helpers import (
-    aggregate_heatmaps_to_mask,
-    prepare_mask4,
-    save_branch_previews,
-    debug_reference_latents_once,
-    save_debug_ref_latents,
-    save_debug_ref_mask_overlay,
-    collect_attention_hooks,
-)
-
-# Only import what's actually needed
-from .mask_utils import compute_binary_face_mask, simple_threshold_mask
-from .mask_utils import MASK_LAYERS_CONFIG
-
-# Import dynamic mask generation
-from .add_masking import DynamicMaskGenerator, get_default_mask_config
-
-
-import os
-import numpy as np
-from PIL import Image
-import torch.nn.functional as F
-
-
 import PIL
+from PIL import Image   
 
 import torch
 from transformers import CLIPImageProcessor
@@ -101,11 +57,45 @@ if is_torch_xla_available():
 else:
     XLA_AVAILABLE = False
 
+# NEW IMPORTS 30 JUL
+import warnings, math, types
+import matplotlib.cm as cm  
+from pathlib import Path
+from PIL import ImageDraw, ImageFont   
+import cv2
+import os
+# mask helper cloned from `attn_hm_NS_nosm7.py`
+from .mask_utils import MASK_LAYERS_CONFIG, compute_binary_face_mask, _resize_map
+import numpy as np
+
+# import nn
+import torch.nn as nn
+
 
 from . import (
     PhotoMakerIDEncoder, # PhotoMaker v1
     PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken, # PhotoMaker v2
 )
+
+# --------------------------------------------------------------------------- #
+#  Debug helpers
+# --------------------------------------------------------------------------- #
+
+DEBUG_DIR = os.getenv("PM_DEBUG_DIR", "./branched_debug")
+os.makedirs(DEBUG_DIR, exist_ok=True)
+
+def _save_gray(arr: np.ndarray, fp: str):
+    """
+    Save a 2-D numpy array as an 8-bit grayscale PNG.
+    """
+    if arr.ndim != 2:
+        return
+    arr = arr.astype(np.float32)
+    arr = (255 * (arr - arr.min()) / (np.ptp(arr) + 1e-8)).clip(0, 255).astype(np.uint8)
+    Image.fromarray(arr, mode="L").save(fp)
+
+
+
 
 PipelineImageInput = Union[
     PIL.Image.Image,
@@ -190,13 +180,11 @@ def retrieve_timesteps(
     return timesteps, num_inference_steps
     
 
-class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
+class PhotoMakerStableDiffusionXLPipeline2(StableDiffusionXLPipeline):
     @validate_hf_hub_args
     def load_photomaker_adapter(
         self,
         pretrained_model_name_or_path_or_dict: Union[str, Dict[str, torch.Tensor]],
-        
-        
         weight_name: str,
         subfolder: str = '',
         trigger_word: str = 'img',
@@ -293,6 +281,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         # load lora into models
         print(f"Loading PhotoMaker {pm_version} components [2] lora_weights from [{pretrained_model_name_or_path_or_dict}]")
         self.load_lora_weights(state_dict["lora_weights"], adapter_name="photomaker")
+        print(f'[DEBUG] Using upgraded pipeline_NS.py') # ADD 30 JUL
 
         # Add trigger word token
         if self.tokenizer is not None: 
@@ -582,48 +571,16 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         id_embeds: Optional[torch.FloatTensor] = None,
         prompt_embeds_text_only: Optional[torch.FloatTensor] = None,
         pooled_prompt_embeds_text_only: Optional[torch.FloatTensor] = None,
-
-        # ───────────────────  Branched-attention switches  ───────────────────
+        # **kwargs,
+        
+        # Added parameters (for branched attention) # NEW 30 JUL
         use_branched_attention: bool = False,
-        photomaker_scale: float = 1.0,  # Add scale parameter for attention
-        save_heatmaps: bool = True,
+        face_embed_strategy: str = "faceanalysis",  # "faceanalysis" or "heatmap"
         branched_attn_start_step: int = 10,
-        heatmap_mode: str = "identity",          # or "token"
-        focus_token: str = "",
-        mask_mode: str = "spec",                 # or "simple"
-        face_embed_strategy: str = "face", # "face", #  "face" or "id_embeds"
-        import_mask: Optional[str] = "hm_debug/keanu_gen_mask.png",
-        # import_mask: Optional[str] = "hm_debug/keanu_gen_mask_white_new.png",
-        import_mask_ref: Optional[str] = "hm_debug/keanu_ref_mask.png",
-        
-        # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_new.jpg",
-        # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_new_easy.png",
-        # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_white_new.png",
-        # import_mask_ref: Optional[str] = "../compare/testing/ref3_masks/eddie_mask_new.png",
-        
-        # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_white.jpg",
-        # import_mask_ref: Optional[str] = "../compare/testing/ref3_masks/eddie_mask_white.jpg",
-        # ───────── Debug / branch-preview switches ─────────
-
-        # ───────── Dynamic mask generation parameters ─────────────
-        # use_dynamic_mask_ref: bool = False,
-
-        use_dynamic_mask: bool = True,
-        # use_dynamic_mask: bool = True,
-        mask_start: int = 10,
-        mask_end: int = 20,
-        save_heatmaps_dynamic: bool = True,
-        token_focus: str = "face",
-        add_token_to_prompt: bool = False,
-        mask_layers_config: Optional[List[Dict]] = None,
-        # save_heatmap_pdf: bool = False,
-        save_hm_pdf: bool = True,
-        heatmap_interval: int = 5,
- 
-
-        debug_save_face_branch: bool = True,
-        debug_save_bg_branch: bool = True,
-        debug_dir: str = "hm_debug",
+        # ────── DEBUG MASK STRIP ───────────────────────────────
+        debug_save_masks: bool = False,
+        mask_save_dir: str = "hm_debug",
+        mask_interval: int = 5,
         **kwargs,
     ):
         r"""
@@ -651,8 +608,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
         callback = kwargs.pop("callback", None)
         callback_steps = kwargs.pop("callback_steps", None)
-        
-        # self._guidance_scale = 0 # TEMP WTF!
 
         if callback is not None:
             deprecate(
@@ -793,60 +748,27 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             id_pixel_values = self.id_image_processor(input_id_images, return_tensors="pt").pixel_values
 
         id_pixel_values = id_pixel_values.unsqueeze(0).to(device=device, dtype=dtype) # TODO: multiple prompts
-        
-
-        # ================================================================
-        #  Branched-attention one-off preparation
-        # ================================================================
-        if use_branched_attention or save_heatmaps or save_hm_pdf:
-
-            self._heatmaps      = {}
-            self._hm_layers     = [s["name"] for s in MASK_LAYERS_CONFIG]
-            self._step_tags     = []              # for pretty frame labels
-            self._orig_forwards = {}
-
-        # ================================================================
-        #  Initialize dynamic mask generator
-        # ================================================================
-        if save_heatmaps or save_hm_pdf:
-            self.mask_generator = DynamicMaskGenerator(
-                pipeline=self,
-                use_dynamic_mask=use_dynamic_mask,
-                mask_start=mask_start,
-                mask_end=mask_end,
-                save_heatmaps=save_heatmaps_dynamic,
-                token_focus=token_focus,
-                add_to_prompt=add_token_to_prompt,
-                mask_layers_config=mask_layers_config or get_default_mask_config(),
-                debug_dir=debug_dir,
-                save_hm_pdf=save_hm_pdf,
-                heatmap_interval=heatmap_interval,
-                num_inference_steps=num_inference_steps,
-            )
-
-            # Setup hooks before denoising loop
-            self.mask_generator.setup_hooks(prompt, class_tokens_mask)
-
-
-        if use_branched_attention or save_heatmaps or save_hm_pdf:
-            collect_attention_hooks(
-                self,
-                heatmap_mode,
-                focus_token,
-                class_tokens_mask,
-                self.do_classifier_free_guidance,
-                self._heatmaps,
-                self._orig_forwards,
-            )
-
 
         # 7. Get the update text embedding with the stacked ID embedding
+        # if id_embeds is not None:
+        #     id_embeds = id_embeds.unsqueeze(0).to(device=device, dtype=dtype)
+        #     prompt_embeds = self.id_encoder(id_pixel_values, prompt_embeds, class_tokens_mask, id_embeds)
+        # else:
+        #     prompt_embeds = self.id_encoder(id_pixel_values, prompt_embeds, class_tokens_mask)
+        
+        # NEW 30 JUL
+        # Decide identity embedding usage based on strategy
+        if use_branched_attention and face_embed_strategy.lower() == "heatmap":
+            # Skip using external face recognition embedding (ArcFace); rely on image features only
+            id_embeds = None
         if id_embeds is not None:
             id_embeds = id_embeds.unsqueeze(0).to(device=device, dtype=dtype)
             prompt_embeds = self.id_encoder(id_pixel_values, prompt_embeds, class_tokens_mask, id_embeds)
         else:
             prompt_embeds = self.id_encoder(id_pixel_values, prompt_embeds, class_tokens_mask)
-        
+        # NEW 30 JUL
+
+
         bs_embed, seq_len, _ = prompt_embeds.shape
         # duplicate text embeddings for each generation per prompt, using mps friendly method
         prompt_embeds = prompt_embeds.repeat(1, num_images_per_prompt, 1)
@@ -864,113 +786,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             generator,
             latents,
         )
-        
-        
-        
-        ##### NEW BRANCHED ATTENTION LOGIC #####
-
-        if use_branched_attention:
-            # Encode reference latents with AR-preserving resize + letterbox to (H,W)
-            if input_id_images is not None and len(input_id_images) > 0:
-                with torch.no_grad():
-                    ref_pixels = self.image_processor.preprocess(
-                        input_id_images, height=height, width=width
-                    )  # (B,3,H,W) in [-1,1]
-                    ref_pixels = ref_pixels.to(device=self._execution_device, dtype=latents.dtype)
-                    ref_latents = self.vae.encode(ref_pixels).latent_dist.sample()
-                    ref_latents = ref_latents * self.vae.config.scaling_factor
-                # If multiple refs, average or pick first; keep shape [1,4,h_lat,w_lat]
-                if ref_latents.shape[0] > 1:
-                    ref_latents = ref_latents.mean(dim=0, keepdim=True)
-                self._ref_latents_all = ref_latents
-                
-                from math import sqrt
-                from PIL import Image
-                import torch.nn.functional as F
-                pil = input_id_images[0] if isinstance(input_id_images, (list, tuple)) else input_id_images
-                ow, oh = pil.size
-                self._ref_orig_size = (oh, ow)
-                # scale to fit inside (height,width) while keeping AR; make divisible by 8
-                s = min(width / ow, height / oh)
-                rw = max(8, int(round(ow * s)) // 8 * 8)
-                rh = max(8, int(round(oh * s)) // 8 * 8)
-                pl = (width  - rw) // 2; pr = width  - rw - pl
-                pt = (height - rh) // 2; pb = height - rh - pt
-                self._ref_pad = (pl, pr, pt, pb)
-                self._ref_scaled_size = (rh, rw)
-                with torch.no_grad():
-                    ref_pixels = self.image_processor.preprocess(pil, height=rh, width=rw)  # (1,3,rh,rw) in [-1,1]
-                    ref_pixels = F.pad(ref_pixels, (pl, pr, pt, pb), value=0.0)            # letterbox to (H,W)
-                    ref_pixels = ref_pixels.to(device=self._execution_device, dtype=latents.dtype)
-                    ref_latents = self.vae.encode(ref_pixels).latent_dist.sample() * self.vae.config.scaling_factor
-                self._ref_latents_all = ref_latents  # shape (1,4,H/8,W/8)
-                
-                
-                
-                if id_embeds is not None:
-                    self._face_prompt_embeds = id_embeds.to(device=device, dtype=dtype)
-                else:
-                    # Use the face-specific part of prompt_embeds after ID encoder
-                    if class_tokens_mask is not None:
-                        # Extract only the face tokens
-                        face_indices = class_tokens_mask[0].nonzero(as_tuple=True)[0]
-                        if len(face_indices) > 0:
-                            self._face_prompt_embeds = prompt_embeds[:, face_indices, :]
-                        else:
-                            # Fallback: encode "face" text
-                            face_text_embeds, _ = self.encode_prompt(
-                                prompt="a face",
-                                prompt_2="a face",
-                                device=device,
-                                num_images_per_prompt=num_images_per_prompt,
-                                do_classifier_free_guidance=self.do_classifier_free_guidance,
-                            )[:2]
-                            self._face_prompt_embeds = face_text_embeds
-                    else:
-                        # No mask available, use full prompt embeds
-                        self._face_prompt_embeds = prompt_embeds
-                            
-                # Set face embedding strategy (can be controlled via parameter)
-                self.face_embed_strategy = face_embed_strategy  # 'id_embeds' or 'face'
-                
-                            
-                # Also store as _reference_latents for the new approach
-                self._reference_latents = self._ref_latents_all
-                
-                # Store the original RGB for debug
-                self._ref_img = id_pixel_values[0] if id_pixel_values.dim() == 5 else id_pixel_values
-                
-                 # IMPORTANT: Create ref_noise with same generator as latents for consistency
-                if not hasattr(self, '_ref_noise'):
-                    # Use the same generator that was used for latents
-                    self._ref_noise = torch.randn(
-                        self._ref_latents_all.shape,
-                        generator=generator,  # Use the same generator as latents
-                        device=device,
-                        dtype=self._ref_latents_all.dtype
-                    )
-                
-            else:
-                # Fallback: use initial latents as reference
-                self._ref_latents_all = latents.clone()
-                self._reference_latents = self._ref_latents_all
-                self._ref_img = None
-            
-            # Canonicalize strategy & keep for per-step call
-            fes = (face_embed_strategy or "face").lower()
-            if fes in {"faceanalysis"}:   # old CLI synonyms
-                fes = "face"
-            self.face_embed_strategy = fes
-            # Precompute “face text” once if needed
-            if self.face_embed_strategy == "face":
-                self._face_prompt_embeds = encode_face_prompt(
-                    self, device=device, batch_size=batch_size,
-                    do_classifier_free_guidance=self.do_classifier_free_guidance,
-                ).to(device)
-            # Cache ID token positions for masking (used in id_embeds mode)
-            self._id_token_idx = class_tokens_mask[0].nonzero(as_tuple=True)[0]
-
-        ##### END NEW BRANCHED ATTENTION LOGIC #####
 
         # 9. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
@@ -1015,36 +830,83 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 batch_size * num_images_per_prompt,
                 self.do_classifier_free_guidance,
             )
-        
-        #### NEW BRANCHED ATTENTION LOGIC ####
-        # Store original processors once before denoising loop
-        # Prepare reference latents once
+
+        # 11. Denoising loop ──────────────────────────────────────────────────
+        # Prepare branched-attention bookkeeping
+
+        # ─── DEBUG ①: echo run-time flags ────────────────────────────────────
+        print(
+            f"[DEBUG] branched={use_branched_attention}  "
+            f"start_step={branched_attn_start_step}  "
+            f"strategy={face_embed_strategy}"
+        )
+
+        face_embed_strategy   = face_embed_strategy.lower()
+        use_branched_attention = bool(use_branched_attention)
+        branched_attn_start_step = int(branched_attn_start_step)
+
+        attn_maps_current: Dict[str, List[np.ndarray]] = {}
+        orig_attn_forwards: Dict[str, Callable] = {}
+
         if use_branched_attention:
-            #  # Store face prompt embeds for cross-attention
-            # Do NOT overwrite with id_embeds (512-D) — keep text embeds (2048-D)
-            #  self._face_prompt_embeds = id_embeds
-             
-             # Prepare reference latents if not already done
-             if not hasattr(self, '_ref_latents_all'):
-                 if id_pixel_values is not None:
-                     self._ref_latents_all = prepare_reference_latents(
-                         self,
-                         id_pixel_values[0, 0] if id_pixel_values.dim() == 5 else id_pixel_values[0],
-                         height,
-                         width,
-                         latents.dtype,
-                         generator
-                     )
-                 else:
-                     # Fallback: use initial latents as reference
-                     self._ref_latents_all = latents.clone()
-               
+            # make sure we run *regular* PyTorch attention
+            if hasattr(self.unet, "attn_processors"):          # diffusers ≥ 0.25
+                self.unet.set_attn_processor(dict(self.unet.attn_processors))
+            else:                                              # legacy (< 0.25)
+                self.unet.set_attn_processor(self.unet.attn_processor)
 
-        #### NEW BRANCHED ATTENTION LOGIC ####
-        
-        
+            from diffusers.models.attention_processor import Attention as CrossAttention
 
-        # 11. Denoising loop
+            wanted_layers = {spec["name"] for spec in MASK_LAYERS_CONFIG}
+
+            def _make_hook(layer_name: str, module):
+                orig_fwd = module.forward
+                orig_attn_forwards[layer_name] = orig_fwd
+
+                def hook(hs, encoder_hidden_states=None, attention_mask=None):
+                    out = orig_fwd(hs, encoder_hidden_states, attention_mask)
+
+                    if layer_name in wanted_layers and encoder_hidden_states is not None:
+                        B_all = hs.shape[0]
+                        if self.do_classifier_free_guidance and B_all % 2 == 0:
+                            hs_ = hs[B_all // 2 :]
+                            enc = encoder_hidden_states[B_all // 2 :]
+                        else:
+                            hs_, enc = hs, encoder_hidden_states
+
+                        q_proj = (module.to_q if hasattr(module, "to_q") else module.q_proj)(hs_)
+                        k_proj = (module.to_k if hasattr(module, "to_k") else module.k_proj)(enc)
+
+                        B, Lq, C = q_proj.shape
+                        h = module.heads
+                        d = C // h
+                        Q = q_proj.view(B, Lq, h, d).permute(0, 2, 1, 3)
+                        K = k_proj.view(B, -1, h, d).permute(0, 2, 1, 3)
+
+                        if class_tokens_mask is not None:
+                            tok_idx = class_tokens_mask[0].to(hs.device).nonzero(as_tuple=True)[0]
+                        else:
+                            tok_idx = torch.arange(K.shape[2] - self.num_tokens, K.shape[2], device=hs.device)
+
+                        logits = (Q @ K.transpose(-2, -1)) * module.scale
+                        sim = logits[..., tok_idx].mean(-1).mean(1)[0]  # (Lq,)
+                        H = int(math.sqrt(sim.numel()))
+                        att = sim.view(H, H).to(torch.float32).detach().cpu().numpy()
+                        attn_maps_current.setdefault(layer_name, []).append(att)
+                    return out
+
+                return hook
+
+            
+            # install hooks  ─── DEBUG ②: count how many we actually got
+            hook_count = 0
+            for n, m in self.unet.named_modules():
+                if isinstance(m, CrossAttention) and n in wanted_layers:
+                    m.forward = _make_hook(n, m)
+                    hook_count += 1
+            print(f"[DEBUG] wanted_layers={len(wanted_layers)}  hooks_loaded={hook_count}")
+
+        # now the scheduler warm-up calculation
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
 
         # 11.1 Apply denoising_end
@@ -1072,8 +934,89 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             ).to(device=device, dtype=latents.dtype)
 
         self._num_timesteps = len(timesteps)
+
+        # ── prepare containers for DEBUG strip ──────────────────────────
+        if debug_save_masks:
+            Path(mask_save_dir).mkdir(parents=True, exist_ok=True)
+            mask_frames: list[Image.Image] = []
+            step_labels: list[str] = []
+
+
         with self.progress_bar(total=num_inference_steps) as progress_bar:
+            # for i, t in enumerate(timesteps):
+            
+            # NEW 30 JUL
+            # Prepare branched attention if enabled
+            attn_maps_current = {}
+            orig_attn_forwards = {}
+            if use_branched_attention:
+                # Disable memory-efficient attention to allow custom forward
+                if hasattr(self.unet, "attn_processors"):  # diffusers ≥ 0.25
+                    self.unet.set_attn_processor(dict(self.unet.attn_processors))  # ensure
+                    # using default pytorch attention
+                else:  # legacy (< 0.25)
+                    # ensure using default pytorch attention
+                    if hasattr(self.unet, "attn_processor"):
+                        self.unet.set_attn_processor(self.unet.attn_processor)
+                    else:
+                        # if no attn_processor, assume default pytorch attention
+                        self.unet.set_attn_processor(self.unet.attn_processors)
+                        
+                from diffusers.models.attention_processor import Attention as CrossAttention
+                def make_attn_hook(layer_name, module):
+                    orig_fwd = module.forward
+                    orig_attn_forwards[layer_name] = orig_fwd
+                    def hooked_forward(hidden_states, encoder_hidden_states=None, attention_mask=None):
+                        # call original forward (to get output) but capture attention weights if cross-attn with text
+                        out = orig_fwd(hidden_states, encoder_hidden_states, attention_mask)
+                        if encoder_hidden_states is not None:
+                            # Only consider conditional batch (if CFG used)
+                            hs = hidden_states
+                            enc = encoder_hidden_states
+                            B_all = hs.shape[0]
+                            if self.do_classifier_free_guidance and B_all % 2 == 0:
+                                hs = hs[B_all//2:]
+                                enc = enc[B_all//2:]
+                            # Compute attention logits focusing on class/identity tokens
+                            # Project Q (from latent hidden_states) and K (from text encoders)
+                            q_proj = module.to_q(hs) if hasattr(module, "to_q") else module.q_proj(hs)
+                            k_proj = module.to_k(enc) if hasattr(module, "to_k") else module.k_proj(enc)
+                            # Reshape into (B_cond, heads, seq, dim_head)
+                            B_cond, L_q, C_q = q_proj.shape
+                            _, L_k, C_k = k_proj.shape
+                            h = module.heads
+                            d = C_q // h
+                            Q = q_proj.view(B_cond, L_q, h, d).permute(0, 2, 1, 3)  # (B_cond, h, L_q, d)
+                            K = k_proj.view(B_cond, L_k, h, d).permute(0, 2, 1, 3)  # (B_cond, h, L_k, d)
+                            # Determine identity token indices from class_tokens_mask
+                            if class_tokens_mask is not None:
+                                # class_tokens_mask has True for each inserted token (identity tokens)
+                                token_idx = class_tokens_mask[0].to(device=device).nonzero(as_tuple=True)[0]
+                            else:
+                                # Fallback: assume last self.num_tokens tokens correspond to identity if mask not provided
+                                token_idx = torch.arange(L_k - self.num_tokens, L_k, device=device)
+                            # Compute attention scores for those token indices
+                            logits = torch.matmul(Q, K.transpose(-1, -2)) * module.scale  # (B_cond, h, L_q, L_k)
+                            # Average attention logits over identity token indices and heads
+                            att_map = logits[..., token_idx].mean(dim=-1).mean(dim=1)  # shape (B_cond, L_q)
+                            # Average over batch (assuming one reference identity per batch)
+                            att_map = att_map.mean(dim=0)  # shape (L_q,)
+                            
+                            # attn_maps_current[layer_name] = att_map.to(torch.float32).detach().cpu().numpy()
+
+                            attn_maps_current.setdefault(layer_name, []).append(
+                                att_map.to(torch.float32).detach().cpu().numpy()
+                            )
+
+                        return out
+                    return hooked_forward
+                # Register hooks on all cross-attention layers
+                for name, module in self.unet.named_modules():
+                    if isinstance(module, CrossAttention):
+                        module.forward = make_attn_hook(name, module)
+            # Start denoising loop
             for i, t in enumerate(timesteps):
+
                 if self.interrupt:
                     continue
 
@@ -1081,152 +1024,156 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
 
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
-                
-                # ----------------------------------------------------------------
-                #  Initialise per-step branch tensors (may stay None this step)
-                # ----------------------------------------------------------------
-                noise_face: torch.Tensor | None = None
-                noise_bg:   torch.Tensor | None = None
-                
-  
-                
-                # ───── choose prompt-conditioning for this step (must come FIRST) ─────
-                # Before PhotoMaker merge: use text-only to avoid early leakage.
-                # After that (and for branched attention), keep the ID-enhanced embeddings.
-                use_text_only = (i <= start_merge_step)
-                base_prompt   = prompt_embeds_text_only if use_text_only else prompt_embeds
-                base_pooled   = pooled_prompt_embeds_text_only if use_text_only else pooled_prompt_embeds
 
-                current_prompt_embeds = (
-                    torch.cat([negative_prompt_embeds, base_prompt], dim=0)
-                    if self.do_classifier_free_guidance else base_prompt
-                )
-                add_text_embeds = (
-                    torch.cat([negative_pooled_prompt_embeds, base_pooled], dim=0)
-                    if self.do_classifier_free_guidance else base_pooled
-                )
-
+                if i <= start_merge_step:
+                    current_prompt_embeds = torch.cat(
+                        [negative_prompt_embeds, prompt_embeds_text_only], dim=0
+                    ) if self.do_classifier_free_guidance else prompt_embeds_text_only
+                    add_text_embeds = torch.cat(
+                        [negative_pooled_prompt_embeds, pooled_prompt_embeds_text_only], dim=0
+                        ) if self.do_classifier_free_guidance else pooled_prompt_embeds_text_only
+                else:
+                    current_prompt_embeds = torch.cat(
+                        [negative_prompt_embeds, prompt_embeds], dim=0
+                    ) if self.do_classifier_free_guidance else prompt_embeds
+                    add_text_embeds = torch.cat(
+                        [negative_pooled_prompt_embeds, pooled_prompt_embeds], dim=0
+                        ) if self.do_classifier_free_guidance else pooled_prompt_embeds
+                    
                 added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
                 if ip_adapter_image is not None or ip_adapter_image_embeds is not None:
                     added_cond_kwargs["image_embeds"] = image_embeds
-                
-
-                ##### NEW BRANCHED ATTENTION LOGIC #####
-                
-                # ------------------------------------------------------------
-                #  Activate branched-attention after <branched_attn_start_step>
-                # ------------------------------------------------------------
-                mask4 = None
-                mask4_ref = None
-
-                # ============================================================
-                #  Update dynamic mask if enabled
-                # ============================================================
-                if use_dynamic_mask:
-                    # self.mask_generator.update_mask(i)
-                    self.mask_generator.update_mask(i, latents)
-                                
-                
-                if use_branched_attention and i >= branched_attn_start_step:
-                    # Build noise mask - use dynamic if available, otherwise use import_mask
-                    if use_dynamic_mask:
-                        mask_np, mask_tensor = self.mask_generator.get_mask_for_pipeline()
-                        if mask_np is not None:
-                            self._face_mask = mask_np
-                            self._face_mask_t = mask_tensor
                     
-                    if not hasattr(self, '_face_mask') or self._face_mask is None:
-                        aggregate_heatmaps_to_mask(self, mask_mode, import_mask, suffix="")
-
-                    mask4     = prepare_mask4(self, latent_model_input, suffix="")
                     
-                    # Build ref mask from import_mask_ref (unchanged)
-                    aggregate_heatmaps_to_mask(self, mask_mode, import_mask_ref, suffix="_ref")
-
-
-                    mask4_ref = prepare_mask4(self, latent_model_input, suffix="_ref")
-                    
-                    # Quick checks & one-off debug (moved here)
-                    if mask4 is not None and mask4_ref is not None and (i == branched_attn_start_step or i % 10 == 0):
-                        print(f"[PL] step={i}  mask_gen>0.5={(mask4>0.5).float().mean().item():.4f}  mask_ref>0.5={(mask4_ref>0.5).float().mean().item():.4f}")
-                        md = (mask4 - mask4_ref).abs().mean().item()
-                        if md < 0.01:
-                            print(f"[Warning] Noise and ref masks are nearly identical (diff={md:.4f})")
-                    debug_reference_latents_once(self, mask4_ref, debug_dir)
-                    if i == branched_attn_start_step:
-                        save_debug_ref_latents(self, debug_dir)
-                        # also dump ref-latents with the ref mask overlaid
-                        save_debug_ref_mask_overlay(self, mask4_ref, debug_dir)
-                        
-                    # pick face embeddings per strategy
-                    face_ehs = (
-                        current_prompt_embeds
-                        if self.face_embed_strategy in {"id", "id_embeds"}
-                        else self._face_prompt_embeds
-                    )
-                    
-                    # Call the new two_branch_predict function
-                    noise_pred, noise_face, noise_bg = two_branch_predict(
-                        self,  # pipeline
-                        latent_model_input,  # latent_model_input
-                        t=t,
-                        prompt_embeds=current_prompt_embeds, 
-                        added_cond_kwargs=added_cond_kwargs,
-                        mask4=mask4,
-                        mask4_ref=mask4_ref,
-                        reference_latents=self._ref_latents_all,
-                        # face_prompt_embeds=self._face_prompt_embeds,
-                        face_prompt_embeds=self._face_prompt_embeds if self.face_embed_strategy=="face" else None,
-                        class_tokens_mask=class_tokens_mask,
-                        face_embed_strategy=self.face_embed_strategy,
-                        step_idx=i,
-                        scale=photomaker_scale,  # Use the new parameter
-                        timestep_cond=timestep_cond,
+                # ---------------------------------------------------------- #
+                #  diagnostics
+                # ---------------------------------------------------------- #
+                if i % 1 == 0:  # every step
+                    print(
+                        f"[STEP {i:03d}]  σ={t.item():>6}  "
+                        f"latents={tuple(latents.shape)}[{latents.dtype}]"
                     )
 
-                    # Debug: check if noise_pred has expected values
-                    if i < (branched_attn_start_step + 3):
-                        print(f"[Debug] Step {i}: noise_pred stats - "
-                              f"mean={noise_pred.mean().item():.4f}, "
-                              f"std={noise_pred.std().item():.4f}, "
-                              f"min={noise_pred.min().item():.4f}, "
-                              f"max={noise_pred.max().item():.4f}")                    
-                    
-                    # Clear any temporary state
-                    if hasattr(self, '_kv_override'):
-                        self._kv_override = None
-                        
-                else:
-                    # Standard single-branch prediction
-                    noise_pred = self.unet(
-                        latent_model_input,
-                        t,
-                        encoder_hidden_states=current_prompt_embeds,
-                        timestep_cond=timestep_cond,
-                        cross_attention_kwargs=self.cross_attention_kwargs,
-                        added_cond_kwargs=added_cond_kwargs,
-                        return_dict=False,
-                    )[0]
-            
-                
-                ##### NEW BRANCHED ATTENTION LOGIC ##### 
-    
-                # ## TODO: need to add mask_ref here?
-                            
-                # optional PNG previews of two branches
-                if i % 10 == 0 or i == num_inference_steps - 1: # every 10 steps
-                    if "mask4" in locals() and noise_face is not None:
-                        save_branch_previews(
-                            self,
-                            latents,
-                            noise_pred,  # Just pass the merged prediction
-                            mask4,
-                            t,
-                            i,
-                            debug_dir,
-                            extra_step_kwargs,
-                        )
+                # -- save attention map every 5 steps (if any)
+                # if (
+                #     use_branched_attention
+                #     and i % 5 == 0
+                #     and attn_maps_current           # anything captured yet?
+                # ):
+                #     ln0 = next(iter(attn_maps_current))
+                #     amap = attn_maps_current[ln0][-1]
+                #     # _save_gray(amap, f"{DEBUG_DIR}/heat_{i:03d}.png")
+                #     fname_png = f"{DEBUG_DIR}/heat_{i:03d}_{"wtf"}.png"
+                #     _save_gray(amap, fname_png)          # keep PNG as before
 
+                # -- save attention maps every 5 steps (if any)
+                if (
+                    use_branched_attention
+                    and (i % mask_interval == 0 or i == len(timesteps) - 1)
+                    and attn_maps_current            # anything captured yet?
+                ):
+                    for ln, maps in attn_maps_current.items():
+                        if not maps:                 # safety guard
+                            continue
+                        amap = maps[-1]              # most-recent map this step
+                        safe_ln = ln.replace("/", "_").replace(".", "_")
+  
+                        fname_png = f"{DEBUG_DIR}/heat_{i:03d}_{safe_ln}.png"
+                        _save_gray(amap, fname_png)          # keep PNG as before
+
+
+                    # ── 1. consolidate -> snapshot (mean over heads) ─────────
+                    # snapshot = {ln: np.stack(maps).mean(0)
+                    #             for ln, maps in attn_maps_current.items() if maps}
+                    
+                    # ── 1. consolidate -> snapshot (mean over heads) ─────────
+                    snapshot = {}
+                    for ln, lst in attn_maps_current.items():
+                        # keep only proper 2-D maps
+                        lst2 = [m for m in lst if m.ndim == 2]
+                        if not lst2:
+                            continue
+                        # bring every map to the largest H×H in that list
+                        max_H = max(m.shape[0] for m in lst2)
+                        aligned = [
+                            m if m.shape[0] == max_H else _resize_map(m, max_H)
+                            for m in lst2
+                        ]
+                        snapshot[ln] = np.stack(aligned, axis=0).mean(0)
+                    
+                    if not snapshot:
+                        pass
+                    else:
+                        # ── allocate bookkeeping on first hit ───────────────
+                        if not hasattr(self, "_hm_layers"):
+                            self._hm_layers  = list(snapshot)          # keep *all* layers
+                            self._heatmaps   = {ln: [] for ln in self._hm_layers}
+                            self._step_tags  = []
+
+                        # ── 2. decode current latent → base RGB 1024² ──────
+                        vae_dev = next(self.vae.parameters()).device
+                        img = self.vae.decode(
+                            (latents / self.vae.config.scaling_factor)
+                            .to(device=vae_dev, dtype=self.vae.dtype)
+                        ).sample[0]
+                        img_np = ((img.float() / 2 + 0.5)
+                                  .clamp_(0, 1)
+                                  .permute(1, 2, 0)
+                                  .cpu()
+                                  .numpy() * 255).astype(np.uint8)
+
+                        cmap  = cm.get_cmap("jet")
+                        font  = ImageFont.load_default()
+
+                        for ln in self._hm_layers:
+                            if ln not in snapshot:
+                                continue
+                            amap = snapshot[ln]
+                            amap_n = amap / amap.max() if amap.max() > 0 else amap
+
+                            hmap = (cmap(amap_n)[..., :3] * 255).astype(np.uint8)
+                            hmap = np.array(Image.fromarray(hmap)
+                                            .resize((1024, 1024), Image.BILINEAR))
+                            heat_np = (0.5 * img_np + 0.5 * hmap).astype(np.uint8)
+                            heat_im = Image.fromarray(heat_np)
+
+                            # ----- numeric 5×5 grid ------------------------
+                            draw   = ImageDraw.Draw(heat_im)
+                            H_blk  = amap.shape[0] // 5
+                            W_blk  = amap.shape[1] // 5
+                            vis_h  = 1024 // 5
+                            vis_w  = 1024 // 5
+                            for bi in range(5):
+                                for bj in range(5):
+                                    blk = amap[bi*H_blk:(bi+1)*H_blk,
+                                                bj*W_blk:(bj+1)*W_blk]
+                                    mv  = blk.mean()
+                                    cx  = bj*vis_w + vis_w//2
+                                    cy  = bi*vis_h + vis_h//2
+                                    txt = f"{mv:.2f}"
+                                    tw, th = draw.textbbox((0,0), txt, font=font)[2:]
+                                    draw.text((cx-tw//2, cy-th//2), txt,
+                                              font=font, fill="white",
+                                              stroke_width=1, stroke_fill="black")
+
+                            self._heatmaps[ln].append(heat_im)
+
+                        self._step_tags.append(i)
+
+                        # remember for final PDF
+                        self.__dict__.setdefault("_heat_pngs", []).append(fname_png)
+
+
+                # predict the noise residual
+                noise_pred = self.unet(
+                    latent_model_input,
+                    t,
+                    encoder_hidden_states=current_prompt_embeds,
+                    timestep_cond=timestep_cond,
+                    cross_attention_kwargs=self.cross_attention_kwargs,
+                    added_cond_kwargs=added_cond_kwargs,
+                    return_dict=False,
+                )[0]
 
                 # perform guidance
                 if self.do_classifier_free_guidance:
@@ -1244,7 +1191,9 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     if torch.backends.mps.is_available():
                         # some platforms (eg. apple mps) misbehave due to a pytorch bug: https://github.com/pytorch/pytorch/pull/99272
                         latents = latents.to(latents_dtype)
-
+                    
+   
+      
                 if callback_on_step_end is not None:
                     callback_kwargs = {}
                     for k in callback_on_step_end_tensor_inputs:
@@ -1267,38 +1216,310 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     if callback is not None and i % callback_steps == 0:
                         step_idx = i // getattr(self.scheduler, "order", 1)
                         callback(step_idx, t, latents)
+                
+                # NEW 30 JUL
+                # ───────────── activate branched attention & build mask ─────────────
+                if use_branched_attention and i == branched_attn_start_step - 1:
+                    if not attn_maps_current:
+                        warnings.warn("[BranchedAttn] no attention maps captured – mask disabled.")
+                    else:
+                        # average duplicates then compute binary face-mask identical
+                        # to `attn_hm_NS_nosm7.py`
+                        # snapshot = {
+                        #     ln: np.stack(v).mean(0) for ln, v in attn_maps_current.items()
+                        # }
+
+                        # Average all collected maps per layer.  Normalise each
+                        # map to the *largest* H×H in its list to avoid
+                        # “all input arrays must have the same shape”.
+                        from .mask_utils import _resize_map
+
+                        snapshot = {}
+                        for ln, lst in attn_maps_current.items():
+                            # if not lst:
+                            #     continue
+                            # max_H = max(m.shape[0] for m in lst)
+                            # max_W = max(m.shape[1] for m in lst)
+
+                            # normed = []
+                            # for m in lst:
+                                
+                            # ── drop any malformed (e.g. 1-D) maps ───────────
+                            lst2 = [m for m in lst if m.ndim == 2]
+                            if not lst2:
+                                continue
+
+                            # max_H = max(m.shape[0] for m in lst2)
+                            # max_W = max(m.shape[1] for m in lst2)
+
+                            # normed = []
+                            # for m in lst2:    
+                            #     if m.shape != (max_H, max_W):
+                            #         m = np.array(Image.fromarray(m).resize((max_W, max_H), Image.BILINEAR))
+                            #     normed.append(m)
+
+
+                            # # bring every map to a common resolution
+                            # max_H = max(m.shape[0] for m in lst2)
+                            
+                            # normed = []
+                            # for m in lst2:
+                            #     # identical helpers as in attn_hm_NS_nosm7.py
+                            #     if m.shape[0] != max_H:
+                            #         m = _resize_map(m, max_H)      # keeps alignment
+                            #     normed.append(m)
+                            
+                            
+                            # bring every map to a common resolution ― keep tile
+                            # alignment with the helper used in attn_hm_NS_nosm7.py
+                            max_H = max(m.shape[0] for m in lst2)
+
+                            normed = []
+                            for m in lst2:
+                                if m.shape[0] != max_H:
+                                    m = _resize_map(m, max_H)    # ← grid-aware
+                                normed.append(m)
+                            
+                            
+                            
+                            snapshot[ln] = np.stack(normed, axis=0).mean(0)
+                            
+                        self._face_mask = compute_binary_face_mask(snapshot, MASK_LAYERS_CONFIG)
+                    
+                        # save the binary mask for visual inspection
+                        _save_gray(
+                            self._face_mask.astype(np.uint8) * 255,
+                            f"{DEBUG_DIR}/mask_final.png",
+                        )
+                        
+                        # ─── DEBUG ③: mask statistics
+                        print(
+                            f"[DEBUG] mask built ✓  size={self._face_mask.shape}  "
+                            f"face_pixels={(self._face_mask>0).sum()}"
+                        )
+
+
+                    # Remove hooks (restore original forwards)
+                    for name, module in self.unet.named_modules():
+                        if name in orig_attn_forwards:
+                            module.forward = orig_attn_forwards[name]
+                    attn_maps_current.clear()
+                    orig_attn_forwards.clear()
+                    # Monkey-patch UNet self-attention layers for branched mechanism
+                    from diffusers.models.attention_processor import Attention as CrossAttention
+                    def custom_attn_forward(module, hidden_states, encoder_hidden_states=None, attention_mask=None):
+                        # Use branched attention for self-attn (no encoder_hidden_states)
+                        if encoder_hidden_states is None and hasattr(self, "_face_mask") and self._face_mask is not None:
+                            # separate unconditional and conditional parts if CFG
+                            B, L, C = hidden_states.shape
+                            if self.do_classifier_free_guidance and B % 2 == 0:
+                                B_half = B // 2
+                                hidden_uncond = hidden_states[:B_half]
+                                hidden_cond = hidden_states[B_half:]
+                            else:
+                                B_half = 0
+                                hidden_uncond = None
+                                hidden_cond = hidden_states
+                            # Do standard self-attn for unconditional part (no face injection)
+                            out_uncond = None
+                            if hidden_uncond is not None:
+                                out_uncond = module._orig_forward(hidden_uncond, None, attention_mask)
+                            # Prepare for conditional branch attention
+                            hs = hidden_cond
+                            B_cond = hs.shape[0]
+                            # Project Q, K, V for current latent
+                            q_proj = module.to_q(hs) if hasattr(module, "to_q") else module.q_proj(hs)  # (B_cond, L, inner_dim)
+                            k_proj = module.to_k(hs) if hasattr(module, "to_k") else module.k_proj(hs)  # (B_cond, L, inner_dim)
+                            v_proj = module.to_v(hs) if hasattr(module, "to_v") else module.v_proj(hs)  # (B_cond, L, inner_dim)
+                            # Reshape for multi-head
+                            Bc, Lc, Ci = q_proj.shape
+                            h = module.heads
+                            d = Ci // h
+                            Q = q_proj.view(Bc, Lc, h, d).permute(0, 2, 1, 3)  # (B_cond, h, L, d)
+                            Kc = k_proj.view(Bc, Lc, h, d).permute(0, 2, 1, 3)  # (B_cond, h, L, d)
+                            Vc = v_proj.view(Bc, Lc, h, d).permute(0, 2, 1, 3)  # (B_cond, h, L, d)
+                            # Determine face vs background query indices for this resolution
+                            L_curr = Lc
+                            H_curr = int(math.sqrt(L_curr))
+                            mask = torch.from_numpy(self._face_mask)  # shape (H_map, W_map)
+                            H_map = mask.shape[0]
+                            if H_map != H_curr:
+                                # Downsample or upsample mask to current resolution
+                                # Compute factor (assuming integer scale)
+                                if H_map % H_curr == 0:
+                                    factor = H_map // H_curr
+                                    # Downsample: group factor x factor blocks
+                                    mask = mask.view(H_curr, factor, H_curr, factor).any(dim=(1, 3))
+                                elif H_curr % H_map == 0:
+                                    factor = H_curr // H_map
+                                    mask = mask.repeat_interleave(factor, dim=0).repeat_interleave(factor, dim=1)
+                                else:
+                                    mask = F.interpolate(mask.float().unsqueeze(0).unsqueeze(0),
+                                                         size=(H_curr, H_curr), mode="nearest")[0,0] > 0.5
+                            mask_flat = mask.view(-1).to(device=hidden_states.device)
+                            face_idx = mask_flat.nonzero(as_tuple=True)[0]  # indices of face region queries
+                            bg_idx = (~mask_flat).nonzero(as_tuple=True)[0]  # indices of background queries
+                            L_face = face_idx.shape[0]
+                            L_bg = bg_idx.shape[0]
+                            # Compute standard self-attention output for all queries (we will override face part)
+                            # shape for bmm: flatten batch and heads
+                            Q_flat = Q.reshape(Bc * h, Lc, d)
+                            Kc_flat = Kc.reshape(Bc * h, Lc, d)
+                            Vc_flat = Vc.reshape(Bc * h, Lc, d)
+                            attn_scores = torch.baddbmm(
+                                torch.empty(Bc * h, Lc, Lc, device=Q_flat.device, dtype=Q_flat.dtype),
+                                Q_flat,
+                                Kc_flat.transpose(-1, -2),
+                                beta=0,
+                                alpha=module.scale,
+                            )  # (B_cond*heads, L, L)
+                            attn_probs = attn_scores.softmax(dim=-1)
+                            context_all = torch.bmm(attn_probs, Vc_flat)  # (B_cond*heads, L, d)
+                            context_all = context_all.view(Bc, h, Lc, d)
+                            # Compute face-branch attention for face query positions
+                            if L_face > 0:
+                                # Prepare reference image keys/values
+                                # Use CLIP patch features for reference face region if available, else fall back to id_embeds
+                                if face_embed_strategy.lower() == "heatmap":
+                                    # Use CLIP vision patch features directly for reference
+                                    # (Already processed via id_encoder in else branch, which uses CLIP global. 
+                                    # For patch-level features, we reuse internal CLIP features)
+                                    last_hidden = self.id_encoder.vision_model(id_pixel_values.to(device=device))[0]  # (1, n_patches+1, 1024)
+                                    # Identify face region patches (approx): use same mask scaled to CLIP patch grid
+                                    # CLIP ViT-L/14 yields 16x16 patches for 224x224 input
+                                    clip_patches = last_hidden[:, 1:, :]  # exclude CLS
+                                    n_patches = clip_patches.shape[1]
+                                    H_patch = W_patch = int(math.sqrt(n_patches))
+                                    # If face_mask at output resolution, roughly assume face occupies similar area in CLIP input
+                                    face_mask_patch = F.interpolate(mask.float().view(1,1,H_curr,H_curr), size=(H_patch, W_patch), mode="nearest")
+                                    face_mask_patch = face_mask_patch.view(-1) >= 0.5
+                                    ref_keys = clip_patches[0, face_mask_patch, :].to(device=hidden_states.device)  # shape (M, 1024)
+                                    if ref_keys.numel() == 0:
+                                        ref_keys = clip_patches[0:1, 0:1, :].to(device=hidden_states.device)  # fallback to CLS if no face patch
+                                    # Project CLIP patch features to UNet latent dim via a linear
+                                    proj_dim = hs.shape[-1]
+                                    k_proj_layer = nn.Linear(ref_keys.shape[-1], d).to(device=hidden_states.device)
+                                    v_proj_layer = nn.Linear(ref_keys.shape[-1], d).to(device=hidden_states.device)
+                                    # K_ref = k_proj_layer(ref_keys)  # (M, d)
+                                    # V_ref = v_proj_layer(ref_keys)  # (M, d)
+                                    
+                                    # make dtype match UNet attention tensors (bfloat16/fp16)
+                                    K_ref = k_proj_layer(ref_keys).to(dtype=Q.dtype)  # (M, d)
+                                    V_ref = v_proj_layer(ref_keys).to(dtype=Q.dtype)  # 
+                                else:
+                                    # # face_embed_strategy == "faceanalysis": use ArcFace embedding vector
+                                    # ref_vec = id_embeds.to(device=hidden_states.device).float()  # (512,)
+                                    # # Project to head dimension
+                                    # k_proj_layer = nn.Linear(ref_vec.shape[0], d).to(device=hidden_states.device)
+                                    # v_proj_layer = nn.Linear(ref_vec.shape[0], d).to(device=hidden_states.device)
+                                    # K_ref = k_proj_layer(ref_vec).unsqueeze(0)  # (1, d)
+                                    # V_ref = v_proj_layer(ref_vec).unsqueeze(0)  # (1, d)
+                                    
+                                    # face_embed_strategy == "faceanalysis":
+                                    # `id_embeds` arrives as (1, 1, 512) (or (1, 512)).  Squeeze to 2-D
+                                    # (1, 512) before projection so Linear's in_features is 512, not 1.
+                                    ref_vec = id_embeds.squeeze().to(hidden_states.device).float()
+                                    if ref_vec.dim() == 1:                       # (512,) → (1, 512)
+                                        ref_vec = ref_vec.unsqueeze(0)
+
+                                    in_feats = ref_vec.shape[-1]                 # usually 512
+
+                                    # project to the head dimension `d`
+                                    k_proj_layer = torch.nn.Linear(
+                                        in_feats, d, bias=False
+                                    ).to(hidden_states.device)
+                                    v_proj_layer = torch.nn.Linear(
+                                        in_feats, d, bias=False
+                                    ).to(hidden_states.device)
+
+                                    K_ref = k_proj_layer(ref_vec).to(dtype=Q.dtype)       # (1, d) – dtype aligned
+                                    V_ref = v_proj_layer(ref_vec).to(dtype=Q.dtype)       # (1, d) – dtype aligned    
+                                    
+                                # Compute face-query attention
+                                Q_face = Q[:, :, face_idx, :]  # (B_cond, h, L_face, d)
+                                # Expand K_ref, V_ref to include head dimension
+                                K_ref_h = K_ref.unsqueeze(0).expand(h, -1, -1)  # (h, M, d)
+                                V_ref_h = V_ref.unsqueeze(0).expand(h, -1, -1)  # (h, M, d)
+                                # Compute dot-product attention for face queries
+                                # Reshape Q_face to (B_cond*h, L_face, d)
+                                Q_face_flat = Q_face.permute(0,2,1,3).reshape(Bc * L_face, h, d)  # Actually, easier to loop per head than flatten differently
+                                Q_face_flat = Q_face.reshape(Bc * h, L_face, d)  # (B_cond* h, L_face, d)
+                                # Prepare K_ref repeated for batch
+                                K_ref_flat = K_ref_h.unsqueeze(0).expand(Bc, -1, -1, -1).reshape(Bc * h, -1, d)
+                                V_ref_flat = V_ref_h.unsqueeze(0).expand(Bc, -1, -1, -1).reshape(Bc * h, -1, d)
+                                attn_scores_face = torch.baddbmm(
+                                    torch.empty(Bc * h, L_face, K_ref_flat.shape[1], device=Q_face_flat.device, dtype=Q_face_flat.dtype),
+                                    Q_face_flat,
+                                    K_ref_flat.transpose(-1, -2),
+                                    beta=0,
+                                    alpha=module.scale,
+                                )
+                                attn_probs_face = attn_scores_face.softmax(dim=-1)
+                                context_face = torch.bmm(attn_probs_face, V_ref_flat)  # (B_cond*h, L_face, d)
+                                context_face = context_face.view(Bc, h, L_face, d)
+                                # Replace corresponding outputs in context_all
+                                context_all[:, :, face_idx, :] = context_face
+                            # Merge heads back and project out
+                            context_flat = context_all.permute(0, 2, 1, 3).reshape(Bc, Lc, Ci)
+                            hidden_cond_out = module.to_out[0](context_flat)
+                            hidden_cond_out = module.to_out[1](hidden_cond_out)
+                            # Combine with unconditional (if exists)
+                            if out_uncond is not None:
+                                hidden_out = torch.cat([out_uncond, hidden_cond_out], dim=0)
+                            else:
+                                hidden_out = hidden_cond_out
+                            # Add residual connection if applicable
+                            if getattr(module, "residual_connection", False):
+                                hidden_out = hidden_out + hidden_states
+                            return hidden_out
+                        else:
+                            # For cross-attention or if branched mask not set, use original forward
+                            return module._orig_forward(hidden_states, encoder_hidden_states, attention_mask)
+                    # end custom_attn_forward
+                    # Patch all Attention modules that are self-attn
+                    for name, module in self.unet.named_modules():
+                        if isinstance(module, CrossAttention):
+                            # Only patch if not cross-only (module.is_cross_attention == False)
+                            if not getattr(module, "is_cross_attention", False):
+                                module._orig_forward = module.forward  # backup original
+                                module.forward = types.MethodType(custom_attn_forward, module)
 
                 if XLA_AVAILABLE:
                     xm.mark_step()
-                
-        ### NEW BRANCHED ATTENTION LOGIC ###
-        ## CLEANUP ##
-        if use_branched_attention:
-            # Restore original processors
-             restore_original_processors(self)
-             
-             # Clean up temporary attributes
-             for attr in ['_reference_latents', '_face_prompt_embeds', '_ref_latents_all']:
-                 if hasattr(self, attr):
-                     delattr(self, attr)
+                    
 
-             # Save heatmap PDF after inference completes
-             if hasattr(self, 'mask_generator') and self.mask_generator.save_hm_pdf:
-                 # Get final image from last latents
-                 final_image = None
-                 if latents is not None:
-                     with torch.no_grad():
-                         lat_scaled = (latents[0:1] / self.vae.config.scaling_factor).to(self.vae.dtype)
-                         img = self.vae.decode(lat_scaled).sample[0]
-                         final_image = ((img.float() / 2 + 0.5).clamp(0, 1).permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
-                 self.mask_generator.save_heatmap_pdf(final_image)
 
-             # Cleanup dynamic mask generator
-             if hasattr(self, 'mask_generator'):
-                 self.mask_generator.cleanup()
+        # ── AFTER denoising: build coloured montage strips per layer ──────
+        if hasattr(self, "_heatmaps"):
+            header_h    = 30
+            final_clean = self._heatmaps[self._hm_layers[0]][-1] \
+                          if self._heatmaps[self._hm_layers[0]] else None
 
-            
-        ### NEW BRANCHED ATTENTION LOGIC ###
+            for ln, frames in self._heatmaps.items():
+                if not frames:
+                    continue
+                cols = frames + ([final_clean] if final_clean else [])
+
+                img_w, img_h = cols[0].width, cols[0].height
+                strip = Image.new("RGB",
+                                  (img_w * len(cols), img_h + header_h),
+                                  "black")
+                draw  = ImageDraw.Draw(strip)
+                font  = ImageFont.load_default()
+
+                for idx, frm in enumerate(cols):
+                    x = idx * img_w
+                    strip.paste(frm, (x, header_h))
+                    label = ("Final" if idx >= len(self._step_tags)
+                             else f"S{self._step_tags[idx]}")
+                    tw, th = draw.textbbox((0,0), label, font=font)[2:]
+                    draw.text((x + (img_w-tw)//2, (header_h-th)//2),
+                              label, font=font, fill="white")
+
+                safe_ln = ln.replace("/", "_").replace(".", "_")
+                out_jpg = Path(DEBUG_DIR) / f"{safe_ln}_attn_hm.jpg"
+                strip.save(out_jpg, quality=95)
+                print(f"[DEBUG] heat-map strip saved → {out_jpg}")
 
         if not output_type == "latent":
             # make sure the VAE is in float32 mode, as it overflows in float16
@@ -1312,8 +1533,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     # some platforms (eg. apple mps) misbehave due to a pytorch bug: https://github.com/pytorch/pytorch/pull/99272
                     self.vae = self.vae.to(latents.dtype)
 
-            # unscale/denormalize the latents
-            # denormalize with the mean and std if available and not None
             has_latents_mean = hasattr(self.vae.config, "latents_mean") and self.vae.config.latents_mean is not None
             has_latents_std = hasattr(self.vae.config, "latents_std") and self.vae.config.latents_std is not None
             if has_latents_mean and has_latents_std:
@@ -1349,15 +1568,3 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             return (image,)
 
         return StableDiffusionXLPipelineOutput(images=image)
-    
-    ### NEW BRANCHED ATTENTION LOGIC ###
-    @property
-    def cross_attention_kwargs(self):
-        """Get cross attention kwargs if they exist."""
-        return getattr(self, '_cross_attention_kwargs', None)
-
-    @cross_attention_kwargs.setter
-    def cross_attention_kwargs(self, value):
-        """Set cross attention kwargs."""
-        self._cross_attention_kwargs = value
-    ### NEW BRANCHED ATTENTION LOGIC ###

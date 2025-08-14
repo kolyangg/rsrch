@@ -57,9 +57,6 @@ from .branch_helpers import (
 from .mask_utils import compute_binary_face_mask, simple_threshold_mask
 from .mask_utils import MASK_LAYERS_CONFIG
 
-# Import dynamic mask generation
-from .add_masking import DynamicMaskGenerator, get_default_mask_config
-
 
 import os
 import numpy as np
@@ -586,41 +583,23 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         # ───────────────────  Branched-attention switches  ───────────────────
         use_branched_attention: bool = False,
         photomaker_scale: float = 1.0,  # Add scale parameter for attention
-        save_heatmaps: bool = True,
+        save_heatmaps: bool = False,
         branched_attn_start_step: int = 10,
         heatmap_mode: str = "identity",          # or "token"
         focus_token: str = "",
         mask_mode: str = "spec",                 # or "simple"
         face_embed_strategy: str = "face", # "face", #  "face" or "id_embeds"
-        import_mask: Optional[str] = "hm_debug/keanu_gen_mask.png",
+        # import_mask: Optional[str] = "hm_debug/keanu_gen_mask.png",
         # import_mask: Optional[str] = "hm_debug/keanu_gen_mask_white_new.png",
-        import_mask_ref: Optional[str] = "hm_debug/keanu_ref_mask.png",
+        # import_mask_ref: Optional[str] = "hm_debug/keanu_ref_mask.png",
         
-        # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_new.jpg",
-        # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_new_easy.png",
+        import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_new.jpg",
         # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_white_new.png",
-        # import_mask_ref: Optional[str] = "../compare/testing/ref3_masks/eddie_mask_new.png",
+        import_mask_ref: Optional[str] = "../compare/testing/ref3_masks/eddie_mask_new.png",
         
         # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_white.jpg",
         # import_mask_ref: Optional[str] = "../compare/testing/ref3_masks/eddie_mask_white.jpg",
         # ───────── Debug / branch-preview switches ─────────
-
-        # ───────── Dynamic mask generation parameters ─────────────
-        # use_dynamic_mask_ref: bool = False,
-
-        use_dynamic_mask: bool = True,
-        # use_dynamic_mask: bool = True,
-        mask_start: int = 10,
-        mask_end: int = 20,
-        save_heatmaps_dynamic: bool = True,
-        token_focus: str = "face",
-        add_token_to_prompt: bool = False,
-        mask_layers_config: Optional[List[Dict]] = None,
-        # save_heatmap_pdf: bool = False,
-        save_hm_pdf: bool = True,
-        heatmap_interval: int = 5,
- 
-
         debug_save_face_branch: bool = True,
         debug_save_bg_branch: bool = True,
         debug_dir: str = "hm_debug",
@@ -798,46 +777,23 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         # ================================================================
         #  Branched-attention one-off preparation
         # ================================================================
-        if use_branched_attention or save_heatmaps or save_hm_pdf:
+        if use_branched_attention:
 
             self._heatmaps      = {}
             self._hm_layers     = [s["name"] for s in MASK_LAYERS_CONFIG]
             self._step_tags     = []              # for pretty frame labels
             self._orig_forwards = {}
 
-        # ================================================================
-        #  Initialize dynamic mask generator
-        # ================================================================
-        if save_heatmaps or save_hm_pdf:
-            self.mask_generator = DynamicMaskGenerator(
-                pipeline=self,
-                use_dynamic_mask=use_dynamic_mask,
-                mask_start=mask_start,
-                mask_end=mask_end,
-                save_heatmaps=save_heatmaps_dynamic,
-                token_focus=token_focus,
-                add_to_prompt=add_token_to_prompt,
-                mask_layers_config=mask_layers_config or get_default_mask_config(),
-                debug_dir=debug_dir,
-                save_hm_pdf=save_hm_pdf,
-                heatmap_interval=heatmap_interval,
-                num_inference_steps=num_inference_steps,
-            )
-
-            # Setup hooks before denoising loop
-            self.mask_generator.setup_hooks(prompt, class_tokens_mask)
-
-
-        if use_branched_attention or save_heatmaps or save_hm_pdf:
-            collect_attention_hooks(
-                self,
-                heatmap_mode,
-                focus_token,
-                class_tokens_mask,
-                self.do_classifier_free_guidance,
-                self._heatmaps,
-                self._orig_forwards,
-            )
+            if use_branched_attention or save_heatmaps:
+                collect_attention_hooks(
+                    self,
+                    heatmap_mode,
+                    focus_token,
+                    class_tokens_mask,
+                    self.do_classifier_free_guidance,
+                    self._heatmaps,
+                    self._orig_forwards,
+                )
 
 
         # 7. Get the update text embedding with the stacked ID embedding
@@ -868,7 +824,23 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         
         
         ##### NEW BRANCHED ATTENTION LOGIC #####
-
+        # if use_branched_attention:
+        #     # Encode reference latents from input ID images
+        #     if input_id_images is not None and len(input_id_images) > 0:
+        #         # Use id_pixel_values which are already processed
+        #         h_lat = height // self.vae_scale_factor
+        #         w_lat = width // self.vae_scale_factor
+                
+        #         # Encode the reference image to latents
+        #         from .branched_v4 import encode_face_latents
+        #         self._ref_latents_all = encode_face_latents(
+        #             self, 
+        #             id_pixel_values, 
+        #             (h_lat, w_lat), 
+        #             latents.dtype
+        #         )
+        
+        
         if use_branched_attention:
             # Encode reference latents with AR-preserving resize + letterbox to (H,W)
             if input_id_images is not None and len(input_id_images) > 0:
@@ -905,6 +877,24 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     ref_latents = self.vae.encode(ref_pixels).latent_dist.sample() * self.vae.config.scaling_factor
                 self._ref_latents_all = ref_latents  # shape (1,4,H/8,W/8)
                 
+                # Store ID embeddings for potential use in attention
+                # if id_embeds is not None:
+                #     self._id_embeds = id_embeds
+                #     # Ensure proper shape for attention [B, seq_len, dim]
+                #     if id_embeds.dim() == 2:
+                #         self._id_embeds = id_embeds.unsqueeze(0)
+                #     else:
+                #         self._id_embeds = id_embeds
+                # else:
+                #     # Get ID embeddings from encoder if not provided
+                #     self._id_embeds = prompt_embeds  # After ID encoder processing
+                #     # Use the face-specific part of prompt_embeds
+                #     if hasattr(self, 'class_tokens_mask') and class_tokens_mask is not None:
+                #         # Extract face tokens from prompt_embeds
+                #         face_mask = class_tokens_mask.unsqueeze(-1).expand_as(prompt_embeds)
+                #         self._id_embeds = prompt_embeds * face_mask
+                #     else:
+                #         self._id_embeds = prompt_embeds
                 
                 
                 if id_embeds is not None:
@@ -955,6 +945,33 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 self._ref_latents_all = latents.clone()
                 self._reference_latents = self._ref_latents_all
                 self._ref_img = None
+            
+            # # Pre-encode face prompt for efficiency
+            # self._face_prompt_embeds = encode_face_prompt(
+            #     self,
+            #     device=device,
+            #     batch_size=batch_size,
+            #     do_classifier_free_guidance=self.do_classifier_free_guidance,
+            # )
+            
+        
+            
+            # # Store strategy for processors
+            # self.face_embed_strategy = face_embed_strategy
+            
+            # # Choose face-branch conditioning source
+            # fes = (face_embed_strategy or "face").lower()
+            # if fes in {"id", "id_embeds"}:
+            #     # Use PhotoMaker-ID–enhanced text embeddings (same shape as gen)
+            #     self._face_prompt_embeds = None  # we’ll pass per-step current_prompt_embeds
+            # else:
+            #     # Default: dedicated "face" text encoding
+            #     self._face_prompt_embeds = encode_face_prompt(
+            #         self, device=device, batch_size=batch_size,
+            #         do_classifier_free_guidance=self.do_classifier_free_guidance,
+            #     ).to(device)
+            # self.face_embed_strategy = fes
+            
             
             # Canonicalize strategy & keep for per-step call
             fes = (face_embed_strategy or "face").lower()
@@ -1043,6 +1060,17 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         #### NEW BRANCHED ATTENTION LOGIC ####
         
         
+        #### NEW BRANCHED ATTENTION LOGIC #### - check face_prompt_embeds as id_embeds
+        # if use_branched_attention:
+        #     # self._face_prompt_embeds = id_embeds            
+        #     # Use the ID embeddings from PhotoMaker encoder
+        #     if id_embeds is not None:
+        #         self._face_prompt_embeds = id_embeds.to(device=device, dtype=prompt_embeds.dtype)
+        #     else:
+        #         self._face_prompt_embeds = prompt_embeds  # Use full prompt embeds as fallback
+        # # Keep `_face_prompt_embeds` from encode_face_prompt; no override here.
+        #### NEW BRANCHED ATTENTION LOGIC #### - check face_prompt_embeds as id_embeds
+
 
         # 11. Denoising loop
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
@@ -1088,7 +1116,31 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 noise_face: torch.Tensor | None = None
                 noise_bg:   torch.Tensor | None = None
                 
-  
+                
+                # # ───── choose prompt-conditioning for this step (must come FIRST) ─────
+                # # if i <= start_merge_step:
+                # # Use text-only prompt for the background branch whenever branched CA is active.
+                # if (use_branched_attention and i >= branched_attn_start_step) or (i <= start_merge_step):
+                #     current_prompt_embeds = torch.cat(
+                #         [negative_prompt_embeds, prompt_embeds_text_only], dim=0
+                #     ) if self.do_classifier_free_guidance else prompt_embeds_text_only
+
+                #     add_text_embeds = torch.cat(
+                #         [negative_pooled_prompt_embeds, pooled_prompt_embeds_text_only], dim=0
+                #     ) if self.do_classifier_free_guidance else pooled_prompt_embeds_text_only
+                # else:
+                #     current_prompt_embeds = torch.cat(
+                #         [negative_prompt_embeds, prompt_embeds], dim=0
+                #     ) if self.do_classifier_free_guidance else prompt_embeds
+
+                # #     add_text_embeds = torch.cat(
+                # #         [negative_pooled_prompt_embeds, pooled_prompt_embeds], dim=0
+                # #    ) if self.do_classifier_free_guidance else pooled_prompt_embeds
+
+                #     add_text_embeds = torch.cat(
+                #         [negative_pooled_prompt_embeds, pooled_prompt_embeds_text_only], dim=0
+                #     ) if self.do_classifier_free_guidance else pooled_prompt_embeds_text_only
+                
                 
                 # ───── choose prompt-conditioning for this step (must come FIRST) ─────
                 # Before PhotoMaker merge: use text-only to avoid early leakage.
@@ -1110,7 +1162,56 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 if ip_adapter_image is not None or ip_adapter_image_embeds is not None:
                     added_cond_kwargs["image_embeds"] = image_embeds
                 
+                # # ------------------------------------------------------------
+                # #  Activate branched-attention after <branched_attn_start_step>
+                # # ------------------------------------------------------------
+                
+                # mask4 = None                     # ← ensure symbol always exists
+                # mask4_ref = None                 # ← ensure symbol always exists
+                
+                # if use_branched_attention and i >= branched_attn_start_step:
+                #     # Build mask once & fetch `(1,1,H,W)` version for this step
+                #     aggregate_heatmaps_to_mask(self, mask_mode, import_mask, suffix="")
+                #     mask4      = prepare_mask4(self, latent_model_input, suffix="")
+                    
+                #     aggregate_heatmaps_to_mask(self, mask_mode, import_mask_ref, suffix="_ref")
+                #     mask4_ref      = prepare_mask4(self, latent_model_input, suffix="_ref")
 
+                #     # --- quick check
+                #     if mask4 is not None and mask4_ref is not None and (i == branched_attn_start_step or i % 10 == 0):
+                #         print(f"[PL] step={i}  mask_gen>0.5={(mask4>0.5).float().mean().item():.4f}  mask_ref>0.5={(mask4_ref>0.5).float().mean().item():.4f}")
+
+
+                #     # Verify masks are different
+                #     if mask4 is not None and mask4_ref is not None:
+                #       mask_diff = (mask4 - mask4_ref).abs().mean().item()
+                #       if mask_diff < 0.01:
+                #           print(f"[Warning] Noise and ref masks are nearly identical (diff={mask_diff:.4f})")
+
+                #     # ---- once-per-run debug dumps --------------------
+                #     debug_reference_latents_once(self, mask4_ref, debug_dir)  
+                #     if i == branched_attn_start_step:
+                #         save_debug_ref_latents(self, debug_dir)                  
+                    
+
+                    ##### NEW BRANCHED ATTENTION LOGIC #####
+
+                #     ## Optional: Add mask generation from attention if not using imported masks
+                #     if use_branched_attention and i >= branched_attn_start_step:
+                #         if mask4 is None and hasattr(self, '_attention_maps'):
+                #             # Generate mask from collected attention maps
+                #             mask4 = create_face_mask_from_attention(
+                #                 self,
+                #                 self._attention_maps,
+                #                 threshold=0.5
+                #             )
+                        
+                #         # Ensure mask4 has correct shape
+                #         if mask4 is not None and mask4.shape[0] != batch_size:
+                #             mask4 = mask4.expand(batch_size, -1, -1, -1)
+                #     ## Optional: Add mask generation from attention if not using imported masks
+
+   
                 ##### NEW BRANCHED ATTENTION LOGIC #####
                 
                 # ------------------------------------------------------------
@@ -1118,32 +1219,13 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 # ------------------------------------------------------------
                 mask4 = None
                 mask4_ref = None
-
-                # ============================================================
-                #  Update dynamic mask if enabled
-                # ============================================================
-                if use_dynamic_mask:
-                    # self.mask_generator.update_mask(i)
-                    self.mask_generator.update_mask(i, latents)
                                 
                 
                 if use_branched_attention and i >= branched_attn_start_step:
-                    # Build noise mask - use dynamic if available, otherwise use import_mask
-                    if use_dynamic_mask:
-                        mask_np, mask_tensor = self.mask_generator.get_mask_for_pipeline()
-                        if mask_np is not None:
-                            self._face_mask = mask_np
-                            self._face_mask_t = mask_tensor
-                    
-                    if not hasattr(self, '_face_mask') or self._face_mask is None:
-                        aggregate_heatmaps_to_mask(self, mask_mode, import_mask, suffix="")
-
+                    # Build noise & ref masks once per step (single source of truth)
+                    aggregate_heatmaps_to_mask(self, mask_mode, import_mask,      suffix="")
                     mask4     = prepare_mask4(self, latent_model_input, suffix="")
-                    
-                    # Build ref mask from import_mask_ref (unchanged)
-                    aggregate_heatmaps_to_mask(self, mask_mode, import_mask_ref, suffix="_ref")
-
-
+                    aggregate_heatmaps_to_mask(self, mask_mode, import_mask_ref,  suffix="_ref")
                     mask4_ref = prepare_mask4(self, latent_model_input, suffix="_ref")
                     
                     # Quick checks & one-off debug (moved here)
@@ -1281,21 +1363,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
              for attr in ['_reference_latents', '_face_prompt_embeds', '_ref_latents_all']:
                  if hasattr(self, attr):
                      delattr(self, attr)
-
-             # Save heatmap PDF after inference completes
-             if hasattr(self, 'mask_generator') and self.mask_generator.save_hm_pdf:
-                 # Get final image from last latents
-                 final_image = None
-                 if latents is not None:
-                     with torch.no_grad():
-                         lat_scaled = (latents[0:1] / self.vae.config.scaling_factor).to(self.vae.dtype)
-                         img = self.vae.decode(lat_scaled).sample[0]
-                         final_image = ((img.float() / 2 + 0.5).clamp(0, 1).permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
-                 self.mask_generator.save_heatmap_pdf(final_image)
-
-             # Cleanup dynamic mask generator
-             if hasattr(self, 'mask_generator'):
-                 self.mask_generator.cleanup()
 
             
         ### NEW BRANCHED ATTENTION LOGIC ###

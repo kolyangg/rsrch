@@ -48,7 +48,7 @@ parser.add_argument("--branched_start_step", type=int, default=10,
                     help="Denoising step at which branched attention kicks in")
 parser.add_argument("--face_embed_strategy", choices=["face", "id_embeds"],
                     default="face", # default="faceanalysis",
-                    help="Reference-face embedding to use in the face branch")
+                    help="Face branch conditioning: 'face' text or PhotoMaker ID–enhanced")
 args = parser.parse_args()
 
 try:

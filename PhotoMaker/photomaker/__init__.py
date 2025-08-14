@@ -2,7 +2,7 @@ from .model import PhotoMakerIDEncoder
 from .model_v2 import PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken
 from .resampler import FacePerceiverResampler
 # from .pipeline import PhotoMakerStableDiffusionXLPipeline
-# from .pipeline_NS import PhotoMakerStableDiffusionXLPipeline2
+from .pipeline_NS_ import PhotoMakerStableDiffusionXLPipeline2 # for inference_scripts/attn_hm_NS_nosm7.py
 # from .pipeline_NS_old2 import PhotoMakerStableDiffusionXLPipeline2
 # from .pipeline_NS_old3 import PhotoMakerStableDiffusionXLPipeline2
 # from .pipeline_NS2 import PhotoMakerStableDiffusionXLPipeline2
