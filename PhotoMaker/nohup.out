@@ -1,0 +1,105 @@
+Found existing installation: photomaker 0.2.0
+Uninstalling photomaker-0.2.0:
+  Successfully uninstalled photomaker-0.2.0
+Obtaining file:///home/kolyangg/rsrch/PhotoMaker
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: photomaker
+  Building editable for photomaker (pyproject.toml): started
+  Building editable for photomaker (pyproject.toml): finished with status 'done'
+  Created wheel for photomaker: filename=photomaker-0.2.0-py3-none-any.whl size=10263 sha256=44045b07cbcd02f3e1f9c445c8ff4a3b78ab6b37d9b4dd1776b3aa7557959b29
+  Stored in directory: /tmp/pip-ephem-wheel-cache-m3qmrpv3/wheels/1e/67/6e/6d4e36312c31a1798c40f3b541d9304ca4cff940c892bd07e4
+Successfully built photomaker
+Installing collected packages: photomaker
+Successfully installed photomaker-0.2.0
+
+[notice] A new release of pip is available: 25.1.1 -> 25.2
+[notice] To update, run: pip install --upgrade pip
+/home/kolyangg/anaconda3/envs/photomaker/lib/python3.10/site-packages/diffusers/models/transformers/transformer_2d.py:34: FutureWarning: `Transformer2DModelOutput` is deprecated and will be removed in version 1.0.0. Importing `Transformer2DModelOutput` from `diffusers.models.transformer_2d` is deprecated and this will be removed in a future version. Please use `from diffusers.models.modeling_outputs import Transformer2DModelOutput`, instead.
+  deprecate("Transformer2DModelOutput", "1.0.0", deprecation_message)
+/home/kolyangg/anaconda3/envs/photomaker/lib/python3.10/site-packages/onnxruntime/capi/onnxruntime_inference_collection.py:121: UserWarning: Specified provider 'CUDAExecutionProvider' is not in available provider names.Available providers: 'AzureExecutionProvider, CPUExecutionProvider'
+  warnings.warn(
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+model ignore: /home/kolyangg/.insightface/models/buffalo_l/1k3d68.onnx landmark_3d_68
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+model ignore: /home/kolyangg/.insightface/models/buffalo_l/2d106det.onnx landmark_2d_106
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+find model: /home/kolyangg/.insightface/models/buffalo_l/det_10g.onnx detection [1, 3, '?', '?'] 127.5 128.0
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+model ignore: /home/kolyangg/.insightface/models/buffalo_l/genderage.onnx genderage
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+find model: /home/kolyangg/.insightface/models/buffalo_l/w600k_r50.onnx recognition ['None', 3, 112, 112] 127.5 127.5
+set det-size: (640, 640)
+[Seed] Using seed = 42
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  14%|█▍        | 1/7 [00:00<00:02,  2.66it/s]Loading pipeline components...:  71%|███████▏  | 5/7 [00:02<00:00,  2.43it/s]Loading pipeline components...: 100%|██████████| 7/7 [00:02<00:00,  3.44it/s]Loading pipeline components...: 100%|██████████| 7/7 [00:02<00:00,  3.14it/s]
+Loading PhotoMaker v2 components [1] id_encoder from [/home/kolyangg/.cache/huggingface/hub/models--TencentARC--PhotoMaker-V2/snapshots/f5a1e5155dc02166253fa7e29d13519f5ba22eac]...
+4096
+Loading PhotoMaker v2 components [2] lora_weights from [/home/kolyangg/.cache/huggingface/hub/models--TencentARC--PhotoMaker-V2/snapshots/f5a1e5155dc02166253fa7e29d13519f5ba22eac]
+[DEBUG] Using upgraded pipeline_NS.py
+[WARN] class_tokens_mask is None – will fallback to last 2 tokens
+[DBG] VAE ref-latents ready  shape=torch.Size([1, 4, 28, 28])  dtype=torch.bfloat16
+[DEBUG] branched=True  save_heatmaps=True  start_step=10  strategy=faceanalysis
+[INFO] imported face mask from hm_debug/mask_export.png  shape=(32, 32)
+[DEBUG] self-attention patched count = 70
+  0%|          | 0/50 [00:00<?, ?it/s]  2%|▏         | 1/50 [00:00<00:27,  1.76it/s]  6%|▌         | 3/50 [00:00<00:09,  5.18it/s] 10%|█         | 5/50 [00:00<00:06,  6.48it/s] 14%|█▍        | 7/50 [00:01<00:05,  7.26it/s] 18%|█▊        | 9/50 [00:01<00:05,  7.69it/s] 22%|██▏       | 11/50 [00:02<00:07,  5.15it/s] 26%|██▌       | 13/50 [00:02<00:05,  6.67it/s] 30%|███       | 15/50 [00:02<00:04,  7.17it/s] 34%|███▍      | 17/50 [00:02<00:04,  7.52it/s] 38%|███▊      | 19/50 [00:02<00:03,  7.79it/s] 42%|████▏     | 21/50 [01:21<05:52, 12.17s/it] 46%|████▌     | 23/50 [02:42<09:23, 20.86s/it] 50%|█████     | 25/50 [04:00<10:58, 26.32s/it] 54%|█████▍    | 27/50 [05:18<11:32, 30.11s/it] 58%|█████▊    | 29/50 [06:35<11:27, 32.76s/it] 62%|██████▏   | 31/50 [07:53<10:58, 34.64s/it] 66%|██████▌   | 33/50 [09:15<10:20, 36.50s/it] 70%|███████   | 35/50 [10:34<09:21, 37.46s/it] 74%|███████▍  | 37/50 [11:53<08:14, 38.01s/it] 78%|███████▊  | 39/50 [13:12<07:02, 38.41s/it] 82%|████████▏ | 41/50 [14:34<05:53, 39.26s/it] 86%|████████▌ | 43/50 [15:53<04:34, 39.28s/it] 90%|█████████ | 45/50 [17:11<03:16, 39.28s/it] 94%|█████████▍| 47/50 [18:30<01:57, 39.29s/it] 98%|█████████▊| 49/50 [19:49<00:39, 39.30s/it]51it [21:11, 39.86s/it]                        53it [22:30, 39.70s/it]55it [23:48, 39.58s/it]57it [25:07, 39.51s/it]59it [26:26, 39.45s/it]61it [27:48, 39.98s/it]63it [29:07, 39.79s/it]65it [30:25, 39.64s/it]67it [31:44, 39.53s/it]69it [33:06, 40.00s/it]71it [34:25, 39.84s/it]73it [35:43, 39.67s/it]75it [37:02, 39.56s/it]77it [38:21, 39.48s/it]79it [39:43, 39.95s/it]81it [41:02, 39.80s/it]83it [42:20, 39.66s/it]85it [43:39, 39.55s/it]87it [45:01, 40.00s/it]89it [46:20, 39.79s/it]91it [47:39, 39.69s/it]93it [48:57, 39.56s/it]95it [50:16, 39.50s/it]97it [51:38, 39.96s/it]99it [52:57, 39.81s/it]100it [52:57, 31.77s/it]
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] reference latents prepared  mean=0.0140
+[DBG σ]   t=781.0  Q=0.988  K/V(global)=0.295  K/V(face)=1.016
+[DBG] Attention uses REF latents  L=32768  C=640
+[DBG] mask-true ratio = 0.084  face-K/V non-zero = 0.084
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DBG] custom self-attention active? True
+[DEBUG] mask strip saved → ../compare/results/PM_upgrade1/sydney_p0_mask_evolution.jpg

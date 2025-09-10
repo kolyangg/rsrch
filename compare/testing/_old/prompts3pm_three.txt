@@ -1,0 +1,3 @@
+portrait, a <class> cooking in the kitchen
+portrait, a <class> coding in front of a computer
+portrait <class>, side view, in papercraft style

@@ -1,0 +1,19 @@
+{
+  "rows": [
+    {"label": "\"ca_mixing_for_face\": 0, \"pose_adapt_ratio\": 0.00", "ca_mixing_for_face": 0, "pose_adapt_ratio": 0.00},
+    {"label": "\"ca_mixing_for_face\": 0, \"pose_adapt_ratio\": 0.25", "ca_mixing_for_face": 0, "pose_adapt_ratio": 0.25},
+    {"label": "\"ca_mixing_for_face\": 0, \"pose_adapt_ratio\": 0.50", "ca_mixing_for_face": 0, "pose_adapt_ratio": 0.50},
+    {"label": "\"ca_mixing_for_face\": 0, \"pose_adapt_ratio\": 0.75", "ca_mixing_for_face": 0, "pose_adapt_ratio": 0.75},
+    {"label": "\"ca_mixing_for_face\": 1, \"pose_adapt_ratio\": 0.00", "ca_mixing_for_face": 1, "pose_adapt_ratio": 0.00},
+    {"label": "\"ca_mixing_for_face\": 1, \"pose_adapt_ratio\": 0.25", "ca_mixing_for_face": 1, "pose_adapt_ratio": 0.25},
+    {"label": "\"ca_mixing_for_face\": 1, \"pose_adapt_ratio\": 0.50", "ca_mixing_for_face": 1, "pose_adapt_ratio": 0.50},
+    {"label": "\"ca_mixing_for_face\": 1, \"pose_adapt_ratio\": 0.75", "ca_mixing_for_face": 1, "pose_adapt_ratio": 0.75}
+  ],
+  "columns": [
+    {"label": "REF",                     "slug": "ref",   "kind": "ref"},
+    {"label": "NO-BRANCHED",            "slug": "nobr",  "use_branched_attention": 0},
+    {"label": "face",                    "slug": "face",  "use_branched_attention": 1, "face_embed_strategy": "face",      "use_id_embeds": 1},
+    {"label": "id_embeds (use_id=1)",    "slug": "id1",   "use_branched_attention": 1, "face_embed_strategy": "id_embeds", "use_id_embeds": 1},
+    {"label": "id_embeds (use_id=0)",    "slug": "id0",   "use_branched_attention": 1, "face_embed_strategy": "id_embeds", "use_id_embeds": 0}
+  ]
+}

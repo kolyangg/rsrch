@@ -1,0 +1,10 @@
+portrait, a person cooking in the kitchen
+portrait, a person coding in front of a computer
+portrait, side view, in papercraft style
+portrait, a garden gnome, in papercraft sketch, wearing a glasses
+portrait, Madhubani, wearing a mask
+portrait, Ukiyo-e Painting style, playing
+portrait, 3D Animation, Disney style,cute,popmart blindbox
+portrait, kawaii style, cute, adorable, brightly colored, cheerful, anime
+influence, highly detailed
+portrait,latte art in a cup

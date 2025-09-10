@@ -1,0 +1,10 @@
+{
+    "reference_image_path": "keanu.jpg",
+    "prompt": "a man img with a beard in a space shuttle",
+    "TOKEN_FOCUS": "face",
+    "ADD_TO_PROMPT": false,
+    "output_pdf_file": "attn_hm1_nsm5.pdf",
+    "MASK_LAYER": "up_blocks.0.attentions.1.transformer_blocks.1.attn2",
+    "mask_top_ratio": 0.10
+}
+

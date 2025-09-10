@@ -1,0 +1,3 @@
+s10_b15: start_merge_step=10, branched_attn_start_step=15
+s10_b30: start_merge_step=10, branched_attn_start_step=30
+s15_b10: start_merge_step=15, branched_attn_start_step=10

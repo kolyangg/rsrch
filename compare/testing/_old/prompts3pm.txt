@@ -1,0 +1,10 @@
+portrait, a <class> cooking in the kitchen
+portrait, a <class> coding in front of a computer
+portrait <class>, side view, in papercraft style
+portrait, a garden gnome <class>, in papercraft sketch, wearing a glasses
+portrait <class>, Madhubani, wearing a mask
+portrait <class>, Ukiyo-e Painting style, playing
+portrait <class>, 3D Animation, Disney style,cute,popmart blindbox
+portrait <class>, kawaii style, cute, adorable, brightly colored, cheerful, anime
+<class>, influence, highly detailed
+portrait <class>, latte art in a cup

@@ -1,0 +1,7 @@
+{
+    "reference_image_path": "sydney.jpg",
+    "prompt": "a girl img in the arctic wearing a red jacket",
+    "TOKEN_FOCUS": "face",
+    "AUX_PROMPT": "a face",
+    "output_pdf_file": "attn_hm4.pdf"
+}

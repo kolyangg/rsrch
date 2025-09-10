@@ -1,0 +1,22 @@
+{
+    "reference_image_path": "sydney.jpg",
+    "prompt": "a girl img in the arctic wearing a red jacket",
+    "TOKEN_FOCUS": "face",
+    "ADD_TO_PROMPT": false,
+    "output_pdf_file": "attn_hm4_nsm6.pdf",
+    "output_mask_file": "sydney_mask.jpg",
+    "MASK_LAYERS": [
+    {
+      "name": "up_blocks.0.attentions.1.transformer_blocks.1.attn2",
+      "top_ratio": 0.10,      
+      "invert": false,        
+      "weight": 0.5           
+    },
+    {
+      "name": "up_blocks.0.attentions.1.transformer_blocks.7.attn2",
+      "top_ratio": 0.05,      
+      "invert": true,         
+      "weight": 0.5
+    }
+  ]
+}

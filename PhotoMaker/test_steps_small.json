@@ -1,0 +1,7 @@
+{
+  "runs": [
+    { "start_merge_step": 10, "branched_attn_start_step": 15 },
+    { "start_merge_step": 10, "branched_attn_start_step": 20 },
+    { "start_merge_step": 10, "branched_attn_start_step": 25 }
+  ]
+}

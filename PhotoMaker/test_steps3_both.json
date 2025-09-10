@@ -1,0 +1,13 @@
+{
+  "runs": [
+    { "photomaker_start_step": 10, "merge_start_step": 10, "branched_attn_start_step": 15, "branched_start_mode": "both"},
+    { "photomaker_start_step": 10, "merge_start_step": 10, "branched_attn_start_step": 20, "branched_start_mode": "both"},
+    { "photomaker_start_step": 10, "merge_start_step": 10, "branched_attn_start_step": 25, "branched_start_mode": "both"},
+    { "photomaker_start_step": 10, "merge_start_step": 10, "branched_attn_start_step": 30, "branched_start_mode": "both"},
+
+    { "photomaker_start_step": 15, "merge_start_step": 10, "branched_attn_start_step": 10, "branched_start_mode": "both"},
+    { "photomaker_start_step": 20, "merge_start_step": 10, "branched_attn_start_step": 10, "branched_start_mode": "both"},
+    { "photomaker_start_step": 25, "merge_start_step": 10, "branched_attn_start_step": 10, "branched_start_mode": "both"},
+    { "photomaker_start_step": 30, "merge_start_step": 10, "branched_attn_start_step": 10, "branched_start_mode": "both"}
+  ]
+}

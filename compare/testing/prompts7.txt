@@ -1,0 +1,34 @@
+Rushing <class>, subway platform, anxious face, swinging briefcase
+Sketching <class>, coffee shop, relaxed grin, messy bun
+Gaming <class>, RGB bedroom, frustrated face, headset on
+Magician <class>, circus ring, mischievous laugh, velvet top hat
+Reading paper <class>, park bench, calm face, grey overcoat
+Drumming <class>, rock concert in rain, passionate angry face, black t-shirt
+Phone-scroll <class>, airport lounge, bored face, travel pillow
+Snowboarding <class>, icy pipe, thrilled face, teal parka
+Flying hero <class>, skyline, triumphant face, flowing cape
+Skiing <class>, snowy slope, fearless grin, orange goggles
+Boxing <class>, ring corner, intense glare, taped fists
+Dancing <class>, neon club, euphoric face, silver jumpsuit
+Angry <class>, traffic jam, scowling face, dark suit
+Crying <class>, stormy alley, tearful face, ripped jeans
+Laughing <class>, carnival wheel, carefree laugh, polka-dot shirt
+Jumping <class>, beach sunset, ecstatic face, blue tank top
+Kickboxing <class>, gym ring, fierce roar face, sweatband
+Stargazing <class>, hilltop blanket, amazed face, handheld telescope
+Skateboarding <class>, urban halfpipe, rebellious grin, purple hoodie
+Stage-leap guitarist <class>, rock concert, passionate face, leather jacket
+Shouting <class>, protest crowd, fiery shouting face, raised megaphone
+Surfing <class>, giant wave, exhilarated face, green-striped wetsuit
+Painting <class>, art studio, focused face, paint-splattered apron
+Night-ride biker <class>, neon city, excited face, reflective vest
+Parkour <class>, rooftop gap, exhilarated face, fingerless gloves
+Weightlifting <class>, gym platform, strained face, chalked hands
+Firefighter <class>, blazing building, resolute face, soot-streaked gear
+Wrestler <class>, arena spotlight, fierce snarl, metallic mask
+Photographer <class>, safari jeep, excited face, telephoto lens
+Scientist <class>, futuristic lab, curious face, holographic tablet
+Astronaut <class>, moon surface, awestruck face, reflective visor
+Chef <class>, bustling kitchen, proud grin, tall white toque
+Barista <class>, hipster café, friendly smile, latte-art apron
+Paraglider <class>, cliff launch, thrilled face, multicolor canopy

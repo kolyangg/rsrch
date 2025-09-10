@@ -1,0 +1,15 @@
+release_results/
+civitai_models/
+gradio_cached_examples/
+outputs/
+__pycache__/
+.idea/
+*.bin
+*.safetensors
+inference_scripts/_old
+inference_scripts/heatmaps/
+inference_scripts/hm_results/
+
+branched_debug/
+hm_debug/
+photomaker/_old/

@@ -1,0 +1,194 @@
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+model ignore: /home/kolyangg/.insightface/models/buffalo_l/1k3d68.onnx landmark_3d_68
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+model ignore: /home/kolyangg/.insightface/models/buffalo_l/2d106det.onnx landmark_2d_106
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+find model: /home/kolyangg/.insightface/models/buffalo_l/det_10g.onnx detection [1, 3, '?', '?'] 127.5 128.0
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+model ignore: /home/kolyangg/.insightface/models/buffalo_l/genderage.onnx genderage
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+find model: /home/kolyangg/.insightface/models/buffalo_l/w600k_r50.onnx recognition ['None', 3, 112, 112] 127.5 127.5
+set det-size: (640, 640)
+[Seed] Using seed = 42
+Loading PhotoMaker v2 components [1] id_encoder from [/home/kolyangg/.cache/huggingface/hub/models--TencentARC--PhotoMaker-V2/snapshots/f5a1e5155dc02166253fa7e29d13519f5ba22eac]...
+4096
+Loading PhotoMaker v2 components [2] lora_weights from [/home/kolyangg/.cache/huggingface/hub/models--TencentARC--PhotoMaker-V2/snapshots/f5a1e5155dc02166253fa7e29d13519f5ba22eac]
+[DynamicMask] Installed hooks on 70/70 layers (mode: identity)
+[Switch] step 0 → NO_ID  (start_merge_step=10, branched_attn_start_step=30)
+[DynamicMask] Saving heatmap for step 5
+[Switch] step 10 → PHOTOMAKER  (start_merge_step=10, branched_attn_start_step=30)
+[DynamicMask] Saving heatmap for step 10
+[DynamicMask] Updated at step 10, shape=(128, 128), face_pixels=349
+[DynamicMask] Updated at step 11, shape=(128, 128), face_pixels=334
+[DynamicMask] Updated at step 12, shape=(128, 128), face_pixels=1340
+[DynamicMask] Updated at step 13, shape=(128, 128), face_pixels=1324
+[DynamicMask] Updated at step 14, shape=(128, 128), face_pixels=1308
+[DynamicMask] Saving heatmap for step 15
+[DynamicMask] Updated at step 15, shape=(128, 128), face_pixels=1340
+[DynamicMask] Updated at step 16, shape=(128, 128), face_pixels=1340
+[DynamicMask] Updated at step 17, shape=(128, 128), face_pixels=1340
+[DynamicMask] Updated at step 18, shape=(128, 128), face_pixels=1340
+[DynamicMask] Updated at step 19, shape=(128, 128), face_pixels=1356
+[DynamicMask] Saving heatmap for step 20
+[DynamicMask] Updated at step 20, shape=(128, 128), face_pixels=1340
+[DynamicMask] Saving heatmap for step 25
+[Switch] step 30 → BRANCHED  (start_merge_step=10, branched_attn_start_step=30)
+[DynamicMask] Saving heatmap for step 30
+[PL] step=30  mask_gen>0.5=0.0818  mask_ref>0.5=0.1035
+[DBG mask] σ_face=0.848  σ_bg=0.832
+[DBG] saved reference face crop → hm_debug/reference_face_crop.png
+[DBG norm] face_mean=-0.1885  face_std=0.8477
+[Debug] saved reference latents image → hm_debug/debug_ref_latents.png
+[Debug] Step 30: noise_pred stats - mean=-0.0042, std=0.9336, min=-4.1250, max=4.0625
+[Debug] Step 31: noise_pred stats - mean=-0.0041, std=0.9297, min=-4.1250, max=4.0625
+[Debug] Step 32: noise_pred stats - mean=-0.0042, std=0.9219, min=-4.1250, max=4.0625
+[DynamicMask] Saving heatmap for step 35
+[DynamicMask] Saving heatmap for step 40
+[PL] step=40  mask_gen>0.5=0.0818  mask_ref>0.5=0.1035
+[DynamicMask] Saving heatmap for step 45
+[DynamicMask] Saving heatmap for step 49
+[DynamicMask] Creating heatmap PDF with 70 layers
+[DynamicMask] Processing layer down_blocks.1.attentions.0.transformer_blocks.0.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.1.attentions.0.transformer_blocks.1.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.1.attentions.1.transformer_blocks.0.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.1.attentions.1.transformer_blocks.1.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.0.transformer_blocks.0.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.0.transformer_blocks.1.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.0.transformer_blocks.2.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.0.transformer_blocks.3.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.0.transformer_blocks.4.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.0.transformer_blocks.5.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.0.transformer_blocks.6.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.0.transformer_blocks.7.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.0.transformer_blocks.8.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.0.transformer_blocks.9.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.1.transformer_blocks.0.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.1.transformer_blocks.1.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.1.transformer_blocks.2.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.1.transformer_blocks.3.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.1.transformer_blocks.4.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.1.transformer_blocks.5.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.1.transformer_blocks.6.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.1.transformer_blocks.7.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.1.transformer_blocks.8.attn2 with 10 frames
+[DynamicMask] Processing layer down_blocks.2.attentions.1.transformer_blocks.9.attn2 with 10 frames
+[DynamicMask] Processing layer mid_block.attentions.0.transformer_blocks.0.attn2 with 10 frames
+[DynamicMask] Processing layer mid_block.attentions.0.transformer_blocks.1.attn2 with 10 frames
+[DynamicMask] Processing layer mid_block.attentions.0.transformer_blocks.2.attn2 with 10 frames
+[DynamicMask] Processing layer mid_block.attentions.0.transformer_blocks.3.attn2 with 10 frames
+[DynamicMask] Processing layer mid_block.attentions.0.transformer_blocks.4.attn2 with 10 frames
+[DynamicMask] Processing layer mid_block.attentions.0.transformer_blocks.5.attn2 with 10 frames
+[DynamicMask] Processing layer mid_block.attentions.0.transformer_blocks.6.attn2 with 10 frames
+[DynamicMask] Processing layer mid_block.attentions.0.transformer_blocks.7.attn2 with 10 frames
+[DynamicMask] Processing layer mid_block.attentions.0.transformer_blocks.8.attn2 with 10 frames
+[DynamicMask] Processing layer mid_block.attentions.0.transformer_blocks.9.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.0.transformer_blocks.0.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.0.transformer_blocks.1.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.0.transformer_blocks.2.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.0.transformer_blocks.3.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.0.transformer_blocks.4.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.0.transformer_blocks.5.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.0.transformer_blocks.6.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.0.transformer_blocks.7.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.0.transformer_blocks.8.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.0.transformer_blocks.9.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.1.transformer_blocks.0.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.1.transformer_blocks.1.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.1.transformer_blocks.2.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.1.transformer_blocks.3.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.1.transformer_blocks.4.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.1.transformer_blocks.5.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.1.transformer_blocks.6.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.1.transformer_blocks.7.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.1.transformer_blocks.8.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.1.transformer_blocks.9.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.2.transformer_blocks.0.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.2.transformer_blocks.1.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.2.transformer_blocks.2.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.2.transformer_blocks.3.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.2.transformer_blocks.4.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.2.transformer_blocks.5.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.2.transformer_blocks.6.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.2.transformer_blocks.7.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.2.transformer_blocks.8.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.0.attentions.2.transformer_blocks.9.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.1.attentions.0.transformer_blocks.0.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.1.attentions.0.transformer_blocks.1.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.1.attentions.1.transformer_blocks.0.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.1.attentions.1.transformer_blocks.1.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.1.attentions.2.transformer_blocks.0.attn2 with 10 frames
+[DynamicMask] Processing layer up_blocks.1.attentions.2.transformer_blocks.1.attn2 with 10 frames
+[DynamicMask] Layer down_blocks.1.attentions.0.transformer_blocks.0.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.1.attentions.0.transformer_blocks.1.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.1.attentions.1.transformer_blocks.0.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.1.attentions.1.transformer_blocks.1.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.0.transformer_blocks.0.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.0.transformer_blocks.1.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.0.transformer_blocks.2.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.0.transformer_blocks.3.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.0.transformer_blocks.4.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.0.transformer_blocks.5.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.0.transformer_blocks.6.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.0.transformer_blocks.7.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.0.transformer_blocks.8.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.0.transformer_blocks.9.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.1.transformer_blocks.0.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.1.transformer_blocks.1.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.1.transformer_blocks.2.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.1.transformer_blocks.3.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.1.transformer_blocks.4.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.1.transformer_blocks.5.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.1.transformer_blocks.6.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.1.transformer_blocks.7.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.1.transformer_blocks.8.attn2: 11 frames detected
+[DynamicMask] Layer down_blocks.2.attentions.1.transformer_blocks.9.attn2: 11 frames detected
+[DynamicMask] Layer mid_block.attentions.0.transformer_blocks.0.attn2: 11 frames detected
+[DynamicMask] Layer mid_block.attentions.0.transformer_blocks.1.attn2: 11 frames detected
+[DynamicMask] Layer mid_block.attentions.0.transformer_blocks.2.attn2: 11 frames detected
+[DynamicMask] Layer mid_block.attentions.0.transformer_blocks.3.attn2: 11 frames detected
+[DynamicMask] Layer mid_block.attentions.0.transformer_blocks.4.attn2: 11 frames detected
+[DynamicMask] Layer mid_block.attentions.0.transformer_blocks.5.attn2: 11 frames detected
+[DynamicMask] Layer mid_block.attentions.0.transformer_blocks.6.attn2: 11 frames detected
+[DynamicMask] Layer mid_block.attentions.0.transformer_blocks.7.attn2: 11 frames detected
+[DynamicMask] Layer mid_block.attentions.0.transformer_blocks.8.attn2: 11 frames detected
+[DynamicMask] Layer mid_block.attentions.0.transformer_blocks.9.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.0.transformer_blocks.0.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.0.transformer_blocks.1.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.0.transformer_blocks.2.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.0.transformer_blocks.3.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.0.transformer_blocks.4.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.0.transformer_blocks.5.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.0.transformer_blocks.6.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.0.transformer_blocks.7.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.0.transformer_blocks.8.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.0.transformer_blocks.9.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.1.transformer_blocks.0.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.1.transformer_blocks.1.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.1.transformer_blocks.2.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.1.transformer_blocks.3.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.1.transformer_blocks.4.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.1.transformer_blocks.5.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.1.transformer_blocks.6.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.1.transformer_blocks.7.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.1.transformer_blocks.8.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.1.transformer_blocks.9.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.2.transformer_blocks.0.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.2.transformer_blocks.1.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.2.transformer_blocks.2.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.2.transformer_blocks.3.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.2.transformer_blocks.4.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.2.transformer_blocks.5.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.2.transformer_blocks.6.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.2.transformer_blocks.7.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.2.transformer_blocks.8.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.0.attentions.2.transformer_blocks.9.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.1.attentions.0.transformer_blocks.0.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.1.attentions.0.transformer_blocks.1.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.1.attentions.1.transformer_blocks.0.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.1.attentions.1.transformer_blocks.1.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.1.attentions.2.transformer_blocks.0.attn2: 11 frames detected
+[DynamicMask] Layer up_blocks.1.attentions.2.transformer_blocks.1.attn2: 11 frames detected
+[DynamicMask] Saved heatmap PDF to hm_debug/hm_results/attention_heatmaps.pdf with 7 pages
+[DynamicMask] Hooks removed
+[DEBUG] mask strip saved → ../compare/results/PM_upgrade_sweeps/run_20250817_181442/s10_b30/keanu_p0_mask_evolution.jpg
+[DEBUG] mask strip saved → ../compare/results/PM_upgrade_sweeps/run_20250817_181442/s10_b30/keanu_p0_img_evolution.jpg

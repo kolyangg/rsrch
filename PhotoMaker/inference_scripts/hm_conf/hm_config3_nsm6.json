@@ -1,0 +1,21 @@
+{
+    "reference_image_path": "eddie.webp",
+    "prompt": "a man img enjoying pasta in a restaurant",
+    "TOKEN_FOCUS": "face",
+    "ADD_TO_PROMPT": false,
+    "output_mask_file": "eddie_mask.jpg",
+    "MASK_LAYERS": [
+    {
+      "name": "up_blocks.0.attentions.1.transformer_blocks.1.attn2",
+      "top_ratio": 0.10,      
+      "invert": false,        
+      "weight": 0.3           
+    },
+    {
+      "name": "up_blocks.0.attentions.1.transformer_blocks.7.attn2",
+      "top_ratio": 0.05,      
+      "invert": true,         
+      "weight": 1.0
+    }
+  ]
+}

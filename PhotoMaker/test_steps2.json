@@ -1,0 +1,9 @@
+{
+  "runs": [
+    { "start_merge_step": 20, "branched_attn_start_step": 15, "branched_start_mode": "both" },
+    { "start_merge_step": 25, "branched_attn_start_step": 15, "branched_start_mode": "both" },
+    { "start_merge_step": 30, "branched_attn_start_step": 15, "branched_start_mode": "both" },
+    { "start_merge_step": 35, "branched_attn_start_step": 15, "branched_start_mode": "both" },
+    { "start_merge_step": 40, "branched_attn_start_step": 15, "branched_start_mode": "both" }
+  ]
+}

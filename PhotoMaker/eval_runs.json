@@ -1,0 +1,85 @@
+{
+  "IMAGE_FOLDER": "../compare/testing/references_3",
+  "PROMPT_FILE": "../compare/testing/prompts_04Sep_small.txt",
+  "CLASS_FILE": "../compare/testing/classes_ref.json",
+  "OUTPUT_ROOT": "../compare/results/BATCH_RUNS_04Sep",
+  "force_replace_images": 0,
+
+  "import_mask_folder": "../compare/testing/gen_masks",
+  "use_mask_folder": 0,
+  "use_dynamic_mask": 1,
+  "runs": [
+    {
+      "name": "default_PM",
+      "pdf": "../compare/results/BATCH_RUNS_04Sep_pdfs/default_PM.pdf",
+
+      "use_branched_attention": 0,
+      "face_embed_strategy": "face",
+      "use_id_embeds": 0,
+      "force_par_before_pm": 0,
+
+      "merge_start_step": 10,
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 10,
+
+      "ca_mixing_for_face": 0,
+      "pose_adapt_ratio": 0.0,
+
+      "num_images_per_prompt": 2
+    },
+    {
+      "name": "P10_B30_id_mix_1_par25",
+      "pdf": "../compare/results/results/BATCH_RUNS_04Sep_pdfs/P10_B30_id_mix_1_par25.pdf",
+
+      "use_branched_attention": 1,
+      "face_embed_strategy": "id_embeds",
+      "use_id_embeds": 0,
+      "force_par_before_pm": 0,
+
+      "merge_start_step": 10,
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 30,
+
+      "ca_mixing_for_face": 1,
+      "pose_adapt_ratio": 0.25,
+
+      "num_images_per_prompt": 2
+    },
+    {
+      "name": "P10_B15_id_mix_1_par25",
+      "pdf": "../compare/results/results/BATCH_RUNS_04Sep_pdfs/P10_B15_id_mix_1_par25.pdf",
+
+      "use_branched_attention": 1,
+      "face_embed_strategy": "id_embeds",
+      "use_id_embeds": 0,
+      "force_par_before_pm": 0,
+
+      "merge_start_step": 10,
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 15,
+
+      "ca_mixing_for_face": 1,
+      "pose_adapt_ratio": 0.25,
+
+      "num_images_per_prompt": 2
+    },
+    {
+      "name": "P15_B10_id_mix_1_par0",
+      "pdf": "../compare/results/results/BATCH_RUNS_04Sep_pdfs/P15_B10_id_mix_1_par0.pdf",
+
+      "use_branched_attention": 1,
+      "face_embed_strategy": "id_embeds",
+      "use_id_embeds": 0,
+      "force_par_before_pm": 0,
+
+      "merge_start_step": 10,
+      "photomaker_start_step": 15,
+      "branched_attn_start_step": 10,
+
+      "ca_mixing_for_face": 1,
+      "pose_adapt_ratio": 0.0,
+
+      "num_images_per_prompt": 2
+    }
+  ]
+}

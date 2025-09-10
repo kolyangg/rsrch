@@ -1,0 +1,16 @@
+Rushing <class>, subway platform, anxious face, swinging briefcase
+Magician <class>, circus ring, mischievous laugh, velvet top hat
+Drumming <class>, rock concert in rain, passionate angry face, black t-shirt
+Snowboarding <class>, icy pipe, thrilled face, teal parka
+Skiing <class>, snowy slope, fearless grin, orange goggles
+Boxing <class>, ring corner, intense glare, taped fists
+Angry <class>, traffic jam, scowling face, dark suit
+Crying <class>, stormy alley, tearful face, ripped jeans
+Jumping <class>, beach sunset, ecstatic face, blue tank top
+Stage-leap guitarist <class>, rock concert, passionate face, leather jacket
+Shouting <class>, protest crowd, fiery shouting face, raised megaphone
+Surfing <class>, giant wave, exhilarated face, green-striped wetsuit
+Firefighter <class>, blazing building, resolute face, soot-streaked gear
+Wrestler <class>, arena spotlight, fierce snarl, metallic mask
+Scientist <class>, futuristic lab, curious face, holographic tablet
+Chef <class>, bustling kitchen, proud grin, tall white toque
