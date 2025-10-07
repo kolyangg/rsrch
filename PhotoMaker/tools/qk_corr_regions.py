@@ -121,10 +121,36 @@ def pil_to_binary_mask(img_path: str) -> np.ndarray:
     arr = np.array(img, dtype=np.uint8)
     return (arr >= 128).astype(np.uint8)
 
+# def resize_mask_to_tokens(mask_hw: np.ndarray, L: int) -> np.ndarray:
+#     H = int(round(math.sqrt(L))); W = H
+#     m = Image.fromarray((mask_hw * 255).astype(np.uint8)).resize((W, H), Image.BILINEAR)
+#     return (np.array(m, dtype=np.uint8) >= 128).astype(np.uint8).reshape(-1)
+
 def resize_mask_to_tokens(mask_hw: np.ndarray, L: int) -> np.ndarray:
+    """
+    Downsample a binary mask to the token grid (L = H*H) and guarantee >=1 positive token.
+    Tries BOX (area), then NEAREST, then >0 threshold, finally picks global max.
+    """
     H = int(round(math.sqrt(L))); W = H
-    m = Image.fromarray((mask_hw * 255).astype(np.uint8)).resize((W, H), Image.BILINEAR)
-    return (np.array(m, dtype=np.uint8) >= 128).astype(np.uint8).reshape(-1)
+    src = (mask_hw * 255).astype(np.uint8)
+    # 1) Area/BOX + 128 threshold
+    m = Image.fromarray(src).resize((W, H), Image.BOX)
+    arr = np.array(m, dtype=np.uint8)
+    binm = (arr >= 128).astype(np.uint8)
+    # 2) Fallbacks to avoid empty masks at tiny grids
+    if binm.sum() == 0:
+        m2 = Image.fromarray(src).resize((W, H), Image.NEAREST)
+        arr2 = np.array(m2, dtype=np.uint8)
+        binm = (arr2 > 0).astype(np.uint8)
+    if binm.sum() == 0:
+        binm = (arr > 0).astype(np.uint8)
+    if binm.sum() == 0:
+        # pick the strongest location
+        idx = int(arr.reshape(-1).argmax())
+        binm = np.zeros(H * W, dtype=np.uint8)
+        binm[idx] = 1
+        return binm
+    return binm.reshape(-1)
 
 
 # =========================
@@ -144,6 +170,8 @@ class CorrCollector:
         self.maps: Dict[str, Dict[str, Dict[str, object]]] = {}
         self._mouth_debug_emitted = 0  # rate-limit mouth debug
         self._nsq_debug_emitted = 0    # non-square K debug (mouth-only)
+        self.layer_stats: Dict[str, Dict[str, int]] = {}  # per-layer step stats
+
 
     def register_layer(self, layer_name: str):
         if layer_name not in self._seen:
@@ -169,6 +197,9 @@ class CorrCollector:
         # auto-register unseen layer keys (for class-level patching)
         if layer not in self._seen:
             self.register_layer(layer)
+        st = self.layer_stats.setdefault(layer, {"first": step_idx, "last": step_idx, "calls": 0})
+        st["first"] = min(st["first"], step_idx); st["last"] = max(st["last"], step_idx); st["calls"] += 1
+
 
         B, Hh, Lq, D = q_face.shape
         _, _, Lk, _ = k_face.shape
@@ -187,6 +218,7 @@ class CorrCollector:
                 self._mouth_debug_emitted += 1
             return
         
+        q_mask = resize_mask_to_tokens(self.q_masks_hw[q_region], Lq)  # guaranteed ≥1
         q_mask_t = torch.from_numpy(q_mask.astype(np.float32)).to(device)  # float32 weights
         # Upcast to fp32 for stable cosine + to avoid dtype mismatch with fp16 UNet
         qf = q_face.to(torch.float32)
@@ -279,6 +311,8 @@ class CorrCollector:
         layers_all = [ly for ly in self.layer_order if ly in self.maps]
         layers_lastN = layers_all[-self.latest_layers:] if self.latest_layers > 0 else layers_all
 
+
+
         def verdicts(agg):
             out = {}
             for region, tri in agg.items():
@@ -307,8 +341,43 @@ class CorrCollector:
 
     def save_heatmap_pdf(self, pdf_path: Path):
         layers_all = [ly for ly in self.layer_order if ly in self.maps]
-        layers_lastN = layers_all[-self.latest_layers:] if self.latest_layers > 0 else layers_all
+        # layers_lastN = layers_all[-self.latest_layers:] if self.latest_layers > 0 else layers_all
 
+        # convenience subsets
+        layers_last5  = layers_all[-5:]  if len(layers_all) >= 5  else layers_all
+        layers_last10 = layers_all[-10:] if len(layers_all) >= 10 else layers_all
+ 
+
+        def _three_line_title(layer_name: str, region: str, steps: Optional[Tuple[int,int]]) -> str:
+            parts = layer_name.split(".")
+            if "transformer_blocks" in parts:
+                idx = parts.index("transformer_blocks")
+                line1 = ".".join(parts[:idx]) + "."
+                if idx + 1 < len(parts):
+                    line2 = ".".join(parts[idx:idx+2]) + "."
+                    rest = parts[idx+2:]
+                else:
+                    line2 = parts[idx] + "."
+                    rest = parts[idx+1:]
+            else:
+                if len(parts) >= 3:
+                    line1 = ".".join(parts[:-2]) + "."
+                    line2 = parts[-2] + "."
+                    rest = [parts[-1]]
+                elif len(parts) == 2:
+                    line1 = parts[0] + "."
+                    line2 = parts[1] + "."
+                    rest = []
+                else:
+                    line1 = layer_name
+                    line2 = ""
+                    rest = []
+            step_str = f" (steps {steps[0]}-{steps[1]})" if steps else ""
+            line3 = ((".".join(rest) + ".") if rest else "") + f"{region}{step_str}"
+            if line2:
+               return f"{line1}\n{line2}\n{line3}"
+            else:
+                return f"{line1}\n{line3}"
 
         # def k_means_str(heat: np.ndarray) -> str:
         #     vec = heat.reshape(-1)
@@ -371,21 +440,53 @@ class CorrCollector:
                 ax.imshow(heat, interpolation="nearest")
                 ax.text(0.98, 0.98, k_means_str(heat), transform=ax.transAxes,
                         ha="right", va="top", fontsize=8, color="white")
-                ax.set_title(f"All layers: {r}"); ax.axis("off")
+                # ax.set_title(f"All layers: {r}"); ax.axis("off")
+                # ax.set_title(f"All layers: {r} (steps ≥ {self.step_min})"); ax.axis("off")
+                # ax.set_title(f"All layers: {r}\n(steps ≥ {self.step_min})", fontsize=8); ax.axis("off")
+                ax.set_title(f"All layers: {r}\n(steps ≥ {self.step_min})", fontsize=8); ax.axis("off")
+
 
             fig1.tight_layout(); pdf.savefig(fig1); plt.close(fig1)
 
-            fig2 = plt.figure(figsize=(10, 3.3), dpi=150)
-            for i, r in enumerate(Q_REGIONS, 1):
-                ax = fig2.add_subplot(1, 3, i)
+            # fig2 = plt.figure(figsize=(10, 3.3), dpi=150)
+            # for i, r in enumerate(Q_REGIONS, 1):
+            #     ax = fig2.add_subplot(1, 3, i)
 
-                heat = make_avg(layers_lastN, r)
-                ax.imshow(heat, interpolation="nearest")
-                ax.text(0.98, 0.98, k_means_str(heat), transform=ax.transAxes,
-                        ha="right", va="top", fontsize=8, color="white")
-                ax.set_title(f"Last {self.latest_layers}: {r}"); ax.axis("off")
+            #     heat = make_avg(layers_lastN, r)
+            #     ax.imshow(heat, interpolation="nearest")
+            #     ax.text(0.98, 0.98, k_means_str(heat), transform=ax.transAxes,
+            #             ha="right", va="top", fontsize=8, color="white")
+            #     # ax.set_title(f"Last {self.latest_layers}: {r}"); ax.axis("off")
+            #     # ax.set_title(f"Last {self.latest_layers}: {r} (steps ≥ {self.step_min})"); ax.axis("off")
+            #     # ax.set_title(f"Last {self.latest_layers}: {r}\n(steps ≥ {self.step_min})", fontsize=8); ax.axis("off")
+            #     ax.set_title(f"Last {self.latest_layers}: {r}\n(steps ≥ {self.step_min})", fontsize=8); ax.axis("off")
 
-            fig2.tight_layout(); pdf.savefig(fig2); plt.close(fig2)
+
+            # fig2.tight_layout(); pdf.savefig(fig2); plt.close(fig2)
+
+            def _render_group_page(layers_subset, label):
+                fig = plt.figure(figsize=(10, 3.3), dpi=150)
+                for i, r in enumerate(Q_REGIONS, 1):
+                    ax = fig.add_subplot(1, 3, i)
+                    heat = make_avg(layers_subset, r)
+                    ax.imshow(heat, interpolation="nearest")
+                    ax.text(0.98, 0.98, k_means_str(heat), transform=ax.transAxes,
+                            ha="right", va="top", fontsize=8, color="white")
+                    ax.set_title(f"{label}: {r}\n(steps ≥ {self.step_min})", fontsize=8)
+                    ax.axis("off")
+                fig.tight_layout(); pdf.savefig(fig); plt.close(fig)
+
+            # New aggregate pages
+            _render_group_page(layers_last5,  "Last 5 layers")
+            _render_group_page(layers_last10, "Last 10 layers")
+
+            # Block-wise averages
+            down_layers = [ly for ly in layers_all if ly.startswith("down_blocks")]
+            mid_layers  = [ly for ly in layers_all if ("mid_block" in ly or ly.startswith("mid_block"))]
+            up_layers   = [ly for ly in layers_all if ly.startswith("up_blocks")]
+            _render_group_page(down_layers if down_layers else [], "down_blocks average")
+            _render_group_page(mid_layers  if mid_layers  else [], "mid_blocks average")
+            _render_group_page(up_layers   if up_layers   else [], "up_blocks average")
             
             # Per-layer pages: one page per analyzed layer with 3 heatmaps (mouth/eyes/nose)
             layers_captured = [ly for ly, regions in self.maps.items()
@@ -394,17 +495,58 @@ class CorrCollector:
                 figL = plt.figure(figsize=(10, 3.3), dpi=150)
                 for i, r in enumerate(Q_REGIONS, 1):
                     ax = figL.add_subplot(1, 3, i)
+                    # b = self.maps[ly].get(r)
+                    # if b and b["cnt"] > 0:
+                    #     Lk = int(b["Lk"])
+                    #     H = int(round(math.sqrt(Lk)))
+
+                    #     heat = (b["sum"] / max(1, b["cnt"])).reshape(H, H)
+                    #     ax.imshow(heat, interpolation="nearest")
+                    #     ax.text(0.98, 0.98, k_means_str(heat), transform=ax.transAxes,
+                    #             ha="right", va="top", fontsize=8, color="white")
+        
                     b = self.maps[ly].get(r)
                     if b and b["cnt"] > 0:
-                        Lk = int(b["Lk"])
-                        H = int(round(math.sqrt(Lk)))
-
+                        Lk = int(b["Lk"]); H = int(round(math.sqrt(Lk)))
                         heat = (b["sum"] / max(1, b["cnt"])).reshape(H, H)
-                        ax.imshow(heat, interpolation="nearest")
-                        ax.text(0.98, 0.98, k_means_str(heat), transform=ax.transAxes,
-                                ha="right", va="top", fontsize=8, color="white")
+                    else:
+                        # Fallback heatmap if region had no accumulations: use any region's size or 64×64 zeros
+                        others = [self.maps[ly][rr] for rr in Q_REGIONS
+                                  if rr in self.maps[ly] and self.maps[ly][rr]["cnt"] > 0]
+                        if others:
+                           Lk = int(others[0]["Lk"]); H = int(round(math.sqrt(Lk)))
+                        else:
+                            H = 64
+                        heat = np.zeros((H, H), dtype=np.float32)
+                    ax.imshow(heat, interpolation="nearest")
+                    ax.text(0.98, 0.98, k_means_str(heat), transform=ax.transAxes,
+                            ha="right", va="top", fontsize=8, color="white")
+
+
+
 
                     ax.set_title(f"{ly}: {r}")
+                    # stats = self.layer_stats.get(ly)
+                    # if stats:
+                    #     ax.set_title(f"{ly}: {r}  (steps {stats['first']}-{stats['last']})")
+                    # else:
+                    #     ax.set_title(f"{ly}: {r}")
+
+                    # if stats:
+                    #     ax.set_title(f"{ly}: {r}\n(steps {stats['first']}-{stats['last']})", fontsize=8)
+                    # else:
+                    #     ax.set_title(f"{ly}: {r}", fontsize=8)
+
+                    # if stats:
+                    #     ax.set_title(f"{ly}: {r}\n(steps {stats['first']}-{stats['last']})", fontsize=8)
+                    # else:
+                    #     ax.set_title(f"{ly}: {r}", fontsize=8)
+
+                    stats = self.layer_stats.get(ly)
+                    title_txt = _three_line_title(ly, r, (stats["first"], stats["last"]) if stats else None)
+                    ax.set_title(title_txt, fontsize=8)
+
+
                     ax.axis("off")
                 figL.tight_layout()
                 pdf.savefig(figL)
@@ -415,6 +557,9 @@ class CorrCollector:
 # Live capture (no math reimplementation)
 # =========================
 GLOBAL = {"STEP": 0, "COLLECTOR": None, "CALLS": 0}
+# map processor object id -> readable module path (filled by attach_captures)
+LAYER_NAME_MAP: dict[int, str] = {}
+
 # Regions (q-side fixed) and K-areas (k-side includes 'other' = complement)
 Q_REGIONS = ("mouth", "eyes", "nose")
 K_AREAS   = ("mouth", "eyes", "nose", "other")
@@ -527,6 +672,7 @@ def attach_captures(pipeline, collector: CorrCollector):
     if isinstance(attn_procs, dict):
         for name, proc in attn_procs.items():
             if _is_target_proc(proc):
+                LAYER_NAME_MAP[id(proc)] = name
                 collector.register_layer(name)
                 if not hasattr(proc, "_orig_call_for_corr"):
                    proc._orig_call_for_corr = proc.__call__
@@ -537,6 +683,7 @@ def attach_captures(pipeline, collector: CorrCollector):
         proc = getattr(mod, "processor", None)
         if _is_target_proc(proc):
             layer_name = f"{name}.processor"
+            LAYER_NAME_MAP[id(proc)] = layer_name
             collector.register_layer(layer_name)
             if not hasattr(proc, "_orig_call_for_corr"):
                 proc._orig_call_for_corr = proc.__call__
@@ -577,7 +724,8 @@ def patch_processor_classes():
             q_face = q * mask_gate if mask_gate is not None else q
             step_idx = GLOBAL["STEP"]
                
-            layer_key = f"BrSA@{id(self)}"
+            # layer_key = f"BrSA@{id(self)}"
+            layer_key = LAYER_NAME_MAP.get(id(self), f"BrSA@{id(self)}")
             for region in Q_REGIONS:
                 collector.add_call(layer_key, q_face, k_face, step_idx, region, q.device)
                 
@@ -648,7 +796,8 @@ def patch_processor_classes():
             # for region in ("mouth", "eyes", "nose"):
             #     collector.add_call("<BrCA>", q_face, k_face, step_idx, region, q.device)
             
-            layer_key = f"BrCA@{id(self)}"
+            # layer_key = f"BrCA@{id(self)}"
+            layer_key = LAYER_NAME_MAP.get(id(self), f"BrCA@{id(self)}")
             for region in Q_REGIONS:
                 collector.add_call(layer_key, q_face, k_face, step_idx, region, q.device)
             

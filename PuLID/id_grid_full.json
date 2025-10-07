@@ -1,0 +1,39 @@
+{
+  "rows": [
+    {
+      "ca_mixing_for_face": 0,
+      "pose_adapt_ratio": 0.0
+    },
+    {
+      "ca_mixing_for_face": 1,
+      "pose_adapt_ratio": 0.0
+    },
+    {
+      "ca_mixing_for_face": 0,
+      "pose_adapt_ratio": 0.25
+    },
+    {
+      "ca_mixing_for_face": 1,
+      "pose_adapt_ratio": 0.25
+    }
+  ],
+  "columns": [
+    {
+      "slug": "nobr",
+      "use_branched_attention": 0,
+      "face_embed_strategy": "id_embeds"
+    },
+    {
+      "slug": "id_embeds",
+      "use_branched_attention": 1,
+      "face_embed_strategy": "id_embeds",
+      "branched_attn_start_step": 10
+    },
+    {
+      "slug": "face",
+      "use_branched_attention": 1,
+      "face_embed_strategy": "face",
+      "branched_attn_start_step": 10
+    }
+  ]
+}

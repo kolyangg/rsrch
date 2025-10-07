@@ -1,0 +1,64 @@
+train:
+    dreambooth:
+        _target_: src.datasets.dreambooth.DreamBoothTrainDataset
+        data_path: /home/jovyan/bobkov/dreambooth/dataset/dog
+        placeholder_token: sks
+        class_name: dog
+        instance_transforms: ${transforms.instance_transforms.train}
+      
+    # cosmic:
+    #     _target_: src.datasets.cosmic.CosmicDoubledTrain
+    #     cosmic_json_pth: /home/jovyan/bobkov/persongen/cosmic_gathered.json
+    #     cosmic_texts_json_pth: /home/jovyan/bobkov/all_texts_cosmic_by_qween3.json 
+    #     cosmic_large_json_pth: /home/jovyan/bobkov/cosmic_large_alldata.json
+    #     cosmic_large_texts_json_pth: /home/jovyan/bobkov/all_texts_cosmic_large_by_qween3_trigger_word.json
+    #     images_path: /home/jovyan/bobkov/cosmic_data
+    #     num_refs: 1
+    #     instance_transforms: ${transforms.instance_transforms.train}
+
+    cosmic:
+        _target_: src.datasets.cosmic.CosmicDoubledTrain
+        cosmic_json_pth: ../dataset_full/cosmic_gathered.json
+        cosmic_texts_json_pth: ../dataset_full/all_texts_cosmic_by_qween3.json 
+        cosmic_large_json_pth: ../dataset_full/cosmic_large_alldata.json
+        cosmic_large_texts_json_pth: ../dataset_full/all_texts_cosmic_large_by_qween3_trigger_word.json
+        images_path: ../dataset_full
+        num_refs: 1
+        instance_transforms: ${transforms.instance_transforms.train}
+    
+
+val:
+    db_liv_small:
+      _target_: src.datasets.dreambooth.DreamBoothLivingSmall
+      data_path: /home/jovyan/bobkov/dreambooth/dataset/dog
+      placeholder_token: sks
+      class_name: dog
+
+    # man:
+    #   _target_: src.datasets.man_datasets.ManValDataset
+    #   data_json_pth: /home/jovyan/bobkov/persongen/filtered_ids3.json
+    #   images_path: /home/jovyan/bobkov/full_dataset
+    
+    man_face:
+      _target_: src.datasets.man_datasets.ManValFaceDataset
+      data_json_pth: /home/jovyan/bobkov/persongen/filtered_ids3.json
+      images_path: /home/jovyan/bobkov/full_dataset
+
+    man:
+      _target_: src.datasets.cosmic.CosmicDoubledTrain
+      cosmic_json_pth: ../dataset_full/cosmic_gathered.json
+      cosmic_texts_json_pth: ../dataset_full/all_texts_cosmic_by_qween3.json
+      cosmic_large_json_pth: ../dataset_full/cosmic_large_alldata.json
+      cosmic_large_texts_json_pth: ../dataset_full/all_texts_cosmic_large_by_qween3_trigger_word.json
+      images_path: ../dataset_full
+      num_refs: 1
+      instance_transforms: ${transforms.instance_transforms.train}
+      limit: 3
+
+    manual_val:
+      _target_: src.datasets.manual_val.ManualPhotoMakerValDataset
+      images_dir: ../dataset_full/val_dataset/references
+      prompts_path: ../dataset_full/val_dataset/prompts_10.txt
+      classes_json_path: ../dataset_full/val_dataset/classes_ref.json
+      seeds: [0, 1, 2]
+  

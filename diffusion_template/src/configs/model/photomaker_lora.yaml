@@ -1,0 +1,16 @@
+_target_: src.model.photomaker.lora.PhotomakerLora 
+pretrained_model_name_or_path: stabilityai/stable-diffusion-xl-base-1.0
+# photomaker_path: /home/jovyan/bobkov/PhotoMaker/photomaker-v1.bin
+photomaker_path: ${oc.env:HOME}/.cache/huggingface/hub/models--TencentARC--PhotoMaker/snapshots/f68f8e6309bf213d28d68230abff0ccc92de9f30/photomaker-v1.bin
+weight_dtype: bf32
+target_size: 1024
+# target_size: 512
+rank: 16
+lora_modules:
+    - to_q
+    - to_k
+    - to_v
+    - to_out.0
+init_lora_weights: gaussian
+trigger_word: img
+

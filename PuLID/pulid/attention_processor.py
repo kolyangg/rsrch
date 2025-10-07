@@ -11,6 +11,8 @@ ORTHO_v2 = False
 class AttnProcessor(nn.Module):
     def __init__(self):
         super().__init__()
+        # Silence diffusers warnings: we accept cross_attention_kwargs
+        self.has_cross_attention_kwargs = True
 
     def __call__(
         self,
@@ -21,6 +23,7 @@ class AttnProcessor(nn.Module):
         temb=None,
         id_embedding=None,
         id_scale=1.0,
+        cross_attention_kwargs=None,
     ):
         residual = hidden_states
 
@@ -91,6 +94,7 @@ class IDAttnProcessor(nn.Module):
         super().__init__()
         self.id_to_k = nn.Linear(cross_attention_dim or hidden_size, hidden_size, bias=False)
         self.id_to_v = nn.Linear(cross_attention_dim or hidden_size, hidden_size, bias=False)
+        self.has_cross_attention_kwargs = True
 
     def __call__(
         self,
@@ -101,6 +105,7 @@ class IDAttnProcessor(nn.Module):
         temb=None,
         id_embedding=None,
         id_scale=1.0,
+        cross_attention_kwargs=None,
     ):
         residual = hidden_states
 
@@ -196,6 +201,7 @@ class AttnProcessor2_0(nn.Module):
         super().__init__()
         if not hasattr(F, "scaled_dot_product_attention"):
             raise ImportError("AttnProcessor2_0 requires PyTorch 2.0, to use it, please upgrade PyTorch to 2.0.")
+        self.has_cross_attention_kwargs = True
 
     def __call__(
         self,
@@ -206,6 +212,7 @@ class AttnProcessor2_0(nn.Module):
         temb=None,
         id_embedding=None,
         id_scale=1.0,
+        cross_attention_kwargs=None,
     ):
         residual = hidden_states
 
@@ -290,6 +297,7 @@ class IDAttnProcessor2_0(torch.nn.Module):
 
         self.id_to_k = nn.Linear(cross_attention_dim or hidden_size, hidden_size, bias=False)
         self.id_to_v = nn.Linear(cross_attention_dim or hidden_size, hidden_size, bias=False)
+        self.has_cross_attention_kwargs = True
 
     def __call__(
         self,
@@ -300,6 +308,7 @@ class IDAttnProcessor2_0(torch.nn.Module):
         temb=None,
         id_embedding=None,
         id_scale=1.0,
+        cross_attention_kwargs=None,
     ):
         residual = hidden_states
 

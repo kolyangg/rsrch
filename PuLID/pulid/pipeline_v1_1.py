@@ -5,7 +5,7 @@ import insightface
 import numpy as np
 import torch
 import torch.nn as nn
-from basicsr.utils import img2tensor, tensor2img
+from .utils import img2tensor, tensor2img
 from diffusers import DPMSolverMultistepScheduler, StableDiffusionXLPipeline
 from facexlib.parsing import init_parsing_model
 from facexlib.utils.face_restoration_helper import FaceRestoreHelper
@@ -319,6 +319,8 @@ class PuLIDPipeline:
         latents = self.sampler(self, latents, sigmas, extra_args=sampler_kwargs, disable=False)
         latents = latents.to(dtype=self.pipe.vae.dtype, device=self.device) / self.pipe.vae.config.scaling_factor
         images = self.pipe.vae.decode(latents).sample
+        # Ensure no grad before converting to numpy/PIL
+        images = images.detach()
         images = self.pipe.image_processor.postprocess(images, output_type='pil')
 
         return images

@@ -45,6 +45,8 @@ class BranchedAttnProcessor(nn.Module):
         # Optional: ID feature cache
         self.id_embeds = None
         self.id_to_hidden = None
+        # Let diffusers know we accept cross_attention_kwargs to silence warnings
+        self.has_cross_attention_kwargs = True
 
     def set_masks(self, mask: Optional[torch.Tensor], mask_ref: Optional[torch.Tensor] = None):
         """Set masks for current denoising step"""
@@ -59,6 +61,9 @@ class BranchedAttnProcessor(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         temb: Optional[torch.Tensor] = None,
         scale: float = 1.0,
+        cross_attention_kwargs: Optional[dict] = None,
+        id_embedding: Optional[torch.Tensor] = None,
+        id_scale: float = 1.0,
     ) -> torch.Tensor:
         """
         Process self-attention with face/background branching.
@@ -526,6 +531,8 @@ class BranchedCrossAttnProcessor(nn.Module):
 
         self.id_embeds = None
         self.id_to_hidden = None
+        # Accept cross_attention_kwargs to avoid noisy warnings
+        self.has_cross_attention_kwargs = True
     
     def set_masks(self, mask: torch.Tensor, mask_ref: Optional[torch.Tensor] = None):
         """Set masks for current denoising step"""
@@ -540,6 +547,9 @@ class BranchedCrossAttnProcessor(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         temb: Optional[torch.Tensor] = None,
         scale: float = 1.0,
+        cross_attention_kwargs: Optional[dict] = None,
+        id_embedding: Optional[torch.Tensor] = None,
+        id_scale: float = 1.0,
     ) -> torch.Tensor:
         """
         Process cross-attention with branching ONLY for the first half.
