@@ -19,7 +19,7 @@ echo "photomaker_NS env activated"
 export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH 
 echo "lib_path exported"
 
-!CUDA_VISIBLE_DEVICES=0 \
+CUDA_VISIBLE_DEVICES=0 \
     WANDB_API_KEY=XXX \
     accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
     --config-name=photomaker_train_lora \
