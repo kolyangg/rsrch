@@ -14,4 +14,7 @@ PhotoMaker_backup_before_git_fix/
 .git_bad_1757534580/
 .git_bad_1757534783/
 
-dataset_full/
+dataset_full/LAION-5B/
+dataset_full/LAION-5B-Filtered/
+dataset_full/LAION-5B-Filtered-Large/
+diffusion_template-main.zip
