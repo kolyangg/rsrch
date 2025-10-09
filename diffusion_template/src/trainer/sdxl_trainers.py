@@ -93,8 +93,24 @@ class SDXLTrainer(BaseTrainer):
         else:
             # Log Stuff
             prompt = batch['prompt']
-            generated_img = batch['generated'][0].resize((256, 256))
+            if isinstance(prompt, list):
+                prompt = prompt[0]
 
+            generated = batch['generated']
+            if isinstance(generated, list):
+                if not generated:
+                    return
+                first_item = generated[0]
+                if isinstance(first_item, list):
+                    if not first_item:
+                        return
+                    generated_img = first_item[0]
+                else:
+                    generated_img = first_item
+            else:
+                generated_img = generated
+
+            generated_img = generated_img.resize((256, 256))
             cutted_prompt = prompt.replace(" ", "_")[:30]
             image_name = f"{mode}_images/{cutted_prompt}"
             self.writer.add_image(image_name, generated_img)
