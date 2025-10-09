@@ -8,6 +8,7 @@ defaults:
   - pipeline: photomaker
   - metrics: all_metrics
   - datasets: all_datasets
+  # - datasets: all_datasets_local
   - dataloaders: all_dataloaders
   - _self_
 

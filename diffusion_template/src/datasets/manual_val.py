@@ -20,6 +20,7 @@ class ManualPhotoMakerValDataset(Dataset):
         prompts_path: str,
         classes_json_path: str | None = None,
         seeds: Sequence[int] = (0, 1, 2),
+        limit: int | None = None,
         instance_transforms=None,
     ):
         self.images_dir = Path(images_dir)
@@ -69,6 +70,8 @@ class ManualPhotoMakerValDataset(Dataset):
                             "id": img_id,
                         }
                     )
+                    if limit is not None and len(self.samples) >= limit:
+                        return
 
     def _resolve_prompt(self, prompt: str, class_value: str | None) -> str:
         if "<class>" not in prompt:

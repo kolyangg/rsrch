@@ -61,4 +61,5 @@ val:
       prompts_path: ../dataset_full/val_dataset/prompts_10.txt
       classes_json_path: ../dataset_full/val_dataset/classes_ref.json
       seeds: [0, 1, 2]
+      limit: 1
   
