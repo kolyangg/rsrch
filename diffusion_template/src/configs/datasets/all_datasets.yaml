@@ -22,9 +22,11 @@ train:
         cosmic_texts_json_pth: ../dataset_full/all_texts_cosmic_by_qween3.json 
         cosmic_large_json_pth: ../dataset_full/cosmic_large_alldata.json
         cosmic_large_texts_json_pth: ../dataset_full/all_texts_cosmic_large_by_qween3_trigger_word.json
-        images_path: ../dataset_full
+        images_path: /home/aalanov/Bobkov_Denis/datasets/CosmicManHQ-1.0/
         num_refs: 1
         instance_transforms: ${transforms.instance_transforms.train}
+
+        
     
 
 val:

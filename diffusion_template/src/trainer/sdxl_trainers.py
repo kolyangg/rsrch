@@ -1,3 +1,4 @@
+import time
 import torch
 
 from src.metrics.tracker import MetricTracker
@@ -132,20 +133,56 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         
     @torch.no_grad()
     def process_evaluation_batch(self, batch, eval_metrics):
-        seed = self.config.validation_args.get("seed", 0)
+        seed = batch.get("seed", self.config.validation_args.get("seed", 0))
         generator = torch.Generator(device='cpu').manual_seed(seed)
+        callback = None
+        step_durations = []
+        pipe_start = time.time()
+
+        if self.validation_debug_timing:
+            last_time = pipe_start
+
+            def _callback(pipe, step, timestep, callback_kwargs):
+                nonlocal last_time
+                now = time.time()
+                step_durations.append(now - last_time)
+                last_time = now
+                return callback_kwargs
+
+            callback = _callback
+
         generated_images = self.pipe(
             prompt=batch['prompt'],
             generator=generator,
             input_id_images=batch['ref_images'],
+            callback_on_step_end=callback,
             **self.config.validation_args
         ).images
+        pipe_time = time.time() - pipe_start
 
         batch['generated'] = generated_images
 
+        metric_time = 0.0
         for metric in self.metrics:
+            metric_start = time.time()
             metric_result = metric(**batch)
+            metric_time += time.time() - metric_start
             for k, v in metric_result.items():
                 eval_metrics.update(k, v)
+
+        if self.validation_debug_timing and self.accelerator.is_main_process:
+            if step_durations:
+                step_stats = (
+                    f" step_mean={sum(step_durations)/len(step_durations):.3f}s"
+                    f" step_max={max(step_durations):.3f}s"
+                    f" steps={len(step_durations)}"
+                )
+            else:
+                step_stats = ""
+            msg = f"[VAL TIMING] pipeline={pipe_time:.3f}s metrics={metric_time:.3f}s{step_stats}"
+            if self.logger is not None:
+                self.logger.info(msg)
+            else:
+                print(msg)
                 
         return batch

@@ -28,6 +28,8 @@ val_datasets_names: ["manual_val"]
 # inference_metrics: ["clip_ts"]
 inference_metrics: ["clip_ts", "id_sim_best"]
 
+validation_debug_timing: false
+
 validation_args:
   negative_prompt: "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry"
   num_images_per_prompt: 5
@@ -38,4 +40,3 @@ validation_args:
   target_size: [1024, 1024]
   original_size: [1024, 1024]
   crops_coords_top_left: [0, 0]
-

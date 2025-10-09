@@ -8,6 +8,7 @@ from src.metrics.tracker import MetricTracker
 from src.utils.io_utils import ROOT_PATH
 
 import os
+import time
 
 
 class BaseTrainer:
@@ -72,6 +73,7 @@ class BaseTrainer:
 
         self.logger = logger
         self.log_step = log_step
+        self.validation_debug_timing = bool(getattr(self.config, "validation_debug_timing", False))
 
         self.model = model
         self.pipe = pipe
@@ -252,16 +254,32 @@ class BaseTrainer:
             metric.to_cuda()
 
         self.writer.set_step(epoch * self.epoch_len, part)
+        prev_time = time.time()
         with torch.no_grad():
             for batch_idx, batch in tqdm(
                 enumerate(dataloader),
                 desc=part,
                 total=len(dataloader),
             ):
+                fetch_done = time.time()
+                fetch_time = fetch_done - prev_time
+                process_start = time.time()
                 batch = self.process_evaluation_batch(
                     batch,
                     eval_metrics=self.evaluation_metrics,
                 )
+                process_time = time.time() - process_start
+                prev_time = time.time()
+
+                if self.validation_debug_timing and self.accelerator.is_main_process:
+                    msg = (
+                        f"[VAL TIMING] part={part} idx={batch_idx} "
+                        f"fetch={fetch_time:.3f}s process={process_time:.3f}s"
+                    )
+                    if self.logger is not None:
+                        self.logger.info(msg)
+                    else:
+                        print(msg)
                 self._log_batch(
                     batch_idx, batch, part
                 ) 
