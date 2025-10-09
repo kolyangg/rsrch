@@ -133,56 +133,120 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         
     @torch.no_grad()
     def process_evaluation_batch(self, batch, eval_metrics):
-        seed = batch.get("seed", self.config.validation_args.get("seed", 0))
-        generator = torch.Generator(device='cpu').manual_seed(seed)
-        callback = None
-        step_durations = []
-        pipe_start = time.time()
+        prompts = batch["prompt"]
+        if isinstance(prompts, str):
+            prompts = [prompts]
 
-        if self.validation_debug_timing:
-            last_time = pipe_start
+        batch_size = len(prompts)
 
-            def _callback(pipe, step, timestep, callback_kwargs):
-                nonlocal last_time
-                now = time.time()
-                step_durations.append(now - last_time)
-                last_time = now
-                return callback_kwargs
+        def get_value(key, default=None):
+            if key not in batch:
+                return default
+            value = batch[key]
+            if isinstance(value, list) and batch_size > 1 and len(value) == batch_size:
+                return value
+            return value
 
-            callback = _callback
+        ref_images_list = get_value("ref_images")
+        if batch_size == 1 and not isinstance(ref_images_list, list):
+            ref_images_list = [ref_images_list]
+        if batch_size > 1 and not isinstance(ref_images_list, list):
+            ref_images_list = [ref_images_list] * batch_size
 
-        generated_images = self.pipe(
-            prompt=batch['prompt'],
-            generator=generator,
-            input_id_images=batch['ref_images'],
-            callback_on_step_end=callback,
-            **self.config.validation_args
-        ).images
-        pipe_time = time.time() - pipe_start
+        ids_list = get_value("id", [None] * batch_size)
+        if not isinstance(ids_list, list):
+            ids_list = [ids_list] * batch_size
 
-        batch['generated'] = generated_images
+        seeds_value = batch.get("seed", None)
+        if isinstance(seeds_value, list) and len(seeds_value) == batch_size:
+            seeds_list = seeds_value
+        else:
+            default_seed = self.config.validation_args.get("seed", 0) if seeds_value is None else seeds_value
+            seeds_list = [default_seed] * batch_size
 
-        metric_time = 0.0
-        for metric in self.metrics:
-            metric_start = time.time()
-            metric_result = metric(**batch)
-            metric_time += time.time() - metric_start
-            for k, v in metric_result.items():
-                eval_metrics.update(k, v)
+        generated_collection = []
+        total_pipe_time = 0.0
+        total_metric_time = 0.0
+        total_steps = 0
+        step_max = 0.0
+
+        for idx in range(batch_size):
+            sample = {}
+            for key, value in batch.items():
+                if isinstance(value, list) and batch_size > 1 and len(value) == batch_size:
+                    sample[key] = value[idx]
+                else:
+                    sample[key] = value
+
+            sample_prompt = prompts[idx]
+            sample_ref_images = ref_images_list[idx]
+            sample_id = ids_list[idx]
+            sample_seed = seeds_list[idx]
+
+            generator = torch.Generator(device='cpu').manual_seed(sample_seed)
+            callback = None
+            step_durations = []
+            pipe_start = time.time()
+
+            if self.validation_debug_timing:
+                last_time = pipe_start
+
+                def _callback(pipe, step, timestep, callback_kwargs):
+                    nonlocal last_time
+                    now = time.time()
+                    step_duration = now - last_time
+                    step_durations.append(step_duration)
+                    last_time = now
+                    return callback_kwargs
+
+                callback = _callback
+
+            generated_images = self.pipe(
+                prompt=sample_prompt,
+                generator=generator,
+                input_id_images=sample_ref_images,
+                callback_on_step_end=callback,
+                **self.config.validation_args
+            ).images
+            pipe_time = time.time() - pipe_start
+            total_pipe_time += pipe_time
+
+            sample["prompt"] = sample_prompt
+            sample["ref_images"] = sample_ref_images
+            sample["generated"] = generated_images
+            sample["id"] = sample_id
+            sample["seed"] = sample_seed
+
+            metric_time = 0.0
+            for metric in self.metrics:
+                metric_start = time.time()
+                metric_result = metric(**sample)
+                metric_time += time.time() - metric_start
+                for k, v in metric_result.items():
+                    eval_metrics.update(k, v)
+
+            total_metric_time += metric_time
+            generated_collection.append(generated_images)
+
+            if self.validation_debug_timing and step_durations:
+                total_steps += len(step_durations)
+                step_max = max(step_max, max(step_durations))
+
+        batch["generated"] = generated_collection if batch_size > 1 else generated_collection[0]
 
         if self.validation_debug_timing and self.accelerator.is_main_process:
-            if step_durations:
-                step_stats = (
-                    f" step_mean={sum(step_durations)/len(step_durations):.3f}s"
-                    f" step_max={max(step_durations):.3f}s"
-                    f" steps={len(step_durations)}"
-                )
+            if total_steps > 0:
+                step_mean = total_pipe_time / total_steps
+                step_stats = f" step_mean={step_mean:.3f}s step_max={step_max:.3f}s steps={total_steps}"
             else:
                 step_stats = ""
-            msg = f"[VAL TIMING] pipeline={pipe_time:.3f}s metrics={metric_time:.3f}s{step_stats}"
+            msg = (
+                f"[VAL TIMING] pipeline={total_pipe_time:.3f}s "
+                f"metrics={total_metric_time:.3f}s{step_stats}"
+            )
             if self.logger is not None:
                 self.logger.info(msg)
             else:
                 print(msg)
-                
+
         return batch

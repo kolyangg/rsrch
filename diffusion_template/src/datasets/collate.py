@@ -36,4 +36,14 @@ def collate_fn_val(dataset_items: list[dict]):
             of the tensors.
     """
 
-    return dataset_items[0]
+    if len(dataset_items) == 1:
+        return dataset_items[0]
+
+    keys = dataset_items[0].keys()
+    result_batch = {k: [] for k in keys}
+
+    for item in dataset_items:
+        for k in keys:
+            result_batch[k].append(item[k])
+
+    return result_batch
