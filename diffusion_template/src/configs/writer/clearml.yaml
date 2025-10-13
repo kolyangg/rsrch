@@ -1,0 +1,10 @@
+_target_: src.logger.clearml.ClearMLWriter
+project_name: "test"
+entity: null
+run_name: "testing"
+mode: "online"
+tags: []
+output_uri: null
+loss_names: ["loss"]
+log_checkpoints: False
+id_length: 8
