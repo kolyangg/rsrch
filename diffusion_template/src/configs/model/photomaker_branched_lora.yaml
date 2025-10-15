@@ -1,0 +1,14 @@
+_target_: src.model.photomaker_branched.lora.PhotomakerBranchedLora
+pretrained_model_name_or_path: stabilityai/stable-diffusion-xl-base-1.0
+photomaker_path: ${oc.env:HOME}/.cache/huggingface/hub/models--TencentARC--PhotoMaker-V2/snapshots/f5a1e5155dc02166253fa7e29d13519f5ba22eac/photomaker-v2.bin
+weight_dtype: bf32
+target_size: 1024
+rank: 16
+photomaker_lora_rank: 64
+lora_modules:
+  - to_q
+  - to_k
+  - to_v
+  - to_out.0
+init_lora_weights: gaussian
+trigger_word: img

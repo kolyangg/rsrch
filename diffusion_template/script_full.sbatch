@@ -38,7 +38,8 @@ print("accelerate:", accelerate.version)
 print("sys.path has .local? ->", any(".local" in p for p in sys.path))
 PY
 
-CUDA_VISIBLE_DEVICES=0 \
+CUDA_VISIBLE_DEVICES=0,1 \
+    HTTPS_PROXY="https://373:egXSTyRwQSOy@xy.2a2i.org:4443 \
     WANDB_API_KEY=XXX \
     accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
     --config-name=photomaker_train_lora \
