@@ -18,3 +18,5 @@ dataset_full/LAION-5B/
 dataset_full/LAION-5B-Filtered/
 dataset_full/LAION-5B-Filtered-Large/
 diffusion_template-main.zip
+
+diffusion_template/hm_debug/
