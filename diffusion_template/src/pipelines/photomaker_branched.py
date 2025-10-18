@@ -986,20 +986,15 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 #         print(f"[AutoMaskRef] Failed to generate ref mask (fallback to manual file): {e}")
 
                 # ── Auto-generate reference face mask *early* so downstream uses it
-                if auto_mask_ref:
-                    try:
-                        # --- ADDED For training integration (FOLDER STUCTURE) ---
-                        from src.model.photomaker_branched.create_mask_ref import compute_face_mask_from_pil
-                        os.makedirs(debug_dir, exist_ok=True)
-                        _auto_ref_path = os.path.join(debug_dir, "auto_ref_mask.png")
-                        _m = compute_face_mask_from_pil(pil)          # uint8 HxW in {0,255}
-                        Image.fromarray(_m).save(_auto_ref_path)       # save as 8-bit grayscale
-                        import_mask_ref = _auto_ref_path               # override for aggregate_heatmaps_to_mask(..., "_ref")
-                        print(f"[AutoMaskRef] Generated ref mask → {_auto_ref_path}")
-                    # --- ADDED For training integration ---
-                    except ModuleNotFoundError as exc:
-                        print(f"[AutoMaskRef] create_mask_ref not available ({exc}); skipping auto mask generation.")
-                    # --- ADDED For training integration ---
+                if auto_mask_ref:                    
+                    # --- ADDED For training integration (FOLDER STUCTURE) ---
+                    from src.model.photomaker_branched.create_mask_ref import compute_face_mask_from_pil
+                    os.makedirs(debug_dir, exist_ok=True)
+                    _auto_ref_path = os.path.join(debug_dir, "auto_ref_mask.png")
+                    _m = compute_face_mask_from_pil(pil)          # uint8 HxW in {0,255}
+                    Image.fromarray(_m).save(_auto_ref_path)       # save as 8-bit grayscale
+                    import_mask_ref = _auto_ref_path               # override for aggregate_heatmaps_to_mask(..., "_ref")
+                    print(f"[AutoMaskRef] Generated ref mask → {_auto_ref_path}")
                 else:
                     print(f"[AutoMaskRef] Using existing ref mask at {import_mask_ref}")
 
