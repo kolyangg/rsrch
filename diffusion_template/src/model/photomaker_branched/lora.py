@@ -16,9 +16,13 @@ from diffusers.utils import (
 )
 from src.model.sdxl.original import SDXL
 
+# --- Branched-attention specific import ---
 from .branched_new import two_branch_predict
+
+# --- PhotoMaker v2 upgraded ID encoder + InsightFace integration START ---
 from .insightface_package import FaceAnalysis2, analyze_faces
 from .model_v2_NS import PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken
+# --- PhotoMaker v2 upgraded ID encoder + InsightFace integration END ---
 
 
 class PhotomakerBranchedLora(SDXL):
@@ -53,6 +57,8 @@ class PhotomakerBranchedLora(SDXL):
         self.target_size = target_size
 
         self.id_image_processor = CLIPImageProcessor()
+
+        # --- PhotoMaker v2 integration START: upgraded ID encoder & face embeddings ---
         # Mirror the PhotoMaker v2 ID encoder configuration (512-d InsightFace input).
         self.id_encoder = PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken()
 
@@ -63,17 +69,20 @@ class PhotomakerBranchedLora(SDXL):
             self.face_analyzer.prepare(ctx_id=0, det_size=(640, 640))
         except Exception:
             self.face_analyzer.prepare(ctx_id=-1, det_size=(640, 640))
+        # --- PhotoMaker v2 integration END ---
 
         self.trigger_word = trigger_word
         self.num_tokens = self.id_encoder.num_tokens
         self.tokenizer.add_tokens([self.trigger_word], special_tokens=True)
         self.tokenizer_2.add_tokens([self.trigger_word], special_tokens=True)
 
+        # --- Branched-attention integration START: runtime knobs used by branched processors ---
         # Branched helpers expect ``scheduler`` attribute – alias it once.
         self.scheduler = self.noise_scheduler
         self.pose_adapt_ratio = 0.25
         self.ca_mixing_for_face = True
         self.face_embed_strategy = "face"
+        # --- Branched-attention integration END ---
 
         photomaker_lora_config = LoraConfig(
             r=photomaker_lora_rank,
@@ -102,6 +111,7 @@ class PhotomakerBranchedLora(SDXL):
         self.unet.set_adapter(["lora_adapter", "default"])
 
     def load_photomaker_state_dict_(self, state_dict):
+        # load lora
         lora_state_dict = state_dict["lora_weights"]
         unet_state_dict = {k.replace("unet.", ""): v for k, v in lora_state_dict.items()}
         unet_state_dict = convert_unet_state_dict_to_peft(unet_state_dict)
@@ -110,15 +120,21 @@ class PhotomakerBranchedLora(SDXL):
             unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
             assert not unexpected_keys, unexpected_keys
 
+        # load id_encoder
         self.id_encoder.load_state_dict(state_dict["id_encoder"], strict=True)
 
     def get_trainable_params(self, config):
         lora_params = filter(lambda p: p.requires_grad, self.unet.parameters())
-        return [{"params": lora_params, "lr": config.lr_for_lora, "name": "lora_params"}]
+        trainable_params = [
+            {'params': lora_params, 'lr': config.lr_for_lora, 'name': 'lora_params'},
+        ]
+        return trainable_params
 
     def get_state_dict(self):
         lora_weights = convert_state_dict_to_diffusers(get_peft_model_state_dict(self.unet, adapter_name="lora_adapter"))
-        return {"lora_weights": lora_weights}
+        return {
+            'lora_weights': lora_weights,
+        }
 
     def load_state_dict_(self, state_dict):
         lora_state_dict = state_dict["lora_weights"]
@@ -182,6 +198,7 @@ class PhotomakerBranchedLora(SDXL):
             )
 
             with torch.no_grad():
+                # --- PhotoMaker v2 integration START: derive InsightFace embeddings for v2 ID encoder ---
                 id_pixel_values = self.id_image_processor(refs, return_tensors="pt").pixel_values.unsqueeze(0)
                 id_pixel_values = id_pixel_values.to(self.device, dtype=self.id_encoder.dtype)
 
@@ -205,8 +222,11 @@ class PhotomakerBranchedLora(SDXL):
                     class_tokens_mask,
                     id_embeds,
                 )
+                # --- PhotoMaker v2 integration END ---
 
+                # --- Branched-attention integration START: prepare reference latents for branch mixing ---
                 reference_latent = self._encode_reference_latent(refs[0], target_shape=(latent_h, latent_w))
+                # --- Branched-attention integration END ---
 
             prompt_embeds_list.append(prompt_embeds)
             pooled_prompt_embeds_list.append(pooled_prompt_embeds)
@@ -224,6 +244,7 @@ class PhotomakerBranchedLora(SDXL):
         pooled_prompt_embeds = torch.cat(pooled_prompt_embeds_list, dim=0).to(device=self.device, dtype=self.unet.dtype)
         class_tokens_mask = torch.cat(class_tokens_mask_list, dim=0).to(device=self.device)
 
+        # --- Branched-attention integration START: cache masks, reference latents, CFG state ---
         mask4 = torch.cat(mask_list, dim=0).to(device=self.device, dtype=noisy_latents.dtype)
         mask4_ref = mask4.clone()
 
@@ -231,6 +252,7 @@ class PhotomakerBranchedLora(SDXL):
         self._ref_latents_all = reference_latents
         self._face_prompt_embeds = prompt_embeds
         self.do_classifier_free_guidance = False
+        # --- Branched-attention integration END ---
 
         # Re-sample reference noise every forward pass for training stability.
         if hasattr(self, "_ref_noise"):
@@ -241,6 +263,7 @@ class PhotomakerBranchedLora(SDXL):
             "time_ids": add_time_ids.to(device=self.device, dtype=self.unet.dtype),
         }
 
+        # --- Branched-attention integration START: run dual-branch UNet pass ---
         noise_pred, _, _ = two_branch_predict(
             pipeline=self,
             latent_model_input=noisy_latents,
@@ -258,14 +281,19 @@ class PhotomakerBranchedLora(SDXL):
             scale=1.0,
             timestep_cond=None,
         )
+        # --- Branched-attention integration END ---
 
-        return {"model_pred": noise_pred, "target": noise}
+        return {
+            'model_pred': noise_pred,
+            'target': noise,
+        }
 
     def encode_prompt_with_trigger_word(
         self,
         prompt: str,
         prompt_embeds: Optional[torch.Tensor] = None,
         pooled_prompt_embeds: Optional[torch.Tensor] = None,
+        ### Added args
         num_id_images: int = 1,
         class_tokens_mask: Optional[torch.LongTensor] = None,
         do_cfg: bool = False,
@@ -331,6 +359,8 @@ class PhotomakerBranchedLora(SDXL):
                     class_tokens_mask = class_tokens_mask.to(self.device)
 
                 prompt_embeds_curr = text_encoder(text_input_ids.to(self.device), output_hidden_states=True)
+                
+                # We are only ALWAYS interested in the pooled output of the final text encoder
                 pooled_prompt_embeds = prompt_embeds_curr[0]
                 prompt_embeds_curr = prompt_embeds_curr.hidden_states[-2]
 
@@ -345,6 +375,7 @@ class PhotomakerBranchedLora(SDXL):
 
         return prompt_embeds, pooled_prompt_embeds, class_tokens_mask
 
+    # --- Branched-attention helper utilities START ---
     def _bbox_to_mask(
         self,
         bbox: Optional[Sequence[float]],
@@ -405,3 +436,4 @@ class PhotomakerBranchedLora(SDXL):
             latents = F.interpolate(latents, size=target_shape, mode="bilinear", align_corners=False)
 
         return latents
+    # --- Branched-attention helper utilities END ---

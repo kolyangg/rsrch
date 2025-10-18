@@ -6,20 +6,15 @@ branched pipeline self-contained. If OpenCV or MediaPipe are missing, the
 helpers fall back to returning an empty mask so training/inference can proceed.
 """
 
+# --- ADDED For training integration ---
 from __future__ import annotations
+# --- ADDED For training integration ---
+
+import sys, cv2, numpy as np, mediapipe as mp
 
 import numpy as np
 from PIL import Image
 
-try:
-    import cv2  # type: ignore
-except ImportError:  # pragma: no cover
-    cv2 = None
-
-try:
-    import mediapipe as mp  # type: ignore
-except ImportError:  # pragma: no cover
-    mp = None
 
 def _binary_face_mask_from_bgr(
     img: np.ndarray,
@@ -32,9 +27,6 @@ def _binary_face_mask_from_bgr(
     Compute a uint8 HxW binary face mask (0/255) from a BGR image using
     MediaPipe FaceMesh. Returns an empty mask if prerequisites are missing.
     """
-    if cv2 is None or mp is None:
-        return np.zeros(img.shape[:2], np.uint8)
-
     h, w = img.shape[:2]
     mask = np.zeros((h, w), np.uint8)
     mesh = mp.solutions.face_mesh
@@ -127,15 +119,21 @@ def highlight_face(
     Convenience function that saves an overlay highlighting the detected face.
     Primarily kept for parity with the upstream helper.
     """
-    if cv2 is None:
-        raise RuntimeError("highlight_face requires OpenCV to be installed.")
-
     img = cv2.imread(src_path)
+    # --- ADDED For training integration ---
     if img is None:
         raise FileNotFoundError(src_path)
+    # --- ADDED For training integration ---
     mask = _binary_face_mask_from_bgr(img, scale=scale, top_scale=top_scale, dilate_frac=dilate_frac)
 
-    overlay = img.copy()
-    overlay[mask > 0] = (0.4 * overlay[mask > 0] + 0.6 * np.array([0, 0, 255])).astype(np.uint8)
-    blended = cv2.addWeighted(img, 1 - alpha, overlay, alpha, 0)
-    cv2.imwrite(dst_path, blended)
+    # # --- ADDED For training integration --- WTF TO CHECK
+    # overlay = img.copy()
+    # overlay[mask > 0] = (0.4 * overlay[mask > 0] + 0.6 * np.array([0, 0, 255])).astype(np.uint8)
+    # blended = cv2.addWeighted(img, 1 - alpha, overlay, alpha, 0)
+    # cv2.imwrite(dst_path, blended)
+    # # --- ADDED For training integration --- WTF TO CHECK
+    
+    red = np.full_like(img, (0, 0, 255))
+    m3  = cv2.merge([mask, mask, mask])
+    out = np.where(m3 > 0, (alpha * red + (1 - alpha) * img).astype(np.uint8), img)
+    cv2.imwrite(dst_path, out)

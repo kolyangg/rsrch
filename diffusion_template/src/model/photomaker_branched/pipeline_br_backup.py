@@ -34,13 +34,13 @@ from .branched_new import (
     save_debug_images,
 )
 
-# Keep existing imports:
-from .branched_v4 import (
-    MASK_LAYERS_CONFIG,
-    compute_binary_face_mask,
-    simple_threshold_mask,
-    encode_face_latents,
-)
+# # Keep existing imports:
+# from .branched_v4 import (
+#     MASK_LAYERS_CONFIG,
+#     compute_binary_face_mask,
+#     simple_threshold_mask,
+#     encode_face_latents,
+# )
 
 
 from .branch_helpers import (
@@ -879,6 +879,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         if id_embeds is not None:
             id_embeds = id_embeds.unsqueeze(0).to(device=device, dtype=dtype)
         else:
+            # --- ADDED For training integration ---
             embeddings = []
             for ref in input_id_images:
                 if isinstance(ref, torch.Tensor):
@@ -898,6 +899,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 else:
                     embedding = torch.zeros(512, dtype=torch.float32)
                 embeddings.append(embedding)
+            # --- ADDED For training integration ---
 
             id_embeds = torch.stack(embeddings, dim=0).unsqueeze(0).to(device=device, dtype=dtype)
 
@@ -987,8 +989,10 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                         Image.fromarray(_m).save(_auto_ref_path)       # save as 8-bit grayscale
                         import_mask_ref = _auto_ref_path               # override for aggregate_heatmaps_to_mask(..., "_ref")
                         print(f"[AutoMaskRef] Generated ref mask → {_auto_ref_path}")
+                    # --- ADDED For training integration ---
                     except ModuleNotFoundError as exc:
                         print(f"[AutoMaskRef] create_mask_ref not available ({exc}); skipping auto mask generation.")
+                    # --- ADDED For training integration ---
                 else:
                     print(f"[AutoMaskRef] Using existing ref mask at {import_mask_ref}")
 
@@ -1033,6 +1037,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 
                  # IMPORTANT: Create ref_noise with same generator as latents for consistency
                 if not hasattr(self, '_ref_noise'):
+                    # --- ADDED For training integration ---
                     gen = None
                     if generator is not None:
                         cand = generator[0] if isinstance(generator, (list, tuple)) and len(generator) > 0 else generator
@@ -1045,6 +1050,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                                     gen.set_state(cand.get_state())
                                 except Exception:
                                     gen = None
+                    # --- ADDED For training integration ---
                     self._ref_noise = torch.randn(
                         self._ref_latents_all.shape,
                         generator=gen,
@@ -1637,6 +1643,8 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         """Set cross attention kwargs."""
         self._cross_attention_kwargs = value
     ### NEW BRANCHED ATTENTION LOGIC ###
+    
+    # --- ADDED For training integration ---
     def _ensure_face_analyzer(self):
         if hasattr(self, "_face_analyzer"):
             return
@@ -1648,3 +1656,4 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             self._face_analyzer.prepare(ctx_id=0, det_size=(640, 640))
         except Exception:
             self._face_analyzer.prepare(ctx_id=-1, det_size=(640, 640))
+    # --- ADDED For training integration ---

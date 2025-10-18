@@ -3,19 +3,13 @@ add_masking.py - Dynamic mask generation from attention maps during inference
 """
 
 import numpy as np
-try:
-    import cv2
-except ImportError:  # pragma: no cover
-    cv2 = None
+import cv2
 import torch
 import math
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 from PIL import Image
-try:
-    import matplotlib.cm as cm
-except Exception:  # pragma: no cover
-    cm = None
+import matplotlib.cm as cm
 from PIL import ImageDraw, ImageFont
 
 
@@ -73,11 +67,6 @@ def create_mask_from_attention_maps(
     """
     if not attn_maps or not mask_layers_config:
         return None
-    if cv2 is None:
-        raise ImportError(
-            "OpenCV (cv2) is required for dynamic mask generation in the branched PhotoMaker pipeline. "
-            "Install it with `pip install opencv-python` or disable dynamic masking."
-        )
     
     # Set defaults for mask layer configs
     for m in mask_layers_config:
@@ -584,12 +573,6 @@ class DynamicMaskGenerator:
             return
         
         print(f"[DynamicMask] Creating heatmap PDF with {len(self.attn_maps_all_steps)} layers")
-        
-        if cm is None:
-            raise ImportError(
-                "matplotlib is required for saving heatmap PDFs. "
-                "Install it with `pip install matplotlib` or disable `save_hm_pdf`."
-            )
 
         # Sort layer names for consistent ordering
         layer_names = sorted(self.attn_maps_all_steps.keys())

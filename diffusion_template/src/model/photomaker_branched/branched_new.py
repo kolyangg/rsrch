@@ -227,6 +227,7 @@ def two_branch_predict(
                 ref_gen.manual_seed(42)  # Or extract seed from pipeline.generator
             try:
                 pipeline._ref_noise = torch.randn_like(reference_latents, generator=ref_gen)
+            # --- ADDED For training integration ---
             except TypeError:
                 pipeline._ref_noise = torch.randn(
                     reference_latents.shape,
@@ -234,6 +235,7 @@ def two_branch_predict(
                     device=reference_latents.device,
                     dtype=reference_latents.dtype,
                 )
+            # --- ADDED For training integration ---
             print(f"[2BP] Initialized reference noise (fixed for entire generation)")
             
     

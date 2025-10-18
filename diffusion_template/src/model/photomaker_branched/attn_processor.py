@@ -453,7 +453,9 @@ class BranchedAttnProcessor(nn.Module):
         
         # Expand for batch if needed
         if m.shape[0] != batch_size:
+            # --- ADDED For training integration ---
             reps = (batch_size + m.shape[0] - 1) // m.shape[0]
+            # --- ADDED For training integration ---
             m = m.repeat(reps, 1, 1)[:batch_size]
             
         # Reshape for multi-head attention [B, 1, L, 1]

@@ -14,10 +14,7 @@ from __future__ import annotations
 import math, json, warnings, os
 from typing import Dict, List
 
-try:
-    import cv2
-except ImportError:  # pragma: no cover
-    cv2 = None
+import cv2
 import numpy as np
 from PIL import Image
 
@@ -151,12 +148,6 @@ def compute_binary_face_mask(
 
     #     mask = main.astype(bool)
 
-
-    if cv2 is None:
-        raise ImportError(
-            "OpenCV (cv2) is required for mask post-processing in the branched PhotoMaker pipeline. "
-            "Install it with `pip install opencv-python` or disable dynamic mask features."
-        )
 
     # ❸ keep **largest** connected blob
     n_lbl, lbl, stats, _ = cv2.connectedComponentsWithStats(
