@@ -22,6 +22,7 @@
 
 import inspect
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from pathlib import Path  # --- MODIFIED For training integration ---
 # --- ADDED For training integration (FOLDER STUCTURE) ---
 from src.model.photomaker_branched.branched_new import (
     two_branch_predict,
@@ -1380,9 +1381,23 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                             print(f"[Warning] Noise and ref masks are nearly identical (diff={md:.4f})")
                     debug_reference_latents_once(self, mask4_ref, debug_dir)
                     if i == branched_attn_start_step:
-                        save_debug_ref_latents(self, debug_dir)
-                        # also dump ref-latents with the ref mask overlaid
-                        save_debug_ref_mask_overlay(self, mask4_ref, debug_dir)
+                        # --- MODIFIED For training integration (hm_debug) ---
+                        base_debug_dir = Path(debug_dir) if debug_dir is not None else None  
+                        if base_debug_dir is not None:  
+                            ref_masks = mask4_ref 
+                            if ref_masks.dim() == 4 and ref_masks.shape[0] == latents.shape[0]:
+                                ref_masks_iter = [ref_masks[idx:idx+1] for idx in range(len(latents))]
+                            else:
+                                ref_masks_iter = [ref_masks] * len(latents)
+                            for idx, mask_ref_single in enumerate(ref_masks_iter):
+                                per_image_dir = base_debug_dir / f"{idx:02d}"
+                                per_image_dir.mkdir(parents=True, exist_ok=True)
+                                save_debug_ref_latents(self, per_image_dir)
+                                save_debug_ref_mask_overlay(self, mask_ref_single, per_image_dir)
+                        # --- MODIFIED For training integration (hm_debug) ---
+                        else:
+                            save_debug_ref_latents(self, debug_dir)
+                            save_debug_ref_mask_overlay(self, mask4_ref, debug_dir)
                         print(f"[Debug] Step {i}: Ref mask overlay saved.")
 
                         
@@ -1495,16 +1510,32 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 # optional PNG previews of two branches
                 if i % 10 == 0 or i == num_inference_steps - 1: # every 10 steps
                     if "mask4" in locals() and noise_face is not None:
-                        save_branch_previews(
-                            self,
-                            latents,
-                            noise_pred,  # Just pass the merged prediction
-                            mask4,
-                            t,
-                            i,
-                            debug_dir,
-                            extra_step_kwargs,
-                        )
+                        base_debug_dir = Path(debug_dir) if debug_dir is not None else None
+                        if base_debug_dir is not None:
+                            for idx, latent_sample in enumerate(latents):
+                                per_image_dir = base_debug_dir / f"{idx:02d}"
+                                per_image_dir.mkdir(parents=True, exist_ok=True)
+                                save_branch_previews(
+                                    self,
+                                    latent_sample.unsqueeze(0),
+                                    noise_pred,
+                                    mask4,
+                                    t,
+                                    i,
+                                    per_image_dir,
+                                    extra_step_kwargs,
+                                )
+                        else:
+                            save_branch_previews(
+                                self,
+                                latents,
+                                noise_pred,
+                                mask4,
+                                t,
+                                i,
+                                debug_dir,
+                                extra_step_kwargs,
+                            )
 
 
                 # perform guidance

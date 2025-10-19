@@ -12,3 +12,6 @@ lora_modules:
   - to_out.0
 init_lora_weights: gaussian
 trigger_word: img
+pose_adapt_ratio: ${pipeline.pose_adapt_ratio}
+ca_mixing_for_face: ${pipeline.ca_mixing_for_face}
+face_embed_strategy: ${pipeline.face_embed_strategy}

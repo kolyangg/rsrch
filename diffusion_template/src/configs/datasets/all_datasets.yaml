@@ -27,7 +27,6 @@ train:
         instance_transforms: ${transforms.instance_transforms.train}
 
         
-    
 
 val:
     db_liv_small:
@@ -62,6 +61,6 @@ val:
       images_dir: ../dataset_full/val_dataset/references
       prompts_path: ../dataset_full/val_dataset/prompts_10.txt
       classes_json_path: ../dataset_full/val_dataset/classes_ref.json
-      seeds: [0, 1, 2]
-      limit: 1
+      seeds: [0] # [0, 1, 2]
+      limit: 20
   

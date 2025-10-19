@@ -292,8 +292,16 @@ def debug_reference_latents_once(
     Replicates the old pipeline.py debug section.
     Executes **only once** per pipeline instance.
     """
-    if getattr(pipeline, "_dbg_mask_once", False):
+    
+    # --- MODIFIED For training integration ---
+    saved_dirs = getattr(pipeline, "_dbg_mask_dirs", set())
+    if not isinstance(saved_dirs, set):
+        saved_dirs = set()
+    if debug_dir in saved_dirs:
         return
+    saved_dirs.add(debug_dir)
+    pipeline._dbg_mask_dirs = saved_dirs
+    # --- MODIFIED For training integration ---
 
     # Check for reference latents under both possible names
     if hasattr(pipeline, "_ref_latents_all"):
@@ -332,7 +340,12 @@ def debug_reference_latents_once(
     save_image(vis.unsqueeze(0), os.path.join(debug_dir, "ref_latents_faceonly.png"))
 
     # ② RGB crop of reference face (once)
-    if not hasattr(pipeline, "_saved_ref_face") and hasattr(pipeline, "_ref_img"):
+    # --- MODIFIED For training integration ---
+    saved_face_dirs = getattr(pipeline, "_saved_ref_face_dirs", set())
+    if not isinstance(saved_face_dirs, set):
+        saved_face_dirs = set()
+    if hasattr(pipeline, "_ref_img"):
+    # --- MODIFIED For training integration ---
         ref_img = pipeline._ref_img
         if ref_img is not None:
             ref_img = ref_img.float() * 0.5 + 0.5  # de-norm to [0,1]
@@ -349,10 +362,16 @@ def debug_reference_latents_once(
                 y0, y1 = ys.min().item(), ys.max().item() + 1
                 x0, x1 = xs.min().item(), xs.max().item() + 1
             ref_np = (ref_img.permute(1, 2, 0).clamp(0, 1).cpu().numpy() * 255).astype("uint8")
-            Image.fromarray(ref_np[y0:y1, x0:x1]).save(
-                os.path.join(debug_dir, "reference_face_crop.png"))
-            pipeline._saved_ref_face = True
-            print(f"[DBG] saved reference face crop → {debug_dir}/reference_face_crop.png")
+            
+            # --- MODIFIED For training integration ---
+            if debug_dir not in saved_face_dirs:
+                Image.fromarray(ref_np[y0:y1, x0:x1]).save(
+                    os.path.join(debug_dir, "reference_face_crop.png"))
+                saved_face_dirs.add(debug_dir)
+                pipeline._saved_ref_face_dirs = saved_face_dirs
+                pipeline._saved_ref_face = True
+                print(f"[DBG] saved reference face crop → {debug_dir}/reference_face_crop.png")
+            # --- MODIFIED For training integration ---
     
     # ③ store reusable step noise
     if not hasattr(pipeline, "_step_noise"):
@@ -377,8 +396,13 @@ def save_debug_ref_latents(pipeline, debug_dir: str) -> None:
     Decode reference latents back to RGB once and write
     `<debug_dir>/debug_ref_latents.png`.
     """
-    if getattr(pipeline, "_saved_ref_latents_img", False):
+    # --- MODIFIED For training integration ---
+    saved_dirs = getattr(pipeline, "_saved_ref_latents_dirs", set())
+    if not isinstance(saved_dirs, set):
+        saved_dirs = set()
+    if debug_dir in saved_dirs:
         return
+    # --- MODIFIED For training integration ---
 
     # Check for reference latents under both possible names
     if hasattr(pipeline, "_ref_latents_all"):
@@ -426,6 +450,8 @@ def save_debug_ref_latents(pipeline, debug_dir: str) -> None:
     Image.fromarray(img_np).save(os.path.join(debug_dir, "debug_ref_latents.png"))
     print(f"[Debug] saved reference latents image → {debug_dir}/debug_ref_latents.png")
 
+    saved_dirs.add(debug_dir) # --- MODIFIED For training integration ---
+    pipeline._saved_ref_latents_dirs = saved_dirs # --- MODIFIED For training integration ---
     pipeline._saved_ref_latents_img = True
 
 
@@ -435,7 +461,12 @@ def save_debug_ref_latents(pipeline, debug_dir: str) -> None:
 
 def save_debug_ref_mask_overlay(pipeline, mask4_ref, debug_dir: str) -> None:
     """Decode ref latents and overlay the ref mask (imported or mask4_ref) for alignment check."""
-    if getattr(pipeline, "_saved_ref_mask_overlay", False):
+    # --- MODIFIED For training integration ---
+    saved_dirs = getattr(pipeline, "_saved_ref_mask_overlay_dirs", set())
+    if not isinstance(saved_dirs, set):
+        saved_dirs = set()
+    if debug_dir in saved_dirs:
+    # --- MODIFIED For training integration ---
         return
     # get ref latents
     # Do NOT use `or` with tensors — explicit None-check instead
@@ -561,6 +592,8 @@ def save_debug_ref_mask_overlay(pipeline, mask4_ref, debug_dir: str) -> None:
     os.makedirs(debug_dir, exist_ok=True)
     Image.fromarray(img_np).save(os.path.join(debug_dir, "debug_ref_latents_mask_overlay.png"))
     print(f"[Debug] saved → {debug_dir}/debug_ref_latents_mask_overlay.png")
+    saved_dirs.add(debug_dir) # --- MODIFIED For training integration ---
+    pipeline._saved_ref_mask_overlay_dirs = saved_dirs # --- MODIFIED For training integration ---
     pipeline._saved_ref_mask_overlay = True
 
 

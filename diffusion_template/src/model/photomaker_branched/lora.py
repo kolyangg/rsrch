@@ -10,6 +10,7 @@ from peft import LoraConfig, set_peft_model_state_dict
 from peft.utils import get_peft_model_state_dict
 from transformers import CLIPImageProcessor
 
+import os
 from diffusers.utils import (
     convert_state_dict_to_diffusers,
     convert_unet_state_dict_to_peft,
@@ -17,7 +18,7 @@ from diffusers.utils import (
 from src.model.sdxl.original import SDXL
 
 # --- Branched-attention specific import ---
-from .branched_new import two_branch_predict
+from .branched_new import two_branch_predict, prepare_reference_latents  # --- MODIFIED For training integration ---
 
 # --- PhotoMaker v2 upgraded ID encoder + InsightFace integration START ---
 from .insightface_package import FaceAnalysis2, analyze_faces
@@ -45,6 +46,9 @@ class PhotomakerBranchedLora(SDXL):
         target_size: int = 1024,
         trigger_word: str = "img",
         photomaker_lora_rank: int = 64,
+        pose_adapt_ratio: float = 0.25, # --- ADDED For training integration
+        ca_mixing_for_face: bool = True,  # --- ADDED For training integration
+        face_embed_strategy: str = "face", # --- ADDED For training integration
     ):
         super().__init__(
             pretrained_model_name_or_path=pretrained_model_name_or_path,
@@ -57,6 +61,8 @@ class PhotomakerBranchedLora(SDXL):
         self.target_size = target_size
 
         self.id_image_processor = CLIPImageProcessor()
+        self.feature_extractor = self.id_image_processor  # --- MODIFIED For training integration ---
+        self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1) if hasattr(self.vae.config, "block_out_channels") else 8  # --- MODIFIED For training integration ---
 
         # --- PhotoMaker v2 integration START: upgraded ID encoder & face embeddings ---
         # Mirror the PhotoMaker v2 ID encoder configuration (512-d InsightFace input).
@@ -65,10 +71,11 @@ class PhotomakerBranchedLora(SDXL):
         # Instantiate FaceAnalysis once for extracting 512-D identity embeddings.
         self.face_analyzer = FaceAnalysis2(providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
                                            allowed_modules=["detection", "recognition"])
+        ctx_id = int(os.environ.get("LOCAL_RANK", "0")) if torch.cuda.is_available() else -1  # --- MODIFIED For training integration ---
         try:
-            self.face_analyzer.prepare(ctx_id=0, det_size=(640, 640))
+            self.face_analyzer.prepare(ctx_id=ctx_id, det_size=(640, 640))  
         except Exception:
-            self.face_analyzer.prepare(ctx_id=-1, det_size=(640, 640))
+            self.face_analyzer.prepare(ctx_id=-1, det_size=(640, 640))  # --- MODIFIED For training integration ---
         # --- PhotoMaker v2 integration END ---
 
         self.trigger_word = trigger_word
@@ -79,9 +86,9 @@ class PhotomakerBranchedLora(SDXL):
         # --- Branched-attention integration START: runtime knobs used by branched processors ---
         # Branched helpers expect ``scheduler`` attribute – alias it once.
         self.scheduler = self.noise_scheduler
-        self.pose_adapt_ratio = 0.25
-        self.ca_mixing_for_face = True
-        self.face_embed_strategy = "face"
+        self.pose_adapt_ratio = float(pose_adapt_ratio) # --- ADDED For training integration
+        self.ca_mixing_for_face = bool(ca_mixing_for_face) # --- ADDED For training integration
+        self.face_embed_strategy = (face_embed_strategy or "face").lower() # --- ADDED For training integration
         # --- Branched-attention integration END ---
 
         photomaker_lora_config = LoraConfig(
@@ -184,6 +191,7 @@ class PhotomakerBranchedLora(SDXL):
         class_tokens_mask_list = []
         mask_list = []
         ref_latents_list = []
+        pm_feature_list = []  # --- MODIFIED For training integration ---
 
         image_h, image_w = pixel_values.shape[-2:]
         latent_h, latent_w = noisy_latents.shape[-2:]
@@ -225,8 +233,25 @@ class PhotomakerBranchedLora(SDXL):
                 # --- PhotoMaker v2 integration END ---
 
                 # --- Branched-attention integration START: prepare reference latents for branch mixing ---
-                reference_latent = self._encode_reference_latent(refs[0], target_shape=(latent_h, latent_w))
+                # --- MODIFIED For training integration ---
+                reference_latent = prepare_reference_latents(
+                    self,  
+                    refs[0],
+                    image_h,
+                    image_w,
+                    noisy_latents.dtype,
+                )
+                # --- MODIFIED For training integration ---
                 # --- Branched-attention integration END ---
+
+                # --- MODIFIED For training integration ---
+                if self.face_embed_strategy == "id_embeds":  
+                    pm_features = self.id_encoder.extract_id_features(
+                        id_pixel_values.to(device=self.device, dtype=self.id_encoder.dtype),
+                        class_tokens_mask=class_tokens_mask,
+                    )
+                    pm_feature_list.append(pm_features.to(device=self.device, dtype=self.unet.dtype))
+                # --- MODIFIED For training integration ---
 
             prompt_embeds_list.append(prompt_embeds)
             pooled_prompt_embeds_list.append(pooled_prompt_embeds)
@@ -243,6 +268,20 @@ class PhotomakerBranchedLora(SDXL):
         prompt_embeds = torch.cat(prompt_embeds_list, dim=0).to(device=self.device, dtype=self.unet.dtype)
         pooled_prompt_embeds = torch.cat(pooled_prompt_embeds_list, dim=0).to(device=self.device, dtype=self.unet.dtype)
         class_tokens_mask = torch.cat(class_tokens_mask_list, dim=0).to(device=self.device)
+
+        # --- MODIFIED For training integration ---
+        if self.face_embed_strategy == "face":  
+            face_prompt_text = ["a close-up human face laughing hard"] * batch_size 
+            face_prompt_embeds, _ = self.encode_prompt(face_prompt_text, do_cfg=False)
+            face_prompt_embeds = face_prompt_embeds.to(device=self.device, dtype=self.unet.dtype)
+        elif self.face_embed_strategy == "id_embeds" and pm_feature_list:
+            id_features = torch.cat(pm_feature_list, dim=0)
+            seq_len = prompt_embeds.shape[1]
+            dim = prompt_embeds.shape[2]
+            face_prompt_embeds = id_features.unsqueeze(1).expand(-1, seq_len, dim).contiguous()
+        else:
+            face_prompt_embeds = prompt_embeds  
+        # --- MODIFIED For training integration ---
 
         # --- Branched-attention integration START: cache masks, reference latents, CFG state ---
         mask4 = torch.cat(mask_list, dim=0).to(device=self.device, dtype=noisy_latents.dtype)
@@ -273,7 +312,7 @@ class PhotomakerBranchedLora(SDXL):
             mask4=mask4,
             mask4_ref=mask4_ref,
             reference_latents=reference_latents,
-            face_prompt_embeds=prompt_embeds,
+            face_prompt_embeds=face_prompt_embeds,  # --- MODIFIED For training integration ---
             class_tokens_mask=class_tokens_mask,
             face_embed_strategy=self.face_embed_strategy,
             id_embeds=None,

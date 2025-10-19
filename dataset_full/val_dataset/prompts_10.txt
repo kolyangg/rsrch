@@ -1,10 +1,3 @@
 Reading paper <class>, park bench, calm face, grey overcoat
-Phone-scroll <class>, airport lounge, bored face, travel pillow
-Rushing <class>, subway platform, anxious face, swinging briefcase
-Sketching <class>, coffee shop, relaxed grin, messy bun
-Gaming <class>, RGB bedroom, frustrated face, headset on
-Magician <class>, circus ring, mischievous laugh, velvet top hat
-Drumming <class>, rock concert in rain, passionate angry face, black t-shirt
-Snowboarding <class>, icy pipe, thrilled face, teal parka
-Flying hero <class>, skyline, triumphant face, flowing cape
+Rushing <class> portrait, subway platform, anxious face, swinging briefcase
 Skiing <class>, snowy slope, fearless grin, orange goggles

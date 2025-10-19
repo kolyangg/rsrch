@@ -1,4 +1,5 @@
 import time
+from pathlib import Path  # --- MODIFIED For training integration ---
 import torch
 
 from src.metrics.tracker import MetricTracker
@@ -92,28 +93,59 @@ class SDXLTrainer(BaseTrainer):
             pass
         else:
             # Log Stuff
-            prompt = batch['prompt']
-            if isinstance(prompt, list):
-                prompt = prompt[0]
+            # --- MODIFIED For training integration ---
+            prompts = batch.get('prompt')
+            if isinstance(prompts, str):
+                prompts = [prompts]
+            elif isinstance(prompts, list):
+                flat_prompts = []
+                for item in prompts:
+                    if isinstance(item, list):
+                        flat_prompts.extend(item)
+                    else:
+                        flat_prompts.append(item)
+                prompts = flat_prompts 
+            else: 
+                prompts = []
 
-            generated = batch['generated']
+            generated = batch.get('generated')
+            if not generated:
+                return
+            images = []
             if isinstance(generated, list):
-                if not generated:
-                    return
-                first_item = generated[0]
-                if isinstance(first_item, list):
-                    if not first_item:
-                        return
-                    generated_img = first_item[0]
-                else:
-                    generated_img = first_item
+                for item in generated:
+                    if isinstance(item, list):
+                        images.extend(item)
+                    else:
+                        images.append(item)
             else:
-                generated_img = generated
+                images = [generated]
+            if not images:
+                return 
+            # --- MODIFIED For training integration ---
+            
+            # --- MODIFIED For training integration ---
+            num_per_prompt = self.config.validation_args.get("num_images_per_prompt", 1)  
+            labels = []  
+            if prompts and len(prompts) * num_per_prompt == len(images): 
+                for prompt in prompts:
+                    for img_idx in range(num_per_prompt):
+                        labels.append(f"{prompt}_img{img_idx}")
+            elif prompts and len(prompts) == len(images):
+                labels = prompts
+            else:
+                labels = [f"{mode}_{batch_idx}_img{i}" for i in range(len(images))] 
 
-            generated_img = generated_img.resize((256, 256))
-            cutted_prompt = prompt.replace(" ", "_")[:30]
-            image_name = f"{mode}_images/{cutted_prompt}"
-            self.writer.add_image(image_name, generated_img)
+            sanitized = [label.replace(" ", "_")[:80] for label in labels]  
+            save_root = Path(self.checkpoint_dir) / "val_images" / mode / f"step_{getattr(self.writer, 'step', 0)}_batch_{batch_idx}"
+            save_root.mkdir(parents=True, exist_ok=True)
+
+            for img, name in zip(images, sanitized):
+                image_name = f"{mode}_images/{name}"
+                self.writer.add_image(image_name, img)
+                if hasattr(img, "save"):
+                    img.save(save_root / f"{name}.png")
+            # --- MODIFIED For training integration ---
 
 
 class PhotomakerLoraTrainer(SDXLTrainer):
