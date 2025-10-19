@@ -991,11 +991,11 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     # --- ADDED For training integration (FOLDER STUCTURE) ---
                     from src.model.photomaker_branched.create_mask_ref import compute_face_mask_from_pil
                     os.makedirs(debug_dir, exist_ok=True)
-                    _auto_ref_path = os.path.join(debug_dir, "auto_ref_mask.png")
-                    _m = compute_face_mask_from_pil(pil)          # uint8 HxW in {0,255}
-                    Image.fromarray(_m).save(_auto_ref_path)       # save as 8-bit grayscale
-                    import_mask_ref = _auto_ref_path               # override for aggregate_heatmaps_to_mask(..., "_ref")
-                    print(f"[AutoMaskRef] Generated ref mask → {_auto_ref_path}")
+                    auto_ref_path = os.path.join(debug_dir, "auto_ref_mask.png")
+                    mask_array = compute_face_mask_from_pil(pil)
+                    Image.fromarray(mask_array).save(auto_ref_path)
+                    import_mask_ref = auto_ref_path
+                    print(f"[AutoMaskRef] Generated ref mask → {auto_ref_path}")
                 else:
                     print(f"[AutoMaskRef] Using existing ref mask at {import_mask_ref}")
 
@@ -1383,17 +1383,18 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     if i == branched_attn_start_step:
                         # --- MODIFIED For training integration (hm_debug) ---
                         base_debug_dir = Path(debug_dir) if debug_dir is not None else None  
-                        if base_debug_dir is not None:  
-                            ref_masks = mask4_ref 
-                            if ref_masks.dim() == 4 and ref_masks.shape[0] == latents.shape[0]:
-                                ref_masks_iter = [ref_masks[idx:idx+1] for idx in range(len(latents))]
+                        if base_debug_dir is not None:
+                            ref_masks = mask4_ref
+                            total_outputs = latents.shape[0]
+                            if ref_masks.dim() == 4 and ref_masks.shape[0] == total_outputs:
+                                ref_masks_iter = [ref_masks[idx:idx+1] for idx in range(total_outputs)]
                             else:
-                                ref_masks_iter = [ref_masks] * len(latents)
+                                ref_masks_iter = [ref_masks] * total_outputs
                             for idx, mask_ref_single in enumerate(ref_masks_iter):
-                                per_image_dir = base_debug_dir / f"{idx:02d}"
+                                per_image_dir = base_debug_dir if total_outputs == 1 else base_debug_dir / f"{idx:02d}"
                                 per_image_dir.mkdir(parents=True, exist_ok=True)
-                                save_debug_ref_latents(self, per_image_dir)
-                                save_debug_ref_mask_overlay(self, mask_ref_single, per_image_dir)
+                                save_debug_ref_latents(self, str(per_image_dir))
+                                save_debug_ref_mask_overlay(self, mask_ref_single, str(per_image_dir))
                         # --- MODIFIED For training integration (hm_debug) ---
                         else:
                             save_debug_ref_latents(self, debug_dir)
@@ -1512,17 +1513,19 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     if "mask4" in locals() and noise_face is not None:
                         base_debug_dir = Path(debug_dir) if debug_dir is not None else None
                         if base_debug_dir is not None:
+                            total_outputs = latents.shape[0]
                             for idx, latent_sample in enumerate(latents):
-                                per_image_dir = base_debug_dir / f"{idx:02d}"
+                                per_image_dir = base_debug_dir if total_outputs == 1 else base_debug_dir / f"{idx:02d}"
                                 per_image_dir.mkdir(parents=True, exist_ok=True)
+                                mask_slice = mask4[idx:idx+1] if mask4.shape[0] > idx else mask4
                                 save_branch_previews(
                                     self,
                                     latent_sample.unsqueeze(0),
                                     noise_pred,
-                                    mask4,
+                                    mask_slice,
                                     t,
                                     i,
-                                    per_image_dir,
+                                    str(per_image_dir),
                                     extra_step_kwargs,
                                 )
                         else:

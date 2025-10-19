@@ -261,6 +261,7 @@ class BaseTrainer:
                 desc=part,
                 total=len(dataloader),
             ):
+                batch["debug_idx"] = batch_idx  # --- MODIFIED For training integration ---
                 fetch_done = time.time()
                 fetch_time = fetch_done - prev_time
                 process_start = time.time()

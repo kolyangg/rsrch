@@ -1,6 +1,7 @@
 import time
 from pathlib import Path  # --- MODIFIED For training integration ---
 import torch
+from omegaconf import OmegaConf  # --- MODIFIED For training integration ---
 
 from src.metrics.tracker import MetricTracker
 from src.trainer.base_trainer import BaseTrainer
@@ -57,10 +58,16 @@ class SDXLTrainer(BaseTrainer):
     def process_evaluation_batch(self, batch, eval_metrics):
         seed = batch.get("seed", self.config.validation_args.get("seed", 0))
         generator = torch.Generator(device='cpu').manual_seed(seed)
+        validation_kwargs = OmegaConf.to_container(self.config.validation_args, resolve=True)
+        if not isinstance(validation_kwargs, dict):
+            validation_kwargs = dict(validation_kwargs)
+        debug_base = validation_kwargs.get("debug_dir", "hm_debug")
+        debug_idx = batch.get("debug_idx", 0)
+        validation_kwargs["debug_dir"] = str(Path(debug_base) / f"{int(debug_idx):02d}")
         generated_images = self.pipe(
             prompt=batch['prompt'],
             generator=generator,
-            **self.config.validation_args
+            **validation_kwargs
         ).images
 
         batch['generated'] = generated_images

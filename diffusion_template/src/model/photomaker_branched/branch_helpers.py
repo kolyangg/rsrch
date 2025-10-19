@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math, types, torch, numpy as np, os
+from pathlib import Path  # --- MODIFIED For training integration ---
 from PIL import Image
 import torch.nn.functional as F
 from torchvision.utils import save_image
@@ -222,8 +223,9 @@ def save_branch_previews(
     
     if mask4 is None or noise_pred is None:
         return
-        
-    os.makedirs(debug_dir, exist_ok=True)
+
+    debug_path = Path(debug_dir)  # --- MODIFIED For training integration ---
+    debug_path.mkdir(parents=True, exist_ok=True)  # --- MODIFIED For training integration ---
     
     # # Step the prediction
     # saved_idx = getattr(pipeline.scheduler, "_step_index", None)
@@ -276,7 +278,7 @@ def save_branch_previews(
     mask_area = mask_resized > 128
     overlay[mask_area, 0] = np.clip(overlay[mask_area, 0] + 50, 0, 255)  # Add red tint
     
-    Image.fromarray(overlay).save(os.path.join(debug_dir, f"prediction_step{step_idx:03d}.png"))
+    Image.fromarray(overlay).save(debug_path / f"prediction_step{step_idx:03d}.png")  # --- MODIFIED For training integration ---
 
         
 # ────────────────────────────────────────────────────────────────
@@ -294,12 +296,15 @@ def debug_reference_latents_once(
     """
     
     # --- MODIFIED For training integration ---
+    debug_path = Path(debug_dir)  # --- MODIFIED For training integration ---
+    debug_dir_key = str(debug_path)  # --- MODIFIED For training integration ---
+
     saved_dirs = getattr(pipeline, "_dbg_mask_dirs", set())
     if not isinstance(saved_dirs, set):
         saved_dirs = set()
-    if debug_dir in saved_dirs:
+    if debug_dir_key in saved_dirs:
         return
-    saved_dirs.add(debug_dir)
+    saved_dirs.add(debug_dir_key)
     pipeline._dbg_mask_dirs = saved_dirs
     # --- MODIFIED For training integration ---
 
@@ -312,7 +317,7 @@ def debug_reference_latents_once(
         print("[DBG] Warning: No reference latents found, skipping debug")
         return
 
-    os.makedirs(debug_dir, exist_ok=True)
+    debug_path.mkdir(parents=True, exist_ok=True)  # --- MODIFIED For training integration ---
 
     # Rest of the function remains the same...
     mask_bool = mask4.repeat(1, 4, 1, 1).bool()
@@ -337,7 +342,7 @@ def debug_reference_latents_once(
     bg  = mag.mean()
     vis = mag * m + bg * (1.0 - m)                  # face-only shows structure
     vis = (vis - vis.min()) / (vis.max() - vis.min() + 1e-8)
-    save_image(vis.unsqueeze(0), os.path.join(debug_dir, "ref_latents_faceonly.png"))
+    save_image(vis.unsqueeze(0), debug_path / "ref_latents_faceonly.png")  # --- MODIFIED For training integration ---
 
     # ② RGB crop of reference face (once)
     # --- MODIFIED For training integration ---
@@ -364,13 +369,13 @@ def debug_reference_latents_once(
             ref_np = (ref_img.permute(1, 2, 0).clamp(0, 1).cpu().numpy() * 255).astype("uint8")
             
             # --- MODIFIED For training integration ---
-            if debug_dir not in saved_face_dirs:
+            if debug_dir_key not in saved_face_dirs:
                 Image.fromarray(ref_np[y0:y1, x0:x1]).save(
-                    os.path.join(debug_dir, "reference_face_crop.png"))
-                saved_face_dirs.add(debug_dir)
+                    debug_path / "reference_face_crop.png")
+                saved_face_dirs.add(debug_dir_key)
                 pipeline._saved_ref_face_dirs = saved_face_dirs
                 pipeline._saved_ref_face = True
-                print(f"[DBG] saved reference face crop → {debug_dir}/reference_face_crop.png")
+                print(f"[DBG] saved reference face crop → {debug_path}/reference_face_crop.png")
             # --- MODIFIED For training integration ---
     
     # ③ store reusable step noise
@@ -397,10 +402,13 @@ def save_debug_ref_latents(pipeline, debug_dir: str) -> None:
     `<debug_dir>/debug_ref_latents.png`.
     """
     # --- MODIFIED For training integration ---
+    debug_path = Path(debug_dir)
+    debug_dir_key = str(debug_path)
+
     saved_dirs = getattr(pipeline, "_saved_ref_latents_dirs", set())
     if not isinstance(saved_dirs, set):
         saved_dirs = set()
-    if debug_dir in saved_dirs:
+    if debug_dir_key in saved_dirs:
         return
     # --- MODIFIED For training integration ---
 
@@ -413,7 +421,7 @@ def save_debug_ref_latents(pipeline, debug_dir: str) -> None:
         print("[Debug] Warning: No reference latents found, skipping debug image")
         return
 
-    os.makedirs(debug_dir, exist_ok=True)
+    debug_path.mkdir(parents=True, exist_ok=True)
 
     vae_device = next(pipeline.vae.parameters()).device
     vae_dtype = next(pipeline.vae.parameters()).dtype
@@ -447,11 +455,11 @@ def save_debug_ref_latents(pipeline, debug_dir: str) -> None:
     img_np = (((img.float() / 2 + 0.5).clamp(0, 1)).permute(1, 2, 0).detach().cpu().numpy() * 255).astype("uint8")
     
 
-    Image.fromarray(img_np).save(os.path.join(debug_dir, "debug_ref_latents.png"))
-    print(f"[Debug] saved reference latents image → {debug_dir}/debug_ref_latents.png")
+    Image.fromarray(img_np).save(debug_path / "debug_ref_latents.png")
+    print(f"[Debug] saved reference latents image → {debug_path}/debug_ref_latents.png")
 
-    saved_dirs.add(debug_dir) # --- MODIFIED For training integration ---
-    pipeline._saved_ref_latents_dirs = saved_dirs # --- MODIFIED For training integration ---
+    saved_dirs.add(debug_dir_key)  # --- MODIFIED For training integration ---
+    pipeline._saved_ref_latents_dirs = saved_dirs  # --- MODIFIED For training integration ---
     pipeline._saved_ref_latents_img = True
 
 
@@ -462,11 +470,13 @@ def save_debug_ref_latents(pipeline, debug_dir: str) -> None:
 def save_debug_ref_mask_overlay(pipeline, mask4_ref, debug_dir: str) -> None:
     """Decode ref latents and overlay the ref mask (imported or mask4_ref) for alignment check."""
     # --- MODIFIED For training integration ---
+    debug_path = Path(debug_dir)
+    debug_dir_key = str(debug_path)
+
     saved_dirs = getattr(pipeline, "_saved_ref_mask_overlay_dirs", set())
     if not isinstance(saved_dirs, set):
         saved_dirs = set()
-    if debug_dir in saved_dirs:
-    # --- MODIFIED For training integration ---
+    if debug_dir_key in saved_dirs:
         return
     # get ref latents
     # Do NOT use `or` with tensors — explicit None-check instead
@@ -589,11 +599,11 @@ def save_debug_ref_mask_overlay(pipeline, mask4_ref, debug_dir: str) -> None:
     import numpy as np
     from PIL import Image
     img_np = (vis.permute(1, 2, 0).detach().cpu().numpy() * 255).astype("uint8")
-    os.makedirs(debug_dir, exist_ok=True)
-    Image.fromarray(img_np).save(os.path.join(debug_dir, "debug_ref_latents_mask_overlay.png"))
-    print(f"[Debug] saved → {debug_dir}/debug_ref_latents_mask_overlay.png")
-    saved_dirs.add(debug_dir) # --- MODIFIED For training integration ---
-    pipeline._saved_ref_mask_overlay_dirs = saved_dirs # --- MODIFIED For training integration ---
+    debug_path.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(img_np).save(debug_path / "debug_ref_latents_mask_overlay.png")
+    print(f"[Debug] saved → {debug_path}/debug_ref_latents_mask_overlay.png")
+    saved_dirs.add(debug_dir_key)
+    pipeline._saved_ref_mask_overlay_dirs = saved_dirs
     pipeline._saved_ref_mask_overlay = True
 
 

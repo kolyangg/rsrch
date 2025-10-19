@@ -509,12 +509,11 @@ class DynamicMaskGenerator:
                 print(f"[DynamicMask] Updated at step {step}, shape={new_mask.shape}, face_pixels={new_mask.sum()}")
                 
                 # Save visualization if requested
-                if self.save_heatmaps:
-                    # --- MODIFIED For training integration ---
+                if self.save_heatmaps and self.debug_dir:
                     base_debug_dir = Path(self.debug_dir)
-                    num_samples = latents.shape[0] if latents is not None else 1  
-                    for idx in range(num_samples):
-                        per_dir = base_debug_dir / f"{idx:02d}"  
+                    count = latents.shape[0] if latents is not None else 1
+                    for idx in range(count):
+                        per_dir = base_debug_dir if count == 1 else base_debug_dir / f"{idx:02d}"
                         per_dir.mkdir(parents=True, exist_ok=True)
                         mask_vis = (new_mask.astype(np.uint8) * 255)
                         Image.fromarray(mask_vis).save(per_dir / f"dynamic_mask_step_{step:03d}.png")
