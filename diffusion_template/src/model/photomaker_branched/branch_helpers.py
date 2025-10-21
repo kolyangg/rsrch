@@ -8,6 +8,12 @@ from PIL import Image
 import torch.nn.functional as F
 from torchvision.utils import save_image
 from typing import Tuple, Dict, List, Callable
+DEBUG_LOG_DEBUG_IMAGES = os.environ.get("PM_DEBUG_IMAGES", "1") not in {"0", "false", "False", ""}  # --- MODIFIED For training integration ---
+
+
+def log_debug_image(message: str) -> None:  # --- MODIFIED For training integration ---
+    if DEBUG_LOG_DEBUG_IMAGES:
+        print(message)
 
 # Re‑export commonly used mask utilities so caller does *one* import.
 from .mask_utils import (
@@ -278,7 +284,9 @@ def save_branch_previews(
     mask_area = mask_resized > 128
     overlay[mask_area, 0] = np.clip(overlay[mask_area, 0] + 50, 0, 255)  # Add red tint
     
-    Image.fromarray(overlay).save(debug_path / f"prediction_step{step_idx:03d}.png")  # --- MODIFIED For training integration ---
+    out_path = debug_path / f"prediction_step{step_idx:03d}.png"
+    Image.fromarray(overlay).save(out_path)  # --- MODIFIED For training integration ---
+    log_debug_image(f"[DebugImage] prediction step={step_idx} → {out_path}")  # --- MODIFIED For training integration ---
 
         
 # ────────────────────────────────────────────────────────────────
@@ -342,7 +350,9 @@ def debug_reference_latents_once(
     bg  = mag.mean()
     vis = mag * m + bg * (1.0 - m)                  # face-only shows structure
     vis = (vis - vis.min()) / (vis.max() - vis.min() + 1e-8)
-    save_image(vis.unsqueeze(0), debug_path / "ref_latents_faceonly.png")  # --- MODIFIED For training integration ---
+    out_face_path = debug_path / "ref_latents_faceonly.png"
+    save_image(vis.unsqueeze(0), out_face_path)  # --- MODIFIED For training integration ---
+    log_debug_image(f"[DebugImage] ref_latents_faceonly → {out_face_path}")
 
     # ② RGB crop of reference face (once)
     # --- MODIFIED For training integration ---
@@ -370,12 +380,13 @@ def debug_reference_latents_once(
             
             # --- MODIFIED For training integration ---
             if debug_dir_key not in saved_face_dirs:
-                Image.fromarray(ref_np[y0:y1, x0:x1]).save(
-                    debug_path / "reference_face_crop.png")
+                face_path = debug_path / "reference_face_crop.png"
+                Image.fromarray(ref_np[y0:y1, x0:x1]).save(face_path)
                 saved_face_dirs.add(debug_dir_key)
                 pipeline._saved_ref_face_dirs = saved_face_dirs
                 pipeline._saved_ref_face = True
-                print(f"[DBG] saved reference face crop → {debug_path}/reference_face_crop.png")
+                log_debug_image(f"[DebugImage] reference_face_crop → {face_path}")
+                print(f"[DBG] saved reference face crop → {face_path}")
             # --- MODIFIED For training integration ---
     
     # ③ store reusable step noise
@@ -455,8 +466,10 @@ def save_debug_ref_latents(pipeline, debug_dir: str) -> None:
     img_np = (((img.float() / 2 + 0.5).clamp(0, 1)).permute(1, 2, 0).detach().cpu().numpy() * 255).astype("uint8")
     
 
-    Image.fromarray(img_np).save(debug_path / "debug_ref_latents.png")
-    print(f"[Debug] saved reference latents image → {debug_path}/debug_ref_latents.png")
+    lat_path = debug_path / "debug_ref_latents.png"
+    Image.fromarray(img_np).save(lat_path)
+    log_debug_image(f"[DebugImage] debug_ref_latents → {lat_path}")
+    print(f"[Debug] saved reference latents image → {lat_path}")
 
     saved_dirs.add(debug_dir_key)  # --- MODIFIED For training integration ---
     pipeline._saved_ref_latents_dirs = saved_dirs  # --- MODIFIED For training integration ---
@@ -600,8 +613,10 @@ def save_debug_ref_mask_overlay(pipeline, mask4_ref, debug_dir: str) -> None:
     from PIL import Image
     img_np = (vis.permute(1, 2, 0).detach().cpu().numpy() * 255).astype("uint8")
     debug_path.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(img_np).save(debug_path / "debug_ref_latents_mask_overlay.png")
-    print(f"[Debug] saved → {debug_path}/debug_ref_latents_mask_overlay.png")
+    overlay_path = debug_path / "debug_ref_latents_mask_overlay.png"
+    Image.fromarray(img_np).save(overlay_path)
+    log_debug_image(f"[DebugImage] debug_ref_latents_mask_overlay → {overlay_path}")
+    print(f"[Debug] saved → {overlay_path}")
     saved_dirs.add(debug_dir_key)
     pipeline._saved_ref_mask_overlay_dirs = saved_dirs
     pipeline._saved_ref_mask_overlay = True

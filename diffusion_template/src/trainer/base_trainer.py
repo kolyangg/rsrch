@@ -1,4 +1,5 @@
 from abc import abstractmethod
+from pathlib import Path
 
 import torch
 from tqdm.auto import tqdm
@@ -256,12 +257,27 @@ class BaseTrainer:
         self.writer.set_step(epoch * self.epoch_len, part)
         prev_time = time.time()
         with torch.no_grad():
+            total_images = len(dataloader.dataset) if hasattr(dataloader, "dataset") else len(dataloader)
+            if hasattr(self, 'pipe'):
+                for attr in ('_call_debug_counter', '_current_debug_idx', '_current_debug_total'):
+                    if hasattr(self.pipe, attr):
+                        setattr(self.pipe, attr, 0)
+            self._val_generation_counter = 0
+            if self.accelerator.is_main_process:
+                val_dir = Path("hm_debug") / "val_generation"
+                val_dir.mkdir(parents=True, exist_ok=True)
+                self._val_generation_dir = val_dir
+            else:
+                self._val_generation_dir = None
+            print(f"[DebugImage] total validation images: {total_images}")  # always show total
             for batch_idx, batch in tqdm(
                 enumerate(dataloader),
                 desc=part,
                 total=len(dataloader),
             ):
+                print(f"[DebugImage] validation image {batch_idx:02d}/{total_images:02d}")  # always show current id
                 batch["debug_idx"] = batch_idx  # --- MODIFIED For training integration ---
+                batch["debug_total"] = total_images  # --- MODIFIED For training integration ---
                 fetch_done = time.time()
                 fetch_time = fetch_done - prev_time
                 process_start = time.time()
@@ -271,6 +287,32 @@ class BaseTrainer:
                 )
                 process_time = time.time() - process_start
                 prev_time = time.time()
+
+                # Save final generated images in a single, stable sequence
+                if (
+                    self.accelerator.is_main_process
+                    and getattr(self, "_val_generation_dir", None) is not None
+                ):
+                    images = batch.get("generated")
+                    if images is not None:
+                        # flatten possible nested lists
+                        if isinstance(images, list):
+                            flat = []
+                            for item in images:
+                                if isinstance(item, list):
+                                    flat.extend(item)
+                                else:
+                                    flat.append(item)
+                            images = flat
+                        else:
+                            images = [images]
+                        for img in images:
+                            idx = getattr(self, "_val_generation_counter", 0)
+                            filename = f"{idx:02d}.png"
+                            save_path = self._val_generation_dir / filename
+                            if hasattr(img, "save"):
+                                img.save(save_path)
+                            self._val_generation_counter = idx + 1
 
                 if self.validation_debug_timing and self.accelerator.is_main_process:
                     msg = (

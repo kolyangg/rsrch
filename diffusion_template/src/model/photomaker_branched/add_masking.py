@@ -8,6 +8,7 @@ import torch
 import math
 from typing import Dict, List, Optional, Any
 from pathlib import Path
+from src.model.photomaker_branched.branch_helpers import DEBUG_LOG_DEBUG_IMAGES, log_debug_image
 from PIL import Image
 import matplotlib.cm as cm
 from PIL import ImageDraw, ImageFont
@@ -424,6 +425,9 @@ class DynamicMaskGenerator:
         """
         Update the mask based on collected attention maps if within the update window.
         """
+
+        full_debug = False
+
         if not self.use_dynamic_mask:
             return
                 
@@ -506,7 +510,8 @@ class DynamicMaskGenerator:
             
             if new_mask is not None:
                 self.current_mask = new_mask
-                print(f"[DynamicMask] Updated at step {step}, shape={new_mask.shape}, face_pixels={new_mask.sum()}")
+                if full_debug: # NEW
+                    print(f"[DynamicMask] Updated at step {step}, shape={new_mask.shape}, face_pixels={new_mask.sum()}")
                 
                 # Save visualization if requested
                 if self.save_heatmaps and self.debug_dir:
@@ -516,7 +521,9 @@ class DynamicMaskGenerator:
                         per_dir = base_debug_dir if count == 1 else base_debug_dir / f"{idx:02d}"
                         per_dir.mkdir(parents=True, exist_ok=True)
                         mask_vis = (new_mask.astype(np.uint8) * 255)
-                        Image.fromarray(mask_vis).save(per_dir / f"dynamic_mask_step_{step:03d}.png")
+                        mask_path = per_dir / f"dynamic_mask_step_{step:03d}.png"
+                        Image.fromarray(mask_vis).save(mask_path)
+                        log_debug_image(f"[DebugImage] dynamic_mask step={step} path={mask_path}")
                     # --- MODIFIED For training integration ---
 
 

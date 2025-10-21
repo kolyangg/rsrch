@@ -19,6 +19,8 @@ class ManualPhotoMakerValDataset(Dataset):
         images_dir: str,
         prompts_path: str,
         classes_json_path: str | None = None,
+        bbox_mask_ref: str | None = None,
+        bbox_mask_gen: str | None = None,
         seeds: Sequence[int] = (0, 1, 2),
         limit: int | None = None,
         instance_transforms=None,
@@ -55,6 +57,44 @@ class ManualPhotoMakerValDataset(Dataset):
         if not raw_prompts:
             raise ValueError(f"No prompts found in {self.prompts_path}")
 
+        # Optional bbox maps (by image stem) for reference/gen masks
+        def _load_bbox_map(path_str: str | None):
+            if not path_str:
+                return {}
+            p = Path(path_str)
+            if not p.exists():
+                raise FileNotFoundError(f"bbox mask JSON not found: {p}")
+            import json
+            with open(p, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            # Normalize to stem -> bbox (prefer face_crop_new, fallback face_crop_old)
+            m = {}
+            for k, v in data.items():
+                stem = Path(k).stem
+                bbox = (
+                    v.get("face_crop_new")
+                    if isinstance(v, dict)
+                    else None
+                )
+                if bbox is None and isinstance(v, dict):
+                    bbox = v.get("face_crop_old")
+                if bbox is None:
+                    continue
+                m[stem] = bbox
+            return m
+
+        self._bbox_map_ref = _load_bbox_map(bbox_mask_ref)
+        # For generation masks, keep raw JSON to support index-based keys like "00.png"
+        if bbox_mask_gen:
+            import json
+            p = Path(bbox_mask_gen)
+            if not p.exists():
+                raise FileNotFoundError(f"bbox mask JSON not found: {p}")
+            with open(p, "r", encoding="utf-8") as fh:
+                self._bbox_gen_json = json.load(fh)
+        else:
+            self._bbox_gen_json = None
+
         self.samples = []
         for image_path in self.images:
             img_id = image_path.stem
@@ -68,6 +108,8 @@ class ManualPhotoMakerValDataset(Dataset):
                             "prompt": resolved_prompt,
                             "seed": seed,
                             "id": img_id,
+                            # Optional per-image face bbox for reference (by stem)
+                            "face_bbox_ref": self._bbox_map_ref.get(img_id),
                         }
                     )
                     if limit is not None and len(self.samples) >= limit:
@@ -85,9 +127,18 @@ class ManualPhotoMakerValDataset(Dataset):
     def __getitem__(self, idx):
         sample = self.samples[idx]
         ref_img = Image.open(sample["image_path"]).convert("RGB")
+        # Derive generation bbox by validation ordering if JSON provided
+        face_bbox_gen = None
+        if self._bbox_gen_json is not None:
+            key = f"{idx:02d}.png"
+            record = self._bbox_gen_json.get(key)
+            if isinstance(record, dict):
+                face_bbox_gen = record.get("face_crop_new") or record.get("face_crop_old")
         return {
             "ref_images": [ref_img],
             "prompt": sample["prompt"],
             "seed": sample["seed"],
             "id": sample["id"],
+            "face_bbox_ref": sample.get("face_bbox_ref"),
+            "face_bbox_gen": face_bbox_gen,
         }

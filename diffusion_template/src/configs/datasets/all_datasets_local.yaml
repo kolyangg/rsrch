@@ -60,8 +60,10 @@ val:
       images_dir: ../dataset_full/val_dataset/references
       prompts_path: ../dataset_full/val_dataset/prompts_10.txt
       classes_json_path: ../dataset_full/val_dataset/classes_ref.json
+      bbox_mask_ref: ../dataset_full/val_dataset/ref_bboxes.json
+      bbox_mask_gen: ../dataset_full/val_dataset/pm20_bboxes.json
       seeds: [0]
-      limit: 10 # 1
+      limit: 96 # 10 # 1
   
 
   # CUDA_VISIBLE_DEVICES=0 accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py --config-name=photomaker_branched_train_lora trainer.epoch_len=5 dataloaders.train.batch_size=1 dataloaders.train.num_workers=12 model.rank=16 validation_args.num_images_per_prompt=3 lr_scheduler.warmup_steps=2000 writer=clearml writer.run_name=photomaker_br__bf16 model.weight_dtype=bf16

@@ -10,3 +10,11 @@ branched_start_mode: both
 pose_adapt_ratio: 0.25
 ca_mixing_for_face: true
 face_embed_strategy: id_embeds # face
+# auto_mask_ref: true
+# use_dynamic_mask: true
+# use_bbox_mask_ref: false
+# use_bbox_mask_gen: false
+auto_mask_ref: false
+use_dynamic_mask: false
+use_bbox_mask_ref: true
+use_bbox_mask_gen: true

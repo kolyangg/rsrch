@@ -1,7 +1,10 @@
 import time
+import os
 from pathlib import Path  # --- MODIFIED For training integration ---
 import torch
 from omegaconf import OmegaConf  # --- MODIFIED For training integration ---
+
+DEBUG_LOG_DEBUG_IMAGES = os.environ.get("PM_DEBUG_IMAGES", "1") not in {"0", "false", "False", ""}
 
 from src.metrics.tracker import MetricTracker
 from src.trainer.base_trainer import BaseTrainer
@@ -63,7 +66,13 @@ class SDXLTrainer(BaseTrainer):
             validation_kwargs = dict(validation_kwargs)
         debug_base = validation_kwargs.get("debug_dir", "hm_debug")
         debug_idx = batch.get("debug_idx", 0)
+        debug_total = batch.get("debug_total")
         validation_kwargs["debug_dir"] = str(Path(debug_base) / f"{int(debug_idx):02d}")
+        validation_kwargs["debug_idx"] = int(debug_idx)
+        if debug_total is not None:
+            validation_kwargs["debug_total"] = int(debug_total)
+        if DEBUG_LOG_DEBUG_IMAGES:
+            print(f"[DebugImage] validation batch idx={debug_idx} → debug_dir={validation_kwargs['debug_dir']}")
         generated_images = self.pipe(
             prompt=batch['prompt'],
             generator=generator,
@@ -260,6 +269,9 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 prompt=sample_prompt,
                 generator=generator,
                 input_id_images=sample_ref_images,
+                # Optional fixed bbox masks per sample
+                face_bbox_ref=sample.get("face_bbox_ref"),
+                face_bbox_gen=sample.get("face_bbox_gen"),
                 callback_on_step_end=callback,
                 **self.config.validation_args
             ).images

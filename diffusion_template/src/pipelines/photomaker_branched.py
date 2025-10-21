@@ -53,6 +53,8 @@ from src.model.photomaker_branched.branch_helpers import (
     collect_attention_hooks,
 )
 
+from src.model.photomaker_branched.branch_helpers import log_debug_image
+
 # Only import what's actually needed
 # --- ADDED For training integration (FOLDER STUCTURE) ---
 from src.model.photomaker_branched.mask_utils import compute_binary_face_mask, simple_threshold_mask
@@ -605,6 +607,12 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         focus_token: str = "face",
         mask_mode: str = "spec",                 # or "simple"
         face_embed_strategy: str = "face", # "face", #  "face" or "id_embeds"
+        # BBox-driven masking toggles (validation convenience)
+        use_bbox_mask_ref: bool = False,
+        use_bbox_mask_gen: bool = False,
+        # Optional per-sample face boxes (x0,y0,x1,y1) in pixel space
+        face_bbox_ref: Optional[List[float]] = None,
+        face_bbox_gen: Optional[List[float]] = None,
         # import_mask: Optional[str] = "hm_debug/keanu_gen_mask.png",
         import_mask: Optional[str] = "../compare/testing/ref5_masks/marion_gen_mask.png",
         # import_mask: Optional[str] = "../compare/testing/ref5_masks/marion_gen_mask_simple.png",
@@ -653,6 +661,8 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         debug_save_face_branch: bool = True,
         debug_save_bg_branch: bool = True,
         debug_dir: str = "hm_debug",
+        debug_idx: Optional[int] = None,
+        debug_total: Optional[int] = None,
         force_par_before_pm: bool = False,
         **kwargs,
     ):
@@ -679,13 +689,15 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             `tuple`. When returning a tuple, the first element is a list with the generated images.
         """
 
+        full_debug = False # NEW
+
         # --- Back-compat for older callers that still pass start_merge_step ---
         if start_merge_step is not None:
             # If explicit new knobs are not set differently by caller, mirror legacy.
             photomaker_start_step = photomaker_start_step if photomaker_start_step is not None else start_merge_step
             merge_start_step      = merge_start_step      if merge_start_step      is not None else start_merge_step
         # --- Back-compat for older callers that still pass start_merge_step ---
-
+    
 
         callback = kwargs.pop("callback", None)
         callback_steps = kwargs.pop("callback_steps", None)
@@ -832,6 +844,20 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
         id_pixel_values = id_pixel_values.unsqueeze(0).to(device=device, dtype=dtype) # TODO: multiple prompts
         
+        print(f"[DEBUG_NEW] debug_idx={debug_idx}")
+
+        if debug_idx is None:
+            debug_idx = getattr(self, "_call_debug_counter", 0)
+        self._call_debug_counter = debug_idx + 1
+
+        if debug_dir:
+            debug_dir = os.path.join(debug_dir, f"{int(debug_idx):02d}")
+
+        log_debug_image(f"[DebugImage] pipeline call idx={debug_idx} total={debug_total} dir={debug_dir}")
+        if debug_dir:
+            os.makedirs(debug_dir, exist_ok=True)
+        self._current_debug_idx = debug_idx  # --- MODIFIED For training integration ---
+        self._current_debug_total = debug_total  # --- MODIFIED For training integration ---
 
         # ================================================================
         #  Branched-attention one-off preparation
@@ -994,72 +1020,85 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     auto_ref_path = os.path.join(debug_dir, "auto_ref_mask.png")
                     mask_array = compute_face_mask_from_pil(pil)
                     Image.fromarray(mask_array).save(auto_ref_path)
+                    log_debug_image(f"[DebugImage] auto_ref_mask → {auto_ref_path}")
                     import_mask_ref = auto_ref_path
                     print(f"[AutoMaskRef] Generated ref mask → {auto_ref_path}")
                 else:
                     print(f"[AutoMaskRef] Using existing ref mask at {import_mask_ref}")
 
-        
-
-                # if id_embeds is not None:
-                #     self._face_prompt_embeds = id_embeds.to(device=device, dtype=dtype)
-                # else:
-
-                # Do not stash 512-D id_embeds into cross-attn face prompt.
-                # _face_prompt_embeds is only used in 'face' strategy (text-shaped).
-                if id_embeds is None:
-                    # Use the face-specific part of prompt_embeds after ID encoder
-                    if class_tokens_mask is not None:
-                        # Extract only the face tokens
-                        face_indices = class_tokens_mask[0].nonzero(as_tuple=True)[0]
-                        if len(face_indices) > 0:
-                            self._face_prompt_embeds = prompt_embeds[:, face_indices, :]
-                        else:
-                            # Fallback: encode "face" text
-                            face_text_embeds, _ = self.encode_prompt(
-                                prompt="a face",
-                                prompt_2="a face",
-                                device=device,
-                                num_images_per_prompt=num_images_per_prompt,
-                                do_classifier_free_guidance=self.do_classifier_free_guidance,
-                            )[:2]
-                            self._face_prompt_embeds = face_text_embeds
-                    else:
-                        # No mask available, use full prompt embeds
-                        self._face_prompt_embeds = prompt_embeds
-                            
-                # Set face embedding strategy (can be controlled via parameter)
-                self.face_embed_strategy = face_embed_strategy  # 'id_embeds' or 'face'
-                
-                            
-                # Also store as _reference_latents for the new approach
-                self._reference_latents = self._ref_latents_all
-                
-                # Store the original RGB for debug
-                self._ref_img = id_pixel_values[0] if id_pixel_values.dim() == 5 else id_pixel_values
-                
-                 # IMPORTANT: Create ref_noise with same generator as latents for consistency
-                if not hasattr(self, '_ref_noise'):
-                    # --- ADDED For training integration ---
-                    gen = None
-                    if generator is not None:
-                        cand = generator[0] if isinstance(generator, (list, tuple)) and len(generator) > 0 else generator
-                        if isinstance(cand, torch.Generator):
-                            if hasattr(cand, "device") and cand.device.type == device.type:
-                                gen = cand
-                            else:
-                                try:
-                                    gen = torch.Generator(device=device)
-                                    gen.set_state(cand.get_state())
-                                except Exception:
-                                    gen = None
-                    # --- ADDED For training integration ---
-                    self._ref_noise = torch.randn(
-                        self._ref_latents_all.shape,
-                        generator=gen,
-                        device=device,
-                        dtype=self._ref_latents_all.dtype
+                # Strict check: if bbox-ref masking requested but bbox missing, error out
+                if (not auto_mask_ref) and use_bbox_mask_ref and face_bbox_ref is None:
+                    raise RuntimeError(
+                        "use_bbox_mask_ref=True but no face_bbox_ref provided for reference image;"
+                        " ensure ref_bboxes.json contains an entry for this reference."
                     )
+
+                # If explicit bbox mask is requested for reference and auto-mask is disabled,
+                # materialize a binary mask now aligned to (height, width).
+                if (not auto_mask_ref) and use_bbox_mask_ref and face_bbox_ref is not None:
+                    # Start with an empty mask at final resolution
+                    ref_mask = np.zeros((height, width), dtype=bool)
+                    # Account for AR-preserving scale + letterbox paddings used for ref image
+                    s = min(width / float(ow), height / float(oh))
+                    sx, sy = s, s
+                    x0, y0, x1, y1 = [float(v) for v in face_bbox_ref]
+                    # scale then pad to full frame
+                    x0s = int(round(x0 * sx + pl)); x1s = int(round(x1 * sx + pl))
+                    y0s = int(round(y0 * sy + pt)); y1s = int(round(y1 * sy + pt))
+                    x0s = max(0, min(width, x0s)); x1s = max(0, min(width, x1s))
+                    y0s = max(0, min(height, y0s)); y1s = max(0, min(height, y1s))
+                    if x1s > x0s and y1s > y0s:
+                        ref_mask[y0s:y1s, x0s:x1s] = True
+                    # Stash for downstream prepare_mask4(..., suffix="_ref")
+                    self._face_mask_ref = ref_mask
+                    self._face_mask_t_ref = torch.from_numpy(ref_mask.astype(np.uint8))[None, None]
+
+        # If explicit bbox mask is requested for generated image and dynamic mask is disabled,
+        # pre-create the binary mask in (height, width) pixel grid.
+        if (not use_dynamic_mask) and use_bbox_mask_gen and face_bbox_gen is not None:
+            gen_mask = np.zeros((height, width), dtype=bool)
+            x0, y0, x1, y1 = [float(v) for v in face_bbox_gen]
+            x0i = max(0, min(width, int(round(x0)))); x1i = max(0, min(width, int(round(x1))))
+            y0i = max(0, min(height, int(round(y0)))); y1i = max(0, min(height, int(round(y1))))
+            if x1i > x0i and y1i > y0i:
+                gen_mask[y0i:y1i, x0i:x1i] = True
+            self._face_mask = gen_mask
+            self._face_mask_t = torch.from_numpy(gen_mask.astype(np.uint8))[None, None]
+        elif (not use_dynamic_mask) and use_bbox_mask_gen and face_bbox_gen is None:
+            raise RuntimeError(
+                "use_bbox_mask_gen=True but no face_bbox_gen provided for generated image;"
+                " ensure pm20_bboxes.json contains an entry for the current validation index"
+                " (e.g., '00.png', '01.png', ...)."
+            )
+        
+            # Also store as _reference_latents for the new approach
+            self._reference_latents = self._ref_latents_all
+
+            # Store the original RGB for debug
+            self._ref_img = id_pixel_values[0] if id_pixel_values.dim() == 5 else id_pixel_values
+
+            # IMPORTANT: Create ref_noise with same generator as latents for consistency
+            if not hasattr(self, '_ref_noise'):
+                # --- ADDED For training integration ---
+                gen = None
+                if generator is not None:
+                    cand = generator[0] if isinstance(generator, (list, tuple)) and len(generator) > 0 else generator
+                    if isinstance(cand, torch.Generator):
+                        if hasattr(cand, "device") and cand.device.type == device.type:
+                            gen = cand
+                        else:
+                            try:
+                                gen = torch.Generator(device=device)
+                                gen.set_state(cand.get_state())
+                            except Exception:
+                                gen = None
+                # --- ADDED For training integration ---
+                self._ref_noise = torch.randn(
+                    self._ref_latents_all.shape,
+                    generator=gen,
+                    device=device,
+                    dtype=self._ref_latents_all.dtype
+                )
                 
             else:
                 # Fallback: use initial latents as reference
@@ -1386,6 +1425,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                         if base_debug_dir is not None:
                             ref_masks = mask4_ref
                             total_outputs = latents.shape[0]
+                            # total_outputs = 10 # TEMP!!!
                             if ref_masks.dim() == 4 and ref_masks.shape[0] == total_outputs:
                                 ref_masks_iter = [ref_masks[idx:idx+1] for idx in range(total_outputs)]
                             else:
@@ -1429,7 +1469,8 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     )
 
                     id_embeds_2048 = getattr(self, "_pm_id_embeds_2048", None) if fes_step == "id_embeds" else None
-                    print('[DEBUG] id_embeds_2048:', id_embeds_2048)
+                    if full_debug:
+                        print('[DEBUG] id_embeds_2048:', id_embeds_2048)
 
 
 

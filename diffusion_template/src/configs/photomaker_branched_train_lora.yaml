@@ -45,3 +45,7 @@ validation_args:
   merge_start_step: ${pipeline.merge_start_step}
   branched_attn_start_step: ${pipeline.branched_attn_start_step}
   branched_start_mode: ${pipeline.branched_start_mode}
+  auto_mask_ref: ${pipeline.auto_mask_ref}
+  use_dynamic_mask: ${pipeline.use_dynamic_mask}
+  use_bbox_mask_ref: ${pipeline.use_bbox_mask_ref}
+  use_bbox_mask_gen: ${pipeline.use_bbox_mask_gen}
