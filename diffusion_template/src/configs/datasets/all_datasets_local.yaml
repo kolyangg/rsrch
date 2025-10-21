@@ -61,7 +61,7 @@ val:
       prompts_path: ../dataset_full/val_dataset/prompts_10.txt
       classes_json_path: ../dataset_full/val_dataset/classes_ref.json
       bbox_mask_ref: ../dataset_full/val_dataset/ref_bboxes.json
-      bbox_mask_gen: ../dataset_full/val_dataset/pm20_bboxes.json
+      bbox_mask_gen: ../dataset_full/val_dataset/pm96_bboxes.json
       seeds: [0]
       limit: 96 # 10 # 1
   
