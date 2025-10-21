@@ -7,8 +7,8 @@ defaults:
   - lr_scheduler: custom_linear
   - pipeline: photomaker_branched
   - metrics: all_metrics
-  # - datasets: all_datasets
-  - datasets: all_datasets_local
+  - datasets: all_datasets
+  # - datasets: all_datasets_local
   - dataloaders: all_dataloaders
   - _self_
 
