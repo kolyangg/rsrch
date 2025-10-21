@@ -25,7 +25,6 @@ train:
         images_path: /home/aalanov/Bobkov_Denis/datasets/CosmicManHQ-1.0/
         num_refs: 1
         instance_transforms: ${transforms.instance_transforms.train}
-
         
 
 val:
@@ -64,5 +63,5 @@ val:
       bbox_mask_ref: ../dataset_full/val_dataset/ref_bboxes.json
       bbox_mask_gen: ../dataset_full/val_dataset/pm20_bboxes.json
       seeds: [0] # [0, 1, 2]
-      limit: 20
+      limit: 96 # 20
   
