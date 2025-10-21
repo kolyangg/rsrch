@@ -31,6 +31,7 @@ validation_debug_timing: false
 
 validation_args:
   negative_prompt: "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry"
+  debug_dir: hm_debug
   num_images_per_prompt: 5
   num_inference_steps: 50
   guidance_scale: 5

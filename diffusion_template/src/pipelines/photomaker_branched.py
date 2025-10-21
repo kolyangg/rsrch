@@ -660,7 +660,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
         debug_save_face_branch: bool = True,
         debug_save_bg_branch: bool = True,
-        debug_dir: str = "hm_debug",
+        debug_dir: Optional[str] = None,
         debug_idx: Optional[int] = None,
         debug_total: Optional[int] = None,
         force_par_before_pm: bool = False,
