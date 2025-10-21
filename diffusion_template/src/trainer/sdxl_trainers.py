@@ -144,11 +144,11 @@ class SDXLTrainer(BaseTrainer):
             num_per_prompt = self.config.validation_args.get("num_images_per_prompt", 1)  
             labels = []  
             if prompts and len(prompts) * num_per_prompt == len(images): 
-                for prompt in prompts:
+                for p_idx, prompt in enumerate(prompts):
                     for img_idx in range(num_per_prompt):
-                        labels.append(f"{prompt}_img{img_idx}")
+                        labels.append(f"{prompt}_b{batch_idx:03d}_p{p_idx:02d}_img{img_idx}")
             elif prompts and len(prompts) == len(images):
-                labels = prompts
+                labels = [f"{p}_b{batch_idx:03d}" for p in prompts]
             else:
                 labels = [f"{mode}_{batch_idx}_img{i}" for i in range(len(images))] 
 
