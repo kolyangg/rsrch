@@ -183,11 +183,15 @@ class BaseTrainer:
             self.writer.set_step((epoch - 1) * self.epoch_len)
             self.writer.add_scalar("general/epoch", epoch)
 
-        if epoch == 1 and self.accelerator.is_main_process:
-            for part, dataloader in self.evaluation_dataloaders.items():
-                val_logs = self._evaluation_epoch(epoch - 1, part, dataloader)
-                logs.update(**{f"{part}/{name}": value for name, value in val_logs.items()})
-            self.is_train = True
+        # Synchronize ranks around the initial validation to avoid NCCL timeouts
+        if epoch == 1:
+            self.accelerator.wait_for_everyone()
+            if self.accelerator.is_main_process:
+                for part, dataloader in self.evaluation_dataloaders.items():
+                    val_logs = self._evaluation_epoch(epoch - 1, part, dataloader)
+                    logs.update(**{f"{part}/{name}": value for name, value in val_logs.items()})
+                self.is_train = True
+            self.accelerator.wait_for_everyone()
         
         for batch_idx, batch in enumerate(
             tqdm(self.train_dataloader, desc=f"train_{pid}", total=self.epoch_len)
@@ -229,10 +233,13 @@ class BaseTrainer:
         # logs.update(last_train_metrics)
 
         # Run val/test
+        # Synchronize ranks around per-epoch validation to avoid NCCL timeouts
+        self.accelerator.wait_for_everyone()
         if self.accelerator.is_main_process:
             for part, dataloader in self.evaluation_dataloaders.items():
                 val_logs = self._evaluation_epoch(epoch, part, dataloader)
                 logs.update(**{f"{part}/{name}": value for name, value in val_logs.items()})
+        self.accelerator.wait_for_everyone()
 
         return logs
 

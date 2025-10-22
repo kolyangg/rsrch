@@ -35,7 +35,9 @@ def main(config):
     
     if accelerator.is_main_process:
         logger = setup_saving_and_logging(config)
-        writer = instantiate(config.writer, logger, project_config)
+        # Allow resuming the same CometML experiment by passing experiment_key (run_id)
+        comet_run_id = getattr(config, "cometml_id", None)
+        writer = instantiate(config.writer, logger, project_config, run_id=comet_run_id)
 
     device = accelerator.device
 
@@ -87,6 +89,11 @@ def main(config):
             accelerator=accelerator
         )
         
+    # Optionally resume training from a checkpoint if requested at top-level config
+    resume_from = None
+    if bool(getattr(config, "continue_run", False)):
+        resume_from = getattr(config, "saved_checkpoint", None)
+
     trainer = instantiate(
         config.trainer,
         model=model,
@@ -102,6 +109,7 @@ def main(config):
         logger=logger,
         writer=writer,
         batch_transforms=batch_transforms,
+        resume_from=resume_from,
         _recursive_=False
     )
 

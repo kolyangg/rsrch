@@ -12,6 +12,12 @@ defaults:
   - dataloaders: all_dataloaders
   - _self_
 
+# Resume/continuation controls
+continue_run: true
+saved_checkpoint: null   # absolute or relative path to *.pth
+saved_config: null       # optional path to saved config.yaml (not required)
+cometml_id: tbzl6icmyop6wq2dd7bs5bdl2sj9yg05         # CometML experiment key to resume logging
+
 optimizer:
   _convert_: partial
   _target_: torch.optim.AdamW
