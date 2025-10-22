@@ -520,7 +520,9 @@ class BaseTrainer:
         resume_path = str(resume_path)
         if self.accelerator.is_main_process:
             self.logger.info(f"Loading checkpoint: {resume_path} ...")
-        checkpoint = torch.load(resume_path, self.device)
+        # PyTorch 2.6 defaults weights_only=True which breaks loading our pickled
+        # DictConfig inside the checkpoint. Explicitly disable weights_only.
+        checkpoint = torch.load(resume_path, map_location=self.device, weights_only=False)
         self.start_epoch = checkpoint["epoch"] + 1
 
         # load architecture params from checkpoint.
@@ -568,7 +570,8 @@ class BaseTrainer:
                 self.logger.info(f"Loading model weights from: {pretrained_path} ...")
         else:
             print(f"Loading model weights from: {pretrained_path} ...")
-        checkpoint = torch.load(pretrained_path, self.device)
+        # Allow full pickled payload for backward compatibility with saved checkpoints
+        checkpoint = torch.load(pretrained_path, map_location=self.device, weights_only=False)
 
         if checkpoint.get("state_dict") is not None:
             self.accelerator.unwrap_model(self.model).load_state_dict_(checkpoint["state_dict"])
