@@ -34,23 +34,24 @@ class CometMLWriter:
         self._experiment = None
 
         try:
-            from comet_ml import Experiment, OfflineExperiment  # type: ignore
+            from comet_ml import Experiment, OfflineExperiment, ExistingExperiment  # type: ignore
         except ImportError:
             if self.logger is not None:
                 self.logger.warning("For use comet_ml install it via \n\t pip install comet-ml")
             return
 
-        experiment_kwargs = {
-            "project_name": project_name,
-            "workspace": workspace,
-            "disabled": mode == "disabled",
-        }
-
-        if run_id is not None:
-            # Allows resuming an existing experiment
-            experiment_kwargs["experiment_key"] = run_id
-
-        ExperimentClass = OfflineExperiment if mode == "offline" else Experiment
+        # Select the appropriate Comet class/kwargs
+        if run_id is not None and mode != "offline":
+            # Properly resume logging to an existing online experiment
+            ExperimentClass = ExistingExperiment
+            experiment_kwargs = {"previous_experiment": run_id}
+        else:
+            ExperimentClass = OfflineExperiment if mode == "offline" else Experiment
+            experiment_kwargs = {
+                "project_name": project_name,
+                "workspace": workspace,
+                "disabled": mode == "disabled",
+            }
 
         try:
             self._experiment = ExperimentClass(**experiment_kwargs)
@@ -84,7 +85,10 @@ class CometMLWriter:
                 if self.logger is not None:
                     self.logger.warning(f"Failed to log CometML parameters: {error}")
 
-        if self.run_id is None:
+        # Set/derive run id
+        if run_id is not None:
+            self.run_id = run_id
+        else:
             try:
                 self.run_id = self._experiment.get_key()
             except Exception:
