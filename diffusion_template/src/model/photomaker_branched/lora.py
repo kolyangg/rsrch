@@ -150,7 +150,8 @@ class PhotomakerBranchedLora(SDXL):
         incompatible_keys = set_peft_model_state_dict(self.unet, unet_state_dict, adapter_name="lora_adapter")
         if incompatible_keys is not None:
             unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
-            assert unexpected_keys is None, unexpected_keys
+            # In newer peft versions this is an empty list when there are no unexpected keys
+            assert not unexpected_keys, unexpected_keys
 
     def forward(
         self,
