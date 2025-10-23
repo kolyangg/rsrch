@@ -25,7 +25,11 @@ def main(config):
     Args:
         config (DictConfig): hydra experiment config.
     """
-    torch.distributed.init_process_group(backend="nccl", timeout=datetime.timedelta(seconds=3600))
+    # Allow longer watchdog timeout to accommodate long validations
+    ddp_timeout = int(getattr(config, "ddp_timeout_seconds", 3600))
+    torch.distributed.init_process_group(
+        backend="nccl", timeout=datetime.timedelta(seconds=ddp_timeout)
+    )
     set_random_seed(config.trainer.seed)
     accelerator = Accelerator()
 

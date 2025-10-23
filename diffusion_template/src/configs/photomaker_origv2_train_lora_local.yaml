@@ -17,6 +17,7 @@ continue_run: false
 saved_checkpoint: null   # absolute or relative path to *.pth
 saved_config: null       # optional path to saved config.yaml (not required)
 cometml_id: null         # CometML experiment key to resume logging
+ddp_timeout_seconds: 21600  # 6 hours to cover long validations
 
 optimizer:
   _convert_: partial

@@ -13,10 +13,13 @@ defaults:
   - _self_
 
 # Resume/continuation controls
-continue_run: false
-saved_checkpoint: null   # absolute or relative path to *.pth
-saved_config: null       # optional path to saved config.yaml (not required)
-cometml_id: null         # CometML experiment key to resume logging
+continue_run: true
+# saved_checkpoint: saved/pm2_br_bbox/checkpoint-epoch2.pth   # absolute or relative path to *.pth
+saved_checkpoint: checkpoint-epoch5.pth   # absolute or relative path to *.pth
+saved_config: saved/pm2_br_bbox/config.yaml       # optional path to saved config.yaml (not required)
+cometml_id: tbzl6icmyop6wq2dd7bs5bdl2sj9yg05         # CometML experiment key to resume logging
+
+ddp_timeout_seconds: 21600  # 6 hours to cover long validations
 
 optimizer:
   _convert_: partial
