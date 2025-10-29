@@ -1,0 +1,45 @@
+dataset:
+  images_dir: ../../../dataset_full/val_dataset/references
+  prompts_path: ../../../dataset_full/val_dataset/prompts_10.txt
+  classes_json_path: ../../../dataset_full/val_dataset/classes_ref.json
+  bbox_mask_ref: ../../../dataset_full/val_dataset/ref_bboxes.json
+  bbox_mask_gen: ../../../dataset_full/val_dataset/pm96_bboxes.json
+  seeds: [0]
+  limit: 96
+
+pipeline:
+  pretrained_model_name_or_path: stabilityai/stable-diffusion-xl-base-1.0
+  photomaker_start_step: 10
+  merge_start_step: 10
+  branched_attn_start_step: 30
+  branched_start_mode: both
+  pose_adapt_ratio: 0.25
+  ca_mixing_for_face: true
+  face_embed_strategy: id_embeds
+  auto_mask_ref: false
+  use_dynamic_mask: false
+  use_bbox_mask_ref: true
+  use_bbox_mask_gen: true
+
+saved_checkpoint: null
+output_dir: ../../outputs/infer_branched_orig
+
+validation_args:
+  use_branched_attention: true
+  num_images_per_prompt: 1
+  num_inference_steps: 50
+  guidance_scale: 5
+  height: 1024
+  width: 1024
+  target_size: [1024, 1024]
+  original_size: [1024, 1024]
+  crops_coords_top_left: [0, 0]
+  debug_dir: hm_debug
+  photomaker_start_step: 10
+  merge_start_step: 10
+  branched_attn_start_step: 30
+  branched_start_mode: both
+  face_embed_strategy: id_embeds
+  auto_mask_ref: false
+  use_dynamic_mask: false
+  negative_prompt: "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry"

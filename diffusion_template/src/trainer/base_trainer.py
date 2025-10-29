@@ -313,13 +313,60 @@ class BaseTrainer:
                             images = flat
                         else:
                             images = [images]
-                        for img in images:
-                            idx = getattr(self, "_val_generation_counter", 0)
-                            filename = f"{idx:02d}.png"
-                            save_path = self._val_generation_dir / filename
+
+                        # infer.py-style names: f"{prompt[:10]}_{ref_stem}_{i:02d}.png"
+                        prompts = batch.get("prompt")
+                        if isinstance(prompts, str):
+                            prompts = [prompts]
+                        elif isinstance(prompts, list):
+                            flat_prompts = []
+                            for it in prompts:
+                                if isinstance(it, list):
+                                    flat_prompts.extend(it)
+                                else:
+                                    flat_prompts.append(it)
+                            prompts = flat_prompts
+                        else:
+                            prompts = []
+
+                        ids = batch.get("id")
+                        if isinstance(ids, str):
+                            ids = [ids]
+                        elif isinstance(ids, list):
+                            flat_ids = []
+                            for it in ids:
+                                if isinstance(it, list):
+                                    flat_ids.extend(it)
+                                else:
+                                    flat_ids.append(it)
+                            ids = flat_ids
+                        else:
+                            ids = []
+
+                        try:
+                            npp = int(self.config.validation_args.get("num_images_per_prompt", 1))
+                        except Exception:
+                            npp = 1
+
+                        names = []
+                        if prompts and ids and len(prompts) == len(ids) and len(images) == len(prompts) * max(1, npp):
+                            for p, ident in zip(prompts, ids):
+                                stem = ident if ident is not None else "id"
+                                base = f"{p[:10]}_{stem}"
+                                if npp > 1:
+                                    for i in range(npp):
+                                        names.append(f"{base}_{i:02d}.png")
+                                else:
+                                    names.append(f"{base}.png")
+                        else:
+                            # Fallback to sequential naming
+                            names = [f"{getattr(self, '_val_generation_counter', 0) + i:02d}.png" for i in range(len(images))]
+
+                        for img, name in zip(images, names):
+                            save_path = self._val_generation_dir / name
                             if hasattr(img, "save"):
                                 img.save(save_path)
-                            self._val_generation_counter = idx + 1
+                            self._val_generation_counter = getattr(self, "_val_generation_counter", 0) + 1
 
                 if self.validation_debug_timing and self.accelerator.is_main_process:
                     msg = (

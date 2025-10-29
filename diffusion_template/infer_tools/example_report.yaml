@@ -1,0 +1,20 @@
+# Example config for pdf_with_metrics.py
+ref_dir: dataset_full/val_dataset/references
+prompts: dataset_full/val_dataset/prompts_10.txt
+classes: dataset_full/val_dataset/classes_ref.json
+num_columns: 3
+max_per_row: 5
+prompts_per_page: 10
+thumb_side: 768
+dpi: 300
+out_pdf: diffusion_template/outputs/report_example.pdf
+scenarios:
+  - name: Model-A
+    gen_dir: /path/to/gen_a
+    metrics: /path/to/gen_a_metrics.json
+  - name: Model-B
+    gen_dir: /path/to/gen_b
+    metrics: /path/to/gen_b_metrics.json
+  - name: Model-C
+    gen_dir: /path/to/gen_c
+    metrics: /path/to/gen_c_metrics.json

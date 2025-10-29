@@ -1,0 +1,77 @@
+defaults:
+  - _self_
+
+model:
+  _target_: src.model.photomaker_branched.lora.PhotomakerBranchedLora
+  # pretrained_model_name_or_path: stabilityai/stable-diffusion-xl-base-1.0
+  pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
+  photomaker_path: ${oc.env:HOME}/.cache/huggingface/hub/models--TencentARC--PhotoMaker-V2/snapshots/f5a1e5155dc02166253fa7e29d13519f5ba22eac/photomaker-v2.bin
+  weight_dtype: bf16
+  target_size: 1024
+  rank: 16
+  photomaker_lora_rank: 64
+  lora_modules: [to_q, to_k, to_v, to_out.0]
+  init_lora_weights: gaussian
+  trigger_word: img
+  pose_adapt_ratio: ${pipeline.pose_adapt_ratio}
+  ca_mixing_for_face: ${pipeline.ca_mixing_for_face}
+  face_embed_strategy: ${pipeline.face_embed_strategy}
+
+pipeline:
+  _target_: src.pipelines.photomaker_branched.PhotomakerBranchedPipeline.from_pretrained
+  # pretrained_model_name_or_path: stabilityai/stable-diffusion-xl-base-1.0
+  pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
+  torch_dtype: bfloat16
+  use_safetensors: True
+  variant: fp16
+  photomaker_start_step: 10
+  merge_start_step: 10
+  branched_attn_start_step: 30
+  branched_start_mode: both
+  pose_adapt_ratio: 0.25
+  ca_mixing_for_face: true
+  face_embed_strategy: id_embeds
+  auto_mask_ref: false
+  use_dynamic_mask: false
+  use_bbox_mask_ref: true
+  use_bbox_mask_gen: true
+
+
+saved_checkpoint: saved/br/checkpoint-epoch12.pth
+
+output_dir: outputs/infer_branched_12e_new
+
+batch_size: 1
+
+dataset:
+  _target_: src.datasets.manual_val.ManualPhotoMakerValDataset
+  images_dir: ../dataset_full/val_dataset/references
+  prompts_path: ../dataset_full/val_dataset/prompts_10.txt
+  classes_json_path: ../dataset_full/val_dataset/classes_ref.json
+  bbox_mask_ref: ../dataset_full/val_dataset/ref_bboxes.json
+  # bbox_mask_gen: ../dataset_full/val_dataset/pm96_bboxes.json
+  bbox_mask_gen: ../dataset_full/val_dataset/pm96_bboxes_new.json
+  seeds: [0]
+  limit: 96
+
+validation_args:
+  negative_prompt: "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry"
+  debug_dir: hm_debug
+  num_images_per_prompt: 1
+  num_inference_steps: 50
+  guidance_scale: 5
+  height: 1024
+  width: 1024
+  target_size: [1024, 1024]
+  original_size: [1024, 1024]
+  crops_coords_top_left: [0, 0]
+  use_branched_attention: true
+  face_embed_strategy: ${pipeline.face_embed_strategy}
+  photomaker_start_step: ${pipeline.photomaker_start_step}
+  merge_start_step: ${pipeline.merge_start_step}
+  branched_attn_start_step: ${pipeline.branched_attn_start_step}
+  branched_start_mode: ${pipeline.branched_start_mode}
+  auto_mask_ref: ${pipeline.auto_mask_ref}
+  use_dynamic_mask: ${pipeline.use_dynamic_mask}
+  use_bbox_mask_ref: ${pipeline.use_bbox_mask_ref}
+  use_bbox_mask_gen: ${pipeline.use_bbox_mask_gen}

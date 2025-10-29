@@ -25,6 +25,7 @@ dataset_full/val_dataset/pm_generated20/
 
 dataset_full/val_dataset/pm20_bboxes_check/
 dataset_full/val_dataset/pm96_bboxes_check/
+dataset_full/val_dataset/pm96_bboxes_new_check/
 dataset_full/val_dataset/pm_generated20/
 dataset_full/val_dataset/ref_bboxes_check/
 diffusion_template/yolov8n.pt
