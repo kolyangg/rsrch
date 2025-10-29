@@ -16,7 +16,7 @@ defaults:
 continue_run: true
 saved_checkpoint: null   # absolute or relative path to *.pth
 saved_config: null       # optional path to saved config.yaml (not required)
-cometml_id: tbzl6icmyop6wq2dd7bs5bdl2sj9yg05         # CometML experiment key to resume logging
+cometml_id: null         # CometML experiment key to resume logging
 ddp_timeout_seconds: 21600  # 6 hours to cover long validations
 
 optimizer:
@@ -39,7 +39,7 @@ validation_debug_timing: false
 validation_args:
   negative_prompt: "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry"
   debug_dir: hm_debug
-  num_images_per_prompt: 5
+  num_images_per_prompt: 1
   num_inference_steps: 50
   guidance_scale: 5
   height: 1024

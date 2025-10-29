@@ -39,7 +39,7 @@ pipeline:
 
 saved_checkpoint: saved/br/checkpoint-epoch12.pth
 
-output_dir: outputs/infer_branched_12e
+output_dir: outputs/infer_branched_12e_new
 
 batch_size: 1
 
