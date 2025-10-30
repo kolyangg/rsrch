@@ -3,6 +3,7 @@ import os
 from pathlib import Path  # --- MODIFIED For training integration ---
 import torch
 from omegaconf import OmegaConf  # --- MODIFIED For training integration ---
+from hydra.utils import instantiate
 
 DEBUG_LOG_DEBUG_IMAGES = os.environ.get("PM_DEBUG_IMAGES", "1") not in {"0", "false", "False", ""}
 
@@ -139,19 +140,16 @@ class SDXLTrainer(BaseTrainer):
             if not images:
                 return 
             # --- MODIFIED For training integration ---
-            
-            # --- MODIFIED For training integration ---
-            num_per_prompt = self.config.validation_args.get("num_images_per_prompt", 1)  
-            labels = []  
-            if prompts and len(prompts) * num_per_prompt == len(images): 
+            num_per_prompt = self.config.validation_args.get("num_images_per_prompt", 1)
+            labels = []
+            if prompts and len(prompts) * num_per_prompt == len(images):
                 for p_idx, prompt in enumerate(prompts):
                     for img_idx in range(num_per_prompt):
                         labels.append(f"{prompt}_b{batch_idx:03d}_p{p_idx:02d}_img{img_idx}")
             elif prompts and len(prompts) == len(images):
                 labels = [f"{p}_b{batch_idx:03d}" for p in prompts]
             else:
-                labels = [f"{mode}_{batch_idx}_img{i}" for i in range(len(images))] 
-
+                labels = [f"{mode}_{batch_idx}_img{i}" for i in range(len(images))]
             sanitized = [label.replace(" ", "_")[:80] for label in labels]  
             save_root = Path(self.checkpoint_dir) / "val_images" / mode / f"step_{getattr(self.writer, 'step', 0)}_batch_{batch_idx}"
             save_root.mkdir(parents=True, exist_ok=True)
@@ -197,55 +195,48 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         
     @torch.no_grad()
     def process_evaluation_batch(self, batch, eval_metrics):
+        # One-time swap: build a validation pipeline with alternate base if configured
+        if not getattr(self, "_val_alt_pipe_prepared", False):
+            alt_base = getattr(self.config, "pretrained_model_for_validation_name_or_path", None)
+            if alt_base:
+                try:
+                    # Instantiate a fresh model with alternate base and load current LoRA weights
+                    model_cfg = OmegaConf.to_container(self.config.model, resolve=True)
+                    if isinstance(model_cfg, dict):
+                        model_cfg = dict(model_cfg)
+                        model_cfg["pretrained_model_name_or_path"] = alt_base
+                    alt_model = instantiate(self.config.model, **model_cfg, device=self.device)
+                    if hasattr(alt_model, "prepare_for_training"):
+                        alt_model.prepare_for_training()
+                    # Ensure the entire alt model is on the active GPU
+                    try:
+                        alt_model.to(self.device)
+                    except Exception:
+                        pass
+                    state = self.accelerator.unwrap_model(self.model).get_state_dict()
+                    alt_model.load_state_dict_(state)
+                    # Build pipeline bound to alt_model
+                    self._val_orig_pipe = getattr(self, "pipe", None)
+                    self._val_alt_pipe = instantiate(self.config.pipeline, model=alt_model, accelerator=self.accelerator)
+                    try:
+                        # Move pipeline modules to GPU for fast validation
+                        self._val_alt_pipe.to(self.device)
+                        if hasattr(self._val_alt_pipe, "id_encoder") and hasattr(self._val_alt_pipe, "unet"):
+                            self._val_alt_pipe.id_encoder.to(device=self.device, dtype=self._val_alt_pipe.unet.dtype)
+                    except Exception:
+                        pass
+                    self.pipe = self._val_alt_pipe
+                except Exception:
+                    pass
+                finally:
+                    self._val_alt_pipe_prepared = True
+        # No filename-keyed bbox override here; rely on dataset-provided face_bbox_gen
+
         prompts = batch["prompt"]
         if isinstance(prompts, str):
             prompts = [prompts]
 
         batch_size = len(prompts)
-
-        # Lazily load name-keyed bbox map once, matching infer.py behavior
-        if not hasattr(self, "_gen_bbox_by_name"):
-            gen_bbox = None
-            # Try to read from the active validation dataset object
-            try:
-                for _name, _loader in getattr(self, "evaluation_dataloaders", {}).items():
-                    ds = getattr(_loader, "dataset", None)
-                    # Prefer a raw JSON dict if present (ManualPhotoMakerValDataset stores one)
-                    if ds is not None and hasattr(ds, "_bbox_gen_json") and getattr(ds, "_bbox_gen_json") is not None:
-                        gen_bbox = getattr(ds, "_bbox_gen_json")
-                        break
-            except Exception:
-                gen_bbox = None
-
-            # Fallback to path in config if available
-            if gen_bbox is None:
-                try:
-                    val_names = list(getattr(self.config, "val_datasets_names", []))
-                    if val_names:
-                        ds_name = val_names[0]
-                        ds_cfg = self.config.datasets.val.get(ds_name)
-                        bbox_path = getattr(ds_cfg, "bbox_mask_gen", None) if ds_cfg is not None else None
-                        if bbox_path:
-                            import json as _json
-                            with open(str(bbox_path), "r", encoding="utf-8") as _fh:
-                                gen_bbox = _json.load(_fh)
-                except Exception:
-                    gen_bbox = None
-
-            self._gen_bbox_by_name = gen_bbox if isinstance(gen_bbox, dict) else None
-
-        # If generation bbox masks are required, enforce presence of the map
-        use_gen_mask = bool(self.config.validation_args.get("use_bbox_mask_gen", False))
-        if use_gen_mask and self._gen_bbox_by_name is None:
-            err = (
-                "use_bbox_mask_gen=True but bbox mask map not loaded. "
-                "Ensure validation dataset provides bbox_mask_gen or config.datasets.val[...] has bbox_mask_gen set."
-            )
-            if getattr(self, "logger", None) is not None:
-                self.logger.error(err)
-            else:
-                print(err)
-            raise RuntimeError(err)
 
         def get_value(key, default=None):
             if key not in batch:
@@ -309,44 +300,13 @@ class PhotomakerLoraTrainer(SDXLTrainer):
 
                 callback = _callback
 
-            # Match infer.py: if a filename-keyed bbox map is provided, override face_bbox_gen by exact output name
-            face_bbox_ref = sample.get("face_bbox_ref")
-            face_bbox_gen = sample.get("face_bbox_gen")
-            if isinstance(sample_prompt, str) and sample_id is not None and self._gen_bbox_by_name is not None:
-                base = f"{sample_prompt[:10]}_{sample_id}"
-                key = f"{base}.png"
-                entry = self._gen_bbox_by_name.get(key)
-                if use_gen_mask:
-                    if entry is None:
-                        err = f"No bbox entry in bbox_mask_gen for expected output name '{key}'"
-                        if getattr(self, "logger", None) is not None:
-                            self.logger.error(err)
-                        else:
-                            print(err)
-                        raise RuntimeError(err)
-                    fb = entry.get("face_crop_new") or entry.get("face_crop_old") if isinstance(entry, dict) else None
-                    if fb is None:
-                        err = f"BBox record for '{key}' missing face_crop_new/old"
-                        if getattr(self, "logger", None) is not None:
-                            self.logger.error(err)
-                        else:
-                            print(err)
-                        raise RuntimeError(err)
-                    face_bbox_gen = fb
-                else:
-                    # Optional override (no strict requirement)
-                    if isinstance(entry, dict):
-                        fb = entry.get("face_crop_new") or entry.get("face_crop_old")
-                        if fb is not None:
-                            face_bbox_gen = fb
-
             generated_images = self.pipe(
                 prompt=sample_prompt,
                 generator=generator,
                 input_id_images=sample_ref_images,
-                # Optional fixed bbox masks per sample (after possible override)
-                face_bbox_ref=face_bbox_ref,
-                face_bbox_gen=face_bbox_gen,
+                # Optional fixed bbox masks per sample
+                face_bbox_ref=sample.get("face_bbox_ref"),
+                face_bbox_gen=sample.get("face_bbox_gen"),
                 callback_on_step_end=callback,
                 **self.config.validation_args
             ).images

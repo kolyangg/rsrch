@@ -203,50 +203,6 @@ class PhotomakerLoraTrainer(SDXLTrainer):
 
         batch_size = len(prompts)
 
-        # Lazily load name-keyed bbox map once, matching infer.py behavior
-        if not hasattr(self, "_gen_bbox_by_name"):
-            gen_bbox = None
-            # Try to read from the active validation dataset object
-            try:
-                for _name, _loader in getattr(self, "evaluation_dataloaders", {}).items():
-                    ds = getattr(_loader, "dataset", None)
-                    # Prefer a raw JSON dict if present (ManualPhotoMakerValDataset stores one)
-                    if ds is not None and hasattr(ds, "_bbox_gen_json") and getattr(ds, "_bbox_gen_json") is not None:
-                        gen_bbox = getattr(ds, "_bbox_gen_json")
-                        break
-            except Exception:
-                gen_bbox = None
-
-            # Fallback to path in config if available
-            if gen_bbox is None:
-                try:
-                    val_names = list(getattr(self.config, "val_datasets_names", []))
-                    if val_names:
-                        ds_name = val_names[0]
-                        ds_cfg = self.config.datasets.val.get(ds_name)
-                        bbox_path = getattr(ds_cfg, "bbox_mask_gen", None) if ds_cfg is not None else None
-                        if bbox_path:
-                            import json as _json
-                            with open(str(bbox_path), "r", encoding="utf-8") as _fh:
-                                gen_bbox = _json.load(_fh)
-                except Exception:
-                    gen_bbox = None
-
-            self._gen_bbox_by_name = gen_bbox if isinstance(gen_bbox, dict) else None
-
-        # If generation bbox masks are required, enforce presence of the map
-        use_gen_mask = bool(self.config.validation_args.get("use_bbox_mask_gen", False))
-        if use_gen_mask and self._gen_bbox_by_name is None:
-            err = (
-                "use_bbox_mask_gen=True but bbox mask map not loaded. "
-                "Ensure validation dataset provides bbox_mask_gen or config.datasets.val[...] has bbox_mask_gen set."
-            )
-            if getattr(self, "logger", None) is not None:
-                self.logger.error(err)
-            else:
-                print(err)
-            raise RuntimeError(err)
-
         def get_value(key, default=None):
             if key not in batch:
                 return default
@@ -309,44 +265,13 @@ class PhotomakerLoraTrainer(SDXLTrainer):
 
                 callback = _callback
 
-            # Match infer.py: if a filename-keyed bbox map is provided, override face_bbox_gen by exact output name
-            face_bbox_ref = sample.get("face_bbox_ref")
-            face_bbox_gen = sample.get("face_bbox_gen")
-            if isinstance(sample_prompt, str) and sample_id is not None and self._gen_bbox_by_name is not None:
-                base = f"{sample_prompt[:10]}_{sample_id}"
-                key = f"{base}.png"
-                entry = self._gen_bbox_by_name.get(key)
-                if use_gen_mask:
-                    if entry is None:
-                        err = f"No bbox entry in bbox_mask_gen for expected output name '{key}'"
-                        if getattr(self, "logger", None) is not None:
-                            self.logger.error(err)
-                        else:
-                            print(err)
-                        raise RuntimeError(err)
-                    fb = entry.get("face_crop_new") or entry.get("face_crop_old") if isinstance(entry, dict) else None
-                    if fb is None:
-                        err = f"BBox record for '{key}' missing face_crop_new/old"
-                        if getattr(self, "logger", None) is not None:
-                            self.logger.error(err)
-                        else:
-                            print(err)
-                        raise RuntimeError(err)
-                    face_bbox_gen = fb
-                else:
-                    # Optional override (no strict requirement)
-                    if isinstance(entry, dict):
-                        fb = entry.get("face_crop_new") or entry.get("face_crop_old")
-                        if fb is not None:
-                            face_bbox_gen = fb
-
             generated_images = self.pipe(
                 prompt=sample_prompt,
                 generator=generator,
                 input_id_images=sample_ref_images,
-                # Optional fixed bbox masks per sample (after possible override)
-                face_bbox_ref=face_bbox_ref,
-                face_bbox_gen=face_bbox_gen,
+                # Optional fixed bbox masks per sample
+                face_bbox_ref=sample.get("face_bbox_ref"),
+                face_bbox_gen=sample.get("face_bbox_gen"),
                 callback_on_step_end=callback,
                 **self.config.validation_args
             ).images

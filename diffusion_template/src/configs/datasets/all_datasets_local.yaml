@@ -1,10 +1,10 @@
 train:
-    dreambooth:
-        _target_: src.datasets.dreambooth.DreamBoothTrainDataset
-        data_path: /home/jovyan/bobkov/dreambooth/dataset/dog
-        placeholder_token: sks
-        class_name: dog
-        instance_transforms: ${transforms.instance_transforms.train}
+    # dreambooth:
+    #     _target_: src.datasets.dreambooth.DreamBoothTrainDataset
+    #     data_path: /home/jovyan/bobkov/dreambooth/dataset/dog
+    #     placeholder_token: sks
+    #     class_name: dog
+    #     instance_transforms: ${transforms.instance_transforms.train}
       
     # cosmic:
     #     _target_: src.datasets.cosmic.CosmicDoubledTrain
@@ -61,7 +61,8 @@ val:
       prompts_path: ../dataset_full/val_dataset/prompts_10.txt
       classes_json_path: ../dataset_full/val_dataset/classes_ref.json
       bbox_mask_ref: ../dataset_full/val_dataset/ref_bboxes.json
-      bbox_mask_gen: ../dataset_full/val_dataset/pm96_bboxes.json
+      # bbox_mask_gen: ../dataset_full/val_dataset/pm96_bboxes.json
+      bbox_mask_gen: ../dataset_full/val_dataset/pm96_bboxes_new.json
       seeds: [0]
       limit: 96 # 10 # 1
   

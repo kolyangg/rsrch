@@ -3,11 +3,11 @@ from pathlib import Path
 
 import torch
 from tqdm.auto import tqdm
+from hydra.utils import instantiate
 
 from src.datasets.data_utils import inf_loop
 from src.metrics.tracker import MetricTracker
 from src.utils.io_utils import ROOT_PATH
-from hydra.utils import instantiate
 
 import os
 import time
@@ -184,11 +184,15 @@ class BaseTrainer:
             self.writer.set_step((epoch - 1) * self.epoch_len)
             self.writer.add_scalar("general/epoch", epoch)
 
-        if epoch == 1 and self.accelerator.is_main_process:
-            for part, dataloader in self.evaluation_dataloaders.items():
-                val_logs = self._evaluation_epoch(epoch - 1, part, dataloader)
-                logs.update(**{f"{part}/{name}": value for name, value in val_logs.items()})
-            self.is_train = True
+        # Synchronize ranks around the initial validation to avoid NCCL timeouts
+        if epoch == 1:
+            self.accelerator.wait_for_everyone()
+            if self.accelerator.is_main_process:
+                for part, dataloader in self.evaluation_dataloaders.items():
+                    val_logs = self._evaluation_epoch(epoch - 1, part, dataloader)
+                    logs.update(**{f"{part}/{name}": value for name, value in val_logs.items()})
+                self.is_train = True
+            self.accelerator.wait_for_everyone()
         
         for batch_idx, batch in enumerate(
             tqdm(self.train_dataloader, desc=f"train_{pid}", total=self.epoch_len)
@@ -230,10 +234,13 @@ class BaseTrainer:
         # logs.update(last_train_metrics)
 
         # Run val/test
+        # Synchronize ranks around per-epoch validation to avoid NCCL timeouts
+        self.accelerator.wait_for_everyone()
         if self.accelerator.is_main_process:
             for part, dataloader in self.evaluation_dataloaders.items():
                 val_logs = self._evaluation_epoch(epoch, part, dataloader)
                 logs.update(**{f"{part}/{name}": value for name, value in val_logs.items()})
+        self.accelerator.wait_for_everyone()
 
         return logs
 
@@ -258,71 +265,59 @@ class BaseTrainer:
         self.writer.set_step(epoch * self.epoch_len, part)
         prev_time = time.time()
         with torch.no_grad():
-            # Optionally swap to an alternate base model for validation only
-            val_pretrained = getattr(self.config, "pretrained_model_for_validation_name_or_path", None)
-            _orig_pipe = getattr(self, "pipe", None)
-            _val_model = None
-            _created_val = False
-            _offloaded_train_model = False
-            if val_pretrained:
-                try:
-                    # Offload training model to CPU to free VRAM
-                    self.accelerator.unwrap_model(self.model).to("cpu")
-                    _offloaded_train_model = True
+            # Lazily create validation pipeline (and optional alt-base model) on demand
+            created_val_model = False
+            created_pipe = False
+            if getattr(self, "pipe", None) is None:
+                val_pretrained = getattr(self.config, "pretrained_model_for_validation_name_or_path", None)
+                val_model = self.model
+                _offloaded_train_model = False
+                if val_pretrained:
+                    # Offload training model to CPU to save VRAM
                     try:
-                        torch.cuda.empty_cache()
+                        self.accelerator.unwrap_model(self.model).to("cpu")
+                        _offloaded_train_model = True
+                        try:
+                            torch.cuda.empty_cache()
+                        except Exception:
+                            pass
                     except Exception:
-                        pass
-                except Exception:
-                    _offloaded_train_model = False
+                        _offloaded_train_model = False
+                    prev_model_base = getattr(self.config.model, "pretrained_model_name_or_path", None)
+                    try:
+                        self.config.model.pretrained_model_name_or_path = val_pretrained
+                        val_model = instantiate(self.config.model, device=self.device)
+                        # Load current LoRA adapter weights into the validation model
+                        try:
+                            state = self.model.get_state_dict()
+                            val_model.load_state_dict_(state)
+                        except Exception:
+                            pass
+                        created_val_model = True
+                    finally:
+                        # Restore original model base in config immediately
+                        self.config.model.pretrained_model_name_or_path = prev_model_base
 
-                # Instantiate a temporary validation model on the alternate base
-                prev_model_base = getattr(self.config.model, "pretrained_model_name_or_path", None)
-                try:
-                    self.config.model.pretrained_model_name_or_path = val_pretrained
-                    _val_model = instantiate(self.config.model, device=self.device)
-                    # Ensure adapters are initialized before loading LoRA weights
-                    if hasattr(_val_model, "prepare_for_training"):
-                        _val_model.prepare_for_training()
-                    try:
-                        state = self.accelerator.unwrap_model(self.model).get_state_dict()
-                    except Exception:
-                        state = self.model.get_state_dict()
-                    if hasattr(_val_model, "load_state_dict_"):
-                        _val_model.load_state_dict_(state)
-                    # Move the temporary validation model to the active device (GPU)
-                    try:
-                        _val_model.to(self.device)
-                    except Exception:
-                        pass
-                    _created_val = True
-                finally:
-                    # Restore original model base in config
-                    self.config.model.pretrained_model_name_or_path = prev_model_base
-
-                # Build a temporary pipeline bound to the validation model
+                # Ensure pipeline scheduler uses the same base as the model
                 prev_pipe_base = getattr(self.config.pipeline, "pretrained_model_name_or_path", None)
-                try:
+                if val_pretrained:
                     self.config.pipeline.pretrained_model_name_or_path = val_pretrained
+                try:
                     self.pipe = instantiate(
                         self.config.pipeline,
-                        model=_val_model,
+                        model=val_model,
                         accelerator=self.accelerator,
                     )
-                    # Ensure pipeline modules are on GPU
-                    try:
-                        self.pipe.to(self.device)
-                    except Exception:
-                        pass
+                    created_pipe = True
                 finally:
-                    self.config.pipeline.pretrained_model_name_or_path = prev_pipe_base
+                    if val_pretrained:
+                        self.config.pipeline.pretrained_model_name_or_path = prev_pipe_base
 
-                # Announce successful switch to validation base model
-                if _created_val and self.accelerator.is_main_process:
-                    try:
-                        print(f"[Base Model Switch] Validation start: swapping base '{prev_model_base}' -> '{val_pretrained}'")
-                    except Exception:
-                        pass
+                # Track ownership for cleanup after validation
+                self._val_pipe_owned = created_pipe
+                self._val_model_owned = created_val_model
+                self._val_model_ref = val_model if created_val_model else None
+                self._offloaded_train_model = _offloaded_train_model
             total_images = len(dataloader.dataset) if hasattr(dataloader, "dataset") else len(dataloader)
             if hasattr(self, 'pipe'):
                 for attr in ('_call_debug_counter', '_current_debug_idx', '_current_debug_total'):
@@ -372,13 +367,60 @@ class BaseTrainer:
                             images = flat
                         else:
                             images = [images]
-                        for img in images:
-                            idx = getattr(self, "_val_generation_counter", 0)
-                            filename = f"{idx:02d}.png"
-                            save_path = self._val_generation_dir / filename
+
+                        # infer.py-style names: f"{prompt[:10]}_{ref_stem}_{i:02d}.png"
+                        prompts = batch.get("prompt")
+                        if isinstance(prompts, str):
+                            prompts = [prompts]
+                        elif isinstance(prompts, list):
+                            flat_prompts = []
+                            for it in prompts:
+                                if isinstance(it, list):
+                                    flat_prompts.extend(it)
+                                else:
+                                    flat_prompts.append(it)
+                            prompts = flat_prompts
+                        else:
+                            prompts = []
+
+                        ids = batch.get("id")
+                        if isinstance(ids, str):
+                            ids = [ids]
+                        elif isinstance(ids, list):
+                            flat_ids = []
+                            for it in ids:
+                                if isinstance(it, list):
+                                    flat_ids.extend(it)
+                                else:
+                                    flat_ids.append(it)
+                            ids = flat_ids
+                        else:
+                            ids = []
+
+                        try:
+                            npp = int(self.config.validation_args.get("num_images_per_prompt", 1))
+                        except Exception:
+                            npp = 1
+
+                        names = []
+                        if prompts and ids and len(prompts) == len(ids) and len(images) == len(prompts) * max(1, npp):
+                            for p, ident in zip(prompts, ids):
+                                stem = ident if ident is not None else "id"
+                                base = f"{p[:10]}_{stem}"
+                                if npp > 1:
+                                    for i in range(npp):
+                                        names.append(f"{base}_{i:02d}.png")
+                                else:
+                                    names.append(f"{base}.png")
+                        else:
+                            # Fallback to sequential naming
+                            names = [f"{getattr(self, '_val_generation_counter', 0) + i:02d}.png" for i in range(len(images))]
+
+                        for img, name in zip(images, names):
+                            save_path = self._val_generation_dir / name
                             if hasattr(img, "save"):
                                 img.save(save_path)
-                            self._val_generation_counter = idx + 1
+                            self._val_generation_counter = getattr(self, "_val_generation_counter", 0) + 1
 
                 if self.validation_debug_timing and self.accelerator.is_main_process:
                     msg = (
@@ -394,30 +436,34 @@ class BaseTrainer:
                 ) 
             self._log_scalars(self.evaluation_metrics, part)
 
-        # Restore original training model and pipeline after validation
-        if val_pretrained:
-            try:
-                # Announce restoration back to training base model
-                if _created_val and self.accelerator.is_main_process:
-                    try:
-                        print(f"[Base Model Switch] Validation end: restoring base '{val_pretrained}' -> '{prev_model_base}'")
-                    except Exception:
-                        pass
-                if _orig_pipe is not None:
-                    self.pipe = _orig_pipe
-                # Move training model back to GPU if we offloaded it
-                if _offloaded_train_model:
-                    try:
-                        self.accelerator.unwrap_model(self.model).to(self.device)
-                    except Exception:
-                        pass
+            # Teardown validation pipeline and temporary model (free VRAM)
+            if getattr(self, "_val_pipe_owned", False):
                 try:
-                    torch.cuda.empty_cache()
-                except Exception:
-                    pass
-            finally:
-                # Ensure temporary validation model is dereferenced
-                _val_model = None
+                    try:
+                        del self.pipe
+                    except Exception:
+                        pass
+                    self.pipe = None
+                    if getattr(self, "_val_model_owned", False) and getattr(self, "_val_model_ref", None) is not None:
+                        try:
+                            del self._val_model_ref
+                        except Exception:
+                            pass
+                        self._val_model_ref = None
+                finally:
+                    self._val_pipe_owned = False
+                    self._val_model_owned = False
+                    # Move training model back to device if it was offloaded
+                    if getattr(self, "_offloaded_train_model", False):
+                        try:
+                            self.accelerator.unwrap_model(self.model).to(self.device)
+                        except Exception:
+                            pass
+                        self._offloaded_train_model = False
+                    try:
+                        torch.cuda.empty_cache()
+                    except Exception:
+                        pass
 
         for metric in self.metrics:
             metric.to_cpu()
@@ -604,7 +650,9 @@ class BaseTrainer:
         resume_path = str(resume_path)
         if self.accelerator.is_main_process:
             self.logger.info(f"Loading checkpoint: {resume_path} ...")
-        checkpoint = torch.load(resume_path, self.device)
+        # PyTorch 2.6 defaults weights_only=True which breaks loading our pickled
+        # DictConfig inside the checkpoint. Explicitly disable weights_only.
+        checkpoint = torch.load(resume_path, map_location=self.device, weights_only=False)
         self.start_epoch = checkpoint["epoch"] + 1
 
         # load architecture params from checkpoint.
@@ -652,7 +700,8 @@ class BaseTrainer:
                 self.logger.info(f"Loading model weights from: {pretrained_path} ...")
         else:
             print(f"Loading model weights from: {pretrained_path} ...")
-        checkpoint = torch.load(pretrained_path, self.device)
+        # Allow full pickled payload for backward compatibility with saved checkpoints
+        checkpoint = torch.load(pretrained_path, map_location=self.device, weights_only=False)
 
         if checkpoint.get("state_dict") is not None:
             self.accelerator.unwrap_model(self.model).load_state_dict_(checkpoint["state_dict"])

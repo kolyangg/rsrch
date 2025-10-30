@@ -1,5 +1,6 @@
 _target_: src.pipelines.photomaker_branched.PhotomakerBranchedPipeline.from_pretrained
 pretrained_model_name_or_path: stabilityai/stable-diffusion-xl-base-1.0
+# pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
 torch_dtype: bfloat16
 use_safetensors: True
 variant: fp16
