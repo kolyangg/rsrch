@@ -291,7 +291,9 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             sample_id = ids_list[idx]
             sample_seed = seeds_list[idx]
 
-            generator = torch.Generator(device='cpu').manual_seed(sample_seed)
+            # ### To align validation with infer.py generation ###
+            # Use a device-matched generator (GPU when available)
+            generator = torch.Generator(device=self.device).manual_seed(int(sample_seed))
             callback = None
             step_durations = []
             pipe_start = time.time()
@@ -340,10 +342,37 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                         if fb is not None:
                             face_bbox_gen = fb
 
+            # ### To align validation with infer.py generation ###
+            # Compute and pass 512-D id_embeds from the first ref image via FaceAnalysis2
+            id_embeds_vec = None
+            try:
+                # Lazily prepare FaceAnalysis once
+                if not hasattr(self, "_val_face_analyzer"):
+                    from src.model.photomaker_branched.insightface_package import FaceAnalysis2, analyze_faces
+                    _fa = FaceAnalysis2(providers=['CUDAExecutionProvider'], allowed_modules=['detection', 'recognition'])
+                    try:
+                        _fa.prepare(ctx_id=0, det_size=(640, 640))
+                    except Exception:
+                        # Best-effort fallback
+                        _fa.prepare(ctx_id=-1, det_size=(640, 640))
+                    self._val_face_analyzer = _fa
+                # Extract from the first reference image if available
+                first_ref = sample_ref_images[0] if isinstance(sample_ref_images, (list, tuple)) and sample_ref_images else sample_ref_images
+                if first_ref is not None:
+                    import numpy as _np
+                    from src.model.photomaker_branched.insightface_package import analyze_faces
+                    _np_img = _np.array(first_ref.convert("RGB"))[:, :, ::-1]
+                    _faces = analyze_faces(self._val_face_analyzer, _np_img)
+                    if _faces:
+                        id_embeds_vec = torch.from_numpy(_faces[0]["embedding"]).float()
+            except Exception:
+                id_embeds_vec = None
+
             generated_images = self.pipe(
                 prompt=sample_prompt,
                 generator=generator,
                 input_id_images=sample_ref_images,
+                id_embeds=id_embeds_vec,
                 # Optional fixed bbox masks per sample (after possible override)
                 face_bbox_ref=face_bbox_ref,
                 face_bbox_gen=face_bbox_gen,

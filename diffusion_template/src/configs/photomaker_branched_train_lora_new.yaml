@@ -13,11 +13,14 @@ defaults:
   - _self_
 
 # Resume/continuation controls
-continue_run: true
+continue_run: false
 saved_checkpoint: null   # absolute or relative path to *.pth
 saved_config: null       # optional path to saved config.yaml (not required)
 cometml_id: null         # CometML experiment key to resume logging
 ddp_timeout_seconds: 21600  # 6 hours to cover long validations
+
+# Optional: use a different base for validation-only pipeline
+pretrained_model_for_validation_name_or_path: SG161222/RealVisXL_V4.0
 
 optimizer:
   _convert_: partial
