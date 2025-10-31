@@ -141,26 +141,53 @@ class SDXLTrainer(BaseTrainer):
             # --- MODIFIED For training integration ---
             
             # --- MODIFIED For training integration ---
-            num_per_prompt = self.config.validation_args.get("num_images_per_prompt", 1)  
-            labels = []  
-            if prompts and len(prompts) * num_per_prompt == len(images): 
-                for p_idx, prompt in enumerate(prompts):
-                    for img_idx in range(num_per_prompt):
-                        labels.append(f"{prompt}_b{batch_idx:03d}_p{p_idx:02d}_img{img_idx}")
-            elif prompts and len(prompts) == len(images):
-                labels = [f"{p}_b{batch_idx:03d}" for p in prompts]
-            else:
-                labels = [f"{mode}_{batch_idx}_img{i}" for i in range(len(images))] 
+            num_per_prompt = self.config.validation_args.get("num_images_per_prompt", 1)
 
-            sanitized = [label.replace(" ", "_")[:80] for label in labels]  
+            # ### To align validation with infer.py generation ###
+            ### Make validation filenames match bbox JSON keys: f"{prompt[:10]}_{id}.png" ###
+            ids = batch.get('id')
+            if isinstance(ids, str):
+                ids = [ids]
+            elif isinstance(ids, list):
+                flat_ids = []
+                for item in ids:
+                    if isinstance(item, list):
+                        flat_ids.extend(item)
+                    else:
+                        flat_ids.append(item)
+                ids = flat_ids
+
+            labels = []
+            if prompts and ids and len(prompts) == len(ids) and (len(prompts) * num_per_prompt == len(images) or len(prompts) == len(images)):
+                for p_idx, (p_text, p_id) in enumerate(zip(prompts, ids)):
+                    base = f"{p_text[:10]}_{p_id}"
+                    if len(prompts) * num_per_prompt == len(images) and num_per_prompt > 1:
+                        for _ in range(num_per_prompt):
+                            labels.append(base)
+                    else:
+                        labels.append(base)
+            else:
+                # Fallback to previous prompt-based naming if alignment is unclear
+                if prompts and len(prompts) * num_per_prompt == len(images):
+                    for p_idx, prompt in enumerate(prompts):
+                        for img_idx in range(num_per_prompt):
+                            labels.append(f"{prompt}_b{batch_idx:03d}_p{p_idx:02d}_img{img_idx}")
+                elif prompts and len(prompts) == len(images):
+                    labels = [f"{p}_b{batch_idx:03d}" for p in prompts]
+                else:
+                    labels = [f"{mode}_{batch_idx}_img{i}" for i in range(len(images))]
+
+            sanitized = [label.replace(" ", "_")[:80] for label in labels]
             save_root = Path(self.checkpoint_dir) / "val_images" / mode / f"step_{getattr(self.writer, 'step', 0)}_batch_{batch_idx}"
             save_root.mkdir(parents=True, exist_ok=True)
 
             for img, name in zip(images, sanitized):
-                image_name = f"{mode}_images/{name}"
-                self.writer.add_image(image_name, img)
+                # ### To align validation with infer.py generation ###
+                # Log and save using the exact bbox-JSON-like filename
+                self.writer.add_image(f"{name}.png", img)
                 if hasattr(img, "save"):
                     img.save(save_root / f"{name}.png")
+            ### Make validation filenames match bbox JSON keys: f"{prompt[:10]}_{id}.png" ###
             # --- MODIFIED For training integration ---
 
 

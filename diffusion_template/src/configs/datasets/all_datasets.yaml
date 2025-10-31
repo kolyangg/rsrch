@@ -64,5 +64,6 @@ val:
       # bbox_mask_gen: ../dataset_full/val_dataset/pm96_bboxes.json
       bbox_mask_gen: ../dataset_full/val_dataset/pm96_bboxes_new.json
       seeds: [0] # [0, 1, 2]
-      limit: 96 # 20
+      # limit: 96 # 20
+      limit: 10 # temp
   
