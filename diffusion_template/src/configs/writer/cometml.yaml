@@ -1,5 +1,5 @@
 _target_: src.logger.cometml.CometMLWriter
-project_name: "rsrch_29Oct"
+project_name: "rsrch_30Oct"
 workspace: null
 run_name: "testing"
 mode: "online"

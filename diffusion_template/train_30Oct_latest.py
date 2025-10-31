@@ -25,11 +25,7 @@ def main(config):
     Args:
         config (DictConfig): hydra experiment config.
     """
-    # Allow longer watchdog timeout to accommodate long validations
-    ddp_timeout = int(getattr(config, "ddp_timeout_seconds", 3600))
-    torch.distributed.init_process_group(
-        backend="nccl", timeout=datetime.timedelta(seconds=ddp_timeout)
-    )
+    torch.distributed.init_process_group(backend="nccl", timeout=datetime.timedelta(seconds=3600))
     set_random_seed(config.trainer.seed)
     accelerator = Accelerator()
 
@@ -39,9 +35,7 @@ def main(config):
     
     if accelerator.is_main_process:
         logger = setup_saving_and_logging(config)
-        # Allow resuming the same CometML experiment by passing experiment_key (run_id)
-        comet_run_id = getattr(config, "cometml_id", None)
-        writer = instantiate(config.writer, logger, project_config, run_id=comet_run_id)
+        writer = instantiate(config.writer, logger, project_config)
 
     device = accelerator.device
 
@@ -52,9 +46,11 @@ def main(config):
     # build model architecture, then print to console
     model = instantiate(config.model, device=device)
     if accelerator.is_main_process:
-        base_name = getattr(config.model, "pretrained_model_name_or_path", None)
-        print(f"[Base Model Switch] Training base: '{base_name}'")
-
+        try:
+            base_name = getattr(config.model, "pretrained_model_name_or_path", None)
+            print(f"[Base Model Switch] Training base: '{base_name}'")
+        except Exception:
+            pass
     model.prepare_for_training()
 
     # get function handles of loss and metrics
@@ -91,27 +87,12 @@ def main(config):
 
     pipeline = None
     if accelerator.is_main_process:
-        # Allow using a different pretrained base for validation-only pipeline
-        val_pretrained = getattr(config, "pretrained_model_for_validation_name_or_path", None)
-        prev_base = None
-        if val_pretrained:
-            # Temporarily override only for pipeline instantiation
-            prev_base = getattr(config.pipeline, "pretrained_model_name_or_path", None)
-            config.pipeline.pretrained_model_name_or_path = val_pretrained
         pipeline = instantiate(
             config.pipeline,
             model=model,
-            accelerator=accelerator,
+            accelerator=accelerator
         )
-        if val_pretrained:
-            # Restore original config value immediately after
-            config.pipeline.pretrained_model_name_or_path = prev_base
         
-    # Optionally resume training from a checkpoint if requested at top-level config
-    resume_from = None
-    if bool(getattr(config, "continue_run", False)):
-        resume_from = getattr(config, "saved_checkpoint", None)
-
     trainer = instantiate(
         config.trainer,
         model=model,
@@ -127,7 +108,6 @@ def main(config):
         logger=logger,
         writer=writer,
         batch_transforms=batch_transforms,
-        resume_from=resume_from,
         _recursive_=False
     )
 
