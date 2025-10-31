@@ -270,10 +270,26 @@ class BaseTrainer:
             _created_val = False
             _offloaded_train_model = False
             if val_pretrained:
+                # In multi-GPU, do NOT offload the DDP-wrapped training model on a single rank.
+                # This avoids desynchronizing DDP parameter buckets across ranks.
+                num_procs = int(getattr(self.accelerator, "num_processes", 1))
+                should_offload_train = (num_procs == 1)
                 try:
-                    # Offload training model to CPU to free VRAM
-                    self.accelerator.unwrap_model(self.model).to("cpu")
-                    _offloaded_train_model = True
+                    if should_offload_train:
+                        # Offload training model to CPU to free VRAM (safe on single GPU)
+                        self.accelerator.unwrap_model(self.model).to("cpu")
+                        _offloaded_train_model = True
+                        if self.accelerator.is_main_process:
+                            try:
+                                print(f"[Base Model Switch] Offloaded training model to CPU (num_procs={num_procs})")
+                            except Exception:
+                                pass
+                    else:
+                        if self.accelerator.is_main_process:
+                            try:
+                                print(f"[Base Model Switch] Skipping offload on multi-GPU (num_procs={num_procs})")
+                            except Exception:
+                                pass
                     try:
                         torch.cuda.empty_cache()
                     except Exception:
