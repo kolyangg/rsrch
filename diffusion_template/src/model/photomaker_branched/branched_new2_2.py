@@ -50,15 +50,6 @@ def patch_unet_attention_processors(
             if hasattr(pipe, k):
                 setattr(proc, k, getattr(pipe, k))
    
-    # Build safe, consistent context (batch, id_embeds)
-    # Ensure masks are non-None to avoid runtime errors
-    B = (mask.shape[0] if mask is not None else mask_ref.shape[0])
-    dev, dt = pipeline.device, pipeline.unet.dtype
-    _mask  = mask     if mask     is not None else torch.zeros(B, 1,  mask_ref.shape[-2], mask_ref.shape[-1], device=dev, dtype=dt)
-    _mref  = mask_ref if mask_ref is not None else _mask
-    # Always provide id_embeds so processor-local weights participate on every rank
-    _idem = id_embeds.to(dev, dt) if id_embeds is not None else torch.zeros(B, 2048, device=dev, dtype=dt)   
-   
     if not has_branched:
         # Create new processors
         new_procs = {}
@@ -89,17 +80,12 @@ def patch_unet_attention_processors(
                     scale=scale,
                 ).to(pipeline.device, dtype=pipeline.unet.dtype)
                 # print(f'[TEMP DEBUG] mask in branched_new2 - attn1: {mask}')
-                # proc.set_masks(mask, mask_ref)
-                proc.set_masks(_mask, _mref)
+                proc.set_masks(mask, mask_ref)
                 _apply_runtime_flags(proc, pipeline)
                 
-                # if id_embeds is not None:
-                #     proc.id_embeds = id_embeds.to(pipeline.device, dtype=pipeline.unet.dtype)
-                # # Be explicit: we always want to use ID features if present.
-                # setattr(proc, "use_id_embeds", True)
-
-                # Always wire id_embeds (zeros if missing) so params are used on all ranks
-                proc.id_embeds = _idem
+                if id_embeds is not None:
+                    proc.id_embeds = id_embeds.to(pipeline.device, dtype=pipeline.unet.dtype)
+                # Be explicit: we always want to use ID features if present.
                 setattr(proc, "use_id_embeds", True)
                 
                 new_procs[name] = proc
@@ -119,16 +105,11 @@ def patch_unet_attention_processors(
                 # enable KV equalizer for face branch
                 setattr(proc, "equalize_face_kv", True)
                 setattr(proc, "equalize_clip", (1/3, 8.0))
-                # # print(f'[TEMP DEBUG] mask in branched_new2 - attn2: {mask}')
-                # proc.set_masks(mask, mask_ref)
-                # if id_embeds is not None:
-                #     proc.id_embeds = id_embeds.to(pipeline.device, dtype=pipeline.unet.dtype)
-                #     proc.class_tokens_mask = class_tokens_mask
-                proc.set_masks(_mask, _mref)
-                # Keep CA path consistent too (even if CA doesn’t always consume id_embeds)
-                proc.id_embeds = _idem
-                proc.class_tokens_mask = class_tokens_mask
-
+                # print(f'[TEMP DEBUG] mask in branched_new2 - attn2: {mask}')
+                proc.set_masks(mask, mask_ref)
+                if id_embeds is not None:
+                    proc.id_embeds = id_embeds.to(pipeline.device, dtype=pipeline.unet.dtype)
+                    proc.class_tokens_mask = class_tokens_mask
                 new_procs[name] = proc
                 
             else:
@@ -140,17 +121,11 @@ def patch_unet_attention_processors(
         # Update masks on existing processors
         for name, proc in pipeline.unet.attn_processors.items():
             if isinstance(proc, (BranchedAttnProcessor, BranchedCrossAttnProcessor)):
-                # proc.set_masks(mask, mask_ref)
-                proc.set_masks(_mask, _mref)
+                proc.set_masks(mask, mask_ref)
                 _apply_runtime_flags(proc, pipeline)
-                # # Also (re)apply 2048-D ID features when provided this step.
-                # if isinstance(proc, BranchedAttnProcessor) and id_embeds is not None:
-                #     proc.id_embeds = id_embeds.to(pipeline.device, dtype=pipeline.unet.dtype)
-                #     setattr(proc, "use_id_embeds", True)
-                
-                # Always (re)apply id_embeds (zeros if missing) so params are used every step
-                if hasattr(proc, "id_embeds"):
-                    proc.id_embeds = _idem
+                # Also (re)apply 2048-D ID features when provided this step.
+                if isinstance(proc, BranchedAttnProcessor) and id_embeds is not None:
+                    proc.id_embeds = id_embeds.to(pipeline.device, dtype=pipeline.unet.dtype)
                     setattr(proc, "use_id_embeds", True)
 
 def encode_face_prompt(
