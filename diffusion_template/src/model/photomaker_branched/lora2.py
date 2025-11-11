@@ -153,24 +153,53 @@ class PhotomakerBranchedLora(SDXL):
         self.id_encoder.load_state_dict(state_dict["id_encoder"], strict=True)
 
     def get_trainable_params(self, config):
-        # LoRA params (UNet adapters)
-        lora_params = [p for p in self.unet.parameters() if p.requires_grad]
-
+        
         # ### Modified to make attn_processor trainable in branched version ###
-        # Add attention processor params (installed on UNet)
-        attn_proc_params = []
-        if hasattr(self.unet, 'attn_processors'):
-            for proc in self.unet.attn_processors.values():
-                if hasattr(proc, 'parameters'):
-                    attn_proc_params.extend([p for p in proc.parameters() if p.requires_grad])
+        
+        # LoRA params (UNet adapters)
+        # lora_params = [p for p in self.unet.parameters() if p.requires_grad]
 
-        lr_attn = getattr(config, 'lr_for_attn_processors', None) or getattr(config, 'lr_for_lora', 1e-5)
-        trainable_params = []
+        
+        # # Add attention processor params (installed on UNet)
+        # attn_proc_params = []
+        # if hasattr(self.unet, 'attn_processors'):
+        #     for proc in self.unet.attn_processors.values():
+        #         if hasattr(proc, 'parameters'):
+        #             attn_proc_params.extend([p for p in proc.parameters() if p.requires_grad])
+
+
+        # 1) Collect attention-processor params first (these live under UNet.attn_processors)
+        attn_proc_params = []
+        if hasattr(self.unet, "attn_processors"):
+            for proc in self.unet.attn_processors.values():
+                if hasattr(proc, "parameters"):
+                    for p in proc.parameters():
+                        p.requires_grad_(True)
+                        attn_proc_params.append(p)
+        attn_ids = {id(p) for p in attn_proc_params}
+
+        # 2) LoRA-only params = all trainable UNet params MINUS attention-processor params
+        lora_params = [p for p in self.unet.parameters()
+                       if p.requires_grad and id(p) not in attn_ids]
+
+
+        # lr_attn = getattr(config, 'lr_for_attn_processors', None) or getattr(config, 'lr_for_lora', 1e-5)
+        # trainable_params = []
+        # if lora_params:
+        #     trainable_params.append({'params': lora_params, 'lr': getattr(config, 'lr_for_lora', 1e-5), 'name': 'lora_params'})
+        # if attn_proc_params:
+        #     trainable_params.append({'params': attn_proc_params, 'lr': lr_attn, 'name': 'attn_processor_params'})
+        # return trainable_params
+        
+        # 3) Build distinct optimizer groups
+        lr_lora = getattr(config, "lr_for_lora", 1e-5)
+        lr_attn = getattr(config, "lr_for_attn_processors", lr_lora)
+        groups = []
         if lora_params:
-            trainable_params.append({'params': lora_params, 'lr': getattr(config, 'lr_for_lora', 1e-5), 'name': 'lora_params'})
+            groups.append({"params": lora_params, "lr": lr_lora, "name": "lora_params"})
         if attn_proc_params:
-            trainable_params.append({'params': attn_proc_params, 'lr': lr_attn, 'name': 'attn_processor_params'})
-        return trainable_params
+            groups.append({"params": attn_proc_params, "lr": lr_attn, "name": "attn_processor_params"})
+        return groups
 
     def get_state_dict(self):
         lora_weights = convert_state_dict_to_diffusers(
