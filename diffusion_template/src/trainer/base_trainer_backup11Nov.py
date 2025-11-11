@@ -506,31 +506,18 @@ class BaseTrainer:
         Returns:
             grad_norms (dict): the calculated norms.
         """
-        # # Helper function to compute norm 
-        # def compute_params_grad_norm(parameters):
-        #     return torch.norm(torch.stack([torch.norm(p.grad.detach(), norm_type) for p in parameters]), norm_type).item()
-
-        # Helper: robust to params with no gradients yet
+        # Helper function to compute norm 
         def compute_params_grad_norm(parameters):
-            grads = [p.grad for p in parameters if p.grad is not None]
-            if not grads:
-                return 0.0
-            pieces = [torch.norm(g.detach(), norm_type) for g in grads]
-            return torch.norm(torch.stack(pieces), norm_type).item()
-
+            return torch.norm(torch.stack([torch.norm(p.grad.detach(), norm_type) for p in parameters]), norm_type).item()
 
         grad_norms = {}
         for group in self.optimizer.param_groups:
             grad_norms[group["name"]] = compute_params_grad_norm(group["params"])
 
-        # # Compute total norm
-        # total_norm = torch.norm(torch.tensor(list(grad_norms.values())), norm_type).item()
-        # grad_norms["total_norm"] = total_norm
-        # self.optimizer.zero_grad()
-
-        total_norm = torch.norm(torch.tensor(list(grad_norms.values()), dtype=torch.float32), norm_type).item()
+        # Compute total norm
+        total_norm = torch.norm(torch.tensor(list(grad_norms.values())), norm_type).item()
         grad_norms["total_norm"] = total_norm
-
+        self.optimizer.zero_grad()
 
         return grad_norms
 
