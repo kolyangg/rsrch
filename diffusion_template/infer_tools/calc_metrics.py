@@ -291,3 +291,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
+# example:
+# python3 infer_tools/calc_metrics.py --gen_dir outputs/infer_branched_11new_noca_par25 --ref_dir ../dataset_full/val_dataset/references --prompts ../dataset_full/val_dataset/prompts_10.txt --classes ../dataset_full/val_dataset/classes_ref.json --out_json outputs/metrics_infer_branched_11new_noca_par25.json

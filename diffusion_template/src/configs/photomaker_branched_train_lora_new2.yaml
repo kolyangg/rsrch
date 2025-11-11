@@ -1,0 +1,66 @@
+defaults:
+  - trainer: photomaker_lora
+  - model: photomaker_branched_lora2 # Modified to make attn_processor trainable in branched version
+  - writer: console
+  - transforms: only_instance
+  - ddp: accelerate
+  - lr_scheduler: custom_linear
+  - pipeline: photomaker_branched2 # Modified to make attn_processor trainable in branched version
+  - metrics: all_metrics
+  - datasets: all_datasets
+  - dataloaders: all_dataloaders
+  - _self_
+
+# Resume/continuation controls
+continue_run: false
+saved_checkpoint: null   # absolute or relative path to *.pth
+saved_config: null       # optional path to saved config.yaml (not required)
+cometml_id: null         # CometML experiment key to resume logging
+ddp_timeout_seconds: 21600  # 6 hours to cover long validations
+
+# Optional: use a different base for validation-only pipeline
+pretrained_model_for_validation_name_or_path: SG161222/RealVisXL_V4.0
+
+optimizer:
+  _convert_: partial
+  _target_: torch.optim.AdamW
+  weight_decay: 0
+
+loss_function:
+  _target_: src.loss.diffusion_loss.MaskedDiffusionLoss
+
+lr_for_lora: 1e-5
+# Optional separate LR for processors; falls back to lr_for_lora if omitted
+# lr_for_attn_processors: 1e-5
+
+train_dataset_name: "cosmic"
+val_datasets_names: ["manual_val"]
+
+inference_metrics: ["clip_ts", "id_sim_best"]
+
+validation_debug_timing: false
+
+validation_args:
+  negative_prompt: "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry"
+  debug_dir: hm_debug
+  num_images_per_prompt: 5
+  num_inference_steps: 50
+  guidance_scale: 5
+  height: 1024
+  width: 1024
+  target_size: [1024, 1024]
+  original_size: [1024, 1024]
+  crops_coords_top_left: [0, 0]
+  use_branched_attention: true
+  face_embed_strategy: ${pipeline.face_embed_strategy}
+  photomaker_start_step: ${pipeline.photomaker_start_step}
+  merge_start_step: ${pipeline.merge_start_step}
+  branched_attn_start_step: ${pipeline.branched_attn_start_step}
+  branched_start_mode: ${pipeline.branched_start_mode}
+  #  Masking controls moved to config
+  auto_mask_ref: ${pipeline.auto_mask_ref}
+  use_dynamic_mask: ${pipeline.use_dynamic_mask}
+  use_bbox_mask_ref: ${pipeline.use_bbox_mask_ref}
+  use_bbox_mask_gen: ${pipeline.use_bbox_mask_gen}
+
+

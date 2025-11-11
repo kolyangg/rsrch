@@ -1,0 +1,50 @@
+{
+  "ref_dir": "../dataset_full/val_dataset/references_actual",
+  "prompts": "../dataset_full/val_dataset/prompts_10.txt",
+  "classes": "../dataset_full/val_dataset/classes_ref_actual.json",
+  "num_columns": 7,
+  "max_per_row": 10,
+  "prompts_per_page": 12,
+  "thumb_side": 768,
+  "dpi": 600,
+  "prompt_w_frac": 0.08,
+  "ref_same_cell_width": false,
+  "header_top_margin": 0.015,
+  "header_height": 0.10,
+  "header_to_grid_gap": 0.005,
+  "ref_max_height": 150,
+  "prompt_wrap_chars": 18,
+  "summary_prompt_wrap_chars": 27,
+  "summary_header_wrap_chars": 8,
+  "metrics_font_size": 4,
+  "out_pdf": "outputs/report_04Nov.pdf",
+  "scenarios": [
+    {
+      "name": "PMv2 original",
+      "gen_dir": "outputs/infer_origv2_new",
+      "metrics": "outputs/metrics_infer_origv2_17e_new.json"
+    },
+    {
+      "name": "BR Step=0 CA=1 PAR=0.25",
+      "gen_dir": "outputs/infer_branched_new",
+      "metrics": "outputs/metrics_infer_branched_new.json"
+    },
+    {
+      "name": "BR Step=0 CA=0 PAR=0.25",
+      "gen_dir": "outputs/infer_branched_0new_noca_par25",
+      "metrics": "outputs/metrics_branched_0new_noca_par25.json"
+    },
+        {
+      "name": "PMv2 original Step=11E new",
+      "gen_dir": "outputs/pm_origv2_infer_br11",
+      "metrics": "outputs/metrics_pm_origv2_infer_br11.json"
+    },
+    {
+      "name": "BR Step=11E CA=0 PAR=0.25",
+      "gen_dir": "outputs/infer_branched_11new_noca_par25",
+      "metrics": "outputs/metrics_infer_branched_11new_noca_par25.json"
+    }
+  ]
+}
+
+

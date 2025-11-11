@@ -466,3 +466,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# python3 infer_tools/pdf_with_metrics.py --config src/configs/pdf_output/pdf_config_04Nov.json

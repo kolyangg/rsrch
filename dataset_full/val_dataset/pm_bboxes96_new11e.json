@@ -1,0 +1,1922 @@
+{
+  "Angry man _eddie.png": {
+    "face_crop_old": [
+      428,
+      196,
+      680,
+      515
+    ],
+    "face_crop_new": [
+      446,
+      218,
+      662,
+      493
+    ],
+    "body_crop": [
+      44,
+      84,
+      1023,
+      1023
+    ]
+  },
+  "Angry man _elon.png": {
+    "face_crop_old": [
+      429,
+      140,
+      689,
+      527
+    ],
+    "face_crop_new": [
+      447,
+      167,
+      671,
+      500
+    ],
+    "body_crop": [
+      30,
+      37,
+      1023,
+      1023
+    ]
+  },
+  "Angry man _jensen.png": {
+    "face_crop_old": [
+      431,
+      165,
+      680,
+      501
+    ],
+    "face_crop_new": [
+      449,
+      188,
+      663,
+      478
+    ],
+    "body_crop": [
+      40,
+      63,
+      1023,
+      1023
+    ]
+  },
+  "Angry man _keanu.png": {
+    "face_crop_old": [
+      412,
+      158,
+      674,
+      532
+    ],
+    "face_crop_new": [
+      430,
+      184,
+      656,
+      506
+    ],
+    "body_crop": [
+      43,
+      53,
+      1023,
+      1023
+    ]
+  },
+  "Angry man _lex.png": {
+    "face_crop_old": [
+      431,
+      169,
+      675,
+      500
+    ],
+    "face_crop_new": [
+      448,
+      192,
+      658,
+      477
+    ],
+    "body_crop": [
+      34,
+      56,
+      1023,
+      1023
+    ]
+  },
+  "Angry woma_jennie.png": {
+    "face_crop_old": [
+      354,
+      126,
+      572,
+      413
+    ],
+    "face_crop_new": [
+      369,
+      146,
+      557,
+      393
+    ],
+    "body_crop": [
+      182,
+      135,
+      977,
+      1023
+    ]
+  },
+  "Angry woma_jisoo.png": {
+    "face_crop_old": [
+      338,
+      106,
+      587,
+      437
+    ],
+    "face_crop_new": [
+      355,
+      129,
+      570,
+      414
+    ],
+    "body_crop": [
+      205,
+      22,
+      925,
+      1023
+    ]
+  },
+  "Angry woma_marion.png": {
+    "face_crop_old": [
+      325,
+      120,
+      539,
+      393
+    ],
+    "face_crop_new": [
+      340,
+      139,
+      525,
+      374
+    ],
+    "body_crop": [
+      208,
+      39,
+      902,
+      1023
+    ]
+  },
+  "Chef man i_eddie.png": {
+    "face_crop_old": [
+      579,
+      413,
+      695,
+      568
+    ],
+    "face_crop_new": [
+      587,
+      423,
+      687,
+      557
+    ],
+    "body_crop": [
+      441,
+      323,
+      867,
+      1023
+    ]
+  },
+  "Chef man i_elon.png": {
+    "face_crop_old": [
+      215,
+      344,
+      462,
+      690
+    ],
+    "face_crop_new": [
+      232,
+      368,
+      445,
+      667
+    ],
+    "body_crop": [
+      425,
+      323,
+      882,
+      1023
+    ]
+  },
+  "Chef man i_jensen.png": {
+    "face_crop_old": [
+      576,
+      408,
+      698,
+      554
+    ],
+    "face_crop_new": [
+      584,
+      418,
+      690,
+      544
+    ],
+    "body_crop": [
+      429,
+      325,
+      878,
+      1023
+    ]
+  },
+  "Chef man i_keanu.png": {
+    "face_crop_old": [
+      579,
+      406,
+      699,
+      557
+    ],
+    "face_crop_new": [
+      587,
+      416,
+      691,
+      546
+    ],
+    "body_crop": [
+      443,
+      319,
+      889,
+      1023
+    ]
+  },
+  "Chef man i_lex.png": {
+    "face_crop_old": [
+      579,
+      398,
+      703,
+      555
+    ],
+    "face_crop_new": [
+      587,
+      408,
+      694,
+      544
+    ],
+    "body_crop": [
+      441,
+      325,
+      869,
+      1009
+    ]
+  },
+  "Chef woman_jennie.png": {
+    "face_crop_old": [
+      244,
+      316,
+      495,
+      631
+    ],
+    "face_crop_new": [
+      262,
+      338,
+      477,
+      610
+    ],
+    "body_crop": [
+      454,
+      323,
+      831,
+      1023
+    ]
+  },
+  "Chef woman_jisoo.png": {
+    "face_crop_old": [
+      590,
+      411,
+      699,
+      550
+    ],
+    "face_crop_new": [
+      598,
+      421,
+      691,
+      540
+    ],
+    "body_crop": [
+      479,
+      328,
+      778,
+      1023
+    ]
+  },
+  "Chef woman_marion.png": {
+    "face_crop_old": [
+      251,
+      304,
+      482,
+      628
+    ],
+    "face_crop_new": [
+      266,
+      326,
+      466,
+      606
+    ],
+    "body_crop": [
+      425,
+      344,
+      779,
+      1023
+    ]
+  },
+  "Crying man_eddie.png": {
+    "face_crop_old": [
+      287,
+      150,
+      536,
+      462
+    ],
+    "face_crop_new": [
+      304,
+      172,
+      519,
+      441
+    ],
+    "body_crop": [
+      0,
+      146,
+      789,
+      1023
+    ]
+  },
+  "Crying man_elon.png": {
+    "face_crop_old": [
+      284,
+      226,
+      512,
+      556
+    ],
+    "face_crop_new": [
+      300,
+      249,
+      496,
+      533
+    ],
+    "body_crop": [
+      0,
+      145,
+      873,
+      1023
+    ]
+  },
+  "Crying man_jensen.png": {
+    "face_crop_old": [
+      272,
+      207,
+      483,
+      501
+    ],
+    "face_crop_new": [
+      287,
+      228,
+      468,
+      481
+    ],
+    "body_crop": [
+      0,
+      103,
+      874,
+      1023
+    ]
+  },
+  "Crying man_keanu.png": {
+    "face_crop_old": [
+      344,
+      227,
+      532,
+      506
+    ],
+    "face_crop_new": [
+      357,
+      246,
+      519,
+      487
+    ],
+    "body_crop": [
+      0,
+      134,
+      919,
+      1023
+    ]
+  },
+  "Crying man_lex.png": {
+    "face_crop_old": [
+      0,
+      0,
+      1023,
+      1023
+    ],
+    "face_crop_new": [
+      51,
+      51,
+      973,
+      973
+    ],
+    "body_crop": [
+      0,
+      135,
+      833,
+      1023
+    ]
+  },
+  "Crying wom_jennie.png": {
+    "face_crop_old": [
+      310,
+      110,
+      515,
+      403
+    ],
+    "face_crop_new": [
+      324,
+      131,
+      501,
+      383
+    ],
+    "body_crop": [
+      90,
+      28,
+      824,
+      1023
+    ]
+  },
+  "Crying wom_jisoo.png": {
+    "face_crop_old": [
+      429,
+      229,
+      493,
+      304
+    ],
+    "face_crop_new": [
+      433,
+      234,
+      488,
+      299
+    ],
+    "body_crop": [
+      90,
+      20,
+      835,
+      1023
+    ]
+  },
+  "Crying wom_marion.png": {
+    "face_crop_old": [
+      299,
+      116,
+      502,
+      407
+    ],
+    "face_crop_new": [
+      313,
+      136,
+      488,
+      387
+    ],
+    "body_crop": [
+      89,
+      38,
+      817,
+      1023
+    ]
+  },
+  "Dancing ma_eddie.png": {
+    "face_crop_old": [
+      447,
+      137,
+      556,
+      294
+    ],
+    "face_crop_new": [
+      454,
+      148,
+      549,
+      284
+    ],
+    "body_crop": [
+      30,
+      87,
+      905,
+      1023
+    ]
+  },
+  "Dancing ma_elon.png": {
+    "face_crop_old": [
+      445,
+      120,
+      564,
+      295
+    ],
+    "face_crop_new": [
+      453,
+      132,
+      556,
+      283
+    ],
+    "body_crop": [
+      0,
+      75,
+      987,
+      1023
+    ]
+  },
+  "Dancing ma_jensen.png": {
+    "face_crop_old": [
+      450,
+      152,
+      563,
+      303
+    ],
+    "face_crop_new": [
+      457,
+      163,
+      555,
+      293
+    ],
+    "body_crop": [
+      20,
+      90,
+      911,
+      1023
+    ]
+  },
+  "Dancing ma_keanu.png": {
+    "face_crop_old": [
+      438,
+      113,
+      549,
+      284
+    ],
+    "face_crop_new": [
+      446,
+      125,
+      542,
+      272
+    ],
+    "body_crop": [
+      0,
+      67,
+      942,
+      1023
+    ]
+  },
+  "Dancing ma_lex.png": {
+    "face_crop_old": [
+      447,
+      143,
+      545,
+      281
+    ],
+    "face_crop_new": [
+      454,
+      153,
+      539,
+      272
+    ],
+    "body_crop": [
+      0,
+      93,
+      964,
+      1023
+    ]
+  },
+  "Dancing wo_jennie.png": {
+    "face_crop_old": [
+      426,
+      149,
+      581,
+      357
+    ],
+    "face_crop_new": [
+      437,
+      163,
+      570,
+      343
+    ],
+    "body_crop": [
+      275,
+      86,
+      792,
+      1023
+    ]
+  },
+  "Dancing wo_jisoo.png": {
+    "face_crop_old": [
+      431,
+      157,
+      592,
+      391
+    ],
+    "face_crop_new": [
+      442,
+      173,
+      581,
+      375
+    ],
+    "body_crop": [
+      279,
+      87,
+      790,
+      1023
+    ]
+  },
+  "Dancing wo_marion.png": {
+    "face_crop_old": [
+      453,
+      146,
+      595,
+      345
+    ],
+    "face_crop_new": [
+      463,
+      160,
+      586,
+      331
+    ],
+    "body_crop": [
+      279,
+      89,
+      790,
+      1023
+    ]
+  },
+  "Drumming m_eddie.png": {
+    "face_crop_old": [
+      352,
+      200,
+      545,
+      486
+    ],
+    "face_crop_new": [
+      365,
+      220,
+      532,
+      466
+    ],
+    "body_crop": [
+      62,
+      8,
+      851,
+      1023
+    ]
+  },
+  "Drumming m_elon.png": {
+    "face_crop_old": [
+      351,
+      201,
+      537,
+      476
+    ],
+    "face_crop_new": [
+      364,
+      220,
+      524,
+      457
+    ],
+    "body_crop": [
+      50,
+      35,
+      857,
+      1023
+    ]
+  },
+  "Drumming m_jensen.png": {
+    "face_crop_old": [
+      339,
+      220,
+      542,
+      499
+    ],
+    "face_crop_new": [
+      353,
+      239,
+      528,
+      480
+    ],
+    "body_crop": [
+      81,
+      71,
+      854,
+      1023
+    ]
+  },
+  "Drumming m_keanu.png": {
+    "face_crop_old": [
+      374,
+      214,
+      550,
+      483
+    ],
+    "face_crop_new": [
+      386,
+      232,
+      538,
+      464
+    ],
+    "body_crop": [
+      69,
+      49,
+      878,
+      1023
+    ]
+  },
+  "Drumming m_lex.png": {
+    "face_crop_old": [
+      347,
+      218,
+      531,
+      466
+    ],
+    "face_crop_new": [
+      360,
+      235,
+      519,
+      449
+    ],
+    "body_crop": [
+      18,
+      27,
+      856,
+      1023
+    ]
+  },
+  "Drumming w_jennie.png": {
+    "face_crop_old": [
+      376,
+      221,
+      550,
+      465
+    ],
+    "face_crop_new": [
+      388,
+      238,
+      538,
+      449
+    ],
+    "body_crop": [
+      65,
+      51,
+      816,
+      1023
+    ]
+  },
+  "Drumming w_jisoo.png": {
+    "face_crop_old": [
+      358,
+      185,
+      561,
+      466
+    ],
+    "face_crop_new": [
+      372,
+      204,
+      547,
+      447
+    ],
+    "body_crop": [
+      66,
+      73,
+      818,
+      1023
+    ]
+  },
+  "Drumming w_marion.png": {
+    "face_crop_old": [
+      376,
+      215,
+      559,
+      455
+    ],
+    "face_crop_new": [
+      389,
+      232,
+      547,
+      439
+    ],
+    "body_crop": [
+      46,
+      50,
+      848,
+      1023
+    ]
+  },
+  "Jumping ma_eddie.png": {
+    "face_crop_old": [
+      498,
+      274,
+      601,
+      419
+    ],
+    "face_crop_new": [
+      505,
+      284,
+      594,
+      409
+    ],
+    "body_crop": [
+      260,
+      254,
+      1023,
+      1023
+    ]
+  },
+  "Jumping ma_elon.png": {
+    "face_crop_old": [
+      507,
+      302,
+      601,
+      436
+    ],
+    "face_crop_new": [
+      513,
+      311,
+      594,
+      427
+    ],
+    "body_crop": [
+      263,
+      253,
+      861,
+      1023
+    ]
+  },
+  "Jumping ma_jensen.png": {
+    "face_crop_old": [
+      519,
+      306,
+      628,
+      443
+    ],
+    "face_crop_new": [
+      526,
+      315,
+      620,
+      434
+    ],
+    "body_crop": [
+      278,
+      252,
+      1015,
+      1023
+    ]
+  },
+  "Jumping ma_keanu.png": {
+    "face_crop_old": [
+      505,
+      306,
+      596,
+      438
+    ],
+    "face_crop_new": [
+      511,
+      315,
+      589,
+      429
+    ],
+    "body_crop": [
+      279,
+      260,
+      978,
+      1023
+    ]
+  },
+  "Jumping ma_lex.png": {
+    "face_crop_old": [
+      516,
+      299,
+      610,
+      434
+    ],
+    "face_crop_new": [
+      523,
+      309,
+      603,
+      425
+    ],
+    "body_crop": [
+      273,
+      262,
+      1023,
+      1023
+    ]
+  },
+  "Jumping wo_jennie.png": {
+    "face_crop_old": [
+      410,
+      216,
+      543,
+      405
+    ],
+    "face_crop_new": [
+      419,
+      229,
+      534,
+      392
+    ],
+    "body_crop": [
+      184,
+      111,
+      922,
+      1023
+    ]
+  },
+  "Jumping wo_jisoo.png": {
+    "face_crop_old": [
+      423,
+      202,
+      569,
+      414
+    ],
+    "face_crop_new": [
+      434,
+      217,
+      559,
+      399
+    ],
+    "body_crop": [
+      255,
+      83,
+      908,
+      1023
+    ]
+  },
+  "Jumping wo_marion.png": {
+    "face_crop_old": [
+      417,
+      201,
+      541,
+      382
+    ],
+    "face_crop_new": [
+      425,
+      214,
+      533,
+      370
+    ],
+    "body_crop": [
+      231,
+      131,
+      904,
+      1023
+    ]
+  },
+  "Kickboxing_eddie.png": {
+    "face_crop_old": [
+      587,
+      138,
+      978,
+      619
+    ],
+    "face_crop_new": [
+      614,
+      172,
+      951,
+      586
+    ],
+    "body_crop": [
+      0,
+      0,
+      898,
+      1023
+    ]
+  },
+  "Kickboxing_elon.png": {
+    "face_crop_old": [
+      170,
+      80,
+      543,
+      632
+    ],
+    "face_crop_new": [
+      196,
+      118,
+      518,
+      594
+    ],
+    "body_crop": [
+      0,
+      0,
+      1023,
+      1023
+    ]
+  },
+  "Kickboxing_jennie.png": {
+    "face_crop_old": [
+      375,
+      188,
+      652,
+      575
+    ],
+    "face_crop_new": [
+      394,
+      214,
+      633,
+      549
+    ],
+    "body_crop": [
+      0,
+      84,
+      1023,
+      1023
+    ]
+  },
+  "Kickboxing_jensen.png": {
+    "face_crop_old": [
+      607,
+      133,
+      983,
+      591
+    ],
+    "face_crop_new": [
+      633,
+      165,
+      957,
+      560
+    ],
+    "body_crop": [
+      0,
+      0,
+      1021,
+      1023
+    ]
+  },
+  "Kickboxing_jisoo.png": {
+    "face_crop_old": [
+      322,
+      210,
+      598,
+      571
+    ],
+    "face_crop_new": [
+      341,
+      235,
+      579,
+      546
+    ],
+    "body_crop": [
+      0,
+      61,
+      1023,
+      1023
+    ]
+  },
+  "Kickboxing_keanu.png": {
+    "face_crop_old": [
+      169,
+      107,
+      510,
+      609
+    ],
+    "face_crop_new": [
+      193,
+      142,
+      486,
+      575
+    ],
+    "body_crop": [
+      0,
+      0,
+      1005,
+      1023
+    ]
+  },
+  "Kickboxing_lex.png": {
+    "face_crop_old": [
+      162,
+      99,
+      539,
+      616
+    ],
+    "face_crop_new": [
+      188,
+      134,
+      513,
+      580
+    ],
+    "body_crop": [
+      0,
+      0,
+      1023,
+      1023
+    ]
+  },
+  "Kickboxing_marion.png": {
+    "face_crop_old": [
+      332,
+      240,
+      568,
+      553
+    ],
+    "face_crop_new": [
+      349,
+      261,
+      552,
+      531
+    ],
+    "body_crop": [
+      0,
+      105,
+      1023,
+      1023
+    ]
+  },
+  "Laughing m_eddie.png": {
+    "face_crop_old": [
+      256,
+      130,
+      546,
+      496
+    ],
+    "face_crop_new": [
+      276,
+      155,
+      526,
+      471
+    ],
+    "body_crop": [
+      0,
+      147,
+      907,
+      1023
+    ]
+  },
+  "Laughing m_elon.png": {
+    "face_crop_old": [
+      288,
+      130,
+      540,
+      488
+    ],
+    "face_crop_new": [
+      305,
+      155,
+      523,
+      464
+    ],
+    "body_crop": [
+      6,
+      12,
+      916,
+      1023
+    ]
+  },
+  "Laughing m_jensen.png": {
+    "face_crop_old": [
+      277,
+      150,
+      538,
+      483
+    ],
+    "face_crop_new": [
+      295,
+      173,
+      520,
+      460
+    ],
+    "body_crop": [
+      0,
+      102,
+      903,
+      1023
+    ]
+  },
+  "Laughing m_keanu.png": {
+    "face_crop_old": [
+      316,
+      126,
+      540,
+      482
+    ],
+    "face_crop_new": [
+      331,
+      151,
+      524,
+      458
+    ],
+    "body_crop": [
+      0,
+      72,
+      950,
+      1023
+    ]
+  },
+  "Laughing m_lex.png": {
+    "face_crop_old": [
+      285,
+      124,
+      554,
+      499
+    ],
+    "face_crop_new": [
+      304,
+      149,
+      536,
+      474
+    ],
+    "body_crop": [
+      4,
+      86,
+      983,
+      1023
+    ]
+  },
+  "Laughing w_jennie.png": {
+    "face_crop_old": [
+      370,
+      350,
+      567,
+      572
+    ],
+    "face_crop_new": [
+      384,
+      366,
+      553,
+      556
+    ],
+    "body_crop": [
+      260,
+      316,
+      995,
+      1023
+    ]
+  },
+  "Laughing w_jisoo.png": {
+    "face_crop_old": [
+      397,
+      337,
+      593,
+      589
+    ],
+    "face_crop_new": [
+      411,
+      355,
+      579,
+      572
+    ],
+    "body_crop": [
+      213,
+      281,
+      1010,
+      1023
+    ]
+  },
+  "Laughing w_marion.png": {
+    "face_crop_old": [
+      400,
+      345,
+      585,
+      556
+    ],
+    "face_crop_new": [
+      413,
+      359,
+      572,
+      541
+    ],
+    "body_crop": [
+      140,
+      308,
+      1023,
+      1023
+    ]
+  },
+  "Night-ride_eddie.png": {
+    "face_crop_old": [
+      481,
+      130,
+      692,
+      426
+    ],
+    "face_crop_new": [
+      495,
+      150,
+      677,
+      406
+    ],
+    "body_crop": [
+      41,
+      11,
+      1023,
+      1023
+    ]
+  },
+  "Night-ride_elon.png": {
+    "face_crop_old": [
+      483,
+      122,
+      691,
+      417
+    ],
+    "face_crop_new": [
+      498,
+      142,
+      677,
+      397
+    ],
+    "body_crop": [
+      31,
+      28,
+      1023,
+      1023
+    ]
+  },
+  "Night-ride_jennie.png": {
+    "face_crop_old": [
+      344,
+      179,
+      558,
+      470
+    ],
+    "face_crop_new": [
+      359,
+      200,
+      543,
+      450
+    ],
+    "body_crop": [
+      0,
+      66,
+      1023,
+      1023
+    ]
+  },
+  "Night-ride_jensen.png": {
+    "face_crop_old": [
+      493,
+      145,
+      694,
+      392
+    ],
+    "face_crop_new": [
+      506,
+      162,
+      680,
+      375
+    ],
+    "body_crop": [
+      115,
+      19,
+      1023,
+      1023
+    ]
+  },
+  "Night-ride_jisoo.png": {
+    "face_crop_old": [
+      323,
+      117,
+      576,
+      468
+    ],
+    "face_crop_new": [
+      340,
+      141,
+      559,
+      444
+    ],
+    "body_crop": [
+      0,
+      16,
+      1023,
+      1023
+    ]
+  },
+  "Night-ride_keanu.png": {
+    "face_crop_old": [
+      487,
+      135,
+      685,
+      407
+    ],
+    "face_crop_new": [
+      501,
+      153,
+      672,
+      388
+    ],
+    "body_crop": [
+      137,
+      11,
+      1023,
+      1023
+    ]
+  },
+  "Night-ride_lex.png": {
+    "face_crop_old": [
+      494,
+      109,
+      707,
+      421
+    ],
+    "face_crop_new": [
+      509,
+      131,
+      692,
+      399
+    ],
+    "body_crop": [
+      108,
+      31,
+      1023,
+      1023
+    ]
+  },
+  "Night-ride_marion.png": {
+    "face_crop_old": [
+      333,
+      189,
+      559,
+      455
+    ],
+    "face_crop_new": [
+      349,
+      207,
+      543,
+      436
+    ],
+    "body_crop": [
+      0,
+      39,
+      1023,
+      1023
+    ]
+  },
+  "Reading pa_eddie.png": {
+    "face_crop_old": [
+      347,
+      32,
+      629,
+      410
+    ],
+    "face_crop_new": [
+      367,
+      58,
+      609,
+      384
+    ],
+    "body_crop": [
+      0,
+      0,
+      913,
+      1023
+    ]
+  },
+  "Reading pa_elon.png": {
+    "face_crop_old": [
+      341,
+      72,
+      578,
+      429
+    ],
+    "face_crop_new": [
+      357,
+      97,
+      562,
+      405
+    ],
+    "body_crop": [
+      0,
+      0,
+      856,
+      1023
+    ]
+  },
+  "Reading pa_jennie.png": {
+    "face_crop_old": [
+      331,
+      105,
+      534,
+      390
+    ],
+    "face_crop_new": [
+      345,
+      125,
+      520,
+      370
+    ],
+    "body_crop": [
+      121,
+      17,
+      819,
+      1023
+    ]
+  },
+  "Reading pa_jensen.png": {
+    "face_crop_old": [
+      307,
+      26,
+      588,
+      408
+    ],
+    "face_crop_new": [
+      327,
+      53,
+      569,
+      381
+    ],
+    "body_crop": [
+      0,
+      0,
+      896,
+      1023
+    ]
+  },
+  "Reading pa_jisoo.png": {
+    "face_crop_old": [
+      341,
+      121,
+      553,
+      410
+    ],
+    "face_crop_new": [
+      356,
+      140,
+      539,
+      390
+    ],
+    "body_crop": [
+      93,
+      17,
+      851,
+      1023
+    ]
+  },
+  "Reading pa_keanu.png": {
+    "face_crop_old": [
+      322,
+      77,
+      576,
+      418
+    ],
+    "face_crop_new": [
+      340,
+      101,
+      559,
+      394
+    ],
+    "body_crop": [
+      0,
+      0,
+      893,
+      1023
+    ]
+  },
+  "Reading pa_lex.png": {
+    "face_crop_old": [
+      344,
+      81,
+      591,
+      416
+    ],
+    "face_crop_new": [
+      361,
+      104,
+      574,
+      393
+    ],
+    "body_crop": [
+      0,
+      0,
+      848,
+      1023
+    ]
+  },
+  "Reading pa_marion.png": {
+    "face_crop_old": [
+      324,
+      125,
+      526,
+      382
+    ],
+    "face_crop_new": [
+      338,
+      143,
+      512,
+      364
+    ],
+    "body_crop": [
+      107,
+      13,
+      823,
+      1023
+    ]
+  },
+  "Rushing ma_eddie.png": {
+    "face_crop_old": [
+      440,
+      124,
+      641,
+      408
+    ],
+    "face_crop_new": [
+      454,
+      143,
+      627,
+      388
+    ],
+    "body_crop": [
+      58,
+      417,
+      185,
+      758
+    ]
+  },
+  "Rushing ma_elon.png": {
+    "face_crop_old": [
+      436,
+      145,
+      637,
+      439
+    ],
+    "face_crop_new": [
+      450,
+      165,
+      623,
+      418
+    ],
+    "body_crop": [
+      95,
+      83,
+      763,
+      1023
+    ]
+  },
+  "Rushing ma_jensen.png": {
+    "face_crop_old": [
+      431,
+      170,
+      634,
+      438
+    ],
+    "face_crop_new": [
+      445,
+      189,
+      620,
+      419
+    ],
+    "body_crop": [
+      57,
+      413,
+      185,
+      757
+    ]
+  },
+  "Rushing ma_keanu.png": {
+    "face_crop_old": [
+      436,
+      162,
+      611,
+      418
+    ],
+    "face_crop_new": [
+      448,
+      179,
+      599,
+      400
+    ],
+    "body_crop": [
+      57,
+      416,
+      185,
+      769
+    ]
+  },
+  "Rushing ma_lex.png": {
+    "face_crop_old": [
+      453,
+      146,
+      659,
+      429
+    ],
+    "face_crop_new": [
+      467,
+      166,
+      645,
+      409
+    ],
+    "body_crop": [
+      56,
+      416,
+      185,
+      762
+    ]
+  },
+  "Rushing wo_jennie.png": {
+    "face_crop_old": [
+      345,
+      122,
+      560,
+      409
+    ],
+    "face_crop_new": [
+      360,
+      142,
+      545,
+      389
+    ],
+    "body_crop": [
+      56,
+      417,
+      182,
+      761
+    ]
+  },
+  "Rushing wo_jisoo.png": {
+    "face_crop_old": [
+      332,
+      121,
+      563,
+      412
+    ],
+    "face_crop_new": [
+      348,
+      141,
+      547,
+      392
+    ],
+    "body_crop": [
+      48,
+      410,
+      190,
+      759
+    ]
+  },
+  "Rushing wo_marion.png": {
+    "face_crop_old": [
+      326,
+      127,
+      547,
+      402
+    ],
+    "face_crop_new": [
+      341,
+      146,
+      532,
+      383
+    ],
+    "body_crop": [
+      40,
+      413,
+      205,
+      756
+    ]
+  },
+  "Skiing man_eddie.png": {
+    "face_crop_old": [
+      386,
+      265,
+      777,
+      754
+    ],
+    "face_crop_new": [
+      413,
+      299,
+      750,
+      720
+    ],
+    "body_crop": [
+      10,
+      113,
+      1023,
+      1023
+    ]
+  },
+  "Skiing man_elon.png": {
+    "face_crop_old": [
+      400,
+      268,
+      757,
+      714
+    ],
+    "face_crop_new": [
+      424,
+      299,
+      732,
+      684
+    ],
+    "body_crop": [
+      8,
+      110,
+      1015,
+      1023
+    ]
+  },
+  "Skiing man_jensen.png": {
+    "face_crop_old": [
+      392,
+      264,
+      759,
+      705
+    ],
+    "face_crop_new": [
+      418,
+      295,
+      734,
+      674
+    ],
+    "body_crop": [
+      0,
+      113,
+      977,
+      1023
+    ]
+  },
+  "Skiing man_keanu.png": {
+    "face_crop_old": [
+      363,
+      174,
+      793,
+      759
+    ],
+    "face_crop_new": [
+      393,
+      215,
+      764,
+      719
+    ],
+    "body_crop": [
+      8,
+      121,
+      1023,
+      1023
+    ]
+  },
+  "Skiing man_lex.png": {
+    "face_crop_old": [
+      398,
+      277,
+      756,
+      744
+    ],
+    "face_crop_new": [
+      422,
+      309,
+      732,
+      711
+    ],
+    "body_crop": [
+      0,
+      114,
+      965,
+      1023
+    ]
+  },
+  "Skiing wom_jennie.png": {
+    "face_crop_old": [
+      419,
+      248,
+      768,
+      691
+    ],
+    "face_crop_new": [
+      443,
+      278,
+      744,
+      660
+    ],
+    "body_crop": [
+      29,
+      34,
+      1023,
+      1023
+    ]
+  },
+  "Skiing wom_jisoo.png": {
+    "face_crop_old": [
+      382,
+      213,
+      800,
+      754
+    ],
+    "face_crop_new": [
+      411,
+      250,
+      771,
+      717
+    ],
+    "body_crop": [
+      53,
+      44,
+      1023,
+      1023
+    ]
+  },
+  "Skiing wom_marion.png": {
+    "face_crop_old": [
+      396,
+      230,
+      774,
+      691
+    ],
+    "face_crop_new": [
+      422,
+      261,
+      748,
+      659
+    ],
+    "body_crop": [
+      29,
+      27,
+      1023,
+      1023
+    ]
+  }
+}

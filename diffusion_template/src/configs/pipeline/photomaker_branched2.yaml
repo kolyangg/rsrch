@@ -1,0 +1,19 @@
+### Modified to make attn_processor trainable in branched version ###
+_target_: src.pipelines.photomaker_branched2.PhotomakerBranchedPipeline.from_pretrained
+pretrained_model_name_or_path: stabilityai/stable-diffusion-xl-base-1.0
+torch_dtype: bfloat16
+use_safetensors: True
+variant: fp16
+photomaker_start_step: 10
+merge_start_step: 10
+branched_attn_start_step: 30
+branched_start_mode: both
+pose_adapt_ratio: 0.25
+ca_mixing_for_face: false
+face_embed_strategy: id_embeds
+auto_mask_ref: false
+use_dynamic_mask: false
+use_bbox_mask_ref: true
+use_bbox_mask_gen: true
+### Modified to make attn_processor trainable in branched version ###
+
