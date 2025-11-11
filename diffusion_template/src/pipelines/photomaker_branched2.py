@@ -1608,7 +1608,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 ### Modified for attention processor training ###
                 else:
                     # Only restore originals during evaluation/inference
-                    if (not self.training) and hasattr(self.unet, 'attn_processors'):
+                    if (not self.unet.training) and hasattr(self.unet, 'attn_processors'):
                         if any(p.__class__.__name__.startswith('Branched') for p in self.unet.attn_processors.values()):
                             restore_original_processors(self)
                 ### Modified for attention processor training ###
