@@ -1550,9 +1550,18 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                         )
 
                     # Update context on already-installed processors (no re-patching)
-                    self.set_branch_context(_mask4, ctx_mask_ref, class_tokens_mask, id_embeds=None)
+                    # self.set_branch_context(_mask4, ctx_mask_ref, class_tokens_mask, id_embeds=None)
 
-                   
+                    # Ensure processors always receive a non-None background mask (required by BranchedAttnProcessor)
+                    ctx_mask = _mask4 if _mask4 is not None else (
+                        mask4 if mask4 is not None else torch.zeros_like(
+                            latent_model_input[:, :1, :, :],
+                            device=latent_model_input.device,
+                            dtype=latent_model_input.dtype,
+                        )
+                    )
+                    self.set_branch_context(ctx_mask, ctx_mask_ref, class_tokens_mask, id_embeds=None)
+                  
                     
                     ### Modified to make attn_processor trainable in branched version ###
 
@@ -1590,6 +1599,12 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                         self._kv_override = None
                         
                 else:
+                    
+                    # If UNet currently has branched processors but we're not using branched mode, restore originals
+                    if hasattr(self.unet, 'attn_processors'):
+                        if any(p.__class__.__name__.startswith('Branched') for p in self.unet.attn_processors.values()):
+                            restore_original_processors(self)
+                    
                     # Standard single-branch prediction
                     noise_pred = self.unet(
                         latent_model_input,
