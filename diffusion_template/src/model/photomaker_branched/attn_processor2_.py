@@ -43,25 +43,22 @@ class BranchedAttnProcessor(nn.Module):
         self.ca_mixing_for_face: bool = True   # CA_MIXING_FOR_FACE
         self.use_id_embeds: bool = True        # USE_ID_EMBEDS
 
-        # Optional: ID feature cache
-        self.id_embeds = None
-
-        ### Modified to make attention processors train ###
+        # # Optional: ID feature cache
+        # self.id_embeds = None
         # self.id_to_hidden = None
 
-        # Pre-register so optimizer sees this trainable projection
+        ### Modified to make attn_processor trainable in branched version ###
+        # Pre-register so optimizer sees it
         self.id_to_hidden = nn.Linear(2048, self.hidden_size, bias=False)
         with torch.no_grad():
             self.id_to_hidden.weight.mul_(0.1)
-        ### Modified to make attention processors train ###
-
+        ### Modified to make attn_processor trainable in branched version ###
 
         # Let diffusers know we accept cross_attention_kwargs to silence warnings
         self.has_cross_attention_kwargs = True
 
     def set_masks(self, mask: Optional[torch.Tensor], mask_ref: Optional[torch.Tensor] = None):
         """Set masks for current denoising step"""
-        # print(f'[TEMP DEBUG] mask in set_masks: {mask}')
         self.mask = mask
         self.mask_ref = mask_ref if mask_ref is not None else mask
         
@@ -235,29 +232,28 @@ class BranchedAttnProcessor(nn.Module):
             # # NEW: Inject ID embeddings into the mixed face hidden states
             # if hasattr(self, 'id_embeds') and self.id_embeds is not None:
 
-            # # Inject ID embeddings into the mixed face hidden states (2048-D → hidden)
-            # if USE_ID_EMBEDS:
-            #     if not hasattr(self, 'id_to_hidden') or self.id_to_hidden is None:
-            #         self.id_to_hidden = nn.Linear(
-            #             self.id_embeds.shape[-1], 
-            #             face_hidden_mixed.shape[-1],
-            #             bias=False
-            #         ).to(face_hidden_mixed.device, face_hidden_mixed.dtype)
-            #         # Initialize with small weights
-            #         with torch.no_grad():
-            #             self.id_to_hidden.weight.mul_(0.1)
-                
-            ### Modified to make attention processors train ###
+            # Inject ID embeddings into the mixed face hidden states (2048-D → hidden)
             if USE_ID_EMBEDS:
-                # Ensure dtype/device match before use
-                self.id_to_hidden = self.id_to_hidden.to(
-                    device=face_hidden_mixed.device, dtype=face_hidden_mixed.dtype
-                )
+                if not hasattr(self, 'id_to_hidden') or self.id_to_hidden is None:
+                    self.id_to_hidden = nn.Linear(
+                        self.id_embeds.shape[-1], 
+                        face_hidden_mixed.shape[-1],
+                        bias=False
+                    ).to(face_hidden_mixed.device, face_hidden_mixed.dtype)
+                    # Initialize with small weights
+                    with torch.no_grad():
+                        self.id_to_hidden.weight.mul_(0.1)
+                
                 id_features = self.id_to_hidden(self.id_embeds)
 
-            ### Modified to make attention processors train ###
 
-                id_features = self.id_to_hidden(self.id_embeds)
+            # ### Modified to make attn_processor trainable in branched version ###
+            # if USE_ID_EMBEDS:
+            #     # Make sure dtype/device match
+            #     self.id_to_hidden = self.id_to_hidden.to(face_hidden_mixed.device, face_hidden_mixed.dtype)
+            #     id_features = self.id_to_hidden(self.id_embeds)     
+            # ### Modified to make attn_processor trainable in branched version ###           
+
                 if id_features.dim() == 2:
                     id_features = id_features.unsqueeze(1).expand(-1, face_hidden_mixed.shape[1], -1)
                 

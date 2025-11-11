@@ -18,12 +18,13 @@ from diffusers.utils import (
 from src.model.sdxl.original import SDXL
 
 # --- Branched-attention specific import ---
-from .branched_new import two_branch_predict, prepare_reference_latents  # --- MODIFIED For training integration ---
-
-### Modified to make attention processors train ###
-# Pre-install helper (no-ops during forward): lets optimizer see processor params
-from .branched_new2 import patch_unet_attention_processors
-### Modified to make attention processors train ###
+### Modified to make attn_processor trainable in branched version ###
+from .branched_new2 import (
+    two_branch_predict,
+    prepare_reference_latents,
+    patch_unet_attention_processors,
+)
+### Modified to make attn_processor trainable in branched version ###
 
 # --- PhotoMaker v2 upgraded ID encoder + InsightFace integration START ---
 from .insightface_package import FaceAnalysis2, analyze_faces
@@ -121,36 +122,39 @@ class PhotomakerBranchedLora(SDXL):
         )
         self.unet.add_adapter(adapter_lora_config, adapter_name="lora_adapter")
         self.unet.set_adapter(["lora_adapter", "default"])
-        
-        ### Modified to make attention processors train ###
 
-        # --- enable training of branched attention processors (minimal) ---
-        # Install processors *once* so their parameters are registered before the optimizer is built.
+        # ### Modified to make attn_processor trainable in branched version ###
+        # Pre-install branched attention processors so their parameters are
+        # registered before optimizer creation. Use None masks for now.
         try:
-            # Safe zero masks at latent resolution (prevents "requires a mask" errors during validation startup)
-            H = self.target_size // int(self.vae_scale_factor)
-            W = self.target_size // int(self.vae_scale_factor)
-            zero_ctx = torch.zeros(1, 1, H, W, device=self.unet.device, dtype=self.unet.dtype)
-
             patch_unet_attention_processors(
                 pipeline=self,
-                mask=zero_ctx,
-                mask_ref=zero_ctx,
+                mask=None,
+                mask_ref=None,
                 scale=1.0,
                 id_embeds=None,
                 class_tokens_mask=None,
             )
-            # Ensure processor params are trainable (will be included in your existing param filter)
-            if hasattr(self.unet, "attn_processors"):
-                for proc in self.unet.attn_processors.values():
-                    for p in proc.parameters():
-                        p.requires_grad_(True)
         except Exception as e:
-            print(f"[PhotomakerBranchedLora] warning while installing branched processors: {e}")
-        # --- end minimal change ---
+            print(f"[PhotomakerBranchedLora] Pre-install processors warning: {e}")
+            
+        def assert_branched_processors(unet):
+            from .attn_processor2 import BranchedAttnProcessor, BranchedCrossAttnProcessor
+            assert hasattr(unet, "attn_processors"), "UNet has no attn_processors dict."
+            for name, proc in unet.attn_processors.items():
+                if name.endswith("attn1.processor"):
+                    exp, ok = "BranchedAttnProcessor", isinstance(proc, BranchedAttnProcessor)
+                elif name.endswith("attn2.processor"):
+                    exp, ok = "BranchedCrossAttnProcessor", isinstance(proc, BranchedCrossAttnProcessor)
+                else:
+                    continue  # ignore non-attn processors
+                if not ok:
+                    raise TypeError(f"{name}: expected {exp}, got {proc.__class__.__name__}")
 
-        ### Modified to make attention processors train ###
-
+        # After patch_unet_attention_processors(...)
+        assert_branched_processors(self.unet)
+                       
+        # ### Modified to make attn_processor trainable in branched version ###
 
     def load_photomaker_state_dict_(self, state_dict):
         # load lora
@@ -166,17 +170,76 @@ class PhotomakerBranchedLora(SDXL):
         self.id_encoder.load_state_dict(state_dict["id_encoder"], strict=True)
 
     def get_trainable_params(self, config):
-        lora_params = filter(lambda p: p.requires_grad, self.unet.parameters())
-        trainable_params = [
-            {'params': lora_params, 'lr': config.lr_for_lora, 'name': 'lora_params'},
-        ]
-        return trainable_params
+        
+        # ### Modified to make attn_processor trainable in branched version ###
+        
+        # LoRA params (UNet adapters)
+        # lora_params = [p for p in self.unet.parameters() if p.requires_grad]
+
+        
+        # # Add attention processor params (installed on UNet)
+        # attn_proc_params = []
+        # if hasattr(self.unet, 'attn_processors'):
+        #     for proc in self.unet.attn_processors.values():
+        #         if hasattr(proc, 'parameters'):
+        #             attn_proc_params.extend([p for p in proc.parameters() if p.requires_grad])
+
+
+        # 1) Collect attention-processor params first (these live under UNet.attn_processors)
+        attn_proc_params = []
+        if hasattr(self.unet, "attn_processors"):
+            for proc in self.unet.attn_processors.values():
+                if hasattr(proc, "parameters"):
+                    for p in proc.parameters():
+                        p.requires_grad_(True)
+                        attn_proc_params.append(p)
+        attn_ids = {id(p) for p in attn_proc_params}
+
+        # 2) LoRA-only params = all trainable UNet params MINUS attention-processor params
+        lora_params = [p for p in self.unet.parameters()
+                       if p.requires_grad and id(p) not in attn_ids]
+
+
+        # lr_attn = getattr(config, 'lr_for_attn_processors', None) or getattr(config, 'lr_for_lora', 1e-5)
+        # trainable_params = []
+        # if lora_params:
+        #     trainable_params.append({'params': lora_params, 'lr': getattr(config, 'lr_for_lora', 1e-5), 'name': 'lora_params'})
+        # if attn_proc_params:
+        #     trainable_params.append({'params': attn_proc_params, 'lr': lr_attn, 'name': 'attn_processor_params'})
+        # return trainable_params
+        
+        # 3) Build distinct optimizer groups
+        lr_lora = getattr(config, "lr_for_lora", 1e-5)
+        lr_attn = getattr(config, "lr_for_attn_processors", lr_lora)
+        groups = []
+        if lora_params:
+            groups.append({"params": lora_params, "lr": lr_lora, "name": "lora_params"})
+        if attn_proc_params:
+            groups.append({"params": attn_proc_params, "lr": lr_attn, "name": "attn_processor_params"})
+        return groups
 
     def get_state_dict(self):
-        lora_weights = convert_state_dict_to_diffusers(get_peft_model_state_dict(self.unet, adapter_name="lora_adapter"))
-        return {
+        lora_weights = convert_state_dict_to_diffusers(
+            get_peft_model_state_dict(self.unet, adapter_name="lora_adapter")
+        )
+        state = {
             'lora_weights': lora_weights,
         }
+        # ### Modified to make attn_processor trainable in branched version ###
+        # Save branched attention processor weights if present
+        if hasattr(self.unet, 'attn_processors'):
+            proc_sd = {}
+            for name, proc in self.unet.attn_processors.items():
+                try:
+                    sd = proc.state_dict()
+                    if sd:
+                        proc_sd[name] = sd
+                except Exception:
+                    pass
+            if proc_sd:
+                state['attn_processors'] = proc_sd
+        # ### Modified to make attn_processor trainable in branched version ###
+        return state
 
     def load_state_dict_(self, state_dict):
         lora_state_dict = state_dict["lora_weights"]
@@ -187,6 +250,24 @@ class PhotomakerBranchedLora(SDXL):
             unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
             # In newer peft versions this is an empty list when there are no unexpected keys
             assert not unexpected_keys, unexpected_keys
+
+        # ### Modified to make attn_processor trainable in branched version ###
+        # Optionally load attention processor weights if provided
+        proc_sd = state_dict.get('attn_processors')
+        if proc_sd and hasattr(self.unet, 'attn_processors'):
+            missing = []
+            for name, sd in proc_sd.items():
+                proc = self.unet.attn_processors.get(name)
+                if proc is None:
+                    missing.append(name)
+                    continue
+                try:
+                    proc.load_state_dict(sd, strict=False)
+                except Exception as e:
+                    print(f"[PhotomakerBranchedLora] Warning loading attn processor '{name}': {e}")
+            if missing:
+                print(f"[PhotomakerBranchedLora] Some processors missing at load (skipped): {missing}")
+        # ### Modified to make attn_processor trainable in branched version ###
 
     def forward(
         self,
@@ -339,6 +420,12 @@ class PhotomakerBranchedLora(SDXL):
         }
 
         # --- Branched-attention integration START: run dual-branch UNet pass ---
+        ### Modified to make attn_processor trainable in branched version ###
+        # Pass 2048-D ID features to processors when strategy == 'id_embeds'
+        _id_embeds_for_proc = None
+        if self.face_embed_strategy == "id_embeds" and pm_feature_list:
+            _id_embeds_for_proc = torch.cat(pm_feature_list, dim=0)
+
         noise_pred, _, _ = two_branch_predict(
             pipeline=self,
             latent_model_input=noisy_latents,
@@ -351,11 +438,12 @@ class PhotomakerBranchedLora(SDXL):
             face_prompt_embeds=face_prompt_embeds,  # --- MODIFIED For training integration ---
             class_tokens_mask=class_tokens_mask,
             face_embed_strategy=self.face_embed_strategy,
-            id_embeds=None,
+            id_embeds=_id_embeds_for_proc,
             step_idx=0,
             scale=1.0,
             timestep_cond=None,
         )
+        ### Modified to make attn_processor trainable in branched version ###
         # --- Branched-attention integration END ---
 
         return {
