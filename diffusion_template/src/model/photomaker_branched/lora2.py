@@ -137,6 +137,23 @@ class PhotomakerBranchedLora(SDXL):
             )
         except Exception as e:
             print(f"[PhotomakerBranchedLora] Pre-install processors warning: {e}")
+            
+        def assert_branched_processors(unet):
+            from .attn_processor2 import BranchedAttnProcessor, BranchedCrossAttnProcessor
+            assert hasattr(unet, "attn_processors"), "UNet has no attn_processors dict."
+            for name, proc in unet.attn_processors.items():
+                if name.endswith("attn1.processor"):
+                    exp, ok = "BranchedAttnProcessor", isinstance(proc, BranchedAttnProcessor)
+                elif name.endswith("attn2.processor"):
+                    exp, ok = "BranchedCrossAttnProcessor", isinstance(proc, BranchedCrossAttnProcessor)
+                else:
+                    continue  # ignore non-attn processors
+                if not ok:
+                    raise TypeError(f"{name}: expected {exp}, got {proc.__class__.__name__}")
+
+        # After patch_unet_attention_processors(...)
+        assert_branched_processors(self.unet)
+                       
         # ### Modified to make attn_processor trainable in branched version ###
 
     def load_photomaker_state_dict_(self, state_dict):

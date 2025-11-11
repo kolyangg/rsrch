@@ -68,15 +68,24 @@ def patch_unet_attention_processors(
             else:
                 hidden_size = pipeline.unet.config.block_out_channels[0]
 
+            # if name.endswith("attn1.processor"):
+            #     proc = BranchedAttnProcessor(
+            #         hidden_size=hidden_size,
+            #         cross_attention_dim=hidden_size,
+            #         scale=scale,
+            #         # ### Modified to make attn_processor trainable in branched version ###
+            #         id_embeds_dim=id_embeds_dim,
+            #         # ### Modified to make attn_processor trainable in branched version ###
+            #     ).to(pipeline.device, dtype=pipeline.unet.dtype)
+
             if name.endswith("attn1.processor"):
                 proc = BranchedAttnProcessor(
                     hidden_size=hidden_size,
                     cross_attention_dim=hidden_size,
                     scale=scale,
-                    # ### Modified to make attn_processor trainable in branched version ###
-                    id_embeds_dim=id_embeds_dim,
-                    # ### Modified to make attn_processor trainable in branched version ###
                 ).to(pipeline.device, dtype=pipeline.unet.dtype)
+
+
                 if mask is not None:
                     proc.set_masks(mask, mask_ref)
                 _apply_runtime_flags(proc, pipeline)
@@ -89,15 +98,23 @@ def patch_unet_attention_processors(
                 num_tokens = 77
                 if hasattr(pipeline, 'tokenizer_2'):
                     num_tokens = pipeline.tokenizer_2.model_max_length
+                # proc = BranchedCrossAttnProcessor(
+                #     hidden_size=hidden_size,
+                #     cross_attention_dim=cross_attention_dim,
+                #     scale=scale,
+                #     num_tokens=num_tokens,
+                #     # ### Modified to make attn_processor trainable in branched version ###
+                #     id_embeds_dim=id_embeds_dim,
+                #     # ### Modified to make attn_processor trainable in branched version ###
+                # ).to(pipeline.device, dtype=pipeline.unet.dtype)
+
                 proc = BranchedCrossAttnProcessor(
                     hidden_size=hidden_size,
                     cross_attention_dim=cross_attention_dim,
                     scale=scale,
                     num_tokens=num_tokens,
-                    # ### Modified to make attn_processor trainable in branched version ###
-                    id_embeds_dim=id_embeds_dim,
-                    # ### Modified to make attn_processor trainable in branched version ###
                 ).to(pipeline.device, dtype=pipeline.unet.dtype)
+
                 setattr(proc, "equalize_face_kv", True)
                 setattr(proc, "equalize_clip", (1/3, 8.0))
                 if mask is not None:
