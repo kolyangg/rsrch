@@ -233,26 +233,26 @@ class BranchedAttnProcessor(nn.Module):
             # if hasattr(self, 'id_embeds') and self.id_embeds is not None:
 
             # Inject ID embeddings into the mixed face hidden states (2048-D → hidden)
-            # if USE_ID_EMBEDS:
-            #     if not hasattr(self, 'id_to_hidden') or self.id_to_hidden is None:
-            #         self.id_to_hidden = nn.Linear(
-            #             self.id_embeds.shape[-1], 
-            #             face_hidden_mixed.shape[-1],
-            #             bias=False
-            #         ).to(face_hidden_mixed.device, face_hidden_mixed.dtype)
-            #         # Initialize with small weights
-            #         with torch.no_grad():
-            #             self.id_to_hidden.weight.mul_(0.1)
-                
-            #     id_features = self.id_to_hidden(self.id_embeds)
-
-
-            ### Modified to make attn_processor trainable in branched version ###
             if USE_ID_EMBEDS:
-                # Make sure dtype/device match
-                self.id_to_hidden = self.id_to_hidden.to(face_hidden_mixed.device, face_hidden_mixed.dtype)
-                id_features = self.id_to_hidden(self.id_embeds)     
-            ### Modified to make attn_processor trainable in branched version ###           
+                if not hasattr(self, 'id_to_hidden') or self.id_to_hidden is None:
+                    self.id_to_hidden = nn.Linear(
+                        self.id_embeds.shape[-1], 
+                        face_hidden_mixed.shape[-1],
+                        bias=False
+                    ).to(face_hidden_mixed.device, face_hidden_mixed.dtype)
+                    # Initialize with small weights
+                    with torch.no_grad():
+                        self.id_to_hidden.weight.mul_(0.1)
+                
+                id_features = self.id_to_hidden(self.id_embeds)
+
+
+            # ### Modified to make attn_processor trainable in branched version ###
+            # if USE_ID_EMBEDS:
+            #     # Make sure dtype/device match
+            #     self.id_to_hidden = self.id_to_hidden.to(face_hidden_mixed.device, face_hidden_mixed.dtype)
+            #     id_features = self.id_to_hidden(self.id_embeds)     
+            # ### Modified to make attn_processor trainable in branched version ###           
 
                 if id_features.dim() == 2:
                     id_features = id_features.unsqueeze(1).expand(-1, face_hidden_mixed.shape[1], -1)
