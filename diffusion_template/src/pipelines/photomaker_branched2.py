@@ -1598,12 +1598,21 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     if hasattr(self, '_kv_override'):
                         self._kv_override = None
                         
-                else:
+                # else:
                     
-                    # If UNet currently has branched processors but we're not using branched mode, restore originals
-                    if hasattr(self.unet, 'attn_processors'):
+                #     # If UNet currently has branched processors but we're not using branched mode, restore originals
+                #     if hasattr(self.unet, 'attn_processors'):
+                #         if any(p.__class__.__name__.startswith('Branched') for p in self.unet.attn_processors.values()):
+                #             restore_original_processors(self)
+                
+                ### Modified for attention processor training ###
+                else:
+                    # Only restore originals during evaluation/inference
+                    if (not self.training) and hasattr(self.unet, 'attn_processors'):
                         if any(p.__class__.__name__.startswith('Branched') for p in self.unet.attn_processors.values()):
                             restore_original_processors(self)
+                ### Modified for attention processor training ###
+
                     
                     # Standard single-branch prediction
                     noise_pred = self.unet(

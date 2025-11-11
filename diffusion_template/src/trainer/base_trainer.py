@@ -191,7 +191,16 @@ class BaseTrainer:
                     val_logs = self._evaluation_epoch(epoch - 1, part, dataloader)
                     logs.update(**{f"{part}/{name}": value for name, value in val_logs.items()})
                 self.is_train = True
+            
             self.accelerator.wait_for_everyone()
+            
+            ### Modified for attention processors training ###
+            # Ensure branched processors are re-installed on all ranks before training resumes
+            if hasattr(self.model, "ensure_branched_after_eval"):
+                self.model.ensure_branched_after_eval()
+            self.accelerator.wait_for_everyone()
+            ### Modified for attention processors training ###
+            
         
         for batch_idx, batch in enumerate(
             tqdm(self.train_dataloader, desc=f"train_{pid}", total=self.epoch_len)
@@ -238,7 +247,15 @@ class BaseTrainer:
             for part, dataloader in self.evaluation_dataloaders.items():
                 val_logs = self._evaluation_epoch(epoch, part, dataloader)
                 logs.update(**{f"{part}/{name}": value for name, value in val_logs.items()})
+                
         self.accelerator.wait_for_everyone()
+        
+        ### Modified for attention processors training ###
+        # Ensure branched processors are re-installed on all ranks before training resumes
+        if hasattr(self.model, "ensure_branched_after_eval"):
+            self.model.ensure_branched_after_eval()
+        self.accelerator.wait_for_everyone()
+        ### Modified for attention processors training ###
 
         return logs
 
