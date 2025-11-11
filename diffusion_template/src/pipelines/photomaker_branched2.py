@@ -1531,10 +1531,28 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                             id_face_ehs = id_face_ehs.to(device=current_prompt_embeds.device,
                                                          dtype=current_prompt_embeds.dtype)
 
-                    ### Modified to make attn_processor trainable in branched version ###
+                    # ### Modified to make attn_processor trainable in branched version ###
                     
+                    # # Update context on already-installed processors (no re-patching)
+                    # self.set_branch_context(_mask4, _mask4_ref, class_tokens_mask, id_embeds=None)
+                    
+                    ### Modified to make attn_processor trainable in branched version ###
+                    # Ensure processors ALWAYS get a reference mask, even before merge_start_step.
+                    # We keep merge/blend gating (_mask4/_mask4_ref) for noise mixing,
+                    # but processor state must have a non-None mask_ref to avoid runtime errors.
+                    ctx_mask_ref = mask4_ref if mask4_ref is not None else mask4
+                    if ctx_mask_ref is None:
+                        # Fallback: explicit zero ref mask (shape [B,1,H/8,W/8])
+                        ctx_mask_ref = torch.zeros_like(
+                            latent_model_input[:, :1, :, :],
+                            device=latent_model_input.device,
+                            dtype=latent_model_input.dtype,
+                        )
+
                     # Update context on already-installed processors (no re-patching)
-                    self.set_branch_context(_mask4, _mask4_ref, class_tokens_mask, id_embeds=None)
+                    self.set_branch_context(_mask4, ctx_mask_ref, class_tokens_mask, id_embeds=None)
+
+                   
                     
                     ### Modified to make attn_processor trainable in branched version ###
 
