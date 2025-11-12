@@ -12,6 +12,34 @@ from hydra.utils import instantiate
 import os
 import time
 
+### Modified to fix accelerate error after adding training of attn processors ###
+class _DDPSafeCriterion(torch.nn.Module):
+    """Wraps the original criterion so branched attn params always participate in the graph (zero-cost)."""
+    def __init__(self, criterion, accelerator, model):
+        super().__init__()
+        self.criterion = criterion
+        self.accelerator = accelerator
+        self.model_ref = model
+    def forward(self, *args, **kwargs):
+        loss = self.criterion(*args, **kwargs)
+        try:
+            unwrapped = self.accelerator.unwrap_model(self.model_ref)
+            extra = 0.0
+            if hasattr(unwrapped, "unet") and hasattr(unwrapped.unet, "attn_processors"):
+                for proc in unwrapped.unet.attn_processors.values():
+                    for p in getattr(proc, "parameters", lambda: [])():
+                        if p.requires_grad:
+                            # Include param in graph but contribute zero to the loss
+                            extra = extra + (p.float().sum() * 0.0)
+            if isinstance(loss, dict) and "loss" in loss:
+                loss["loss"] = loss["loss"] + extra.to(loss["loss"].dtype)
+            else:
+                loss = loss + extra.to(loss.dtype)
+        except Exception:
+            pass
+        return loss
+### Modified to fix accelerate error after adding training of attn processors ###
+
 
 class BaseTrainer:
     """
@@ -81,6 +109,19 @@ class BaseTrainer:
         self.pipe = pipe
         self.accelerator = accelerator
         self.criterion = criterion
+
+        ### Modified to fix accelerate error after adding training of attn processors ###
+        self.criterion = criterion
+        # Ensure branched attention params always "participate" for DDP (version-agnostic).
+        try:
+            self.criterion = _DDPSafeCriterion(self.criterion, accelerator, model)
+        except Exception:
+            pass
+
+
+        ### Modified to fix accelerate error after adding training of attn processors ###
+
+
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
         self.batch_transforms = batch_transforms
