@@ -217,20 +217,35 @@ class BaseTrainer:
 
             ### Modified to fix accelerate error after adding training of attn processors ###
             # --- DDP safety: make branched-attn params "participate" every step (adds zero to loss) ---
+            # try:
+            #     unwrapped = self.accelerator.unwrap_model(self.model)
+            #     if hasattr(unwrapped, "unet") and hasattr(unwrapped.unet, "attn_processors"):
+            #         extra = None
+            #         for proc in unwrapped.unet.attn_processors.values():
+            #             for p in getattr(proc, "parameters", lambda: [])():
+            #                 if p.requires_grad:
+            #                     # Touch a single element per param to keep it cheap yet connected
+            #                     term = (p.reshape(-1)[:1].sum().to(torch.float32) * 0.0)
+            #                     extra = term if extra is None else (extra + term)
+            #         if extra is not None:
+            #             batch["loss"] = batch["loss"] + extra.to(batch["loss"].dtype)
+            # except Exception:
+            #     pass
+            
+            # Version-agnostic: touch the actual registered params by name
             try:
                 unwrapped = self.accelerator.unwrap_model(self.model)
-                if hasattr(unwrapped, "unet") and hasattr(unwrapped.unet, "attn_processors"):
-                    extra = None
-                    for proc in unwrapped.unet.attn_processors.values():
-                        for p in getattr(proc, "parameters", lambda: [])():
-                            if p.requires_grad:
-                                # Touch a single element per param to keep it cheap yet connected
-                                term = (p.reshape(-1)[:1].sum().to(torch.float32) * 0.0)
-                                extra = term if extra is None else (extra + term)
-                    if extra is not None:
-                        batch["loss"] = batch["loss"] + extra.to(batch["loss"].dtype)
             except Exception:
-                pass
+                unwrapped = self.model
+            extra = None
+            for pname, p in unwrapped.named_parameters():
+                if p.requires_grad and (".attn1.processor." in pname or ".attn2.processor." in pname):
+                    term = p.reshape(-1)[:1].sum().to(torch.float32) * 0.0
+                    extra = term if extra is None else (extra + term)
+            if extra is not None:
+                batch["loss"] = batch["loss"] + extra.to(batch["loss"].dtype)
+            
+            
             # --- end DDP safety ---
             ### Modified to fix accelerate error after adding training of attn processors ###
 
