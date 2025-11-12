@@ -9,9 +9,3 @@ gpu_ids: "all"
 rdzv_backend: static
 machine_rank: 0
 main_training_function: main
-
-# NEW 11 NOV
-kwargs_handlers:
-  - DistributedDataParallelKwargs:
-      find_unused_parameters: true
-      gradient_as_bucket_view: true

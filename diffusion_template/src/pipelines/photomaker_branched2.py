@@ -1560,7 +1560,12 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                             dtype=latent_model_input.dtype,
                         )
                     )
-                    self.set_branch_context(ctx_mask, ctx_mask_ref, class_tokens_mask, id_embeds=None)
+                    # self.set_branch_context(ctx_mask, ctx_mask_ref, class_tokens_mask, id_embeds=None)
+
+                    # always pass zeros so ID path is exercised uniformly across ranks
+                    ctx_id = torch.zeros(ctx_mask.shape[0], 2048,
+                                         device=self.unet.device, dtype=self.unet.dtype)
+                    self.set_branch_context(ctx_mask, ctx_mask_ref, class_tokens_mask, id_embeds=ctx_id)
                   
                     
                     ### Modified to make attn_processor trainable in branched version ###

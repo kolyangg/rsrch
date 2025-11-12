@@ -58,7 +58,8 @@ def patch_unet_attention_processors(
     _mref  = mask_ref if mask_ref is not None else _mask
     # Always provide id_embeds so processor-local weights participate on every rank
     _idem = id_embeds.to(dev, dt) if id_embeds is not None else torch.zeros(B, 2048, device=dev, dtype=dt)   
-   
+
+
     if not has_branched:
         # Create new processors
         new_procs = {}
