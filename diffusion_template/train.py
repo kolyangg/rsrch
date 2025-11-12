@@ -6,17 +6,6 @@ from hydra.utils import instantiate
 from omegaconf import OmegaConf
 from accelerate import Accelerator
 
-### NEW 11 NOV
-try:
-    from accelerate import DistributedDataParallelKwargs
-    _ddp_kwargs = [DistributedDataParallelKwargs(
-        find_unused_parameters=True,
-        gradient_as_bucket_view=True
-   )]
-except Exception:
-    _ddp_kwargs = None
-### NEW 11 NOV
-
 from src.datasets.data_utils import get_dataloaders
 from src.utils.init_utils import set_random_seed, setup_saving_and_logging
 import os
@@ -42,12 +31,7 @@ def main(config):
         backend="nccl", timeout=datetime.timedelta(seconds=ddp_timeout)
     )
     set_random_seed(config.trainer.seed)
-    # accelerator = Accelerator()
-    accelerator = Accelerator(
-        ### NEW 11 NOV
-        ddp_kwargs=_ddp_kwargs
-        ### NEW 11 NOV
-    )
+    accelerator = Accelerator()
 
     project_config = OmegaConf.to_container(config)
     logger = None
