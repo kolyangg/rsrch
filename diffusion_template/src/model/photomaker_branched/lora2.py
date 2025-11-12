@@ -517,12 +517,18 @@ class PhotomakerBranchedLora(SDXL):
     def ensure_branched_after_eval(self):
         # Re-install (no-op if already installed); pass safe masks/embeds
         from .branched_new2 import patch_unet_attention_processors
-        dev, dt = self.unet.device, self.unet.dtype
+        
+        # patcher expects `pipeline.device`; ensure it's present on this module
+        dev = getattr(self, "device", None) or self.unet.device
+        if not hasattr(self, "device"):
+            self.device = dev
+        dt = self.unet.dtype
+
         # 1x1 dummy masks just to initialize; real masks are set during forward
         z = torch.zeros(1, 1, 1, 1, device=dev, dtype=dt)
         idem = torch.zeros(1, 2048, device=dev, dtype=dt)
         patch_unet_attention_processors(
-           self.pipeline, z, z, scale=1.0,
+            self, z, z, scale=1.0,
             id_embeds=idem, class_tokens_mask=None
         )
     ### Modified to make attention processors train ###
