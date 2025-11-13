@@ -82,6 +82,32 @@ def main(config):
 
     lr_scheduler = instantiate(config.lr_scheduler, optimizer=optimizer) 
 
+    # Quick check: confirm optimizer includes branched-attn processor params
+    if accelerator.is_main_process:
+        try:
+            # Map model params by id for matching against optimizer groups
+            name_by_id = {id(p): n for n, p in model.named_parameters()}
+            opt_ids = set()
+            for g in optimizer.param_groups:
+                for p in g.get("params", []):
+                    opt_ids.add(id(p))
+
+            proc_names = [
+                n for n, p in model.named_parameters()
+                if (".attn1.processor." in n or ".attn2.processor." in n)
+            ]
+            proc_in_opt = [n for n in proc_names if id(dict(model.named_parameters())[n]) in opt_ids]
+            msg = (
+                f"[Check] Processor params in optimizer: {len(proc_in_opt)}/{len(proc_names)}"
+            )
+            # Show a few examples for sanity
+            if proc_in_opt:
+                preview = ", ".join(proc_in_opt[:3])
+                msg += f"  first: {preview}"
+            print(msg)
+        except Exception:
+            pass
+
     
     train_dataloader = dataloaders["train"]
     model, train_dataloader, optimizer, lr_scheduler = accelerator.prepare(

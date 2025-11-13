@@ -45,6 +45,32 @@ class SDXLTrainer(BaseTrainer):
         if self.is_train:
             assert torch.isfinite(batch["loss"]) # sum of all losses is always called loss
             self.accelerator.backward(batch["loss"]) 
+            # One-time check: print grads for a few processor params
+            if not hasattr(self, "_printed_proc_grad_check"):
+                try:
+                    unwrapped = self.accelerator.unwrap_model(self.model)
+                except Exception:
+                    unwrapped = self.model
+                to_check = []
+                for name, p in unwrapped.named_parameters():
+                    if (
+                        "unet.down_blocks" in name
+                        and ".attn1.processor.id_to_hidden.weight" in name
+                    ):
+                        to_check.append((name, p))
+                    if len(to_check) >= 3:
+                        break
+                if to_check and self.accelerator.is_main_process:
+                    lines = []
+                    for n, p in to_check:
+                        has_grad = (p.grad is not None)
+                        lines.append(f"{n}: grad={'OK' if has_grad else 'None'}")
+                    msg = "[Check] Processor id_to_hidden grads after first backward:\n  " + "\n  ".join(lines)
+                    if getattr(self, "logger", None) is not None:
+                        self.logger.info(msg)
+                    else:
+                        print(msg)
+                self._printed_proc_grad_check = True
             self._clip_grad_norm()
             self.optimizer.step()
             if self.lr_scheduler is not None:

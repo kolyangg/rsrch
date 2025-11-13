@@ -18,11 +18,11 @@ from diffusers.utils import (
 from src.model.sdxl.original import SDXL
 
 # --- Branched-attention specific import ---
-from .branched_new import two_branch_predict, prepare_reference_latents  # --- MODIFIED For training integration ---
-
-### Modified to make attention processors train ###
-# Pre-install helper (no-ops during forward): lets optimizer see processor params
-from .branched_new2 import patch_unet_attention_processors
+from .branched_new2 import (
+    two_branch_predict,
+    prepare_reference_latents,
+    patch_unet_attention_processors,
+)  # Use v2 branched logic end-to-end
 ### Modified to make attention processors train ###
 
 # --- PhotoMaker v2 upgraded ID encoder + InsightFace integration START ---
