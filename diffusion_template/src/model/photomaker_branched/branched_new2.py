@@ -46,7 +46,7 @@ def patch_unet_attention_processors(
     
     def _apply_runtime_flags(proc, pipe):
         # keep it minimal and generic (intentionally NOT propagating 'use_id_embeds')
-        for k in ("pose_adapt_ratio", "ca_mixing_for_face"):
+        for k in ("pose_adapt_ratio", "ca_mixing_for_face", "train_branch_mode"):
             if hasattr(pipe, k):
                 setattr(proc, k, getattr(pipe, k))
    

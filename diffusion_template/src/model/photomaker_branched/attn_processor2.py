@@ -59,6 +59,10 @@ class BranchedAttnProcessor(nn.Module):
         # Let diffusers know we accept cross_attention_kwargs to silence warnings
         self.has_cross_attention_kwargs = True
 
+        # Training control: which branch to train in self-attn
+        # 'both' (default) or 'ref_only'
+        self.train_branch_mode: str = getattr(self, "train_branch_mode", "both")
+
     def set_masks(self, mask: Optional[torch.Tensor], mask_ref: Optional[torch.Tensor] = None):
         """Set masks for current denoising step"""
         # print(f'[TEMP DEBUG] mask in set_masks: {mask}')
@@ -337,7 +341,7 @@ class BranchedAttnProcessor(nn.Module):
         hidden_face = F.scaled_dot_product_attention(q_face, key_face, value_face, dropout_p=0.0, is_causal=False)
         hidden_face = hidden_face.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
         # === FACE BRANCH ===
-        
+
 
         #### DEBUG ####
         if full_debug:
@@ -402,6 +406,11 @@ class BranchedAttnProcessor(nn.Module):
         hidden_ref = hidden_ref.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
         # === NEW BRANCH - SELF-ATTN FOR REFERENCE ===
 
+
+        # Optionally restrict training to the reference branch only
+        if getattr(self, "train_branch_mode", "both") == "ref_only":
+            hidden_bg = hidden_bg.detach()
+            hidden_face = hidden_face.detach()
 
         # === MERGE ===
         if mask_gate is not None:

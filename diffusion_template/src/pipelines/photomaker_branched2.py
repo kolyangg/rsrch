@@ -1841,6 +1841,7 @@ class PhotomakerBranchedPipeline:
         merge_start_step_cfg = kwargs.pop("merge_start_step", 10)
         branched_attn_start_step_cfg = kwargs.pop("branched_attn_start_step", 10)
         branched_start_mode_cfg = kwargs.pop("branched_start_mode", "both")
+        train_branch_mode_cfg = kwargs.pop("train_branch_mode", "both")
         pose_adapt_ratio_cfg = kwargs.pop(
             "pose_adapt_ratio",
             getattr(unwrapped_model, "pose_adapt_ratio", 0.25),
@@ -1878,6 +1879,7 @@ class PhotomakerBranchedPipeline:
         pipeline.pose_adapt_ratio = pose_adapt_ratio_cfg
         pipeline.ca_mixing_for_face = ca_mixing_for_face_cfg
         pipeline.face_embed_strategy = face_embed_strategy_cfg
+        pipeline.train_branch_mode = (train_branch_mode_cfg or "both").lower()
 
         pipeline.tokenizer.add_tokens([pipeline.trigger_word], special_tokens=True)
         pipeline.tokenizer_2.add_tokens([pipeline.trigger_word], special_tokens=True)
@@ -1890,5 +1892,6 @@ class PhotomakerBranchedPipeline:
         pipeline._config_pose_adapt_ratio = pose_adapt_ratio_cfg
         pipeline._config_ca_mixing_for_face = ca_mixing_for_face_cfg
         pipeline._config_face_embed_strategy = face_embed_strategy_cfg
+        pipeline._config_train_branch_mode = train_branch_mode_cfg
 
         return pipeline

@@ -54,6 +54,7 @@ class PhotomakerBranchedLora(SDXL):
         pose_adapt_ratio: float = 0.25, # --- ADDED For training integration
         ca_mixing_for_face: bool = True,  # --- ADDED For training integration
         face_embed_strategy: str = "face", # --- ADDED For training integration
+        train_branch_mode: str = "both",   # 'both' or 'ref_only' for BranchedAttnProcessor
     ):
         super().__init__(
             pretrained_model_name_or_path=pretrained_model_name_or_path,
@@ -94,6 +95,7 @@ class PhotomakerBranchedLora(SDXL):
         self.pose_adapt_ratio = float(pose_adapt_ratio) # --- ADDED For training integration
         self.ca_mixing_for_face = bool(ca_mixing_for_face) # --- ADDED For training integration
         self.face_embed_strategy = (face_embed_strategy or "face").lower() # --- ADDED For training integration
+        self.train_branch_mode = (train_branch_mode or "both").lower()
         # --- Branched-attention integration END ---
 
         photomaker_lora_config = LoraConfig(
