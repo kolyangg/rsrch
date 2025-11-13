@@ -455,6 +455,18 @@ class BranchedAttnProcessor(nn.Module):
         
         hidden_states = hidden_states / attn.rescale_output_factor # TODO check if neeeded / do separately for each branch
         
+        # --- DDP safety: ensure this processor's trainable param participates every step ---
+        # Touch a scalar that depends on id_to_hidden so DDP never marks it "unused".
+        try:
+            w = self.id_to_hidden.weight
+            if w.device != hidden_states.device or w.dtype != hidden_states.dtype:
+                w = w.to(device=hidden_states.device, dtype=hidden_states.dtype)
+            hidden_states = hidden_states + (w.reshape(-1)[:1].sum() * 0.0)
+        except Exception:
+            pass
+        # --- DDP safety: ensure this processor's trainable param participates every step ---
+
+            
         return hidden_states
     
     
