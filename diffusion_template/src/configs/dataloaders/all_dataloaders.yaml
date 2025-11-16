@@ -4,6 +4,13 @@ train:
     num_workers: 1
     pin_memory: False
 
+one_id:
+  _target_: torch.utils.data.DataLoader
+  batch_size: 2    # or 4, etc.
+  num_workers: 1
+  pin_memory: False
+
+
 val_default:
     _target_: torch.utils.data.DataLoader
     batch_size: 1
@@ -15,3 +22,10 @@ manual_val:
     batch_size: 1
     num_workers: 1
     pin_memory: False
+
+one_id_val:
+  _target_: torch.utils.data.DataLoader
+  batch_size: 1    # or 4, etc.
+  num_workers: 1
+  pin_memory: False
+
