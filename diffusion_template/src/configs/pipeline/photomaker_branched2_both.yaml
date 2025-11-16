@@ -9,7 +9,7 @@ photomaker_start_step: 10
 merge_start_step: 10
 branched_attn_start_step: 30
 branched_start_mode: both
-train_branch_mode: ref_only # both # both or ref_only
+train_branch_mode: both # both # both or ref_only
 pose_adapt_ratio: 0.25
 # ca_mixing_for_face: true
 ca_mixing_for_face: false
