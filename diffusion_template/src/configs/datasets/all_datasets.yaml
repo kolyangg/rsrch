@@ -25,6 +25,13 @@ train:
         images_path: /home/aalanov/Bobkov_Denis/datasets/CosmicManHQ-1.0/
         num_refs: 1
         instance_transforms: ${transforms.instance_transforms.train}
+
+    one_id:
+        _target_: src.datasets.cosmic.OneIDTrain
+        cosmic_json_pth: ../dataset_full/one_id/nm0005092_adj_train.json
+        images_path: ../dataset_full/one_id/nm0005092_adj
+        num_refs: 1
+        instance_transforms: ${transforms.instance_transforms.train}
         
 
 val:
@@ -66,4 +73,15 @@ val:
       seeds: [0] # [0, 1, 2]
       limit: 96 # 20
       # limit: 4 # temp
+
+    one_id_val:
+      _target_: src.datasets.manual_val.ManualPhotoMakerValDataset
+      images_dir: ../dataset_full/one_id/ref
+      prompts_path: ../dataset_full/val_dataset/prompts_10.txt
+      classes_json_path: ../dataset_full/one_id/one_id_classes_ref.json
+      bbox_mask_ref: ../dataset_full/one_id/nm0005092_adj_test.json
+      bbox_mask_gen: ../dataset_full/one_id/one_id_ref_bboxes.json
+      seeds: [0]
+      # limit: 96 # 10 # 1
+      limit: 12 # 10 # 1
   

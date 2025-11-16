@@ -1,0 +1,71 @@
+train:
+    # dreambooth:
+    #     _target_: src.datasets.dreambooth.DreamBoothTrainDataset
+    #     data_path: /home/jovyan/bobkov/dreambooth/dataset/dog
+    #     placeholder_token: sks
+    #     class_name: dog
+    #     instance_transforms: ${transforms.instance_transforms.train}
+      
+    # cosmic:
+    #     _target_: src.datasets.cosmic.CosmicDoubledTrain
+    #     cosmic_json_pth: /home/jovyan/bobkov/persongen/cosmic_gathered.json
+    #     cosmic_texts_json_pth: /home/jovyan/bobkov/all_texts_cosmic_by_qween3.json 
+    #     cosmic_large_json_pth: /home/jovyan/bobkov/cosmic_large_alldata.json
+    #     cosmic_large_texts_json_pth: /home/jovyan/bobkov/all_texts_cosmic_large_by_qween3_trigger_word.json
+    #     images_path: /home/jovyan/bobkov/cosmic_data
+    #     num_refs: 1
+    #     instance_transforms: ${transforms.instance_transforms.train}
+
+    cosmic:
+        _target_: src.datasets.cosmic.CosmicDoubledTrain
+        cosmic_json_pth: ../dataset_full/cosmic_gathered.json
+        cosmic_texts_json_pth: ../dataset_full/all_texts_cosmic_by_qween3.json 
+        cosmic_large_json_pth: ../dataset_full/cosmic_large_alldata.json
+        cosmic_large_texts_json_pth: ../dataset_full/all_texts_cosmic_large_by_qween3_trigger_word.json
+        images_path: ../dataset_full
+        num_refs: 1
+        instance_transforms: ${transforms.instance_transforms.train}
+    
+
+val:
+    db_liv_small:
+      _target_: src.datasets.dreambooth.DreamBoothLivingSmall
+      data_path: /home/jovyan/bobkov/dreambooth/dataset/dog
+      placeholder_token: sks
+      class_name: dog
+
+    # man:
+    #   _target_: src.datasets.man_datasets.ManValDataset
+    #   data_json_pth: /home/jovyan/bobkov/persongen/filtered_ids3.json
+    #   images_path: /home/jovyan/bobkov/full_dataset
+    
+    man_face:
+      _target_: src.datasets.man_datasets.ManValFaceDataset
+      data_json_pth: /home/jovyan/bobkov/persongen/filtered_ids3.json
+      images_path: /home/jovyan/bobkov/full_dataset
+
+    man:
+      _target_: src.datasets.cosmic.CosmicDoubledTrain
+      cosmic_json_pth: ../dataset_full/cosmic_gathered.json
+      cosmic_texts_json_pth: ../dataset_full/all_texts_cosmic_by_qween3.json
+      cosmic_large_json_pth: ../dataset_full/cosmic_large_alldata.json
+      cosmic_large_texts_json_pth: ../dataset_full/all_texts_cosmic_large_by_qween3_trigger_word.json
+      images_path: ../dataset_full
+      num_refs: 1
+      instance_transforms: ${transforms.instance_transforms.train}
+      limit: 3
+
+    manual_val:
+      _target_: src.datasets.manual_val.ManualPhotoMakerValDataset
+      images_dir: ../dataset_full/val_dataset/references
+      prompts_path: ../dataset_full/val_dataset/prompts_10.txt
+      classes_json_path: ../dataset_full/val_dataset/classes_ref.json
+      bbox_mask_ref: ../dataset_full/val_dataset/ref_bboxes.json
+      # bbox_mask_gen: ../dataset_full/val_dataset/pm96_bboxes.json
+      bbox_mask_gen: ../dataset_full/val_dataset/pm96_bboxes_new.json
+      seeds: [0]
+      # limit: 96 # 10 # 1
+      limit: 1 # 10 # 1
+  
+
+  # CUDA_VISIBLE_DEVICES=0 accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py --config-name=photomaker_branched_train_lora trainer.epoch_len=5 dataloaders.train.batch_size=1 dataloaders.train.num_workers=12 model.rank=16 validation_args.num_images_per_prompt=3 lr_scheduler.warmup_steps=2000 writer=clearml writer.run_name=photomaker_br__bf16 model.weight_dtype=bf16

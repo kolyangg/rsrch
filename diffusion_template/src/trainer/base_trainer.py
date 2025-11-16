@@ -365,6 +365,29 @@ class BaseTrainer:
                         state = self.model.get_state_dict()
                     if hasattr(_val_model, "load_state_dict_"):
                         _val_model.load_state_dict_(state)
+
+                    # Optionally copy branched-attention processor weights into the
+                    # validation UNet so their effect is visible in validation.
+                    if bool(getattr(self.config, "update_proc_weights_val", False)):
+                        try:
+                            train_unet = self.accelerator.unwrap_model(self.model).unet
+                        except Exception:
+                            train_unet = getattr(self.model, "unet", None)
+                        val_unet = getattr(_val_model, "unet", None)
+                        if train_unet is not None and val_unet is not None:
+                            t_procs = getattr(train_unet, "attn_processors", {})
+                            v_procs = getattr(val_unet, "attn_processors", {})
+                            for name, t_proc in t_procs.items():
+                                v_proc = v_procs.get(name)
+                                if v_proc is None:
+                                    continue
+                                t_linear = getattr(t_proc, "id_to_hidden", None)
+                                v_linear = getattr(v_proc, "id_to_hidden", None)
+                                if t_linear is not None and v_linear is not None:
+                                    try:
+                                        v_linear.load_state_dict(t_linear.state_dict())
+                                    except Exception:
+                                        continue
                     # Move the temporary validation model to the active device (GPU)
                     try:
                         _val_model.to(self.device)

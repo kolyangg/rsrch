@@ -32,6 +32,9 @@ class IDSimBest(BaseMetric):
 
     def choose_face(self, embeds, bboxes, person_id):
         best_score = -np.inf
+        # get available ids in self.embeds
+        # available_ids = self.id_embeds.keys()
+        # print(f"Available IDs: {available_ids}")
         for embed in embeds:
             best_score = max(cos_sim(embed, self.id_embeds[person_id]), best_score)
         return best_score
