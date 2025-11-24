@@ -24,7 +24,8 @@ import inspect
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from pathlib import Path  # --- MODIFIED For training integration ---
 # --- ADDED For training integration (FOLDER STUCTURE) ---
-from src.model.photomaker_branched.branched_new2 import (
+### 24 Nov: fixing oneid training issues
+from src.model.photomaker_branched.branched_new3 import (
     two_branch_predict,
     prepare_reference_latents,
     encode_face_prompt,
@@ -32,6 +33,7 @@ from src.model.photomaker_branched.branched_new2 import (
     restore_original_processors,
     save_debug_images,
 )
+### 24 Nov: fixing oneid training issues
 
 # # Keep existing imports:
 # from .branched_v4 import (

@@ -5,7 +5,7 @@ defaults:
   - transforms: only_instance
   - ddp: accelerate
   - lr_scheduler: custom_linear
-  - pipeline: photomaker_branched2 # Modified to make attn_processor trainable in branched version
+  - pipeline: photomaker_branched2_both # Modified to make attn_processor trainable in branched version
   # - pipeline: photomaker_branched # Modified to make attn_processor trainable in branched version
   # - metrics: all_metrics
   - metrics: all_metrics_oneid
