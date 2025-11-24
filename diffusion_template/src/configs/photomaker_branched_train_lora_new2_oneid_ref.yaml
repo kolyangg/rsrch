@@ -1,6 +1,6 @@
 defaults:
   - trainer: photomaker_lora
-  - model: photomaker_branched_lora2 # Modified to make attn_processor trainable in branched version
+  - model: photomaker_branched_lora3 # Modified to make attn_processor trainable in branched version
   - writer: console
   - transforms: only_instance
   - ddp: accelerate
