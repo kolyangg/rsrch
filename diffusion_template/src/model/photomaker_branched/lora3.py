@@ -19,11 +19,11 @@ from src.model.sdxl.original import SDXL
 
 # --- Branched-attention specific import ---
 ### 24 Nov: fixing oneid training issues
-from .branched_new3 import (
+from .branched_new2 import (
     two_branch_predict,
     prepare_reference_latents,
     patch_unet_attention_processors,
-)  # Use v3 branched logic end-to-end
+)  # Use branched v2 logic end-to-end
 ### 24 Nov: fixing oneid training issues
 
 # --- PhotoMaker v2 upgraded ID encoder + InsightFace integration START ---
@@ -524,7 +524,7 @@ class PhotomakerBranchedLora(SDXL):
     def ensure_branched_after_eval(self):
         # Re-install (no-op if already installed); pass safe masks/embeds
         ### 24 Nov: fixing oneid training issues
-        from .branched_new3 import patch_unet_attention_processors
+        from .branched_new2 import patch_unet_attention_processors
         ### 24 Nov: fixing oneid training issues
         
         # patcher expects `pipeline.device`; ensure it's present on this module
