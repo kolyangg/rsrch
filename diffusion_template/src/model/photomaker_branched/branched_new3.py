@@ -252,17 +252,35 @@ def two_branch_predict(
         reps = (expected_ref + current_ref - 1) // current_ref
         t_ref = t_ref.repeat(reps)[:expected_ref]
 
-    # Reuse the same noise as the generation branch for better alignment
-    ref_noise = latent_model_input
-    if ref_noise.shape[0] < reference_latents.shape[0]:
-        ref_noise = ref_noise.expand(reference_latents.shape[0], -1, -1, -1)
-    ref_noise = ref_noise[:reference_latents.shape[0]]
+    # # Reuse the same noise as the generation branch for better alignment
+    # ref_noise = latent_model_input
+    # if ref_noise.shape[0] < reference_latents.shape[0]:
+    #     ref_noise = ref_noise.expand(reference_latents.shape[0], -1, -1, -1)
+    # ref_noise = ref_noise[:reference_latents.shape[0]]
+
+    # ref_noised = pipeline.scheduler.add_noise(
+    #     reference_latents,
+    #     ref_noise.to(reference_latents.dtype),
+    #     t_ref
+    # )
+    
+    # Use true noise (same distribution/seed as gen branch) for reference latents
+    ref_noise = torch.randn_like(reference_latents)
+    if hasattr(pipeline, "generator") and pipeline.generator is not None:
+        ref_noise = torch.randn(
+            reference_latents.shape,
+            generator=pipeline.generator,
+            device=reference_latents.device,
+            dtype=reference_latents.dtype,
+        )
 
     ref_noised = pipeline.scheduler.add_noise(
         reference_latents,
-        ref_noise.to(reference_latents.dtype),
+        ref_noise,
         t_ref
     )
+    
+    
     ### 24 Nov: fixing oneid training issues — align ref noise with gen noise
 
     # critical: match UNet’s expected scaling at this timestep
@@ -459,6 +477,19 @@ def two_branch_predict(
         # Apply gaussian blur to mask for smoother transitions
         mask4 = gaussian_blur_mask(mask4, kernel_size=5)
 
+    # # Broadcast mask to channel count
+    # if mask4 is not None:
+    #     mask_channels = noise_pred_gen.shape[1]
+    #     mask_4ch = mask4
+    #     if mask_4ch.shape[1] != mask_channels:
+    #         mask_4ch = mask_4ch.repeat(1, mask_channels, 1, 1)
+    #     mask_4ch = mask_4ch.to(dtype=dtype)
+    #     if mask_4ch.shape[0] < batch_size:
+    #         mask_4ch = mask_4ch.expand(batch_size, -1, -1, -1)
+    #     noise_pred_merged = noise_pred_gen * (1 - mask_4ch) + noise_pred_face * mask_4ch
+    # else:
+    #     noise_pred_merged = noise_pred_gen
+        
     # Broadcast mask to channel count
     if mask4 is not None:
         mask_channels = noise_pred_gen.shape[1]
@@ -468,7 +499,13 @@ def two_branch_predict(
         mask_4ch = mask_4ch.to(dtype=dtype)
         if mask_4ch.shape[0] < batch_size:
             mask_4ch = mask_4ch.expand(batch_size, -1, -1, -1)
-        noise_pred_merged = noise_pred_gen * (1 - mask_4ch) + noise_pred_face * mask_4ch
+
+        # Gate face branch to avoid injecting random activations before it learns
+        face_blend_alpha_default = 1.0
+        face_blend_alpha = getattr(pipeline, "face_blend_alpha", face_blend_alpha_default)
+        noise_pred_face_adj = noise_pred_gen + face_blend_alpha * (noise_pred_face - noise_pred_gen)
+
+        noise_pred_merged = noise_pred_gen * (1 - mask_4ch) + noise_pred_face_adj * mask_4ch
     else:
         noise_pred_merged = noise_pred_gen
 
