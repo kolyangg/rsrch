@@ -358,7 +358,8 @@ class PhotomakerBranchedLora(SDXL):
             face_prompt_embeds=face_prompt_embeds,  # --- MODIFIED For training integration ---
             class_tokens_mask=class_tokens_mask,
             face_embed_strategy=self.face_embed_strategy,
-            id_embeds=id_embeds_proc,
+            id_embeds=None, ### TEMP JUST FOR TESTING
+            # id_embeds=id_embeds_proc,
             step_idx=0,
             scale=1.0,
             timestep_cond=None,
