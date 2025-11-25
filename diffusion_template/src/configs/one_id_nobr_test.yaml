@@ -1,23 +1,22 @@
 defaults:
   - trainer: photomaker_lora
-  - model: photomaker_branched_lora2 # Modified to make attn_processor trainable in branched version
+  - model: photomaker_branched_lora3 # Modified to make attn_processor trainable in branched version
   - writer: console
   - transforms: only_instance
   - ddp: accelerate
   - lr_scheduler: custom_linear
-  - pipeline: photomaker_branched2_both # Modified to make attn_processor trainable in branched version
-  # - pipeline: photomaker_branched # Modified to make attn_processor trainable in branched version
+  # - pipeline: photomaker_branched2 # Modified to make attn_processor trainable in branched version
+  - pipeline: photomaker_branched2_both
   # - metrics: all_metrics
   - metrics: all_metrics_oneid
-  # - datasets: all_datasets
-  - datasets: all_datasets_local
+  - datasets: all_datasets
   - dataloaders: all_dataloaders
   - _self_
 
 # If true, keep standard self-attention processors (no branched attn1),
 # but still use two-branch cross-attention and masks. Useful for debugging
 # branched SA effects on face quality.
-disable_branched_sa: false
+disable_branched_sa: true
 
 # Resume/continuation controls
 continue_run: false
@@ -48,7 +47,7 @@ lr_for_lora: 1e-5
 # train_dataset_name: "cosmic"
 # val_datasets_names: ["manual_val"]
 
-train_dataset_name: "one_id"
+train_dataset_name: "cosmic"
 val_datasets_names: ["one_id_val"]
 
 inference_metrics: ["clip_ts", "id_sim_best"]
@@ -78,5 +77,3 @@ validation_args:
   use_bbox_mask_ref: ${pipeline.use_bbox_mask_ref}
   use_bbox_mask_gen: ${pipeline.use_bbox_mask_gen}
 
-
-# CUDA_VISIBLE_DEVICES=0     WANDB_API_KEY=XXX     accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py     --config-name=photomaker_branched_train_lora_local_new2     trainer.epoch_len=5000     dataloaders.train.batch_size=2     dataloaders.train.num_workers=12     model.rank=16     validation_args.num_images_per_prompt=1     lr_scheduler.warmup_steps=2000     writer=console writer.run_name=photomaker_bf16 model.weight_dtype=bf16

@@ -20,6 +20,10 @@ def patch_unet_attention_processors(
     """
     Patch UNet with branched attention processors for both self and cross attention.
     """
+    # Allow disabling branched self-attention via a runtime flag on the pipeline/model.
+    # When disable_branched_sa=True, we keep the original attn1 processors but still
+    # install branched processors for cross-attention (attn2).
+    disable_sa = bool(getattr(pipeline, "disable_branched_sa", False))
     # from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
     from .attn_processor2 import BranchedAttnProcessor, BranchedCrossAttnProcessor
 
@@ -83,27 +87,26 @@ def patch_unet_attention_processors(
                 hidden_size = pipeline.unet.config.block_out_channels[0]
             
             if name.endswith("attn1.processor"):
-                # Self-attention: use branched processor
-                proc = BranchedAttnProcessor(
-                    hidden_size=hidden_size,
-                    cross_attention_dim=hidden_size,
-                    scale=scale,
-                ).to(pipeline.device, dtype=pipeline.unet.dtype)
-                # print(f'[TEMP DEBUG] mask in branched_new2 - attn1: {mask}')
-                # proc.set_masks(mask, mask_ref)
-                proc.set_masks(_mask, _mref)
-                _apply_runtime_flags(proc, pipeline)
-                
-                # if id_embeds is not None:
-                #     proc.id_embeds = id_embeds.to(pipeline.device, dtype=pipeline.unet.dtype)
-                # # Be explicit: we always want to use ID features if present.
-                # setattr(proc, "use_id_embeds", True)
+                if disable_sa:
+                    # Keep original self-attn processor; no branching on attn1.
+                    new_procs[name] = pipeline._original_attn_processors[name]
+                else:
+                    # Self-attention: use branched processor
+                    proc = BranchedAttnProcessor(
+                        hidden_size=hidden_size,
+                        cross_attention_dim=hidden_size,
+                        scale=scale,
+                    ).to(pipeline.device, dtype=pipeline.unet.dtype)
+                    # print(f'[TEMP DEBUG] mask in branched_new2 - attn1: {mask}')
+                    # proc.set_masks(mask, mask_ref)
+                    proc.set_masks(_mask, _mref)
+                    _apply_runtime_flags(proc, pipeline)
 
-                # Always wire id_embeds (zeros if missing) so params are used on all ranks
-                proc.id_embeds = _idem
-                setattr(proc, "use_id_embeds", True)
-                
-                new_procs[name] = proc
+                    # Always wire id_embeds (zeros if missing) so params are used on all ranks
+                    proc.id_embeds = _idem
+                    setattr(proc, "use_id_embeds", True)
+
+                    new_procs[name] = proc
                 
             elif name.endswith("attn2.processor"):
                 # Cross-attention: use branched cross-attention processor

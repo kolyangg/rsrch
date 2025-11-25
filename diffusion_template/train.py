@@ -55,6 +55,12 @@ def main(config):
         base_name = getattr(config.model, "pretrained_model_name_or_path", None)
         print(f"[Base Model Switch] Training base: '{base_name}'")
 
+    # Optional flag to disable branched self-attention while keeping
+    # two-branch cross-attention logic. Controlled via top-level config
+    # field `disable_branched_sa` (defaults to False if absent).
+    disable_sa = bool(getattr(config, "disable_branched_sa", False))
+    setattr(model, "disable_branched_sa", disable_sa)
+
     model.prepare_for_training()
 
     # get function handles of loss and metrics
@@ -129,6 +135,8 @@ def main(config):
             model=model,
             accelerator=accelerator,
         )
+        # Mirror the same branched-SA flag on the validation pipeline.
+        setattr(pipeline, "disable_branched_sa", disable_sa)
         if val_pretrained:
             # Restore original config value immediately after
             config.pipeline.pretrained_model_name_or_path = prev_base

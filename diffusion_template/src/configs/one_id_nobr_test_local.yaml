@@ -17,7 +17,7 @@ defaults:
 # If true, keep standard self-attention processors (no branched attn1),
 # but still use two-branch cross-attention and masks. Useful for debugging
 # branched SA effects on face quality.
-disable_branched_sa: false
+disable_branched_sa: true
 
 # Resume/continuation controls
 continue_run: false
