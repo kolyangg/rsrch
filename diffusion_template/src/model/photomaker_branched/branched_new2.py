@@ -20,10 +20,13 @@ def patch_unet_attention_processors(
     """
     Patch UNet with branched attention processors for both self and cross attention.
     """
-    # Allow disabling branched self-attention via a runtime flag on the pipeline/model.
-    # When disable_branched_sa=True, we keep the original attn1 processors but still
-    # install branched processors for cross-attention (attn2).
+    ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
+    # Allow disabling branched self-attention and/or cross-attention via runtime flags.
+    #  - disable_branched_sa=True  → keep original attn1 processors (no branched SA)
+    #  - disable_branched_ca=True  → keep original attn2 processors (no branched CA)
     disable_sa = bool(getattr(pipeline, "disable_branched_sa", False))
+    disable_ca = bool(getattr(pipeline, "disable_branched_ca", False))
+    ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
     # from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
     from .attn_processor2 import BranchedAttnProcessor, BranchedCrossAttnProcessor
 
@@ -109,31 +112,30 @@ def patch_unet_attention_processors(
                     new_procs[name] = proc
                 
             elif name.endswith("attn2.processor"):
-                # Cross-attention: use branched cross-attention processor
-                num_tokens = 77  # Standard CLIP token count
-                if hasattr(pipeline, 'tokenizer_2'):
-                    num_tokens = pipeline.tokenizer_2.model_max_length
-                    
-                proc = BranchedCrossAttnProcessor(
-                    hidden_size=hidden_size,
-                    cross_attention_dim=cross_attention_dim,
-                    scale=scale,
-                    num_tokens=num_tokens,
-                ).to(pipeline.device, dtype=pipeline.unet.dtype)
-                # enable KV equalizer for face branch
-                setattr(proc, "equalize_face_kv", True)
-                setattr(proc, "equalize_clip", (1/3, 8.0))
-                # # print(f'[TEMP DEBUG] mask in branched_new2 - attn2: {mask}')
-                # proc.set_masks(mask, mask_ref)
-                # if id_embeds is not None:
-                #     proc.id_embeds = id_embeds.to(pipeline.device, dtype=pipeline.unet.dtype)
-                #     proc.class_tokens_mask = class_tokens_mask
-                proc.set_masks(_mask, _mref)
-                # Keep CA path consistent too (even if CA doesn’t always consume id_embeds)
-                proc.id_embeds = _idem
-                proc.class_tokens_mask = class_tokens_mask
+                if disable_ca:
+                    # Keep original cross-attn processor; no branched CA.
+                    new_procs[name] = pipeline._original_attn_processors[name]
+                else:
+                    # Cross-attention: use branched cross-attention processor
+                    num_tokens = 77  # Standard CLIP token count
+                    if hasattr(pipeline, 'tokenizer_2'):
+                        num_tokens = pipeline.tokenizer_2.model_max_length
 
-                new_procs[name] = proc
+                    proc = BranchedCrossAttnProcessor(
+                        hidden_size=hidden_size,
+                        cross_attention_dim=cross_attention_dim,
+                        scale=scale,
+                        num_tokens=num_tokens,
+                    ).to(pipeline.device, dtype=pipeline.unet.dtype)
+                    # enable KV equalizer for face branch
+                    setattr(proc, "equalize_face_kv", True)
+                    setattr(proc, "equalize_clip", (1/3, 8.0))
+                    proc.set_masks(_mask, _mref)
+                    # Keep CA path consistent too (even if CA doesn’t always consume id_embeds)
+                    proc.id_embeds = _idem
+                    proc.class_tokens_mask = class_tokens_mask
+
+                    new_procs[name] = proc
                 
             else:
                 # Keep original for other processors

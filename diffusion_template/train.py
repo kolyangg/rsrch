@@ -55,11 +55,16 @@ def main(config):
         base_name = getattr(config.model, "pretrained_model_name_or_path", None)
         print(f"[Base Model Switch] Training base: '{base_name}'")
 
-    # Optional flag to disable branched self-attention while keeping
-    # two-branch cross-attention logic. Controlled via top-level config
-    # field `disable_branched_sa` (defaults to False if absent).
+    ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
+    # Optional flags to disable branched self- and cross-attention while keeping
+    # the rest of the two-branch logic intact. Controlled via top-level config:
+    #   disable_branched_sa: False by default
+    #   disable_branched_ca: False by default
     disable_sa = bool(getattr(config, "disable_branched_sa", False))
+    disable_ca = bool(getattr(config, "disable_branched_ca", False))
     setattr(model, "disable_branched_sa", disable_sa)
+    setattr(model, "disable_branched_ca", disable_ca)
+    ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
 
     model.prepare_for_training()
 
@@ -135,8 +140,11 @@ def main(config):
             model=model,
             accelerator=accelerator,
         )
-        # Mirror the same branched-SA flag on the validation pipeline.
+        # Mirror the same branched-attn flags on the validation pipeline.
+        ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
         setattr(pipeline, "disable_branched_sa", disable_sa)
+        setattr(pipeline, "disable_branched_ca", disable_ca)
+        ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
         if val_pretrained:
             # Restore original config value immediately after
             config.pipeline.pretrained_model_name_or_path = prev_base

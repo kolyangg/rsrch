@@ -1637,11 +1637,13 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 ##### NEW BRANCHED ATTENTION LOGIC ##### 
     
                 # ## TODO: need to add mask_ref here?
-                            
-                # optional PNG previews of two branches
-                if i % 10 == 0 or i == num_inference_steps - 1: # every 10 steps
-                    if "mask4" in locals() and noise_face is not None:
-                        base_debug_dir = Path(debug_dir) if debug_dir is not None else None
+
+                # optional PNG previews of intermediate predictions
+                # Previously this only ran when branched mode produced noise_face;
+                # extend it to non-branched runs by falling back to a full-image mask.
+                if i % 10 == 0 or i == num_inference_steps - 1:  # every 10 steps
+                    base_debug_dir = Path(debug_dir) if debug_dir is not None else None
+                    if "mask4" in locals() and "noise_face" in locals() and noise_face is not None:
                         if base_debug_dir is not None:
                             total_outputs = latents.shape[0]
                             for idx, latent_sample in enumerate(latents):
@@ -1667,6 +1669,24 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                                 t,
                                 i,
                                 debug_dir,
+                                extra_step_kwargs,
+                            )
+                    elif base_debug_dir is not None:
+                        # Non-branched path: still save debug predictions using a full mask.
+                        total_outputs = latents.shape[0]
+                        full_mask = torch.ones_like(latents[:, :1, :, :])
+                        for idx, latent_sample in enumerate(latents):
+                            per_image_dir = base_debug_dir if total_outputs == 1 else base_debug_dir / f"{idx:02d}"
+                            per_image_dir.mkdir(parents=True, exist_ok=True)
+                            mask_slice = full_mask[idx:idx+1]
+                            save_branch_previews(
+                                self,
+                                latent_sample.unsqueeze(0),
+                                noise_pred,
+                                mask_slice,
+                                t,
+                                i,
+                                str(per_image_dir),
                                 extra_step_kwargs,
                             )
 

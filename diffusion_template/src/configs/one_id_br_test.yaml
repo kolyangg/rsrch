@@ -10,7 +10,7 @@ defaults:
   # - metrics: all_metrics
   - metrics: all_metrics_oneid
   # - datasets: all_datasets
-  - datasets: all_datasets_local
+  - datasets: all_datasets
   - dataloaders: all_dataloaders
   - _self_
 
@@ -20,13 +20,13 @@ model:
 # If true, keep standard self-attention processors (no branched attn1),
 # but still use two-branch cross-attention and masks. Useful for debugging
 # branched SA effects on face quality.
-disable_branched_sa: true
+disable_branched_sa: false
 
 ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
 # If true, keep standard cross-attention processors (no branched attn2),
 # effectively disabling branched CA while leaving the rest of the pipeline
 # and training loop intact.
-disable_branched_ca: true
+disable_branched_ca: false
 ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
 
 # Resume/continuation controls
@@ -76,7 +76,7 @@ validation_args:
   target_size: [1024, 1024]
   original_size: [1024, 1024]
   crops_coords_top_left: [0, 0]
-  use_branched_attention: false
+  use_branched_attention: true
   face_embed_strategy: ${pipeline.face_embed_strategy}
   photomaker_start_step: ${pipeline.photomaker_start_step}
   merge_start_step: ${pipeline.merge_start_step}
@@ -84,9 +84,13 @@ validation_args:
   branched_start_mode: ${pipeline.branched_start_mode}
   #  Masking controls moved to config
   auto_mask_ref: ${pipeline.auto_mask_ref}
-  use_dynamic_mask: ${pipeline.use_dynamic_mask}
-  use_bbox_mask_ref: ${pipeline.use_bbox_mask_ref}
-  use_bbox_mask_gen: false
+  # use_dynamic_mask: ${pipeline.use_dynamic_mask}
+  # use_bbox_mask_ref: ${pipeline.use_bbox_mask_ref}
+  # use_bbox_mask_gen: false
+
+  use_dynamic_mask: false                    # explicit, to keep behavior clear
+  use_bbox_mask_ref: true                    # as in the pipeline
+  use_bbox_mask_gen: true
 
 
 # CUDA_VISIBLE_DEVICES=0     WANDB_API_KEY=XXX     accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py     --config-name=photomaker_branched_train_lora_local_new2     trainer.epoch_len=5000     dataloaders.train.batch_size=2     dataloaders.train.num_workers=12     model.rank=16     validation_args.num_images_per_prompt=1     lr_scheduler.warmup_steps=2000     writer=console writer.run_name=photomaker_bf16 model.weight_dtype=bf16
