@@ -1,6 +1,6 @@
 defaults:
   - trainer: photomaker_lora
-  - model: photomaker_branched_lora2 # Use lora3 variant with ID-conditioned branched attention
+  - model: photomaker_branched_lora3 # Use lora3 variant with ID-conditioned branched attention
   - writer: console
   - transforms: only_instance
   - ddp: accelerate
