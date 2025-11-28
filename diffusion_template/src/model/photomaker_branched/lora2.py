@@ -55,6 +55,7 @@ class PhotomakerBranchedLora(SDXL):
         ca_mixing_for_face: bool = True,  # --- ADDED For training integration
         face_embed_strategy: str = "face", # --- ADDED For training integration
         train_branch_mode: str = "both",   # 'both' or 'ref_only' for BranchedAttnProcessor
+        train_ba_only: bool = False,       # 28 Nov: optionally train only branched-attn layers
     ):
         super().__init__(
             pretrained_model_name_or_path=pretrained_model_name_or_path,
@@ -96,6 +97,9 @@ class PhotomakerBranchedLora(SDXL):
         self.ca_mixing_for_face = bool(ca_mixing_for_face) # --- ADDED For training integration
         self.face_embed_strategy = (face_embed_strategy or "face").lower() # --- ADDED For training integration
         self.train_branch_mode = (train_branch_mode or "both").lower()
+        ### 28 Nov: train only BA layers ###
+        self.train_ba_only = bool(train_ba_only)
+        ### 28 Nov: train only BA layers ###
         # --- Branched-attention integration END ---
 
         photomaker_lora_config = LoraConfig(
@@ -147,6 +151,19 @@ class PhotomakerBranchedLora(SDXL):
                 for proc in self.unet.attn_processors.values():
                     for p in proc.parameters():
                         p.requires_grad_(True)
+
+            ### 28 Nov: train only BA layers ###
+            # Optionally freeze all non-branched-attention parameters so only BA processors train.
+            if getattr(self, "train_ba_only", False):
+                # First freeze everything in UNet (including LoRA adapters and processors).
+                for _, p in self.unet.named_parameters():
+                    p.requires_grad_(False)
+                # Then re-enable gradients only for branched attention processors.
+                if hasattr(self.unet, "attn_processors"):
+                    for proc in self.unet.attn_processors.values():
+                        for p in proc.parameters():
+                            p.requires_grad_(True)
+            ### 28 Nov: train only BA layers ###
         except Exception as e:
             print(f"[PhotomakerBranchedLora] warning while installing branched processors: {e}")
         # --- end minimal change ---
@@ -168,9 +185,22 @@ class PhotomakerBranchedLora(SDXL):
         self.id_encoder.load_state_dict(state_dict["id_encoder"], strict=True)
 
     def get_trainable_params(self, config):
+        ### 28 Nov: train only BA layers ###
+        if getattr(self, "train_ba_only", False):
+            # Train only branched attention processors (attn1/attn2 processor modules).
+            proc_params = []
+            for name, p in self.unet.named_parameters():
+                if p.requires_grad and (".attn1.processor." in name or ".attn2.processor." in name):
+                    proc_params.append(p)
+            return [
+                {"params": proc_params, "lr": config.lr_for_lora, "name": "branched_processors"},
+            ]
+        ### 28 Nov: train only BA layers ###
+
+        # Default behavior: train all UNet parameters with requires_grad=True (LoRA + processors).
         lora_params = filter(lambda p: p.requires_grad, self.unet.parameters())
         trainable_params = [
-            {'params': lora_params, 'lr': config.lr_for_lora, 'name': 'lora_params'},
+            {"params": lora_params, "lr": config.lr_for_lora, "name": "lora_params"},
         ]
         return trainable_params
 

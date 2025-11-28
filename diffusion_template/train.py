@@ -49,6 +49,13 @@ def main(config):
     # batch_transforms should be put on device
     dataloaders, batch_transforms = get_dataloaders(config, device, logger)
 
+    ### 28 Nov: train only BA layers ###
+    # Optional flag: when true, restrict training to branched attention processors only.
+    train_ba_only = bool(getattr(config, "train_ba_only", False))
+    if hasattr(config, "model"):
+        config.model.train_ba_only = train_ba_only
+    ### 28 Nov: train only BA layers ###
+
     # build model architecture, then print to console
     model = instantiate(config.model, device=device)
     if accelerator.is_main_process:
