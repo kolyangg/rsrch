@@ -154,16 +154,22 @@ class PhotomakerBranchedLora(SDXL):
                         p.requires_grad_(True)
 
             ### 28 Nov: train only BA layers ###
-            # Optionally freeze all non-branched-attention parameters so only BA processors train.
+            # Optionally restrict training to branched processors + LoRA on attention projections.
             if getattr(self, "train_ba_only", False):
-                # First freeze everything in UNet (including LoRA adapters and processors).
-                for _, p in self.unet.named_parameters():
+                # First freeze everything in UNet.
+                for name, p in self.unet.named_parameters():
                     p.requires_grad_(False)
-                # Then re-enable gradients only for branched attention processors.
+
+                # Re-enable branched attention processors.
                 if hasattr(self.unet, "attn_processors"):
                     for proc in self.unet.attn_processors.values():
                         for p in proc.parameters():
                             p.requires_grad_(True)
+
+                # Re-enable LoRA weights on attention projections (lora_A / lora_B).
+                for name, p in self.unet.named_parameters():
+                    if "lora_A" in name or "lora_B" in name:
+                        p.requires_grad_(True)
             ### 28 Nov: train only BA layers ###
         except Exception as e:
             print(f"[PhotomakerBranchedLora] warning while installing branched processors: {e}")
@@ -188,14 +194,27 @@ class PhotomakerBranchedLora(SDXL):
     def get_trainable_params(self, config):
         ### 28 Nov: train only BA layers ###
         if getattr(self, "train_ba_only", False):
-            # Train only branched attention processors (attn1/attn2 processor modules).
+            # Train branched attention processors + LoRA weights on attention projections.
             proc_params = []
+            lora_params = []
             for name, p in self.unet.named_parameters():
-                if p.requires_grad and (".attn1.processor." in name or ".attn2.processor." in name):
+                if not p.requires_grad:
+                    continue
+                if ".attn1.processor." in name or ".attn2.processor." in name:
                     proc_params.append(p)
-            return [
-                {"params": proc_params, "lr": config.lr_for_lora, "name": "branched_processors"},
-            ]
+                elif "lora_A" in name or "lora_B" in name:
+                    lora_params.append(p)
+
+            param_groups = []
+            if proc_params:
+                param_groups.append(
+                    {"params": proc_params, "lr": config.lr_for_lora, "name": "branched_processors"}
+                )
+            if lora_params:
+                param_groups.append(
+                    {"params": lora_params, "lr": config.lr_for_lora, "name": "branched_lora"}
+                )
+            return param_groups
         ### 28 Nov: train only BA layers ###
 
         # Default behavior: train all UNet parameters with requires_grad=True (LoRA + processors).
