@@ -52,12 +52,17 @@ def main(config):
     ### 28 Nov: train only BA layers ###
     # Optional flag: when true, restrict training to branched attention processors only.
     train_ba_only = bool(getattr(config, "train_ba_only", False))
-    if hasattr(config, "model"):
-        config.model.train_ba_only = train_ba_only
+    ba_kwargs = {}
+    model_target = str(getattr(getattr(config, "model", {}), "_target_", ""))
+    if (
+        "src.model.photomaker_branched.lora2.PhotomakerBranchedLora" in model_target
+        or "src.model.photomaker_branched.lora3.PhotomakerBranchedLora" in model_target
+    ):
+        ba_kwargs["train_ba_only"] = train_ba_only
     ### 28 Nov: train only BA layers ###
 
     # build model architecture, then print to console
-    model = instantiate(config.model, device=device)
+    model = instantiate(config.model, device=device, **ba_kwargs)
     if accelerator.is_main_process:
         base_name = getattr(config.model, "pretrained_model_name_or_path", None)
         print(f"[Base Model Switch] Training base: '{base_name}'")
