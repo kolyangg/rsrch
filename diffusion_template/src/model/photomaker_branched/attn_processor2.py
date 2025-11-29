@@ -282,7 +282,8 @@ class BranchedAttnProcessor(nn.Module):
                 
                 # Blend ID features with the mixed face
                 # id_alpha = 0.3  # Control ID influence strength
-                id_alpha = 1.0
+                # id_alpha = 1.0
+                id_alpha = 0.7
                 face_hidden_mixed = face_hidden_mixed * (1 - id_alpha) + id_features * id_alpha
 
             ### 29 Nov - Clean separataion of BA-specific parameters ###

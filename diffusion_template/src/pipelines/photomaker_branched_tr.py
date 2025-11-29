@@ -24,8 +24,9 @@ import inspect
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from pathlib import Path  # --- MODIFIED For training integration ---
 # --- ADDED For training integration (FOLDER STUCTURE) ---
-# from src.model.photomaker_branched.branched_new2 import (
-from src.model.photomaker_branched.branched_new import (
+### 24 Nov: fixing oneid training issues
+# from src.model.photomaker_branched.branched_new3 import (
+from src.model.photomaker_branched.branched_new2 import (
     two_branch_predict,
     prepare_reference_latents,
     encode_face_prompt,
@@ -33,6 +34,7 @@ from src.model.photomaker_branched.branched_new import (
     restore_original_processors,
     save_debug_images,
 )
+### 24 Nov: fixing oneid training issues
 
 # # Keep existing imports:
 # from .branched_v4 import (
@@ -546,6 +548,35 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
         return prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds, class_tokens_mask
 
+    ### Modified to make attn_processor trainable in branched version ###
+    
+    # --- Helper to update already-installed branched processors' context ---
+    def set_branch_context(
+        self,
+        mask: Optional[torch.Tensor],
+        mask_ref: Optional[torch.Tensor],
+        class_tokens_mask: Optional[torch.Tensor],
+        id_embeds: Optional[torch.Tensor] = None,
+    ):
+        if not hasattr(self.unet, "attn_processors"):
+            return
+        # Move to UNet device/dtype
+        dev, dt = next(self.unet.parameters()).device, self.unet.dtype
+        to_dev = lambda x: x.to(device=dev, dtype=dt) if x is not None and x.dtype.is_floating_point else (x.to(dev) if x is not None else None)
+        mask      = to_dev(mask)
+        mask_ref  = to_dev(mask_ref)
+        id_embeds = to_dev(id_embeds)
+        class_tokens_mask = class_tokens_mask.to(dev) if class_tokens_mask is not None else None
+        # Push into processors
+        for proc in getattr(self.unet, "attn_processors", {}).values():
+            if hasattr(proc, "set_branch_context"):
+                proc.set_branch_context(
+                    mask=mask, mask_ref=mask_ref,
+                    class_tokens_mask=class_tokens_mask,
+                    id_embeds=id_embeds
+                )
+    ### Modified to make attn_processor trainable in branched version ###
+
     @torch.no_grad()
     def __call__(
         self,
@@ -614,8 +645,8 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         # Optional per-sample face boxes (x0,y0,x1,y1) in pixel space
         face_bbox_ref: Optional[List[float]] = None,
         face_bbox_gen: Optional[List[float]] = None,
-        import_mask: Optional[str] = "../compare/testing/ref2_masks/keanu_gen_mask.png",
-        # import_mask: Optional[str] = "../compare/testing/ref5_masks/marion_gen_mask.png",
+        # import_mask: Optional[str] = "hm_debug/keanu_gen_mask.png",
+        import_mask: Optional[str] = "../compare/testing/ref5_masks/marion_gen_mask.png",
         # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_new.jpg",
         # import_mask: Optional[str] = "../compare/testing/ref5_masks/marion_gen_mask_simple.png",
         # import_mask: Optional[str] = "hm_debug/keanu_gen_mask_white_new.png",
@@ -1501,6 +1532,45 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                             id_face_ehs = id_face_ehs.to(device=current_prompt_embeds.device,
                                                          dtype=current_prompt_embeds.dtype)
 
+                    # ### Modified to make attn_processor trainable in branched version ###
+                    
+                    # # Update context on already-installed processors (no re-patching)
+                    # self.set_branch_context(_mask4, _mask4_ref, class_tokens_mask, id_embeds=None)
+                    
+                    ### Modified to make attn_processor trainable in branched version ###
+                    # Ensure processors ALWAYS get a reference mask, even before merge_start_step.
+                    # We keep merge/blend gating (_mask4/_mask4_ref) for noise mixing,
+                    # but processor state must have a non-None mask_ref to avoid runtime errors.
+                    ctx_mask_ref = mask4_ref if mask4_ref is not None else mask4
+                    if ctx_mask_ref is None:
+                        # Fallback: explicit zero ref mask (shape [B,1,H/8,W/8])
+                        ctx_mask_ref = torch.zeros_like(
+                            latent_model_input[:, :1, :, :],
+                            device=latent_model_input.device,
+                            dtype=latent_model_input.dtype,
+                        )
+
+                    # Update context on already-installed processors (no re-patching)
+                    # self.set_branch_context(_mask4, ctx_mask_ref, class_tokens_mask, id_embeds=None)
+
+                    # Ensure processors always receive a non-None background mask (required by BranchedAttnProcessor)
+                    ctx_mask = _mask4 if _mask4 is not None else (
+                        mask4 if mask4 is not None else torch.zeros_like(
+                            latent_model_input[:, :1, :, :],
+                            device=latent_model_input.device,
+                            dtype=latent_model_input.dtype,
+                        )
+                    )
+                    # self.set_branch_context(ctx_mask, ctx_mask_ref, class_tokens_mask, id_embeds=None)
+
+                    # always pass zeros so ID path is exercised uniformly across ranks
+                    ctx_id = torch.zeros(ctx_mask.shape[0], 2048,
+                                         device=self.unet.device, dtype=self.unet.dtype)
+                    self.set_branch_context(ctx_mask, ctx_mask_ref, class_tokens_mask, id_embeds=ctx_id)
+                  
+                    
+                    ### Modified to make attn_processor trainable in branched version ###
+
                     noise_pred, noise_face, noise_bg = two_branch_predict(
                         self,  # pipeline
                         latent_model_input,  # latent_model_input
@@ -1552,11 +1622,11 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 # ## TODO: need to add mask_ref here?
 
                 # optional PNG previews of intermediate predictions
-                # NOTE: previously this only ran in branched mode; extend to non-branched
-                # runs by using a full-image mask when no face mask is available.
+                # Previously this only ran when branched mode produced noise_face;
+                # extend it to non-branched runs by falling back to a full-image mask.
                 if i % 10 == 0 or i == num_inference_steps - 1:  # every 10 steps
+                    base_debug_dir = Path(debug_dir) if debug_dir is not None else None
                     if "mask4" in locals() and "noise_face" in locals() and noise_face is not None:
-                        base_debug_dir = Path(debug_dir) if debug_dir is not None else None
                         if base_debug_dir is not None:
                             total_outputs = latents.shape[0]
                             for idx, latent_sample in enumerate(latents):
@@ -1582,6 +1652,24 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                                 t,
                                 i,
                                 debug_dir,
+                                extra_step_kwargs,
+                            )
+                    elif base_debug_dir is not None:
+                        # Non-branched path: still save debug predictions using a full mask.
+                        total_outputs = latents.shape[0]
+                        full_mask = torch.ones_like(latents[:, :1, :, :])
+                        for idx, latent_sample in enumerate(latents):
+                            per_image_dir = base_debug_dir if total_outputs == 1 else base_debug_dir / f"{idx:02d}"
+                            per_image_dir.mkdir(parents=True, exist_ok=True)
+                            mask_slice = full_mask[idx:idx+1]
+                            save_branch_previews(
+                                self,
+                                latent_sample.unsqueeze(0),
+                                noise_pred,
+                                mask_slice,
+                                t,
+                                i,
+                                str(per_image_dir),
                                 extra_step_kwargs,
                             )
                     else:
@@ -1780,6 +1868,7 @@ class PhotomakerBranchedPipeline:
         merge_start_step_cfg = kwargs.pop("merge_start_step", 10)
         branched_attn_start_step_cfg = kwargs.pop("branched_attn_start_step", 10)
         branched_start_mode_cfg = kwargs.pop("branched_start_mode", "both")
+        train_branch_mode_cfg = kwargs.pop("train_branch_mode", "both")
         pose_adapt_ratio_cfg = kwargs.pop(
             "pose_adapt_ratio",
             getattr(unwrapped_model, "pose_adapt_ratio", 0.25),
@@ -1817,6 +1906,7 @@ class PhotomakerBranchedPipeline:
         pipeline.pose_adapt_ratio = pose_adapt_ratio_cfg
         pipeline.ca_mixing_for_face = ca_mixing_for_face_cfg
         pipeline.face_embed_strategy = face_embed_strategy_cfg
+        pipeline.train_branch_mode = (train_branch_mode_cfg or "both").lower()
 
         pipeline.tokenizer.add_tokens([pipeline.trigger_word], special_tokens=True)
         pipeline.tokenizer_2.add_tokens([pipeline.trigger_word], special_tokens=True)
@@ -1829,5 +1919,6 @@ class PhotomakerBranchedPipeline:
         pipeline._config_pose_adapt_ratio = pose_adapt_ratio_cfg
         pipeline._config_ca_mixing_for_face = ca_mixing_for_face_cfg
         pipeline._config_face_embed_strategy = face_embed_strategy_cfg
+        pipeline._config_train_branch_mode = train_branch_mode_cfg
 
         return pipeline

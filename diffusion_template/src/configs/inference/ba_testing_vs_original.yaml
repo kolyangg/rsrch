@@ -1,0 +1,104 @@
+defaults:
+  - _self_
+
+model:
+  _target_: src.model.photomaker_branched.lora2.PhotomakerBranchedLora
+  pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
+  photomaker_path: ${oc.env:HOME}/.cache/huggingface/hub/models--TencentARC--PhotoMaker-V2/snapshots/f5a1e5155dc02166253fa7e29d13519f5ba22eac/photomaker-v2.bin
+  weight_dtype: bf16
+  target_size: 1024
+  rank: 16
+  photomaker_lora_rank: 64
+  lora_modules: [to_q, to_k, to_v, to_out.0]
+  init_lora_weights: gaussian
+  trigger_word: img
+  pose_adapt_ratio: ${pipeline.pose_adapt_ratio}
+  ca_mixing_for_face: ${pipeline.ca_mixing_for_face}
+  face_embed_strategy: ${pipeline.face_embed_strategy}
+  train_branch_mode: ${pipeline.train_branch_mode}
+
+# pipeline:
+  # _target_: src.pipelines.photomaker_branched2.PhotomakerBranchedPipeline.from_pretrained
+  # pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
+  # torch_dtype: bfloat16
+  # use_safetensors: True
+  # variant: fp16
+  # # Match test_steps4_Nov.json: PMS=10, MS=10, BAS=15, MODE=both
+  # photomaker_start_step: 10
+  # merge_start_step: 10
+  # branched_attn_start_step: 15
+  # branched_start_mode: both
+  # train_branch_mode: both
+  # # Hyperparameters aligned with test_steps4_Nov.sh
+  # pose_adapt_ratio: 0.0
+  # ca_mixing_for_face: false
+  # face_embed_strategy: id_embeds
+  # auto_mask_ref: true
+  # use_dynamic_mask: false
+  # use_bbox_mask_ref: false
+  # use_bbox_mask_gen: false
+
+
+pipeline:
+  # _target_: src.pipelines.photomaker_branched.PhotomakerBranchedPipeline.from_pretrained
+  _target_: src.pipelines.photomaker_branched_tr.PhotomakerBranchedPipeline.from_pretrained
+  pretrained_model_name_or_path: SG161222/RealVisXL_V4.0   # optional: match PhotoMaker base
+  torch_dtype: bfloat16
+  use_safetensors: True
+  variant: fp16
+  photomaker_start_step: 10
+  merge_start_step: 10
+  branched_attn_start_step: 15
+  branched_start_mode: both
+  train_branch_mode: both
+  pose_adapt_ratio: 0.0
+  ca_mixing_for_face: false
+  face_embed_strategy: id_embeds
+  auto_mask_ref: true
+  use_dynamic_mask: false
+  use_bbox_mask_ref: false
+  use_bbox_mask_gen: false
+
+# Optional: point this to a fine-tuned checkpoint if desired
+saved_checkpoint: null
+
+# Output alongside original PhotoMaker comparisons
+output_dir: ../compare/results/ba_testing_vs_original
+
+batch_size: 1
+
+dataset:
+  _target_: src.datasets.manual_val.ManualPhotoMakerValDataset
+  # Mirror IMAGE_FOLDER / PROMPT_FILE / CLASS_FILE from PhotoMaker scripts
+  images_dir: ../compare/testing/ref2 # keanu
+  # images_dir: ../compare/testing/ref3 # eddie
+  prompts_path: ../compare/testing/prompt_one2.txt
+  classes_json_path: ../compare/testing/classes_ref.json
+  # Use automatic reference masking (no precomputed bbox JSON)
+  seeds: [0]
+  limit: null
+
+validation_args:
+  negative_prompt: "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry"
+  debug_dir: hm_debug
+  num_images_per_prompt: 1
+  num_inference_steps: 50
+  guidance_scale: 5
+  height: 1024
+  width: 1024
+  target_size: [1024, 1024]
+  original_size: [1024, 1024]
+  crops_coords_top_left: [0, 0]
+  use_branched_attention: true
+  face_embed_strategy: ${pipeline.face_embed_strategy}
+  photomaker_start_step: ${pipeline.photomaker_start_step}
+  merge_start_step: ${pipeline.merge_start_step}
+  branched_attn_start_step: ${pipeline.branched_attn_start_step}
+  branched_start_mode: ${pipeline.branched_start_mode}
+  auto_mask_ref: ${pipeline.auto_mask_ref}
+  use_dynamic_mask: ${pipeline.use_dynamic_mask}
+  use_bbox_mask_ref: ${pipeline.use_bbox_mask_ref}
+  use_bbox_mask_gen: ${pipeline.use_bbox_mask_gen}
+  # Align with PhotoMaker script flag
+  force_par_before_pm: true
+
