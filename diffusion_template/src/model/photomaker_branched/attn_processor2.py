@@ -285,6 +285,7 @@ class BranchedAttnProcessor(nn.Module):
                 # id_alpha = 1.0
                 # id_alpha = 0.7
                 id_alpha = 0.4
+                id_alpha = 0.5
                 face_hidden_mixed = face_hidden_mixed * (1 - id_alpha) + id_features * id_alpha
 
             ### 29 Nov - Clean separataion of BA-specific parameters ###
