@@ -56,6 +56,9 @@ class PhotomakerBranchedLora(SDXL):
         face_embed_strategy: str = "face", # --- ADDED For training integration
         train_branch_mode: str = "both",   # 'both' or 'ref_only' for BranchedAttnProcessor
         train_ba_only: bool = False,       # 28 Nov: optionally train only branched-attn layers
+        ### 29 Nov - Clean separataion of BA-specific parameters ###
+        ba_weights_split: bool = False,    # optionally enable per-branch BA-specific adapters
+        ### 29 Nov - Clean separataion of BA-specific parameters ###
     ):
         super().__init__(
             pretrained_model_name_or_path=pretrained_model_name_or_path,
@@ -100,6 +103,9 @@ class PhotomakerBranchedLora(SDXL):
         ### 28 Nov: train only BA layers ###
         self.train_ba_only = bool(train_ba_only)
         ### 28 Nov: train only BA layers ###
+        ### 29 Nov - Clean separataion of BA-specific parameters ###
+        self.ba_weights_split = bool(ba_weights_split)
+        ### 29 Nov - Clean separataion of BA-specific parameters ###
         # --- Branched-attention integration END ---
 
         photomaker_lora_config = LoraConfig(

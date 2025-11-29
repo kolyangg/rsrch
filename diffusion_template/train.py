@@ -52,6 +52,10 @@ def main(config):
     ### 28 Nov: train only BA layers ###
     # Optional flag: when true, restrict training to branched attention processors only.
     train_ba_only = bool(getattr(config, "train_ba_only", False))
+    # Optional flag: when true, enable clean separation of BA-specific parameters.
+    ### 29 Nov - Clean separataion of BA-specific parameters ###
+    ba_weights_split = bool(getattr(config, "ba_weights_split", False))
+    ### 29 Nov - Clean separataion of BA-specific parameters ###
     ba_kwargs = {}
     model_target = str(getattr(getattr(config, "model", {}), "_target_", ""))
     if (
@@ -59,6 +63,9 @@ def main(config):
         or "src.model.photomaker_branched.lora3.PhotomakerBranchedLora" in model_target
     ):
         ba_kwargs["train_ba_only"] = train_ba_only
+        ### 29 Nov - Clean separataion of BA-specific parameters ###
+        ba_kwargs["ba_weights_split"] = ba_weights_split
+        ### 29 Nov - Clean separataion of BA-specific parameters ###
     ### 28 Nov: train only BA layers ###
 
     # build model architecture, then print to console

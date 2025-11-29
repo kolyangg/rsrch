@@ -55,6 +55,21 @@ class BranchedAttnProcessor(nn.Module):
             self.id_to_hidden.weight.mul_(0.1)
         ### Modified to make attention processors train ###
 
+        ### 29 Nov - Clean separataion of BA-specific parameters ###
+        # Optional branch-specific adapters for face and reference paths (disabled by default).
+        self.ba_weights_split: bool = getattr(self, "ba_weights_split", False)
+        if self.ba_weights_split:
+            # Small residual adapters; initialized near zero so they start as no-op.
+            self.face_adapter = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+            self.ref_adapter = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+            with torch.no_grad():
+                self.face_adapter.weight.mul_(0.01)
+                self.ref_adapter.weight.mul_(0.01)
+        else:
+            self.face_adapter = None
+            self.ref_adapter = None
+        ### 29 Nov - Clean separataion of BA-specific parameters ###
+
 
         # Let diffusers know we accept cross_attention_kwargs to silence warnings
         self.has_cross_attention_kwargs = True
@@ -268,6 +283,12 @@ class BranchedAttnProcessor(nn.Module):
                 # Blend ID features with the mixed face
                 id_alpha = 0.3  # Control ID influence strength
                 face_hidden_mixed = face_hidden_mixed * (1 - id_alpha) + id_features * id_alpha
+
+            ### 29 Nov - Clean separataion of BA-specific parameters ###
+            # Apply face-branch adapter if enabled (separate from background branch).
+            if getattr(self, "ba_weights_split", False) and self.face_adapter is not None:
+                face_hidden_mixed = face_hidden_mixed + self.face_adapter(face_hidden_mixed)
+            ### 29 Nov - Clean separataion of BA-specific parameters ###
             
             
             if CA_MIXING_FOR_FACE:
@@ -405,6 +426,12 @@ class BranchedAttnProcessor(nn.Module):
         hidden_ref = F.scaled_dot_product_attention(query_ref, key_ref, value_ref, dropout_p=0.0, is_causal=False)
         hidden_ref = hidden_ref.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
         # === NEW BRANCH - SELF-ATTN FOR REFERENCE ===
+
+        ### 29 Nov - Clean separataion of BA-specific parameters ###
+        # Apply reference-branch adapter if enabled (separate from background branch).
+        if getattr(self, "ba_weights_split", False) and self.ref_adapter is not None:
+            hidden_ref = hidden_ref + self.ref_adapter(hidden_ref)
+        ### 29 Nov - Clean separataion of BA-specific parameters ###
 
 
         # Optionally restrict training to the reference branch only

@@ -56,6 +56,11 @@ def patch_unet_attention_processors(
         for k in ("pose_adapt_ratio", "ca_mixing_for_face", "train_branch_mode"):
             if hasattr(pipe, k):
                 setattr(proc, k, getattr(pipe, k))
+        ### 29 Nov - Clean separataion of BA-specific parameters ###
+        # Optional toggle for per-branch BA-specific adapters.
+        if hasattr(pipe, "ba_weights_split"):
+            setattr(proc, "ba_weights_split", getattr(pipe, "ba_weights_split"))
+        ### 29 Nov - Clean separataion of BA-specific parameters ###
    
     # Build safe, consistent context (batch, id_embeds)
     # Ensure masks are non-None to avoid runtime errors

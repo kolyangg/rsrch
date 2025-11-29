@@ -24,6 +24,12 @@ model:
 train_ba_only: true
 ### 28 Nov: train only BA layers ###
 
+### 29 Nov - Clean separataion of BA-specific parameters ###
+# If true, enable additional per-branch adapters inside BranchedAttnProcessor
+# so face and reference branches have their own small residual weights.
+ba_weights_split: false
+### 29 Nov - Clean separataion of BA-specific parameters ###
+
 # If true, keep standard self-attention processors (no branched attn1),
 # but still use two-branch cross-attention and masks. Useful for debugging
 # branched SA effects on face quality.
