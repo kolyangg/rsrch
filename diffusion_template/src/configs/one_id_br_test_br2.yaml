@@ -42,6 +42,11 @@ disable_branched_sa: false
 disable_branched_ca: false
 ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
 
+# Select branched attention implementation:
+#   true  → use attn_processor2 (trainable v2, current behavior)
+#   false → use attn_processor (legacy behavior, mainly LoRA training)
+use_attn_v2: false
+
 # Resume/continuation controls
 continue_run: false
 saved_checkpoint: null   # absolute or relative path to *.pth

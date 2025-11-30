@@ -27,8 +27,12 @@ def patch_unet_attention_processors(
     disable_sa = bool(getattr(pipeline, "disable_branched_sa", False))
     disable_ca = bool(getattr(pipeline, "disable_branched_ca", False))
     ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
-    # from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
-    from .attn_processor2 import BranchedAttnProcessor, BranchedCrossAttnProcessor
+    # Optional: switch between legacy (v1) and trainable (v2) branched attention processors.
+    use_attn_v2 = bool(getattr(pipeline, "use_attn_v2", True))
+    if use_attn_v2:
+        from .attn_processor2 import BranchedAttnProcessor, BranchedCrossAttnProcessor
+    else:
+        from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
 
     # print(f'[TEMP DEBUG] mask in patch_unet_attention_processors: {mask}')
     

@@ -1881,6 +1881,10 @@ class PhotomakerBranchedPipeline:
             "face_embed_strategy",
             getattr(unwrapped_model, "face_embed_strategy", "face"),
         )
+        use_attn_v2_cfg = kwargs.pop(
+            "use_attn_v2",
+            getattr(unwrapped_model, "use_attn_v2", True),
+        )
         # --- ADDED For training integration (CONFIG DEFAULTS) ---
 
         pipeline = PhotoMakerStableDiffusionXLPipeline.from_pretrained(
@@ -1907,6 +1911,8 @@ class PhotomakerBranchedPipeline:
         pipeline.ca_mixing_for_face = ca_mixing_for_face_cfg
         pipeline.face_embed_strategy = face_embed_strategy_cfg
         pipeline.train_branch_mode = (train_branch_mode_cfg or "both").lower()
+        # Keep branched-attention processor implementation in sync with the training model.
+        pipeline.use_attn_v2 = bool(use_attn_v2_cfg)
 
         pipeline.tokenizer.add_tokens([pipeline.trigger_word], special_tokens=True)
         pipeline.tokenizer_2.add_tokens([pipeline.trigger_word], special_tokens=True)

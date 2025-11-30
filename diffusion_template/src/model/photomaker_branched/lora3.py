@@ -60,6 +60,7 @@ class PhotomakerBranchedLora(SDXL):
         ### 29 Nov - Clean separataion of BA-specific parameters ###
         ba_weights_split: bool = False,    # optionally enable per-branch BA-specific adapters
         ### 29 Nov - Clean separataion of BA-specific parameters ###
+        use_attn_v2: bool = True,          # toggle between attn_processor2 (v2) and attn_processor (legacy)
     ):
         super().__init__(
             pretrained_model_name_or_path=pretrained_model_name_or_path,
@@ -107,6 +108,8 @@ class PhotomakerBranchedLora(SDXL):
         ### 29 Nov - Clean separataion of BA-specific parameters ###
         self.ba_weights_split = bool(ba_weights_split)
         ### 29 Nov - Clean separataion of BA-specific parameters ###
+        # Select which branched attention processor implementation to use at train time.
+        self.use_attn_v2 = bool(use_attn_v2)
         # --- Branched-attention integration END ---
 
         photomaker_lora_config = LoraConfig(
