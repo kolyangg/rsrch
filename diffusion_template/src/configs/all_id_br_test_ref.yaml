@@ -35,6 +35,11 @@ ba_weights_split: false
 # branched SA effects on face quality.
 disable_branched_sa: false
 
+# Select branched attention implementation:
+#   true  → use attn_processor2 (trainable v2, current behavior)
+#   false → use attn_processor (legacy behavior, mainly LoRA training)
+use_attn_v2: false
+
 ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
 # If true, keep standard cross-attention processors (no branched attn2),
 # effectively disabling branched CA while leaving the rest of the pipeline
