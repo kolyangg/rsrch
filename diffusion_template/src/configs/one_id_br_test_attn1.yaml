@@ -12,7 +12,9 @@ defaults:
   # - metrics: all_metrics
   - metrics: all_metrics_oneid
   # - datasets: all_datasets
-  - datasets: all_datasets_local
+  # - datasets: all_datasets_local
+  # - dataloaders: all_dataloaders
+  - datasets: all_datasets
   - dataloaders: all_dataloaders
   - _self_
 
