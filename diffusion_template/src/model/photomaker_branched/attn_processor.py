@@ -240,8 +240,8 @@ class BranchedAttnProcessor(nn.Module):
                     id_features = id_features.unsqueeze(1).expand(-1, face_hidden_mixed.shape[1], -1)
                 
                 # Blend ID features with the mixed face
-                # id_alpha = 0.3  # Control ID influence strength
-                id_alpha = 1.0 # Temp
+                id_alpha = 0.3  # Control ID influence strength
+                # id_alpha = 1.0 # Temp
                 face_hidden_mixed = face_hidden_mixed * (1 - id_alpha) + id_features * id_alpha
             
             

@@ -1,0 +1,111 @@
+defaults:
+  - trainer: photomaker_lora
+  - model: photomaker_branched_lora2 # Modified to make attn_processor trainable in branched version
+  - writer: console
+  - transforms: only_instance
+  - ddp: accelerate
+  - lr_scheduler: custom_linear
+  # - pipeline: photomaker_branched2_both # Modified to make attn_processor trainable in branched version
+  # - pipeline: photomaker_branched2_ref
+  - pipeline: photomaker_branched2_ref1
+  # - pipeline: photomaker_branched # Modified to make attn_processor trainable in branched version
+  - metrics: all_metrics
+  # - metrics: all_metrics_oneid
+  # - datasets: all_datasets
+  # - datasets: all_datasets_local
+  # - dataloaders: all_dataloaders
+  - datasets: all_datasets
+  - dataloaders: all_dataloaders
+  - _self_
+
+model:
+  pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
+
+### 28 Nov: train only BA layers ###
+# If true, only branched attention processors (BranchedAttnProcessor / BranchedCrossAttnProcessor)
+# are trainable; LoRA adapters stay frozen. If false, train LoRA + branched processors (current behavior).
+train_ba_only: true
+### 28 Nov: train only BA layers ###
+
+
+
+# If true, keep standard self-attention processors (no branched attn1),
+# but still use two-branch cross-attention and masks. Useful for debugging
+# branched SA effects on face quality.
+disable_branched_sa: false
+
+### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
+# If true, keep standard cross-attention processors (no branched attn2),
+# effectively disabling branched CA while leaving the rest of the pipeline
+# and training loop intact.
+disable_branched_ca: false
+### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
+
+# Resume/continuation controls
+continue_run: false
+saved_checkpoint: null   # absolute or relative path to *.pth
+saved_config: null       # optional path to saved config.yaml (not required)
+cometml_id: null         # CometML experiment key to resume logging
+ddp_timeout_seconds: 21600  # 6 hours to cover long validations
+
+# If true, also copy branched-attention processor weights into the
+# temporary validation model so their effect is visible in validation.
+update_proc_weights_val: true
+
+# Optional: use a different base for validation-only pipeline
+pretrained_model_for_validation_name_or_path: SG161222/RealVisXL_V4.0
+
+optimizer:
+  _convert_: partial
+  _target_: torch.optim.AdamW
+  weight_decay: 0
+
+loss_function:
+  _target_: src.loss.diffusion_loss.MaskedDiffusionLoss
+
+lr_for_lora: 1e-5
+# Optional separate LR for processors; falls back to lr_for_lora if omitted
+# lr_for_attn_processors: 1e-5
+
+# train_dataset_name: "cosmic"
+# val_datasets_names: ["manual_val"]
+
+# train_dataset_name: "one_id"
+# val_datasets_names: ["one_id_val"]
+
+train_dataset_name: "cosmic"
+val_datasets_names: ["manual_val"]
+
+inference_metrics: ["clip_ts", "id_sim_best"]
+
+validation_debug_timing: false
+
+validation_args:
+  negative_prompt: "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry"
+  debug_dir: hm_debug
+  num_images_per_prompt: 5
+  num_inference_steps: 50
+  guidance_scale: 5
+  height: 1024
+  width: 1024
+  target_size: [1024, 1024]
+  original_size: [1024, 1024]
+  crops_coords_top_left: [0, 0]
+  use_branched_attention: true
+  face_embed_strategy: ${pipeline.face_embed_strategy}
+  photomaker_start_step: ${pipeline.photomaker_start_step}
+  merge_start_step: ${pipeline.merge_start_step}
+  branched_attn_start_step: ${pipeline.branched_attn_start_step}
+  branched_start_mode: ${pipeline.branched_start_mode}
+  #  Masking controls moved to config
+  auto_mask_ref: ${pipeline.auto_mask_ref}
+  # use_dynamic_mask: ${pipeline.use_dynamic_mask}
+  # use_bbox_mask_ref: ${pipeline.use_bbox_mask_ref}
+  # use_bbox_mask_gen: false
+
+  use_dynamic_mask: false                    # explicit, to keep behavior clear
+  use_bbox_mask_ref: true                    # as in the pipeline
+  use_bbox_mask_gen: true
+
+
+# CUDA_VISIBLE_DEVICES=0     WANDB_API_KEY=XXX     accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py     --config-name=photomaker_branched_train_lora_local_new2     trainer.epoch_len=5000     dataloaders.train.batch_size=2     dataloaders.train.num_workers=12     model.rank=16     validation_args.num_images_per_prompt=1     lr_scheduler.warmup_steps=2000     writer=console writer.run_name=photomaker_bf16 model.weight_dtype=bf16
