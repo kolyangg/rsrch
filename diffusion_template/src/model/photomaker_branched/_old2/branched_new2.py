@@ -32,7 +32,7 @@ def patch_unet_attention_processors(
     if use_attn_v2:
         from .attn_processor2 import BranchedAttnProcessor, BranchedCrossAttnProcessor
     else:
-        from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
+        from ..attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
 
     # print(f'[TEMP DEBUG] mask in patch_unet_attention_processors: {mask}')
     
@@ -49,15 +49,10 @@ def patch_unet_attention_processors(
         for p in current_procs.values()
     )
 
-    # def _apply_runtime_flags(proc, pipe):
-    #     # keep it minimal and generic
-    #     for k in ("pose_adapt_ratio", "ca_mixing_for_face", "use_id_embeds"):
-    #         if hasattr(pipe, k):
-    #             setattr(proc, k, getattr(pipe, k))
-    
+
     def _apply_runtime_flags(proc, pipe):
         # keep it minimal and generic (intentionally NOT propagating 'use_id_embeds')
-        for k in ("pose_adapt_ratio", "ca_mixing_for_face", "train_branch_mode"):
+        for k in ("pose_adapt_ratio", "ca_mixing_for_face", "train_branch_mode", "id_alpha"):
             if hasattr(pipe, k):
                 setattr(proc, k, getattr(pipe, k))
         ### 29 Nov - Clean separataion of BA-specific parameters ###
@@ -109,8 +104,6 @@ def patch_unet_attention_processors(
                         cross_attention_dim=hidden_size,
                         scale=scale,
                     ).to(pipeline.device, dtype=pipeline.unet.dtype)
-                    # print(f'[TEMP DEBUG] mask in branched_new2 - attn1: {mask}')
-                    # proc.set_masks(mask, mask_ref)
                     proc.set_masks(_mask, _mref)
                     _apply_runtime_flags(proc, pipeline)
 
@@ -158,11 +151,7 @@ def patch_unet_attention_processors(
                 # proc.set_masks(mask, mask_ref)
                 proc.set_masks(_mask, _mref)
                 _apply_runtime_flags(proc, pipeline)
-                # # Also (re)apply 2048-D ID features when provided this step.
-                # if isinstance(proc, BranchedAttnProcessor) and id_embeds is not None:
-                #     proc.id_embeds = id_embeds.to(pipeline.device, dtype=pipeline.unet.dtype)
-                #     setattr(proc, "use_id_embeds", True)
-                
+
                 # Always (re)apply id_embeds (zeros if missing) so params are used every step
                 if hasattr(proc, "id_embeds"):
                     proc.id_embeds = _idem
@@ -178,8 +167,6 @@ def encode_face_prompt(
     Encode "face" text prompt for face branch cross-attention.
     """
     # Simple "face" prompt
-    # face_text = "face"
-    # face_text = "a close-up human face, frontal, neutral expression, eyes and mouth well defined"
     face_text = "a close-up human face laughing hard"
     
     # Use the pipeline's text encoder
@@ -256,10 +243,7 @@ def two_branch_predict(
     batch_size = latent_model_input.shape[0]
     
 
-    # CRITICAL FIX: Initialize reference noise ONCE at pipeline start
-
-    REF_NOISE_ONCE = True
-    # REF_NOISE_ONCE = False
+    REF_NOISE_ONCE = True # CRITICAL FIX: Initialize reference noise ONCE at pipeline start
     
     if not hasattr(pipeline, '_ref_noise'):
         if not REF_NOISE_ONCE:
@@ -299,8 +283,8 @@ def two_branch_predict(
         t_ref
     )
 
-    # critical: match UNet’s expected scaling at this timestep
-    ref_noised = pipeline.scheduler.scale_model_input(ref_noised, t_ref).to(latent_model_input.dtype)
+    
+    ref_noised = pipeline.scheduler.scale_model_input(ref_noised, t_ref).to(latent_model_input.dtype) # critical: match UNet’s expected scaling at this timestep
 
     if full_debug:
         if step_idx in (0, 1) or step_idx % 10 == 0:
@@ -315,8 +299,6 @@ def two_branch_predict(
     batched_latents = torch.cat([latent_model_input, ref_noised], dim=0)
     
     # Patch processors with masks
-    # patch_unet_attention_processors(pipeline, mask4, mask4_ref, scale)
-    
     patch_unet_attention_processors(
         pipeline, mask4, mask4_ref, scale,
         id_embeds=id_embeds if face_embed_strategy == "id_embeds" else None,
@@ -354,8 +336,6 @@ def two_branch_predict(
         )
 
     
-    
-    # if (face_embed_strategy or "face") in {"id","id_embeds"}:
     # Only mirror the main text into the face branch for legacy "id".
     # For "id_embeds" we keep actual "face" text and use the 2048-D ID features.
     if (face_embed_strategy or "face") in {"id"}:    
@@ -423,13 +403,6 @@ def two_branch_predict(
         if (step_idx in (0, 1)) or (step_idx % 10 == 0):
             diff_mu = (prompt_embeds.detach().float() - face_prompt_embeds.detach().float()).abs().mean().item()
             print(f"[2BP]   encoder_hidden_states Δ(gen,face)μ={diff_mu:.4f}")
-        # if step_idx == 0:
-        #     pe = prompt_embeds.detach().float().mean(dim=1)
-        #     fe = face_prompt_embeds.detach().float().mean(dim=1)
-        #     cs = torch.nn.functional.cosine_similarity(pe.flatten(1), fe.flatten(1)).mean().item()
-        #     print(f"[2BP]   cos(prompt,face)={cs:.3f}")
-        #     if cs > 0.95:
-        #         print("[2BP][WARN] face prompt ~== gen prompt; identity guidance ineffective.")
 
 
     # Double added_cond_kwargs
@@ -480,7 +453,6 @@ def two_branch_predict(
 
 
 
-
     
     # Extract merged result (first half)
     noise_pred_merged = noise_pred[:batch_size]
@@ -488,10 +460,8 @@ def two_branch_predict(
     USE_SOFT_BLENDING = True
     
     if USE_SOFT_BLENDING:
-        # CRITICAL FIX: Apply soft blending near mask boundaries
         if mask4 is not None and mask4.shape[-2:] == noise_pred_merged.shape[-2:]:
-            # Apply gaussian blur to mask for smoother transitions
-            mask4 = gaussian_blur_mask(mask4, kernel_size=5)
+            mask4 = gaussian_blur_mask(mask4, kernel_size=5) # Apply gaussian blur to mask for smoother transitions
     
     
     # For debugging: approximate branch outputs

@@ -18,7 +18,7 @@ from diffusers.utils import (
 from src.model.sdxl.original import SDXL
 
 # --- Branched-attention specific import ---
-from .branched_new2 import (
+from ._old2.branched_new2 import (
     two_branch_predict,
     prepare_reference_latents,
     patch_unet_attention_processors,
@@ -60,6 +60,7 @@ class PhotomakerBranchedLora(SDXL):
         ba_weights_split: bool = False,    # optionally enable per-branch BA-specific adapters
         ### 29 Nov - Clean separataion of BA-specific parameters ###
         use_attn_v2: bool = True,          # toggle between attn_processor2 (v2) and attn_processor (legacy)
+        id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
     ):
         super().__init__(
             pretrained_model_name_or_path=pretrained_model_name_or_path,
@@ -101,6 +102,8 @@ class PhotomakerBranchedLora(SDXL):
         self.ca_mixing_for_face = bool(ca_mixing_for_face) # --- ADDED For training integration
         self.face_embed_strategy = (face_embed_strategy or "face").lower() # --- ADDED For training integration
         self.train_branch_mode = (train_branch_mode or "both").lower()
+        # ID embedding mixing strength for branched self-attention
+        self.id_alpha = float(id_alpha)
         ### 28 Nov: train only BA layers ###
         self.train_ba_only = bool(train_ba_only)
         ### 28 Nov: train only BA layers ###
@@ -576,7 +579,7 @@ class PhotomakerBranchedLora(SDXL):
     ### Modified to make attention processors train ###
     def ensure_branched_after_eval(self):
         # Re-install (no-op if already installed); pass safe masks/embeds
-        from .branched_new2 import patch_unet_attention_processors
+        from ._old2.branched_new2 import patch_unet_attention_processors
         
         # patcher expects `pipeline.device`; ensure it's present on this module
         dev = getattr(self, "device", None) or self.unet.device

@@ -18,6 +18,7 @@ defaults:
 
 model:
   pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
+  id_alpha: 0.3 # Strength of ID embedding injection into face branch in BranchedAttnProcessor
 
 ### 28 Nov: train only BA layers ###
 # If true, only branched attention processors (BranchedAttnProcessor / BranchedCrossAttnProcessor)

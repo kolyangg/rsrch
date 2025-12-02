@@ -37,11 +37,13 @@ class BranchedAttnProcessor(nn.Module):
 
         self.equalize_face_kv = equalize_face_kv
         self.equalize_clip = equalize_clip
+
         # Runtime-tunable identity/pose controls (defaults match current behavior)
         self.pose_adapt_ratio: float = 0.25    # POSE_ADAPT_RATIO
         # self.pose_adapt_ratio: float = 0.0    # POSE_ADAPT_RATIO
         self.ca_mixing_for_face: bool = True   # CA_MIXING_FOR_FACE
         self.use_id_embeds: bool = True        # USE_ID_EMBEDS
+
         # Optional: ID feature cache
         self.id_embeds = None
         self.id_to_hidden = None
@@ -118,7 +120,6 @@ class BranchedAttnProcessor(nn.Module):
             raise ValueError("Branched attention requires a mask for the background branch")
         
         # --- quick check 
-        
         # print a few times per run only
         if not hasattr(self, "_dbg_sa"): self._dbg_sa = 0
         if self._dbg_sa < 3 and mask_gate is not None:
@@ -127,7 +128,7 @@ class BranchedAttnProcessor(nn.Module):
                 print(f"[BrSA] L={seq_len}  mask_mean={mg.mean().item():.4f}  mask_>0.5={(mg>0.5).float().mean().item():.4f}")
 
         
-        # === BACKGROUND BRANCH ===
+        # ======================================== BACKGROUND BRANCH ==========================================================
         # Q: background from noise, K/V: full noise
         key_bg = attn.to_k(noise_hidden)
         value_bg = attn.to_v(noise_hidden)
@@ -142,17 +143,15 @@ class BranchedAttnProcessor(nn.Module):
             
         hidden_bg = F.scaled_dot_product_attention(q_bg, key_bg, value_bg, dropout_p=0.0, is_causal=False)
         hidden_bg = hidden_bg.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
-        # === BACKGROUND BRANCH ===
-
+        # ======================================== BACKGROUND BRANCH ==========================================================
         
-        # === FACE BRANCH ===
+
+        # ======================================== FACE BRANCH ================================================================
         # Q: face from noise, K/V: face from reference
         # key_face = attn.to_k(ref_hidden)
         # value_face = attn.to_v(ref_hidden)
         
         
-        # CRITICAL FIX: Apply face mask to reference K/V to isolate face features
-
         if mask_gate is not None:
             # mask_flat = mask_gate.squeeze(1).squeeze(-1)
             mask_flat = mask_gate.squeeze(1).squeeze(-1).to(dtype=hidden_bg.dtype)
@@ -160,16 +159,6 @@ class BranchedAttnProcessor(nn.Module):
                 mask_flat = mask_flat.unsqueeze(0)
             if mask_flat.dim() == 2:
                 mask_flat = mask_flat.unsqueeze(-1)
-
-        # Mix reference face with noise face to allow pose adaptation
-        # # POSE_ADAPT_RATIO = 0.0  # 0 = full reference (current), 1 = full noise (loses identity)
-        # # POSE_ADAPT_RATIO = 0.15
-        # POSE_ADAPT_RATIO = 0.25
-        # # POSE_ADAPT_RATIO = 0.5
-        # # POSE_ADAPT_RATIO = 1.0
-
-        # # CA_MIXING_FOR_FACE = False
-        # CA_MIXING_FOR_FACE = True
 
         # --- use runtime-tunable values instead of hard-coded locals ---
         POSE_ADAPT_RATIO   = getattr(self, "pose_adapt_ratio", 0.25)
@@ -186,15 +175,6 @@ class BranchedAttnProcessor(nn.Module):
             print(f"[BranchedAttn] Relaxing POSE_ADAPT_RATIO back to {POSE_ADAPT_RATIO:.2f}")
             self._printed_force = F
 
-        # # # USE_ID_EMBEDS = False
-        # # USE_ID_EMBEDS = True
-
-        # USE_ID_EMBEDS = getattr(self, "use_id_embeds", True)
-
-        # # print(f'[BrSA] L={seq_len}  POSE_ADAPT_RATIO={POSE_ADAPT_RATIO}  CA_MIXING_FOR_FACE={CA_MIXING_FOR_FACE}  USE_ID_EMBEDS={USE_ID_EMBEDS}')
-
-        # if not USE_ID_EMBEDS:
-        #     self.id_embeds = None
 
         # Always use ID features whenever they're provided on the processor.
         # Ignore any pipeline/runtime flag to "disable" them.
@@ -207,8 +187,6 @@ class BranchedAttnProcessor(nn.Module):
             ref_mask_flat = ref_mask.squeeze(1).squeeze(-1)
             if ref_mask_flat.dim() == 2:
                 ref_mask_flat = ref_mask_flat.unsqueeze(-1)
-            # Isolate face region in reference
-            # ref_face_hidden = ref_hidden * ref_mask_flat
 
             # Extract face regions from both noise and reference
             noise_face_hidden = noise_hidden * mask_flat  # Face from current noise
@@ -219,9 +197,6 @@ class BranchedAttnProcessor(nn.Module):
             # Higher POSE_ADAPT_RATIO = more pose flexibility, less identity preservation
             face_hidden_mixed = (1 - POSE_ADAPT_RATIO) * ref_face_hidden + POSE_ADAPT_RATIO * noise_face_hidden
             
-
-            # # NEW: Inject ID embeddings into the mixed face hidden states
-            # if hasattr(self, 'id_embeds') and self.id_embeds is not None:
 
             # Inject ID embeddings into the mixed face hidden states (2048-D → hidden)
             if USE_ID_EMBEDS:
@@ -239,28 +214,15 @@ class BranchedAttnProcessor(nn.Module):
                 if id_features.dim() == 2:
                     id_features = id_features.unsqueeze(1).expand(-1, face_hidden_mixed.shape[1], -1)
                 
-                # Blend ID features with the mixed face
-                id_alpha = 0.3  # Control ID influence strength
-                # id_alpha = 1.0 # Temp
+                # Blend ID features with the mixed face.
+                # Allow runtime override via pipeline/processor attribute; default to 0.3.
+                id_alpha = getattr(self, "id_alpha", 0.3)
                 face_hidden_mixed = face_hidden_mixed * (1 - id_alpha) + id_features * id_alpha
             
             
             if CA_MIXING_FOR_FACE:
-            #     # Combine face from reference with face from noise for K/V
-            #     # This allows the model to learn pose from noise while preserving identity from reference
-            #     noise_face = noise_hidden * mask_flat if mask_gate is not None else noise_hidden
-            #     ref_face = ref_hidden * ref_mask_flat
-
-            #     # Stack both sources for keys and values
-            #     combined_face_hidden = torch.cat([ref_face, noise_face], dim=1)  # Double sequence length
-
-            
-            # # Blend them to allow pose adaptation while preserving identity
-            # # Higher POSE_ADAPT_RATIO = more pose flexibility, less identity preservation
-            # face_hidden_mixed = (1 - POSE_ADAPT_RATIO) * ref_face_hidden + POSE_ADAPT_RATIO * noise_face_hidden
-
                # Use blended face and pure noise face for K/V
-                # This allows attending to both pose-adapted reference and current noise
+               # This allows attending to both pose-adapted reference and current noise
                 combined_face_hidden = torch.cat([face_hidden_mixed, noise_face_hidden], dim=1)  # Double sequence length
             else:
                 # Just use the blended face directly
@@ -300,7 +262,7 @@ class BranchedAttnProcessor(nn.Module):
                 raise ValueError("Branched attention requires a mask for the face branch")
         else:
             pass
-            # ⚠️ Do NOT mask reference K/V here: collapsing keys with a tight
+            # Do NOT mask reference K/V here: collapsing keys with a tight
             # face mask causes scrambled features. Gate only the queries (q_face)
             # and the final merge with the face mask.
 
@@ -315,7 +277,7 @@ class BranchedAttnProcessor(nn.Module):
             
         hidden_face = F.scaled_dot_product_attention(q_face, key_face, value_face, dropout_p=0.0, is_causal=False)
         hidden_face = hidden_face.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
-        # === FACE BRANCH ===
+        # ======================================== FACE BRANCH ================================================================
         
 
         #### DEBUG ####
@@ -357,9 +319,6 @@ class BranchedAttnProcessor(nn.Module):
         self._dbg_sa += 1
         #### DEBUG ####
 
-        ### NEW DEBUG 12 AUG
-        # print(f"BG std: {hidden_bg.std()}, Face std: {hidden_face.std()}")
-        ### NEW DEBUG 12 AUG
 
 
         # === NEW BRANCH - SELF-ATTN FOR REFERENCE ===
@@ -412,10 +371,7 @@ class BranchedAttnProcessor(nn.Module):
             print('warning - no mask on merge')
             raise ValueError("Branched attention requires a mask for the background branch")
         
-        # Combine: [merged_result, face_branch_output]
-        # hidden_states = torch.cat([merged, hidden_face], dim=0) # merged = updated noise and face branch output
-
-        # NEW - now using hidden_ref for referenc part of output
+        # Combine:
         hidden_states = torch.cat([merged, hidden_ref], dim=0) # merged = updated noise and face branch output
 
         # Apply output projection
@@ -660,11 +616,6 @@ class BranchedCrossAttnProcessor(nn.Module):
         # ========== COMBINE RESULTS ==========
         hidden_states = torch.cat([hidden_bg, hidden_ref], dim=0)
 
-
-        # hidden_states = torch.cat([merged, hidden_face], dim=0)
-
-
-        
         # Apply output projection
         hidden_states = attn.to_out[0](hidden_states)
         hidden_states = attn.to_out[1](hidden_states)  # dropout

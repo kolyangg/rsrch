@@ -34,14 +34,6 @@ from src.model.photomaker_branched.branched_new import (
     save_debug_images,
 )
 
-# # Keep existing imports:
-# from .branched_v4 import (
-#     MASK_LAYERS_CONFIG,
-#     compute_binary_face_mask,
-#     simple_threshold_mask,
-#     encode_face_latents,
-# )
-
 
 # --- ADDED For training integration (FOLDER STUCTURE) ---
 from src.model.photomaker_branched.branch_helpers import (
@@ -997,22 +989,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     ref_pixels = ref_pixels.to(device=self._execution_device, dtype=latents.dtype)
                     ref_latents = self.vae.encode(ref_pixels).latent_dist.sample() * self.vae.config.scaling_factor
                 self._ref_latents_all = ref_latents  # shape (1,4,H/8,W/8)
-                
-                
-                # # --- optional: auto-generate mask for the reference image ---
-                # if auto_mask_ref:
-                #     try:
-                #         # create a binary face mask (0/255) for the *original* reference image
-                #         from .create_mask_ref import compute_face_mask_from_pil
-                #         os.makedirs(debug_dir, exist_ok=True)
-                #         _dst = os.path.join(debug_dir, "ref_mask_auto.png")
-                #         m = compute_face_mask_from_pil(pil)  # uint8 HxW in {0,255}
-                #         from PIL import Image as _PILImage
-                #         _PILImage.fromarray(m).save(_dst)    # keep as 8-bit grayscale
-                #         import_mask_ref = _dst               # used by aggregate_heatmaps_to_mask(..., suffix="_ref")
-                #         print(f"[AutoMaskRef] Using generated ref mask at {_dst}")
-                #     except Exception as e:
-                #         print(f"[AutoMaskRef] Failed to generate ref mask (fallback to manual file): {e}")
+
 
                 # ── Auto-generate reference face mask *early* so downstream uses it
                 if auto_mask_ref:                    
@@ -1183,7 +1160,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         if use_branched_attention:
             #  # Store face prompt embeds for cross-attention
             # Do NOT overwrite with id_embeds (512-D) — keep text embeds (2048-D)
-            #  self._face_prompt_embeds = id_embeds
              
              # Prepare reference latents if not already done
              if not hasattr(self, '_ref_latents_all'):
@@ -1282,42 +1258,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     elif _desired_par != 1.0 and not _pose_relaxed_logged:
                         print(f"[PoseAdapt] Relaxing POSE_ADAPT_RATIO to user value {self._pose_user_ratio:.2f} at step {i}")
                         _pose_relaxed_logged = True
-                
-                
-                # # --- print when switching approach (half-open intervals) ---
-                # # [0, min) => NO_ID
-                # # [start_merge, branched_start) => PHOTOMAKER
-                # # [branched_start, start_merge) => BRANCHED
-                # # afterwards => whichever applies
-                # bs = branched_attn_start_step
-                # if bs is None:
-                #     bs = 10**9  # sentinel if not using branched
-                # m1 = min(start_merge_step, bs)
-                # if i < m1: mode = "NO_ID"
-                # elif start_merge_step <= i < bs: mode = "PHOTOMAKER"
-                # elif bs <= i < start_merge_step: mode = "BRANCHED"
-                # else: mode = ("BRANCHED" if i >= bs else "PHOTOMAKER")
-
-                # --- unified schedule (half-open intervals) ---
-                # [0, a) → NO_ID; [a, b) → early; [b, ∞) → late
-                # bs = branched_attn_start_step
-                # a  = min(start_merge_step, bs)
-                # b  = max(start_merge_step, bs)
-                # early = "PHOTOMAKER" if start_merge_step < bs else "BRANCHED"
-                # late  = "BRANCHED"   if start_merge_step < bs else "PHOTOMAKER"
-                # if i < a:        mode = "NO_ID"
-                # elif i < b:      mode = early
-                # else:            mode = late
-
-                # early = "PHOTOMAKER" if start_merge_step < bs else "BRANCHED"
-                # # New 4-mode schedule:
-                # # [0, a) → NO_ID; [a, b) → early; [b, ∞) → BOTH (PM + Branched)
-                # if i < a:
-                #     mode = "NO_ID"
-                # elif i < b:
-                #     mode = early
-                # else:
-                #     mode = "BOTH"
+     
 
                 bs = branched_attn_start_step
                 # sm = start_merge_step
@@ -1336,19 +1277,8 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
 
                 if mode != prev_mode:
-                    # print(f"[Switch] step {int(i)} → {mode}  (start_merge_step={int(start_merge_step)}, branched_attn_start_step={int(bs)})")
                     print(f"[Switch] step {int(i)} → {mode}  (photomaker_start_step={int(photomaker_start_step)}, branched_attn_start_step={int(bs)})")
                     prev_mode = mode
-
-                # # Enforce prompts by mode (PHOTOMAKER/BOTH → ID; NO_ID/BRANCHED → text-only)
-                # if mode in ("PHOTOMAKER", "BOTH"):
-                #     use_text_only = False
-                #     base_prompt   = prompt_embeds
-                #     base_pooled   = pooled_prompt_embeds
-                # else:
-                #     use_text_only = True
-                #     base_prompt   = prompt_embeds_text_only
-                #     base_pooled   = pooled_prompt_embeds_text_only
 
                 # Prompts by mode: PHOTOMAKER/BOTH → ID-enhanced, else text-only
                 if mode in ("PHOTOMAKER", "BOTH"):
@@ -1386,10 +1316,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     # self.mask_generator.update_mask(i)
                     self.mask_generator.update_mask(i, latents)
                                 
-                
-                # if use_branched_attention and i >= branched_attn_start_step:
-                # # Only run branched block when the schedule says so
-                # branched_active = use_branched_attention and (mode == "BRANCHED")
                 
                 # Only run branched block when the schedule says so (BRANCHED or BOTH)
                 branched_active = use_branched_attention and (mode in ("BRANCHED", "BOTH"))
@@ -1445,15 +1371,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
                         
                     # # # NEW: if branched starts before PhotoMaker, keep face branch text-only until start_merge_step
-                    # # fes_step = self.face_embed_strategy
-                    # # if fes_step in {"id", "id_embeds"} and i < start_merge_step:
-                    # #     fes_step = "face"
-                    # fes_step = self.face_embed_strategy
-
-                    # If branched runs before PhotoMaker starts, suppress ID in face branch until merge starts
-                    # fes_step = self.face_embed_strategy
-                    # if fes_step in {"id", "id_embeds"} and i < start_merge_step:
-                    #     fes_step = "face"
 
                     fes_step = self.face_embed_strategy
                     # In BOTH mode we allow ID/id_embeds even before start_merge_step
@@ -1477,7 +1394,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
 
                     # Call the new two_branch_predict function
-                    # noise_pred, noise_face, noise_bg = two_branch_predict(
+
                     # Apply mask-merge only from merge_start_step onwards
                     _mask4     = mask4     if i >= merge_start_step else None
                     _mask4_ref = mask4_ref if i >= merge_start_step else None
@@ -1677,8 +1594,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                  self.mask_generator.save_heatmap_pdf(final_image)
 
              # Cleanup dynamic mask generator
-            #  if hasattr(self, 'mask_generator'):
-            #      self.mask_generator.cleanup()
              self.mask_generator.cleanup()
 
             
@@ -1720,9 +1635,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             image = latents
             return StableDiffusionXLPipelineOutput(images=image)
 
-        # apply watermark if available
-        # if self.watermark is not None:
-        #     image = self.watermark.apply_watermark(image)
 
         image = self.image_processor.postprocess(image, output_type=output_type)
 
@@ -1799,6 +1711,10 @@ class PhotomakerBranchedPipeline:
             "face_embed_strategy",
             getattr(unwrapped_model, "face_embed_strategy", "face"),
         )
+        id_alpha_cfg = kwargs.pop(
+            "id_alpha",
+            getattr(unwrapped_model, "id_alpha", 0.3),
+        )
 
         pipeline = PhotoMakerStableDiffusionXLPipeline.from_pretrained(
             scheduler=scheduler,
@@ -1825,6 +1741,8 @@ class PhotomakerBranchedPipeline:
         pipeline.pose_adapt_ratio = pose_adapt_ratio_cfg
         pipeline.ca_mixing_for_face = ca_mixing_for_face_cfg
         pipeline.face_embed_strategy = face_embed_strategy_cfg
+        # Strength of ID embedding injection into face branch (BranchedAttnProcessor.id_alpha)
+        pipeline.id_alpha = float(id_alpha_cfg)
 
         pipeline.tokenizer.add_tokens([pipeline.trigger_word], special_tokens=True)
         pipeline.tokenizer_2.add_tokens([pipeline.trigger_word], special_tokens=True)
@@ -1836,5 +1754,6 @@ class PhotomakerBranchedPipeline:
         pipeline._config_pose_adapt_ratio = pose_adapt_ratio_cfg
         pipeline._config_ca_mixing_for_face = ca_mixing_for_face_cfg
         pipeline._config_face_embed_strategy = face_embed_strategy_cfg
+        pipeline._config_id_alpha = float(id_alpha_cfg)
 
         return pipeline

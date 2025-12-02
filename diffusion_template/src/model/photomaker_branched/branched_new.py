@@ -35,12 +35,7 @@ def patch_unet_attention_processors(
         for p in current_procs.values()
     )
 
-    # def _apply_runtime_flags(proc, pipe):
-    #     # keep it minimal and generic
-    #     for k in ("pose_adapt_ratio", "ca_mixing_for_face", "use_id_embeds"):
-    #         if hasattr(pipe, k):
-    #             setattr(proc, k, getattr(pipe, k))
-    
+
     def _apply_runtime_flags(proc, pipe):
         # keep it minimal and generic (intentionally NOT propagating 'use_id_embeds')
         for k in ("pose_adapt_ratio", "ca_mixing_for_face"):
@@ -133,8 +128,6 @@ def encode_face_prompt(
     Encode "face" text prompt for face branch cross-attention.
     """
     # Simple "face" prompt
-    # face_text = "face"
-    # face_text = "a close-up human face, frontal, neutral expression, eyes and mouth well defined"
     face_text = "a close-up human face laughing hard"
     
     # Use the pipeline's text encoder
@@ -270,8 +263,6 @@ def two_branch_predict(
     batched_latents = torch.cat([latent_model_input, ref_noised], dim=0)
     
     # Patch processors with masks
-    # patch_unet_attention_processors(pipeline, mask4, mask4_ref, scale)
-    
     patch_unet_attention_processors(
         pipeline, mask4, mask4_ref, scale,
         id_embeds=id_embeds if face_embed_strategy == "id_embeds" else None,
@@ -378,14 +369,6 @@ def two_branch_predict(
         if (step_idx in (0, 1)) or (step_idx % 10 == 0):
             diff_mu = (prompt_embeds.detach().float() - face_prompt_embeds.detach().float()).abs().mean().item()
             print(f"[2BP]   encoder_hidden_states Δ(gen,face)μ={diff_mu:.4f}")
-        # if step_idx == 0:
-        #     pe = prompt_embeds.detach().float().mean(dim=1)
-        #     fe = face_prompt_embeds.detach().float().mean(dim=1)
-        #     cs = torch.nn.functional.cosine_similarity(pe.flatten(1), fe.flatten(1)).mean().item()
-        #     print(f"[2BP]   cos(prompt,face)={cs:.3f}")
-        #     if cs > 0.95:
-        #         print("[2BP][WARN] face prompt ~== gen prompt; identity guidance ineffective.")
-
 
     # Double added_cond_kwargs
     doubled_kwargs = {}

@@ -56,7 +56,7 @@ def main(config):
     ### 29 Nov - Clean separataion of BA-specific parameters ###
     ba_weights_split = bool(getattr(config, "ba_weights_split", False))
     # Optional flag: select v2 (trainable) vs legacy branched attention processors.
-    use_attn_v2 = bool(getattr(config, "use_attn_v2", True))
+    use_attn_v2 = bool(getattr(config, "use_attn_v2", False)) # use attn_v1 by default (no Linear layers)
     ### 29 Nov - Clean separataion of BA-specific parameters ###
     ba_kwargs = {}
     model_target = str(getattr(getattr(config, "model", {}), "_target_", ""))

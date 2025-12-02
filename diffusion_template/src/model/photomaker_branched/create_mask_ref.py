@@ -126,12 +126,6 @@ def highlight_face(
     # --- ADDED For training integration ---
     mask = _binary_face_mask_from_bgr(img, scale=scale, top_scale=top_scale, dilate_frac=dilate_frac)
 
-    # # --- ADDED For training integration --- WTF TO CHECK
-    # overlay = img.copy()
-    # overlay[mask > 0] = (0.4 * overlay[mask > 0] + 0.6 * np.array([0, 0, 255])).astype(np.uint8)
-    # blended = cv2.addWeighted(img, 1 - alpha, overlay, alpha, 0)
-    # cv2.imwrite(dst_path, blended)
-    # # --- ADDED For training integration --- WTF TO CHECK
     
     red = np.full_like(img, (0, 0, 255))
     m3  = cv2.merge([mask, mask, mask])

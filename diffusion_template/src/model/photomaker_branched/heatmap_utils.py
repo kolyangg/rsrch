@@ -3,14 +3,6 @@ import math, types, torch, numpy as np
 from typing import Dict, List, Callable
 
 def _store(attn_maps:Dict[str,List[np.ndarray]], ln:str, a:torch.Tensor):
-    # H = int(math.sqrt(a.numel()))
-    # attn_maps.setdefault(ln, []).append(
-    #     a.to(torch.float32).view(H, H).cpu().numpy()
-    # )
-    
-    # if len(attn_maps.get(ln, [])) == 0:          # 1st time this layer fires
-    #     mx, av = a.max().item(), a.mean().item()
-    #     print(f"[HM] {ln:30s}   max={mx:6.3f}   mean={av:6.3f}")
     
     step = len(attn_maps.get(ln, []))            # how many maps so far
     mx, av = a.max().item(), a.mean().item()
@@ -96,9 +88,6 @@ def build_hook_focus_token(
             hs_ = hs[B_all // 2 :]
         else:
             hs_ = hs
-
-        # q_proj = (module.to_q if hasattr(module, "to_q") else module.q_proj)(hs_)
-        # k_proj = (module.to_k if hasattr(module, "to_k") else module.k_proj)(focus_latents.to(hs_.device))
 
         q_proj = (module.to_q if hasattr(module, "to_q") else module.q_proj)(hs_)
         k_proj = (module.to_k if hasattr(module, "to_k") else module.k_proj)(

@@ -26,7 +26,7 @@ from pathlib import Path  # --- MODIFIED For training integration ---
 # --- ADDED For training integration (FOLDER STUCTURE) ---
 ### 24 Nov: fixing oneid training issues
 # from src.model.photomaker_branched.branched_new3 import (
-from src.model.photomaker_branched.branched_new2 import (
+from diffusion_template.src.model.photomaker_branched._old2.branched_new2 import (
     two_branch_predict,
     prepare_reference_latents,
     encode_face_prompt,
@@ -577,9 +577,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 )
     ### Modified to make attn_processor trainable in branched version ###
 
-
-
-
     @torch.no_grad()
     def __call__(
         self,
@@ -650,6 +647,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         face_bbox_gen: Optional[List[float]] = None,
         # import_mask: Optional[str] = "hm_debug/keanu_gen_mask.png",
         import_mask: Optional[str] = "../compare/testing/ref5_masks/marion_gen_mask.png",
+        # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_new.jpg",
         # import_mask: Optional[str] = "../compare/testing/ref5_masks/marion_gen_mask_simple.png",
         # import_mask: Optional[str] = "hm_debug/keanu_gen_mask_white_new.png",
         # import_mask_ref: Optional[str] = "hm_debug/keanu_ref_mask.png",
@@ -1606,22 +1604,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     if hasattr(self, '_kv_override'):
                         self._kv_override = None
                         
-                # else:
-                    
-                #     # If UNet currently has branched processors but we're not using branched mode, restore originals
-                #     if hasattr(self.unet, 'attn_processors'):
-                #         if any(p.__class__.__name__.startswith('Branched') for p in self.unet.attn_processors.values()):
-                #             restore_original_processors(self)
-                
-                ### Modified for attention processor training ###
                 else:
-                    # Only restore originals during evaluation/inference
-                    if (not self.unet.training) and hasattr(self.unet, 'attn_processors'):
-                        if any(p.__class__.__name__.startswith('Branched') for p in self.unet.attn_processors.values()):
-                            restore_original_processors(self)
-                ### Modified for attention processor training ###
-
-                    
                     # Standard single-branch prediction
                     noise_pred = self.unet(
                         latent_model_input,
@@ -1689,6 +1672,27 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                                 str(per_image_dir),
                                 extra_step_kwargs,
                             )
+                    else:
+                        # Non-branched path: still save a debug prediction using a full mask.
+                        if debug_dir is not None:
+                            base_debug_dir = Path(debug_dir)
+                            base_debug_dir.mkdir(parents=True, exist_ok=True)
+                            total_outputs = latents.shape[0]
+                            full_mask = torch.ones_like(latents[:, :1, :, :])
+                            for idx, latent_sample in enumerate(latents):
+                                per_image_dir = base_debug_dir if total_outputs == 1 else base_debug_dir / f"{idx:02d}"
+                                per_image_dir.mkdir(parents=True, exist_ok=True)
+                                mask_slice = full_mask[idx:idx+1]
+                                save_branch_previews(
+                                    self,
+                                    latent_sample.unsqueeze(0),
+                                    noise_pred,
+                                    mask_slice,
+                                    t,
+                                    i,
+                                    str(per_image_dir),
+                                    extra_step_kwargs,
+                                )
 
 
                 # perform guidance
@@ -1877,6 +1881,10 @@ class PhotomakerBranchedPipeline:
             "face_embed_strategy",
             getattr(unwrapped_model, "face_embed_strategy", "face"),
         )
+        use_attn_v2_cfg = kwargs.pop(
+            "use_attn_v2",
+            getattr(unwrapped_model, "use_attn_v2", True),
+        )
         # --- ADDED For training integration (CONFIG DEFAULTS) ---
 
         pipeline = PhotoMakerStableDiffusionXLPipeline.from_pretrained(
@@ -1903,6 +1911,8 @@ class PhotomakerBranchedPipeline:
         pipeline.ca_mixing_for_face = ca_mixing_for_face_cfg
         pipeline.face_embed_strategy = face_embed_strategy_cfg
         pipeline.train_branch_mode = (train_branch_mode_cfg or "both").lower()
+        # Keep branched-attention processor implementation in sync with the training model.
+        pipeline.use_attn_v2 = bool(use_attn_v2_cfg)
 
         pipeline.tokenizer.add_tokens([pipeline.trigger_word], special_tokens=True)
         pipeline.tokenizer_2.add_tokens([pipeline.trigger_word], special_tokens=True)

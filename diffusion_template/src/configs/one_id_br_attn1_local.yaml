@@ -9,12 +9,12 @@ defaults:
   # - pipeline: photomaker_branched2_ref
   - pipeline: photomaker_branched2_ref1
   # - pipeline: photomaker_branched # Modified to make attn_processor trainable in branched version
-  - metrics: all_metrics
-  # - metrics: all_metrics_oneid
+  # - metrics: all_metrics
+  - metrics: all_metrics_oneid
   # - datasets: all_datasets
-  # - datasets: all_datasets_local
+  - datasets: all_datasets_local
   # - dataloaders: all_dataloaders
-  - datasets: all_datasets
+  # - datasets: all_datasets
   - dataloaders: all_dataloaders
   - _self_
 
@@ -72,11 +72,8 @@ lr_for_lora: 1e-5
 # train_dataset_name: "cosmic"
 # val_datasets_names: ["manual_val"]
 
-# train_dataset_name: "one_id"
-# val_datasets_names: ["one_id_val"]
-
-train_dataset_name: "cosmic"
-val_datasets_names: ["manual_val"]
+train_dataset_name: "one_id"
+val_datasets_names: ["one_id_val"]
 
 inference_metrics: ["clip_ts", "id_sim_best"]
 

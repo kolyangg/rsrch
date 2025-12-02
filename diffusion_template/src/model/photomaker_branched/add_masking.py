@@ -17,20 +17,6 @@ from PIL import ImageDraw, ImageFont
 def get_default_mask_config() -> List[Dict]:
     """Return the default mask layer configuration."""
 
-    # return [
-    #     {
-    #         "name": "up_blocks.0.attentions.1.transformer_blocks.1.attn2",
-    #         "weight": 0.25,
-    #         "top_ratio": 0.10,
-    #         "invert": False
-    #     },
-    #     {
-    #         "name": "up_blocks.0.attentions.1.transformer_blocks.7.attn2",
-    #         "weight": 0.75,
-    #         "top_ratio": 0.05,
-    #         "invert": True
-    #     }
-    # ]
     
     return [
         {
@@ -195,13 +181,6 @@ def make_attention_hook(
             return out
         
         # Handle CFG - use only conditional batch
-        # B_all = hidden_states.shape[0]
-        # if do_cfg and B_all % 2 == 0:
-        #     hs_cond = hidden_states[B_all // 2:]
-        #     enc_cond = encoder_hidden_states[B_all // 2:]
-        # else:
-        #     hs_cond = hidden_states
-        #     enc_cond = encoder_hidden_states
 
         B_all = hidden_states.shape[0]
         E_all = encoder_hidden_states.shape[0]
@@ -527,53 +506,6 @@ class DynamicMaskGenerator:
                     # --- MODIFIED For training integration ---
 
 
-        # # Clear buffers for next step
-        # self.attn_maps.clear()
-
-        # # Finalize if we've reached the end
-        # if step == self.mask_end:
-        #     self.mask_finalized = True
-        #     print(f"[DynamicMask] Finalized at step {step}")
-            
-            # # Save PDF if we have heatmaps
-            # if self.save_heatmap_pdf and self.heatmap_frames:
-            #     self._save_heatmap_pdf()
-    
-    # def _save_heatmap_frame(self, snapshot: Dict[str, np.ndarray], latents: torch.Tensor, step: int):
-    #     """Save heatmap overlays for each layer at current step."""
-    #     # Decode latents to RGB
-    #     with torch.no_grad():
-    #         vae = self.pipeline.vae
-    #         vae_device = next(vae.parameters()).device
-    #         vae_dtype = next(vae.parameters()).dtype
-            
-    #         lat_scaled = (latents[0:1] / vae.config.scaling_factor).to(device=vae_device, dtype=vae_dtype)
-    #         img = vae.decode(lat_scaled).sample[0]
-    #         img_np = ((img.float() / 2 + 0.5).clamp(0, 1).permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
-        
-    #     # Create heatmap overlay for each layer
-    #     colormap = cm.get_cmap("jet")
-        
-    #     for layer_name, amap in snapshot.items():
-    #         # Normalize attention map
-    #         amap_norm = (amap / amap.max()) if amap.max() > 0 else amap
-            
-    #         # Create colored heatmap
-    #         hmap = (colormap(amap_norm)[..., :3] * 255).astype(np.uint8)
-    #         hmap = np.array(Image.fromarray(hmap).resize((img_np.shape[1], img_np.shape[0]), Image.BILINEAR))
-            
-    #         # Blend with original image
-    #         heat_np = (0.5 * img_np + 0.5 * hmap).astype(np.uint8)
-    #         heat_img = Image.fromarray(heat_np)
-            
-    #         # Store frame
-    #         if layer_name not in self.heatmap_frames:
-    #             self.heatmap_frames[layer_name] = []
-    #         self.heatmap_frames[layer_name].append(heat_img)
-        
-    #     # Store step label
-    #     self.step_labels.append(f"S{step}")
-
 
     def save_heatmap_pdf(self, final_image: Optional[np.ndarray] = None):
         """
@@ -768,60 +700,6 @@ class DynamicMaskGenerator:
             return
     
 
-
-        
-        # out_dir = Path(self.debug_dir) / "hm_results"
-        # out_dir.mkdir(parents=True, exist_ok=True)
-        
-        # # Create pages for each layer
-        # pages = []
-        # header_h = 30
-        
-        # for layer_name, frames in self.heatmap_frames.items():
-        #     if not frames:
-        #         continue
-            
-        #     # Create strip for this layer
-        #     img_w, img_h = frames[0].size
-        #     strip_w = img_w * len(frames)
-        #     strip_h = img_h + header_h
-            
-        #     strip = Image.new("RGB", (strip_w, strip_h), "black")
-        #     draw = ImageDraw.Draw(strip)
-            
-        #     # Try to load a font, fall back to default
-        #     try:
-        #         font = ImageFont.load_default()
-        #     except:
-        #         font = None
-            
-        #     # Paste frames and add labels
-        #     for idx, (frame, label) in enumerate(zip(frames, self.step_labels)):
-        #         x_off = idx * img_w
-        #         strip.paste(frame, (x_off, header_h))
-                
-        #         if font:
-        #             tw, th = draw.textbbox((0, 0), label, font=font)[2:]
-        #             draw.text((x_off + (img_w - tw) // 2, (header_h - th) // 2),
-        #                      label, font=font, fill="white")
-            
-        #     pages.append(strip)
-        
-        # # Save multi-page PDF
-        # if pages:
-        #     pdf_path = out_dir / "attention_heatmaps.pdf"
-        #     pages[0].save(pdf_path, save_all=True, append_images=pages[1:])
-        #     print(f"[DynamicMask] Saved heatmap PDF to {pdf_path}")
-
-
-        # # Clear buffers for next step
-        # self.attn_maps.clear()
-        
-        # # Finalize if we've reached the end
-        # if step == self.mask_end:
-        #     self.mask_finalized = True
-        #     print(f"[DynamicMask] Finalized at step {step}")
-    
     def get_mask_for_pipeline(self):
         """
         Get the current mask in the format expected by the pipeline.
