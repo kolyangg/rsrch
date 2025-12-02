@@ -22,6 +22,8 @@ model:
   pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
   # Strength of ID embedding injection into face branch in BranchedAttnProcessor
   id_alpha: 0.3
+  # Select v2 (trainable) vs legacy branched attention processors
+  use_attn_v2: false
 
 ### 28 Nov: train only BA layers ###
 # If true, only branched attention processors (BranchedAttnProcessor / BranchedCrossAttnProcessor)

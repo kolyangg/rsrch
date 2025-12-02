@@ -26,7 +26,7 @@ from pathlib import Path  # --- MODIFIED For training integration ---
 # --- ADDED For training integration (FOLDER STUCTURE) ---
 ### 24 Nov: fixing oneid training issues
 # from src.model.photomaker_branched.branched_new3 import (
-from diffusion_template.src.model.photomaker_branched._old2.branched_new2 import (
+from diffusion_template.src.model.photomaker_branched.branched_new2 import (
     two_branch_predict,
     prepare_reference_latents,
     encode_face_prompt,

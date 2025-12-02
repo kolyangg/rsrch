@@ -1,11 +1,11 @@
 # Diffusion Template – One‑ID Branched Attention Training
 
-## Training command (one\‑ID attn1 config)
+## Training command (one‑ID attn1 config)
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 WANDB_API_KEY=XXX \
 accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
-  --config-name=one_id_br_test_attn1 \
+  --config-name=one_id_br_attn1_local \
   trainer.epoch_len=200 \
   dataloaders.train.batch_size=1 \
   dataloaders.train.num_workers=12 \
@@ -31,14 +31,14 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
       trainer.train()
   ```
 
-- [`src/configs/one_id_br_test_attn1.yaml`](src/configs/one_id_br_test_attn1.yaml) – experiment config (one‑ID, branched attn v2, attn1 focus)  
+- [`src/configs/one_id_br_attn1_local.yaml`](src/configs/one_id_br_attn1_local.yaml) – local one‑ID config (branched attn v2, attn1 focus)  
   ```yaml
   defaults:
     - trainer: photomaker_lora
     - model: photomaker_branched_lora2
     - pipeline: photomaker_branched2_ref1
     - metrics: all_metrics_oneid
-    - datasets: all_datasets
+    - datasets: all_datasets_local
     - dataloaders: all_dataloaders
   train_ba_only: true
   disable_branched_sa: false
@@ -63,13 +63,15 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
   class PhotomakerBranchedLora(SDXL):
       def __init__(..., pose_adapt_ratio=0.25, ca_mixing_for_face=True,
                    train_branch_mode="both", train_ba_only=False, ba_weights_split=False,
-                   use_attn_v2=True):
+                   use_attn_v2=True, id_alpha: float = 0.3):
           ...
           self.pose_adapt_ratio = float(pose_adapt_ratio)
           self.ca_mixing_for_face = bool(ca_mixing_for_face)
           self.train_branch_mode = (train_branch_mode or "both").lower()
           self.train_ba_only = bool(train_ba_only)
           self.ba_weights_split = bool(ba_weights_split)
+          # ID embedding mixing strength for BranchedAttnProcessor
+          self.id_alpha = float(id_alpha)
       def prepare_for_training(self):
           ...
           patch_unet_attention_processors(pipeline=self, mask=zero_ctx, mask_ref=zero_ctx, ...)
@@ -77,7 +79,7 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
           # returns branched_processors + LoRA param groups when train_ba_only is True
   ```
 
-- [`src/model/photomaker_branched/_old2/branched_new2.py`](src/model/photomaker_branched/_old2/branched_new2.py) – installs branched attn processors on UNet for training  
+- [`src/model/photomaker_branched/branched_new2.py`](src/model/photomaker_branched/branched_new2.py) – installs branched attn processors on UNet during training  
   ```python
   def patch_unet_attention_processors(pipeline, mask, mask_ref, scale=1.0,
                                       id_embeds=None, class_tokens_mask=None):
@@ -136,7 +138,7 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
   face_embed_strategy: id_embeds
   ```
 
-- [`src/pipelines/photomaker_branched_orig_fixed.py`](src/pipelines/photomaker_branched_orig_fixed.py) – SDXL pipeline wrapper for validation  
+- [`src/pipelines/photomaker_branched_orig_fixed.py`](src/pipelines/photomaker_branched_orig_fixed.py) – SDXL pipeline wrapper for validation (uses legacy branched_new)  
   ```python
   class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
       ...  # modified SDXL pipeline with PhotoMaker v2 + branched logic

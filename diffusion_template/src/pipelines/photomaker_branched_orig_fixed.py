@@ -25,7 +25,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from pathlib import Path  # --- MODIFIED For training integration ---
 # --- ADDED For training integration (FOLDER STUCTURE) ---
 # from src.model.photomaker_branched.branched_new2 import (
-from src.model.photomaker_branched.branched_new import (
+# from src.model.photomaker_branched.branched_new import (
+from src.model.photomaker_branched.branched_new2 import (
     two_branch_predict,
     prepare_reference_latents,
     encode_face_prompt,

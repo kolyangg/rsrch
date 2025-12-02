@@ -18,7 +18,7 @@ from diffusers.utils import (
 from src.model.sdxl.original import SDXL
 
 # --- Branched-attention specific import ---
-from ._old2.branched_new2 import (
+from .branched_new2 import (
     two_branch_predict,
     prepare_reference_latents,
     patch_unet_attention_processors,
@@ -579,7 +579,7 @@ class PhotomakerBranchedLora(SDXL):
     ### Modified to make attention processors train ###
     def ensure_branched_after_eval(self):
         # Re-install (no-op if already installed); pass safe masks/embeds
-        from ._old2.branched_new2 import patch_unet_attention_processors
+        from .branched_new2 import patch_unet_attention_processors
         
         # patcher expects `pipeline.device`; ensure it's present on this module
         dev = getattr(self, "device", None) or self.unet.device
