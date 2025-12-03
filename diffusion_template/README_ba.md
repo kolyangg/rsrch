@@ -5,7 +5,7 @@
 ```bash
 CUDA_VISIBLE_DEVICES=0 WANDB_API_KEY=XXX \
 accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
-  --config-name=one_id_br_attn1_local \
+  --config-name=one_id_br_attn1 \
   trainer.epoch_len=200 \
   dataloaders.train.batch_size=1 \
   dataloaders.train.num_workers=12 \
@@ -31,14 +31,14 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
       trainer.train()
   ```
 
-- [`src/configs/one_id_br_attn1_local.yaml`](src/configs/one_id_br_attn1_local.yaml) – local one‑ID config (branched attn v1/v2 switch, attn1 focus)  
+- [`src/configs/one_id_br_attn1.yaml`](src/configs/one_id_br_attn1.yaml) – one‑ID attn1 training config (branched attn v1/v2 switch)  
   ```yaml
   defaults:
     - trainer: photomaker_lora
     - model: photomaker_branched_lora2
     - pipeline: photomaker_branched2_ref1
     - metrics: all_metrics_oneid
-    - datasets: all_datasets_local
+    - datasets: all_datasets
     - dataloaders: all_dataloaders
   train_ba_only: true
   disable_branched_sa: false
@@ -60,25 +60,56 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
   lora_modules: [to_q, to_k, to_v, to_out.0]
   ```
 
-- [`src/model/photomaker_branched/lora2.py`](src/model/photomaker_branched/lora2.py) – main training model (PhotoMaker + branched LoRA)  
+- [`src/model/photomaker_branched/lora2.py`](src/model/photomaker_branched/lora2.py) – main training model (PhotoMaker + branched LoRA, wired by `id_alpha`, `train_ba_only`, `pose_adapt_ratio`, `face_embed_strategy`, `use_id_embeds`)  
   ```python
   class PhotomakerBranchedLora(SDXL):
-      def __init__(..., pose_adapt_ratio=0.25, ca_mixing_for_face=True,
-                   train_branch_mode="both", train_ba_only=False, ba_weights_split=False,
-                   use_attn_v2=True, id_alpha: float = 0.3):
+      def __init__(..., pose_adapt_ratio: float = 0.25,
+                   ca_mixing_for_face: bool = True,
+                   face_embed_strategy: str = "face",
+                   train_branch_mode: str = "both",
+                   train_ba_only: bool = False,
+                   ba_weights_split: bool = False,
+                   use_attn_v2: bool = True,
+                   id_alpha: float = 0.3,
+                   use_id_embeds: bool = True):
           ...
           self.pose_adapt_ratio = float(pose_adapt_ratio)
           self.ca_mixing_for_face = bool(ca_mixing_for_face)
           self.train_branch_mode = (train_branch_mode or "both").lower()
-          self.train_ba_only = bool(train_ba_only)
+          # Branched-attn knobs coming from configs
+          self.face_embed_strategy = (face_embed_strategy or "face").lower()
+          self.train_ba_only = bool(train_ba_only)   # controls which params are trainable
           self.ba_weights_split = bool(ba_weights_split)
-          # ID embedding mixing strength for BranchedAttnProcessor
-          self.id_alpha = float(id_alpha)
+          self.id_alpha = float(id_alpha)            # strength of ID mixing in BranchedAttnProcessor
+          self.use_id_embeds = bool(use_id_embeds)   # global on/off for ID projection branch
       def prepare_for_training(self):
           ...
-          patch_unet_attention_processors(pipeline=self, mask=zero_ctx, mask_ref=zero_ctx, ...)
+          patch_unet_attention_processors(
+              pipeline=self,
+              mask=zero_ctx,
+              mask_ref=zero_ctx,
+              scale=1.0,
+              id_embeds=None,
+              class_tokens_mask=None,
+          )
       def get_trainable_params(self, config):
-          # returns branched_processors + LoRA param groups when train_ba_only is True
+          if getattr(self, "train_ba_only", False):
+              # Train only branched processors + LoRA on attention projections
+              proc_params, lora_params = [], []
+              for name, p in self.unet.named_parameters():
+                  if not p.requires_grad:
+                      continue
+                  if ".attn1.processor." in name or ".attn2.processor." in name:
+                      proc_params.append(p)
+                  elif "lora_A" in name or "lora_B" in name:
+                      lora_params.append(p)
+              param_groups = []
+              if proc_params:
+                  param_groups.append({"params": proc_params, "lr": config.lr_for_lora, "name": "branched_processors"})
+              if lora_params:
+                  param_groups.append({"params": lora_params, "lr": config.lr_for_lora, "name": "branched_lora"})
+              return param_groups
+          # otherwise: train all LoRA parameters with requires_grad=True
   ```
 
 - [`src/model/photomaker_branched/branched_new2.py`](src/model/photomaker_branched/branched_new2.py) – training‑time patcher that installs branched attention on the UNet  
@@ -94,16 +125,34 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
       else:
           from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
       ...
+      def _apply_runtime_flags(proc, pipe):
+          for k in ("pose_adapt_ratio", "ca_mixing_for_face", "train_branch_mode", "id_alpha", "use_id_embeds"):
+              if hasattr(pipe, k):
+                  setattr(proc, k, getattr(pipe, k))
+      ...
       for name in pipeline.unet.attn_processors.keys():
+          ...
           if name.endswith("attn1.processor"):
-              proc = BranchedAttnProcessor(...)
+              proc = BranchedAttnProcessor(
+                  hidden_size=hidden_size,
+                  cross_attention_dim=hidden_size,
+                  scale=scale,
+              ).to(pipeline.device, dtype=pipeline.unet.dtype)
+              proc.set_masks(_mask, _mref)
+              _apply_runtime_flags(proc, pipeline)
+              proc.id_embeds = _idem  # zeros if missing; gated by use_id_embeds
+              new_procs[name] = proc
           elif name.endswith("attn2.processor"):
               proc = BranchedCrossAttnProcessor(...)
+              proc.set_masks(_mask, _mref)
+              proc.id_embeds = _idem
+              proc.class_tokens_mask = class_tokens_mask
+              new_procs[name] = proc
       pipeline.unet.set_attn_processor(new_procs)
   ```
   For all current `*_attn1*` configs (`use_attn_v2: false`), this patcher is active in both training and validation but always resolves to **`attn_processor.py`**; `_old2/attn_processor2.py` is only used if you explicitly enable `use_attn_v2: true`.
 
-- [`src/model/photomaker_branched/attn_processor.py`](src/model/photomaker_branched/attn_processor.py) – branched self‑/cross‑attention actually used for attn1 configs (`use_attn_v2: false`)  
+- [`src/model/photomaker_branched/attn_processor.py`](src/model/photomaker_branched/attn_processor.py) – branched self‑/cross‑attention actually used for attn1 configs (`use_attn_v2: false`) and controlled by `pose_adapt_ratio`, `id_alpha`, `use_id_embeds`  
   ```python
   class BranchedAttnProcessor(nn.Module):
       def __init__(..., scale=1.0, ...):
@@ -112,6 +161,13 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
           self.use_id_embeds: bool = True  # can be overridden from config
       def __call__(..., hidden_states, encoder_hidden_states=None, ...):
           # splits [noise, reference] batch and applies background + face branches
+          POSE_ADAPT_RATIO   = getattr(self, "pose_adapt_ratio", 0.25)
+          CA_MIXING_FOR_FACE = getattr(self, "ca_mixing_for_face", True)
+          ...
+          # Blend reference and current-noise face features; higher POSE_ADAPT_RATIO → more pose flexibility
+          face_hidden_mixed = (1 - POSE_ADAPT_RATIO) * ref_face_hidden + POSE_ADAPT_RATIO * noise_face_hidden
+
+          # ID injection branch (disabled in attn1 configs via use_id_embeds: false)
           use_id_flag = getattr(self, "use_id_embeds", True)
           USE_ID_EMBEDS = bool(use_id_flag) and (self.id_embeds is not None)
           if USE_ID_EMBEDS:
@@ -131,7 +187,7 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
 - [`src/model/photomaker_branched/_old2/attn_processor2.py`](src/model/photomaker_branched/_old2/attn_processor2.py) – alternate v2 processors (not used when `use_attn_v2: false`)  
   They pre‑register `id_to_hidden` and optional branch‑specific adapters in `__init__` and are selected only if you set `use_attn_v2: true` in the config.
 
-- [`src/configs/pipeline/photomaker_branched2_ref1.yaml`](src/configs/pipeline/photomaker_branched2_ref1.yaml) – validation pipeline config (branched PhotoMaker)  
+- [`src/configs/pipeline/photomaker_branched2_ref1.yaml`](src/configs/pipeline/photomaker_branched2_ref1.yaml) – validation pipeline config (branched PhotoMaker; sets `branched_attn_start_step`, `pose_adapt_ratio`, `face_embed_strategy`)  
   ```yaml
   _target_: src.pipelines.photomaker_branched_orig_fixed.PhotomakerBranchedPipeline.from_pretrained
   pretrained_model_name_or_path: stabilityai/stable-diffusion-xl-base-1.0
@@ -140,12 +196,12 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
   branched_attn_start_step: 15
   branched_start_mode: both
   train_branch_mode: both
-  pose_adapt_ratio: 0
+  pose_adapt_ratio: 0.25
   ca_mixing_for_face: false
   face_embed_strategy: id_embeds
   ```
 
-- [`src/pipelines/photomaker_branched_orig_fixed.py`](src/pipelines/photomaker_branched_orig_fixed.py) – SDXL pipeline wrapper used for validation (imports `branched_new2`, which in our attn1 configs still resolves to `attn_processor.py`)  
+- [`src/pipelines/photomaker_branched_orig_fixed.py`](src/pipelines/photomaker_branched_orig_fixed.py) – SDXL pipeline wrapper used for validation (imports `branched_new2`, and exposes `pose_adapt_ratio`, `face_embed_strategy`, `use_id_embeds`, `id_alpha` to the processors)  
   ```python
   class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
       ...  # modified SDXL pipeline with PhotoMaker v2 + branched logic
@@ -154,10 +210,29 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
       @staticmethod
       def from_pretrained(model, accelerator, *args, **kwargs):
           photomaker_start_step_cfg = kwargs.pop("photomaker_start_step", 10)
+          merge_start_step_cfg = kwargs.pop("merge_start_step", 10)
+          branched_attn_start_step_cfg = kwargs.pop("branched_attn_start_step", 10)
           ...
-          id_alpha_cfg = kwargs.pop("id_alpha", 0.3)
+          face_embed_strategy_cfg = kwargs.pop(
+              "face_embed_strategy",
+              getattr(unwrapped_model, "face_embed_strategy", "face"),
+          )
+          use_id_embeds_cfg = kwargs.pop(
+              "use_id_embeds",
+              getattr(unwrapped_model, "use_id_embeds", True),
+          )
+          id_alpha_cfg = kwargs.pop(
+              "id_alpha",
+              getattr(unwrapped_model, "id_alpha", 0.3),
+          )
           pipeline = PhotoMakerStableDiffusionXLPipeline.from_pretrained(..., unet=unwrapped_model.unet, ...)
+          pipeline.pose_adapt_ratio = pose_adapt_ratio_cfg
+          pipeline.face_embed_strategy = face_embed_strategy_cfg
+          pipeline.use_id_embeds = bool(use_id_embeds_cfg)
           pipeline.id_alpha = float(id_alpha_cfg)
+          # cached copies for debugging / serialization
+          pipeline._config_branched_attn_start_step = branched_attn_start_step_cfg
+          ...
           return pipeline
   ```
 
