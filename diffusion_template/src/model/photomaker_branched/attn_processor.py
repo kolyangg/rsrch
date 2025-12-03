@@ -42,7 +42,7 @@ class BranchedAttnProcessor(nn.Module):
         self.pose_adapt_ratio: float = 0.25    # POSE_ADAPT_RATIO
         # self.pose_adapt_ratio: float = 0.0    # POSE_ADAPT_RATIO
         self.ca_mixing_for_face: bool = True   # CA_MIXING_FOR_FACE
-        self.use_id_embeds: bool = True        # USE_ID_EMBEDS
+        self.use_id_embeds: bool = True        # USE_ID_EMBEDS (can be toggled via config)
 
         # Optional: ID feature cache
         self.id_embeds = None
@@ -176,9 +176,9 @@ class BranchedAttnProcessor(nn.Module):
             self._printed_force = F
 
 
-        # Always use ID features whenever they're provided on the processor.
-        # Ignore any pipeline/runtime flag to "disable" them.
-        USE_ID_EMBEDS = self.id_embeds is not None
+        # Use ID features only when both a runtime flag and embeddings are present.
+        use_id_flag = getattr(self, "use_id_embeds", True)
+        USE_ID_EMBEDS = bool(use_id_flag) and (self.id_embeds is not None)
 
         
         if self.mask_ref is not None:

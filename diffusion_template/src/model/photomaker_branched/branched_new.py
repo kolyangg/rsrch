@@ -37,8 +37,8 @@ def patch_unet_attention_processors(
 
 
     def _apply_runtime_flags(proc, pipe):
-        # keep it minimal and generic (intentionally NOT propagating 'use_id_embeds')
-        for k in ("pose_adapt_ratio", "ca_mixing_for_face"):
+        # propagate key runtime knobs from model/pipeline onto processors
+        for k in ("pose_adapt_ratio", "ca_mixing_for_face", "use_id_embeds"):
             if hasattr(pipe, k):
                 setattr(proc, k, getattr(pipe, k))
    
@@ -73,11 +73,8 @@ def patch_unet_attention_processors(
                 ).to(pipeline.device, dtype=pipeline.unet.dtype)
                 proc.set_masks(mask, mask_ref)
                 _apply_runtime_flags(proc, pipeline)
-                
                 if id_embeds is not None:
                     proc.id_embeds = id_embeds.to(pipeline.device, dtype=pipeline.unet.dtype)
-                # Be explicit: we always want to use ID features if present.
-                setattr(proc, "use_id_embeds", True)
                 
                 new_procs[name] = proc
                 
@@ -116,7 +113,6 @@ def patch_unet_attention_processors(
                 # Also (re)apply 2048-D ID features when provided this step.
                 if isinstance(proc, BranchedAttnProcessor) and id_embeds is not None:
                     proc.id_embeds = id_embeds.to(pipeline.device, dtype=pipeline.unet.dtype)
-                    setattr(proc, "use_id_embeds", True)
 
 def encode_face_prompt(
     pipeline,

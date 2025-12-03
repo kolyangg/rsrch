@@ -61,6 +61,7 @@ class PhotomakerBranchedLora(SDXL):
         ### 29 Nov - Clean separataion of BA-specific parameters ###
         use_attn_v2: bool = True,          # toggle between attn_processor2 (v2) and attn_processor (legacy)
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
+        use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
     ):
         super().__init__(
             pretrained_model_name_or_path=pretrained_model_name_or_path,
@@ -104,6 +105,8 @@ class PhotomakerBranchedLora(SDXL):
         self.train_branch_mode = (train_branch_mode or "both").lower()
         # ID embedding mixing strength for branched self-attention
         self.id_alpha = float(id_alpha)
+        # Global on/off switch for BranchedAttnProcessor.id_to_hidden usage
+        self.use_id_embeds = bool(use_id_embeds)
         ### 28 Nov: train only BA layers ###
         self.train_ba_only = bool(train_ba_only)
         ### 28 Nov: train only BA layers ###

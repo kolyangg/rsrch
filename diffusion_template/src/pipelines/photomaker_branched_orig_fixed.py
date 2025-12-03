@@ -1712,6 +1712,10 @@ class PhotomakerBranchedPipeline:
             "face_embed_strategy",
             getattr(unwrapped_model, "face_embed_strategy", "face"),
         )
+        use_id_embeds_cfg = kwargs.pop(
+            "use_id_embeds",
+            getattr(unwrapped_model, "use_id_embeds", True),
+        )
         id_alpha_cfg = kwargs.pop(
             "id_alpha",
             getattr(unwrapped_model, "id_alpha", 0.3),
@@ -1742,6 +1746,7 @@ class PhotomakerBranchedPipeline:
         pipeline.pose_adapt_ratio = pose_adapt_ratio_cfg
         pipeline.ca_mixing_for_face = ca_mixing_for_face_cfg
         pipeline.face_embed_strategy = face_embed_strategy_cfg
+        pipeline.use_id_embeds = bool(use_id_embeds_cfg)
         # Strength of ID embedding injection into face branch (BranchedAttnProcessor.id_alpha)
         pipeline.id_alpha = float(id_alpha_cfg)
 
@@ -1755,6 +1760,7 @@ class PhotomakerBranchedPipeline:
         pipeline._config_pose_adapt_ratio = pose_adapt_ratio_cfg
         pipeline._config_ca_mixing_for_face = ca_mixing_for_face_cfg
         pipeline._config_face_embed_strategy = face_embed_strategy_cfg
+        pipeline._config_use_id_embeds = bool(use_id_embeds_cfg)
         pipeline._config_id_alpha = float(id_alpha_cfg)
 
         return pipeline

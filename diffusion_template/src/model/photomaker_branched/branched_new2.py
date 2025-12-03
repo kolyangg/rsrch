@@ -52,8 +52,8 @@ def patch_unet_attention_processors(
 
 
     def _apply_runtime_flags(proc, pipe):
-        # keep it minimal and generic (intentionally NOT propagating 'use_id_embeds')
-        for k in ("pose_adapt_ratio", "ca_mixing_for_face", "train_branch_mode", "id_alpha"):
+        # propagate key runtime knobs from model/pipeline onto processors
+        for k in ("pose_adapt_ratio", "ca_mixing_for_face", "train_branch_mode", "id_alpha", "use_id_embeds"):
             if hasattr(pipe, k):
                 setattr(proc, k, getattr(pipe, k))
         ### 29 Nov - Clean separataion of BA-specific parameters ###
@@ -108,9 +108,8 @@ def patch_unet_attention_processors(
                     proc.set_masks(_mask, _mref)
                     _apply_runtime_flags(proc, pipeline)
 
-                    # Always wire id_embeds (zeros if missing) so params are used on all ranks
+                    # Wire id_embeds (zeros if missing); whether they are used is controlled by use_id_embeds
                     proc.id_embeds = _idem
-                    setattr(proc, "use_id_embeds", True)
 
                     new_procs[name] = proc
                 
@@ -146,17 +145,16 @@ def patch_unet_attention_processors(
         
         pipeline.unet.set_attn_processor(new_procs)
     else:
-        # Update masks on existing processors
+                # Update masks on existing processors
         for name, proc in pipeline.unet.attn_processors.items():
             if isinstance(proc, (BranchedAttnProcessor, BranchedCrossAttnProcessor)):
                 # proc.set_masks(mask, mask_ref)
                 proc.set_masks(_mask, _mref)
                 _apply_runtime_flags(proc, pipeline)
 
-                # Always (re)apply id_embeds (zeros if missing) so params are used every step
+                # (Re)apply id_embeds (zeros if missing); actual usage is gated by use_id_embeds
                 if hasattr(proc, "id_embeds"):
                     proc.id_embeds = _idem
-                    setattr(proc, "use_id_embeds", True)
 
 def encode_face_prompt(
     pipeline,

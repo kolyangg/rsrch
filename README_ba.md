@@ -31,7 +31,7 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
       trainer.train()
   ```
 
-- [`src/configs/one_id_br_attn1_local.yaml`](src/configs/one_id_br_attn1_local.yaml) – local one‑ID config (branched attn v2, attn1 focus)  
+- [`src/configs/one_id_br_attn1_local.yaml`](src/configs/one_id_br_attn1_local.yaml) – local one‑ID config (branched attn v1/v2 switch, attn1 focus)  
   ```yaml
   defaults:
     - trainer: photomaker_lora
@@ -45,7 +45,9 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
   disable_branched_ca: false
   model:
     pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
-    id_alpha: 0.3  # ID injection strength
+    id_alpha: 0.3        # ID injection strength (BranchedAttnProcessor)
+    use_attn_v2: false   # attn1 configs use legacy `attn_processor.py`
+    use_id_embeds: false # disable BranchedAttnProcessor.id_to_hidden (ID embedding branch)
   ```
 
 - [`src/configs/model/photomaker_branched_lora2.yaml`](src/configs/model/photomaker_branched_lora2.yaml) – model type and LoRA settings  
@@ -79,14 +81,18 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
           # returns branched_processors + LoRA param groups when train_ba_only is True
   ```
 
-- [`src/model/photomaker_branched/branched_new2.py`](src/model/photomaker_branched/branched_new2.py) – installs branched attn processors on UNet during training  
+- [`src/model/photomaker_branched/branched_new2.py`](src/model/photomaker_branched/branched_new2.py) – training‑time patcher that installs branched attention on the UNet  
   ```python
   def patch_unet_attention_processors(pipeline, mask, mask_ref, scale=1.0,
                                       id_embeds=None, class_tokens_mask=None):
       disable_sa = bool(getattr(pipeline, "disable_branched_sa", False))
       disable_ca = bool(getattr(pipeline, "disable_branched_ca", False))
-      use_attn_v2 = bool(getattr(pipeline, "use_attn_v2", True))
-      from .attn_processor2 import BranchedAttnProcessor, BranchedCrossAttnProcessor
+      # Default to legacy processors unless use_attn_v2 is true
+      use_attn_v2 = bool(getattr(pipeline, "use_attn_v2", False))
+      if use_attn_v2:
+          from ._old2.attn_processor2 import BranchedAttnProcessor, BranchedCrossAttnProcessor
+      else:
+          from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
       ...
       for name in pipeline.unet.attn_processors.keys():
           if name.endswith("attn1.processor"):
@@ -95,34 +101,35 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
               proc = BranchedCrossAttnProcessor(...)
       pipeline.unet.set_attn_processor(new_procs)
   ```
+  For all current `*_attn1*` configs (`use_attn_v2: false`), this patcher is active in both training and validation but always resolves to **`attn_processor.py`**; `_old2/attn_processor2.py` is only used if you explicitly enable `use_attn_v2: true`.
 
-- [`src/model/photomaker_branched/_old2/attn_processor2.py`](src/model/photomaker_branched/_old2/attn_processor2.py) – trainable branched self‑/cross‑attention used during training  
+- [`src/model/photomaker_branched/attn_processor.py`](src/model/photomaker_branched/attn_processor.py) – branched self‑/cross‑attention actually used for attn1 configs (`use_attn_v2: false`)  
   ```python
   class BranchedAttnProcessor(nn.Module):
-      def __init__(self, hidden_size, cross_attention_dim=None, scale=1.0, ...):
-          ...
-          self.id_to_hidden = nn.Linear(2048, self.hidden_size, bias=False)
-          # optional per-branch adapters when ba_weights_split is True
-          if self.ba_weights_split:
-              self.face_adapter = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
-              self.ref_adapter = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+      def __init__(..., scale=1.0, ...):
+          self.id_embeds = None
+          self.id_to_hidden = None
+          self.use_id_embeds: bool = True  # can be overridden from config
       def __call__(..., hidden_states, encoder_hidden_states=None, ...):
           # splits [noise, reference] batch and applies background + face branches
+          use_id_flag = getattr(self, "use_id_embeds", True)
+          USE_ID_EMBEDS = bool(use_id_flag) and (self.id_embeds is not None)
           if USE_ID_EMBEDS:
-              self.id_to_hidden = self.id_to_hidden.to(device=face_hidden_mixed.device,
-                                                       dtype=face_hidden_mixed.dtype)
+              if self.id_to_hidden is None:
+                  self.id_to_hidden = nn.Linear(
+                      self.id_embeds.shape[-1],
+                      face_hidden_mixed.shape[-1],
+                      bias=False,
+                  ).to(face_hidden_mixed.device, face_hidden_mixed.dtype)
               id_features = self.id_to_hidden(self.id_embeds)
-              # blend global ID features into face tokens (id_alpha controls strength)
+              id_alpha = getattr(self, "id_alpha", 0.3)
+              face_hidden_mixed = face_hidden_mixed * (1 - id_alpha) + id_features * id_alpha
   ```
 
-  ```python
-  class BranchedCrossAttnProcessor(nn.Module):
-      def __init__(self, hidden_size, cross_attention_dim, scale=1.0, num_tokens: int = 77):
-          ...
-          # no extra Linear weights here; uses UNet to_q/to_k/to_v/to_out (+ LoRA) only
-      def __call__(..., hidden_states, encoder_hidden_states, ...):
-          # branches cross-attention for noise vs reference halves of the batch
-  ```
+  For the current attn1 configs (`use_id_embeds: false`), `USE_ID_EMBEDS` is always false, so `id_to_hidden` is never created or trained. The only trainable parts are the LoRA adapters on the UNet’s attention projections (`to_q`, `to_k`, `to_v`, `to_out.0`) grouped under `"branched_lora"` in `PhotomakerBranchedLora.get_trainable_params`.
+
+- [`src/model/photomaker_branched/_old2/attn_processor2.py`](src/model/photomaker_branched/_old2/attn_processor2.py) – alternate v2 processors (not used when `use_attn_v2: false`)  
+  They pre‑register `id_to_hidden` and optional branch‑specific adapters in `__init__` and are selected only if you set `use_attn_v2: true` in the config.
 
 - [`src/configs/pipeline/photomaker_branched2_ref1.yaml`](src/configs/pipeline/photomaker_branched2_ref1.yaml) – validation pipeline config (branched PhotoMaker)  
   ```yaml
@@ -138,7 +145,7 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
   face_embed_strategy: id_embeds
   ```
 
-- [`src/pipelines/photomaker_branched_orig_fixed.py`](src/pipelines/photomaker_branched_orig_fixed.py) – SDXL pipeline wrapper for validation (uses legacy branched_new)  
+- [`src/pipelines/photomaker_branched_orig_fixed.py`](src/pipelines/photomaker_branched_orig_fixed.py) – SDXL pipeline wrapper used for validation (imports `branched_new2`, which in our attn1 configs still resolves to `attn_processor.py`)  
   ```python
   class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
       ...  # modified SDXL pipeline with PhotoMaker v2 + branched logic
