@@ -19,7 +19,8 @@ defaults:
   - _self_
 
 model:
-  pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
+  # pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
+  pretrained_model_name_or_path: null # use SDXL (default)
   # Strength of ID embedding injection into face branch in BranchedAttnProcessor
   id_alpha: 0.3
   # Select v2 (trainable) vs legacy branched attention processors
