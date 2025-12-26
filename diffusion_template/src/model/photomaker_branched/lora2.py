@@ -180,9 +180,9 @@ class PhotomakerBranchedLora(SDXL):
                         for p in proc.parameters():
                             p.requires_grad_(True)
 
-                # Re-enable LoRA weights on attention projections (lora_A / lora_B).
+                # Re-enable ONLY the trainable LoRA adapter; keep PhotoMaker base ("default") frozen.
                 for name, p in self.unet.named_parameters():
-                    if "lora_A" in name or "lora_B" in name:
+                    if ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name:
                         p.requires_grad_(True)
             ### 28 Nov: train only BA layers ###
         except Exception as e:

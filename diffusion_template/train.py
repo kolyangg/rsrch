@@ -14,6 +14,94 @@ import datetime
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
+def _format_numel(n: int) -> str:
+    if n >= 1_000_000_000:
+        return f"{n/1_000_000_000:.2f}B"
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.2f}M"
+    if n >= 1_000:
+        return f"{n/1_000:.2f}K"
+    return str(n)
+
+
+def _print_trainable_summary(model, optimizer=None, max_examples: int = 6):
+    """
+    Print a concise summary of what is trainable/frozen.
+    Uses model.requires_grad flags, and (optionally) optimizer param groups.
+    """
+    # --- module-level summary (major components) ---
+    major = ("unet", "vae", "text_encoder", "text_encoder_2", "id_encoder")
+    print("[Trainable Summary] major modules (trainable/total params):")
+    for attr in major:
+        mod = getattr(model, attr, None)
+        if mod is None:
+            continue
+        params = list(mod.parameters())
+        trainable = [p for p in params if p.requires_grad]
+        t_numel = sum(int(p.numel()) for p in trainable)
+        a_numel = sum(int(p.numel()) for p in params)
+        dt = getattr(mod, "dtype", None)
+        dt_s = str(dt).replace("torch.", "") if dt is not None else "?"
+        print(f"  - {attr}: {_format_numel(t_numel)}/{_format_numel(a_numel)}  dtype={dt_s}")
+
+    # --- name-based categories for trainables ---
+    cats = {
+        "unet_lora": {"tensors": 0, "numel": 0, "examples": []},
+        "unet_processors": {"tensors": 0, "numel": 0, "examples": []},
+        "unet_other": {"tensors": 0, "numel": 0, "examples": []},
+        "non_unet": {"tensors": 0, "numel": 0, "examples": []},
+    }
+    total_tensors = 0
+    total_numel = 0
+    for name, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        total_tensors += 1
+        n = int(p.numel())
+        total_numel += n
+        if name.startswith("unet."):
+            if "lora_A" in name or "lora_B" in name:
+                key = "unet_lora"
+            elif ".attn1.processor." in name or ".attn2.processor." in name:
+                key = "unet_processors"
+            else:
+                key = "unet_other"
+        else:
+            key = "non_unet"
+        cats[key]["tensors"] += 1
+        cats[key]["numel"] += n
+        if len(cats[key]["examples"]) < max_examples:
+            cats[key]["examples"].append(name)
+
+    print(f"[Trainable Summary] total trainable: {total_tensors} tensors / {_format_numel(total_numel)} params")
+    for key, info in cats.items():
+        if info["tensors"] == 0:
+            continue
+        ex = ", ".join(info["examples"])
+        print(f"  - {key}: {info['tensors']} tensors / {_format_numel(info['numel'])} params  e.g. {ex}")
+
+    # --- optimizer param groups (what is actually being optimized) ---
+    if optimizer is not None:
+        try:
+            name_by_id = {id(p): n for n, p in model.named_parameters()}
+            print("[Optimizer Groups] (name → #tensors / #params; examples):")
+            for g in optimizer.param_groups:
+                gname = g.get("name", "<unnamed>")
+                ps = list(g.get("params", []))
+                g_numel = sum(int(p.numel()) for p in ps)
+                # map params to names if possible
+                ex_names = []
+                for p in ps:
+                    n = name_by_id.get(id(p))
+                    if n is not None:
+                        ex_names.append(n)
+                    if len(ex_names) >= max_examples:
+                        break
+                ex = ", ".join(ex_names) if ex_names else "-"
+                print(f"  - {gname}: {len(ps)} / {_format_numel(g_numel)}  e.g. {ex}")
+        except Exception:
+            pass
+
 
 @hydra.main(version_base=None, config_path="src/configs", config_name="persongen_train_lora")
 def main(config):
@@ -112,6 +200,9 @@ def main(config):
 
             # list the names or number of params
             logger.info(f"  num params:    {len(group['params'])}")
+
+        # Print what is actually trainable/frozen for this run.
+        _print_trainable_summary(model, optimizer=optimizer)
 
     lr_scheduler = instantiate(config.lr_scheduler, optimizer=optimizer) 
 
