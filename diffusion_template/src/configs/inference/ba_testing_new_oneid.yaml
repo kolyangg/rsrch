@@ -18,7 +18,8 @@ model:
   train_branch_mode: ${pipeline.train_branch_mode}
 
 pipeline:
-  _target_: src.pipelines.photomaker_branched.PhotomakerBranchedPipeline.from_pretrained
+  # _target_: src.pipelines.photomaker_branched.PhotomakerBranchedPipeline.from_pretrained
+  _target_: src.pipelines.photomaker_branched_orig_fixed.PhotomakerBranchedPipeline.from_pretrained
   pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
   torch_dtype: bfloat16
   use_safetensors: True

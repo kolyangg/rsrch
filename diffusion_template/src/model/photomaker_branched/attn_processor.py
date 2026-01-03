@@ -47,6 +47,10 @@ class BranchedAttnProcessor(nn.Module):
         # Optional: ID feature cache
         self.id_embeds = None
         self.id_to_hidden = None
+        # Debug: print mask stats a few times per run
+        self._dbg_mask_stats = 0
+        # If True: keep masks strictly binary after resize (avoids soft boundary blending)
+        self.force_binary_masks: bool = True # False
         # Let diffusers know we accept cross_attention_kwargs to silence warnings
         self.has_cross_attention_kwargs = True
 
@@ -118,6 +122,20 @@ class BranchedAttnProcessor(nn.Module):
             mask_gate = mask_gate.to(dtype=q.dtype, device=q.device)
         else:
             raise ValueError("Branched attention requires a mask for the background branch")
+
+        debug_masks_binary = False
+        if debug_masks_binary:
+            # DEBUG: check whether masks are binary (0/1) or soft (fractional)
+            if mask_gate is not None and getattr(self, "_dbg_mask_stats", 0) < 5:
+                m = mask_gate.detach().float()
+                m_flat = m.reshape(m.shape[0], -1)
+                uniq_approx = torch.unique((m_flat * 1000).round().to(torch.int32)).numel()
+                frac_mid = ((m_flat > 1e-3) & (m_flat < 1 - 1e-3)).float().mean().item()
+                print(
+                    f"[BrSA mask] L={seq_len} min={m_flat.min().item():.4f} max={m_flat.max().item():.4f} "
+                    f"mean={m_flat.mean().item():.4f} frac_mid(0..1)={frac_mid:.4f} uniq≈{uniq_approx}"
+                )
+                self._dbg_mask_stats += 1
         
         # --- quick check 
         # print a few times per run only
@@ -187,6 +205,15 @@ class BranchedAttnProcessor(nn.Module):
             ref_mask_flat = ref_mask.squeeze(1).squeeze(-1)
             if ref_mask_flat.dim() == 2:
                 ref_mask_flat = ref_mask_flat.unsqueeze(-1)
+            if getattr(self, "_dbg_mask_stats", 0) < 5:
+                mr = ref_mask.detach().float().reshape(ref_mask.shape[0], -1)
+                uniq_approx = torch.unique((mr * 1000).round().to(torch.int32)).numel()
+                frac_mid = ((mr > 1e-3) & (mr < 1 - 1e-3)).float().mean().item()
+                print(
+                    f"[BrSA ref_mask] min={mr.min().item():.4f} max={mr.max().item():.4f} "
+                    f"mean={mr.mean().item():.4f} frac_mid(0..1)={frac_mid:.4f} uniq≈{uniq_approx}"
+                )
+                self._dbg_mask_stats += 1
 
             # Extract face regions from both noise and reference
             noise_face_hidden = noise_hidden * mask_flat  # Face from current noise
@@ -406,6 +433,8 @@ class BranchedAttnProcessor(nn.Module):
             assert h0 * w0 == L0, f"mask length {L0} not square"
             m2d = mask.view(mask.shape[0], -1)[:, :L0].float().view(mask.shape[0], 1, h0, w0)
             m2d = F.interpolate(m2d, size=(H, W), mode="bilinear", align_corners=False)
+        if getattr(self, "force_binary_masks", False):
+            m2d = (m2d > 0.5).to(dtype=m2d.dtype)
         m = m2d.flatten(2).transpose(1, 2)  # [B, H*W, 1]
         
         # Expand for batch if needed
