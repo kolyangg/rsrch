@@ -82,8 +82,15 @@ class PhotomakerBranchedLora(SDXL):
         self.id_encoder = PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken()
 
         # Instantiate FaceAnalysis once for extracting 512-D identity embeddings.
-        self.face_analyzer = FaceAnalysis2(providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
-                                           allowed_modules=["detection", "recognition"])
+        ### 26 JAN - FIX OOM ERROR WITH HIGHER  LR ###
+        # Pin ONNXRuntime CUDA provider to the per-rank GPU; otherwise multiple ranks may load on GPU:0 and OOM.
+        _device_id = int(os.environ.get("LOCAL_RANK", "0")) if torch.cuda.is_available() else 0
+        self.face_analyzer = FaceAnalysis2(
+            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+            provider_options=[{"device_id": _device_id}, {}],
+            allowed_modules=["detection", "recognition"],
+        )
+        ### 26 JAN - FIX OOM ERROR WITH HIGHER  LR ###
         ctx_id = int(os.environ.get("LOCAL_RANK", "0")) if torch.cuda.is_available() else -1  # --- MODIFIED For training integration ---
         try:
             self.face_analyzer.prepare(ctx_id=ctx_id, det_size=(640, 640))  
