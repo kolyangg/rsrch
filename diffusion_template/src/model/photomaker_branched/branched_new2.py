@@ -33,7 +33,8 @@ def patch_unet_attention_processors(
     if use_attn_v2:
         from ._old2.attn_processor2 import BranchedAttnProcessor, BranchedCrossAttnProcessor
     else:
-        from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
+        # from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
+        from .attn_processor_clean import BranchedAttnProcessor, BranchedCrossAttnProcessor
 
     # print(f'[TEMP DEBUG] mask in patch_unet_attention_processors: {mask}')
     
