@@ -342,22 +342,15 @@ class PhotomakerBranchedLora(SDXL):
                 # --- PhotoMaker v2 integration END ---
 
                 # --- Branched-attention integration START: prepare reference latents for branch mixing ---
-                # # --- MODIFIED For training integration ---
-                # reference_latent = prepare_reference_latents(
-                #     self,  
-                #     refs[0],
-                #     image_h,
-                #     image_w,
-                #     noisy_latents.dtype,
-                # )
-                # # --- MODIFIED For training integration ---
-
-                ### 29 JAN FIX ###
-                # refs[0] is a face crop; encode it with VAE-normalized pixels ([-1,1]) like inference.
-                reference_latent = self._encode_reference_latent(refs[0], target_shape=(latent_h, latent_w))
-                ### 29 JAN FIX ###
-
-
+                # --- MODIFIED For training integration ---
+                reference_latent = prepare_reference_latents(
+                    self,  
+                    refs[0],
+                    image_h,
+                    image_w,
+                    noisy_latents.dtype,
+                )
+                # --- MODIFIED For training integration ---
                 # --- Branched-attention integration END ---
 
                 # --- MODIFIED For training integration ---
@@ -400,14 +393,8 @@ class PhotomakerBranchedLora(SDXL):
         # --- MODIFIED For training integration ---
 
         # --- Branched-attention integration START: cache masks, reference latents, CFG state ---
-        # mask4 = torch.cat(mask_list, dim=0).to(device=self.device, dtype=noisy_latents.dtype)
-        # mask4_ref = mask4.clone()
-
-        ### 29 JAN FIX ###
         mask4 = torch.cat(mask_list, dim=0).to(device=self.device, dtype=noisy_latents.dtype)
-        # ref is a face crop, so treat the whole ref latent as "face" (bbox coords are in full-image space).
-        mask4_ref = torch.ones_like(mask4)
-        ### 29 JAN FIX ###
+        mask4_ref = mask4.clone()
 
         reference_latents = torch.cat(ref_latents_list, dim=0).to(device=self.device, dtype=noisy_latents.dtype)
         self._ref_latents_all = reference_latents
