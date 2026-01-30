@@ -185,15 +185,15 @@ class BranchedAttnProcessor(nn.Module):
             ref_mask_flat = ref_mask.squeeze(1).squeeze(-1)
             if ref_mask_flat.dim() == 2:
                 ref_mask_flat = ref_mask_flat.unsqueeze(-1)
-            if getattr(self, "_dbg_mask_stats", 0) < 5:
-                mr = ref_mask.detach().float().reshape(ref_mask.shape[0], -1)
-                uniq_approx = torch.unique((mr * 1000).round().to(torch.int32)).numel()
-                frac_mid = ((mr > 1e-3) & (mr < 1 - 1e-3)).float().mean().item()
-                print(
-                    f"[BrSA ref_mask] min={mr.min().item():.4f} max={mr.max().item():.4f} "
-                    f"mean={mr.mean().item():.4f} frac_mid(0..1)={frac_mid:.4f} uniq≈{uniq_approx}"
-                )
-                self._dbg_mask_stats += 1
+            # if getattr(self, "_dbg_mask_stats", 0) < 5:
+            #     mr = ref_mask.detach().float().reshape(ref_mask.shape[0], -1)
+            #     uniq_approx = torch.unique((mr * 1000).round().to(torch.int32)).numel()
+            #     frac_mid = ((mr > 1e-3) & (mr < 1 - 1e-3)).float().mean().item()
+            #     print(
+            #         f"[BrSA ref_mask] min={mr.min().item():.4f} max={mr.max().item():.4f} "
+            #         f"mean={mr.mean().item():.4f} frac_mid(0..1)={frac_mid:.4f} uniq≈{uniq_approx}"
+            #     )
+            #     self._dbg_mask_stats += 1
 
             # Extract face regions from both noise and reference
             noise_face_hidden = noise_hidden * mask_flat  # Face from current noise
