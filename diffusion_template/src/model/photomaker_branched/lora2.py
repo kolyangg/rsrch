@@ -49,6 +49,7 @@ class PhotomakerBranchedLora(SDXL):
         init_lora_weights,
         lora_modules,
         target_size: int = 1024,
+        ref_encode_size: int = 256,
         trigger_word: str = "img",
         photomaker_lora_rank: int = 64,
         pose_adapt_ratio: float = 0.25, # --- ADDED For training integration
@@ -72,6 +73,7 @@ class PhotomakerBranchedLora(SDXL):
         self.init_lora_weights = init_lora_weights
         self.lora_modules = lora_modules
         self.target_size = target_size
+        self.ref_encode_size = int(ref_encode_size)
 
         self.id_image_processor = CLIPImageProcessor()
         self.feature_extractor = self.id_image_processor  # --- MODIFIED For training integration ---
@@ -597,7 +599,8 @@ class PhotomakerBranchedLora(SDXL):
         else:
             if not isinstance(ref_image, Image.Image):
                 raise TypeError(f"Unsupported reference image type: {type(ref_image)}")
-            ref_resized = ref_image.resize((self.target_size, self.target_size), Image.BILINEAR)
+            s = max(64, min(int(getattr(self, "ref_encode_size", 256)), int(self.target_size)))
+            ref_resized = ref_image.resize((s, s), Image.BILINEAR)
             ref_np = np.array(ref_resized).astype(np.float32) / 255.0
             ref_tensor = torch.from_numpy(ref_np).permute(2, 0, 1).unsqueeze(0)
             ref_tensor = (ref_tensor - 0.5) / 0.5
