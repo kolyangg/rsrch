@@ -42,6 +42,7 @@ export TORCH_DISTRIBUTED_DEBUG=DETAIL
 # Branched version
 CUDA_VISIBLE_DEVICES=0,1 \
     COMET_API_KEY=wSzl6h2PsRcopvISb2TJvtkzH \
+    export PM_INSIGHTFACE_FORCE_CPU=1 \
     accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=2 train.py \
     --config-name=one_id_br_attn1 \
     trainer.epoch_len=500 \
