@@ -402,11 +402,24 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 # Lazily prepare FaceAnalysis once
                 if not hasattr(self, "_val_face_analyzer"):
                     from src.model.photomaker_branched.insightface_package import FaceAnalysis2, analyze_faces
-                    _fa = FaceAnalysis2(providers=['CUDAExecutionProvider'], allowed_modules=['detection', 'recognition'])
+                    _allowed = ["detection", "recognition"]
+                    _force_cpu = os.environ.get("PM_INSIGHTFACE_FORCE_CPU", "").strip().lower() in {"1", "true", "yes", "y"}
+                    _ctx_id = int(os.environ.get("LOCAL_RANK", "0")) if torch.cuda.is_available() else -1
                     try:
-                        _fa.prepare(ctx_id=0, det_size=(640, 640))
-                    except Exception:
-                        # Best-effort fallback
+                        if _force_cpu:
+                            raise RuntimeError("PM_INSIGHTFACE_FORCE_CPU enabled")
+                        _fa = FaceAnalysis2(
+                            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+                            provider_options=[{"device_id": max(_ctx_id, 0)}, {}],
+                            allowed_modules=_allowed,
+                        )
+                        try:
+                            _fa.prepare(ctx_id=_ctx_id, det_size=(640, 640))
+                        except Exception:
+                            _fa.prepare(ctx_id=-1, det_size=(640, 640))
+                    except Exception as e:
+                        print(f"[VAL] FaceAnalysis2 CUDA init failed; falling back to CPU. Reason: {e}")
+                        _fa = FaceAnalysis2(providers=["CPUExecutionProvider"], allowed_modules=_allowed)
                         _fa.prepare(ctx_id=-1, det_size=(640, 640))
                     self._val_face_analyzer = _fa
                 # Extract from the first reference image if available
