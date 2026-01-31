@@ -84,34 +84,34 @@ class PhotomakerBranchedLora(SDXL):
         self.id_encoder = PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken()
 
         # Instantiate FaceAnalysis once for extracting 512-D identity embeddings.
-        ### 26 JAN - FIX OOM ERROR WITH HIGHER  LR ###
-        # Pin ONNXRuntime CUDA provider to the per-rank GPU; otherwise multiple ranks may load on GPU:0 and OOM.
-        # If CUDA init fails (common when SDXL already consumed most VRAM), fall back to CPU so training can start.
-        _device_id = int(os.environ.get("LOCAL_RANK", "0")) if torch.cuda.is_available() else 0
-        _ctx_id = _device_id if torch.cuda.is_available() else -1
-        _allowed_modules = ["detection", "recognition"]
-        _force_cpu = os.environ.get("PM_INSIGHTFACE_FORCE_CPU", "").strip().lower() in {"1", "true", "yes", "y"}
-        try:
-            if _force_cpu:
-                raise RuntimeError("PM_INSIGHTFACE_FORCE_CPU enabled")
-            self.face_analyzer = FaceAnalysis2(
-                providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
-                provider_options=[{"device_id": _device_id}, {}],
-                allowed_modules=_allowed_modules,
-            )
-            try:
-                self.face_analyzer.prepare(ctx_id=_ctx_id, det_size=(640, 640))
-            except Exception:
-                # Some installations require ctx_id=-1 even with CUDA provider present.
-                self.face_analyzer.prepare(ctx_id=-1, det_size=(640, 640))
-        except Exception as e:
-            print(f"[PhotomakerBranchedLora] FaceAnalysis2 CUDA init failed; falling back to CPU. Reason: {e}")
-            self.face_analyzer = FaceAnalysis2(
-                providers=["CPUExecutionProvider"],
-                allowed_modules=_allowed_modules,
-            )
-            self.face_analyzer.prepare(ctx_id=-1, det_size=(640, 640))
-        ### 26 JAN - FIX OOM ERROR WITH HIGHER  LR ###
+        # ### 26 JAN - FIX OOM ERROR WITH HIGHER  LR ###
+        # # Pin ONNXRuntime CUDA provider to the per-rank GPU; otherwise multiple ranks may load on GPU:0 and OOM.
+        # # If CUDA init fails (common when SDXL already consumed most VRAM), fall back to CPU so training can start.
+        # _device_id = int(os.environ.get("LOCAL_RANK", "0")) if torch.cuda.is_available() else 0
+        # _ctx_id = _device_id if torch.cuda.is_available() else -1
+        # _allowed_modules = ["detection", "recognition"]
+        # _force_cpu = os.environ.get("PM_INSIGHTFACE_FORCE_CPU", "").strip().lower() in {"1", "true", "yes", "y"}
+        # try:
+        #     if _force_cpu:
+        #         raise RuntimeError("PM_INSIGHTFACE_FORCE_CPU enabled")
+        #     self.face_analyzer = FaceAnalysis2(
+        #         providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+        #         provider_options=[{"device_id": _device_id}, {}],
+        #         allowed_modules=_allowed_modules,
+        #     )
+        #     try:
+        #         self.face_analyzer.prepare(ctx_id=_ctx_id, det_size=(640, 640))
+        #     except Exception:
+        #         # Some installations require ctx_id=-1 even with CUDA provider present.
+        #         self.face_analyzer.prepare(ctx_id=-1, det_size=(640, 640))
+        # except Exception as e:
+        #     print(f"[PhotomakerBranchedLora] FaceAnalysis2 CUDA init failed; falling back to CPU. Reason: {e}")
+        #     self.face_analyzer = FaceAnalysis2(
+        #         providers=["CPUExecutionProvider"],
+        #         allowed_modules=_allowed_modules,
+        #     )
+        #     self.face_analyzer.prepare(ctx_id=-1, det_size=(640, 640))
+        # ### 26 JAN - FIX OOM ERROR WITH HIGHER  LR ###
         # --- PhotoMaker v2 integration END ---
 
         self.trigger_word = trigger_word
