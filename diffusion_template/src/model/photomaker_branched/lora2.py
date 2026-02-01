@@ -406,8 +406,13 @@ class PhotomakerBranchedLora(SDXL):
         ### 29 JAN FIX ###
         mask4 = torch.cat(mask_list, dim=0).to(device=self.device, dtype=noisy_latents.dtype)
         # ref is a face crop, so treat the whole ref latent as "face" (bbox coords are in full-image space).
-        mask4_ref = torch.ones_like(mask4)
+        # mask4_ref = torch.ones_like(mask4)
         ### 29 JAN FIX ###
+        
+        ### 01 FEB FIX ###
+        # ref is full-image (same coordinate space as bbox)
+        mask4_ref = mask4.clone()
+        ### 01 FEB FIX ###
 
         reference_latents = torch.cat(ref_latents_list, dim=0).to(device=self.device, dtype=noisy_latents.dtype)
         self._ref_latents_all = reference_latents

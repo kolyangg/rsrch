@@ -1051,65 +1051,72 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 " (e.g., '00.png', '01.png', ...)."
             )
         
-            # Also store as _reference_latents for the new approach
-            self._reference_latents = self._ref_latents_all
+        
+        ### FIX 01 FEB - RESTORE (REMOVE WRONG INDENT)
+        
+        # Also store as _reference_latents for the new approach
+        self._reference_latents = self._ref_latents_all
 
-            # Store the original RGB for debug
-            self._ref_img = id_pixel_values[0] if id_pixel_values.dim() == 5 else id_pixel_values
+        # Store the original RGB for debug
+        self._ref_img = id_pixel_values[0] if id_pixel_values.dim() == 5 else id_pixel_values
 
-            # IMPORTANT: Create ref_noise with same generator as latents for consistency
-            if not hasattr(self, '_ref_noise'):
-                # --- ADDED For training integration ---
-                gen = None
-                if generator is not None:
-                    cand = generator[0] if isinstance(generator, (list, tuple)) and len(generator) > 0 else generator
-                    if isinstance(cand, torch.Generator):
-                        if hasattr(cand, "device") and cand.device.type == device.type:
-                            gen = cand
-                        else:
-                            try:
-                                gen = torch.Generator(device=device)
-                                gen.set_state(cand.get_state())
-                            except Exception:
-                                gen = None
-                # --- ADDED For training integration ---
-                self._ref_noise = torch.randn(
-                    self._ref_latents_all.shape,
-                    generator=gen,
-                    device=device,
-                    dtype=self._ref_latents_all.dtype
-                )
-                
-            else:
-                # Fallback: use initial latents as reference
-                self._ref_latents_all = latents.clone()
-                self._reference_latents = self._ref_latents_all
-                self._ref_img = None
+        # IMPORTANT: Create ref_noise with same generator as latents for consistency
+        if not hasattr(self, '_ref_noise'):
+            # --- ADDED For training integration ---
+            gen = None
+            if generator is not None:
+                cand = generator[0] if isinstance(generator, (list, tuple)) and len(generator) > 0 else generator
+                if isinstance(cand, torch.Generator):
+                    if hasattr(cand, "device") and cand.device.type == device.type:
+                        gen = cand
+                    else:
+                        try:
+                            gen = torch.Generator(device=device)
+                            gen.set_state(cand.get_state())
+                        except Exception:
+                            gen = None
+            # --- ADDED For training integration ---
+            self._ref_noise = torch.randn(
+                self._ref_latents_all.shape,
+                generator=gen,
+                device=device,
+                dtype=self._ref_latents_all.dtype
+            )
             
-            # Canonicalize strategy & keep for per-step call
-            fes = (face_embed_strategy or "face").lower()
-            if fes in {"faceanalysis"}:   # old CLI synonyms
-                fes = "face"
-            self.face_embed_strategy = fes
-            # Precompute “face text” once if needed
-            if self.face_embed_strategy == "face":
-                self._face_prompt_embeds = encode_face_prompt(
-                    self, device=device, batch_size=batch_size,
-                    do_classifier_free_guidance=self.do_classifier_free_guidance,
-                ).to(device)
-            # Cache ID token positions for masking (used in id_embeds mode)
-            self._id_token_idx = class_tokens_mask[0].nonzero(as_tuple=True)[0]
+        # else:
+        #     # Fallback: use initial latents as reference
+        #     self._ref_latents_all = latents.clone()
+        #     self._reference_latents = self._ref_latents_all
+        #     self._ref_img = None
+        # else: keep existing _ref_noise (two_branch_predict handles ref-noise lifecycle)
 
-            # --- NEW: cache raw 2048-D PhotoMaker ID features (not fused text) ---
-            if id_pixel_values is not None and hasattr(self, "id_encoder"):
-                pm_feats = self.id_encoder.extract_id_features(
-                    id_pixel_values.to(device=self.device, dtype=prompt_embeds.dtype),
-                    class_tokens_mask=class_tokens_mask
-                )  # [B,2048]
-                self._pm_id_embeds_2048 = pm_feats.to(device=self.device, dtype=self.unet.dtype)
+        
+        # Canonicalize strategy & keep for per-step call
+        fes = (face_embed_strategy or "face").lower()
+        if fes in {"faceanalysis"}:   # old CLI synonyms
+            fes = "face"
+        self.face_embed_strategy = fes
+        # Precompute “face text” once if needed
+        if self.face_embed_strategy == "face":
+            self._face_prompt_embeds = encode_face_prompt(
+                self, device=device, batch_size=batch_size,
+                do_classifier_free_guidance=self.do_classifier_free_guidance,
+            ).to(device)
+        # Cache ID token positions for masking (used in id_embeds mode)
+        self._id_token_idx = class_tokens_mask[0].nonzero(as_tuple=True)[0]
+
+        # --- NEW: cache raw 2048-D PhotoMaker ID features (not fused text) ---
+        if id_pixel_values is not None and hasattr(self, "id_encoder"):
+            pm_feats = self.id_encoder.extract_id_features(
+                id_pixel_values.to(device=self.device, dtype=prompt_embeds.dtype),
+                class_tokens_mask=class_tokens_mask
+            )  # [B,2048]
+            self._pm_id_embeds_2048 = pm_feats.to(device=self.device, dtype=self.unet.dtype)
 
 
         ##### END NEW BRANCHED ATTENTION LOGIC #####
+        
+        ### FIX 01 FEB - RESTORE (REMOVE WRONG INDENT)
 
         # 9. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
@@ -1409,8 +1416,22 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                             # match [B or 2B, seq_len, dim] of current_prompt_embeds
                             seq_len = current_prompt_embeds.shape[1]
                             dim = current_prompt_embeds.shape[2]
-                            B = pm.shape[0]
-                            pos = pm.unsqueeze(1).expand(B, seq_len, dim)          # [B, L, D]
+                            # B = pm.shape[0]
+                            # pos = pm.unsqueeze(1).expand(B, seq_len, dim)          # [B, L, D]
+                            
+                            ### FIX 01 FEB - Repeat PM ID features to match UNet batch
+                            B_pos = current_prompt_embeds.shape[0] // (2 if self.do_classifier_free_guidance else 1)
+                            if pm.shape[0] == B_pos:
+                                pm_b = pm
+                            elif pm.shape[0] == 1:
+                                pm_b = pm.expand(B_pos, -1)
+                            else:
+                                pm_b = pm.mean(dim=0, keepdim=True).expand(B_pos, -1)
+                            pos = pm_b.unsqueeze(1).expand(B_pos, seq_len, dim)    # [B_pos, L, D]
+                    
+                            ### FIX 01 FEB - Repeat PM ID features to match UNet batch
+                            
+                            
                             if self.do_classifier_free_guidance:
                                 neg = torch.zeros_like(pos)                          # [B, L, D]
                                 id_face_ehs = torch.cat([neg, pos], dim=0)           # [2B, L, D]

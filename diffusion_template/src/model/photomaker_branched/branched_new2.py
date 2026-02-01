@@ -417,11 +417,23 @@ def two_branch_predict(
     
     # --- Build face-branch text properly and concat ------------------------
     # Ensure face_prompt_embeds exists and matches shape/dtype of prompt_embeds
-    if face_prompt_embeds is None or face_prompt_embeds.shape != prompt_embeds.shape:
-       # re-encode a clean face text that mirrors CFG/batch exactly
+    # if face_prompt_embeds is None or face_prompt_embeds.shape != prompt_embeds.shape:
+    #    # re-encode a clean face text that mirrors CFG/batch exactly
+    #     face_prompt_embeds = encode_face_prompt(
+    #         pipeline, device, batch_size, pipeline.do_classifier_free_guidance
+    #     )
+    
+    ### FIX 01 FEB - Don’t silently replace id_embeds face branch with generic face text ###
+    if (face_embed_strategy or "face") == "id_embeds":
+        if face_prompt_embeds is None or face_prompt_embeds.shape != prompt_embeds.shape:
+            raise ValueError("id_embeds mode requires face_prompt_embeds.shape == prompt_embeds.shape")
+    elif face_prompt_embeds is None or face_prompt_embeds.shape != prompt_embeds.shape:
         face_prompt_embeds = encode_face_prompt(
             pipeline, device, batch_size, pipeline.do_classifier_free_guidance
-        )
+        )    
+    ### FIX 01 FEB - Don’t silently replace id_embeds face branch with generic face text ###
+        
+        
     face_prompt_embeds = face_prompt_embeds.to(prompt_embeds.device, prompt_embeds.dtype)
 
     # Double-stack encoder states for branched CA:
