@@ -243,30 +243,59 @@ def two_branch_predict(
     batch_size = latent_model_input.shape[0]
     
 
-    REF_NOISE_ONCE = True # CRITICAL FIX: Initialize reference noise ONCE at pipeline start
+    # REF_NOISE_ONCE = True # CRITICAL FIX: Initialize reference noise ONCE at pipeline start
     
-    if not hasattr(pipeline, '_ref_noise'):
-        if not REF_NOISE_ONCE:
-            pipeline._ref_noise = torch.randn_like(reference_latents)
-        else:
-            # Use a fixed seed for consistent reference noise
-            ref_gen = torch.Generator(device=device)
-            if hasattr(pipeline, 'generator') and pipeline.generator is not None:
-                # Use pipeline's generator seed if available
-                ref_gen.manual_seed(42)  # Or extract seed from pipeline.generator
+    # if not hasattr(pipeline, '_ref_noise'):
+    #     if not REF_NOISE_ONCE:
+    #         pipeline._ref_noise = torch.randn_like(reference_latents)
+    #     else:
+    #         # Use a fixed seed for consistent reference noise
+    #         ref_gen = torch.Generator(device=device)
+    #         if hasattr(pipeline, 'generator') and pipeline.generator is not None:
+    #             # Use pipeline's generator seed if available
+    #             ref_gen.manual_seed(42)  # Or extract seed from pipeline.generator
+    #         try:
+    #             pipeline._ref_noise = torch.randn_like(reference_latents, generator=ref_gen)
+    #         # --- ADDED For training integration ---
+    #         except TypeError:
+    #             pipeline._ref_noise = torch.randn(
+    #                 reference_latents.shape,
+    #                 generator=ref_gen,
+    #                 device=reference_latents.device,
+    #                 dtype=reference_latents.dtype,
+    #             )
+    #         # --- ADDED For training integration ---
+    #         print(f"[2BP] Initialized reference noise (fixed for entire generation)")
+            
+            
+            
+    ### FIX 02 FEB ###
+    
+    REF_NOISE_ONCE = True  # keep same ref noise across steps within one generation
+    if not hasattr(pipeline, "_ref_noise"):
+        gen = getattr(pipeline, "generator", None)
+        if isinstance(gen, (list, tuple)):
+            gen = gen[0] if gen else None
+
+        if isinstance(gen, torch.Generator):
+            ref_gen = gen
+            if ref_gen.device.type != device.type:
+                ref_gen2 = torch.Generator(device=device)
+                ref_gen2.set_state(ref_gen.get_state())
+                ref_gen = ref_gen2
             try:
                 pipeline._ref_noise = torch.randn_like(reference_latents, generator=ref_gen)
-            # --- ADDED For training integration ---
             except TypeError:
                 pipeline._ref_noise = torch.randn(
                     reference_latents.shape,
                     generator=ref_gen,
                     device=reference_latents.device,
-                    dtype=reference_latents.dtype,
+                   dtype=reference_latents.dtype,
                 )
-            # --- ADDED For training integration ---
-            print(f"[2BP] Initialized reference noise (fixed for entire generation)")
-            
+        else:
+            # IMPORTANT: don't use a fresh unseeded torch.Generator() (it’s deterministic); use global RNG instead.
+            pipeline._ref_noise = torch.randn_like(reference_latents)
+    ### FIX 02 FEB ###
     
     t_ref = t if torch.is_tensor(t) else torch.tensor([t], device=device, dtype=torch.long)
     if t_ref.ndim == 0:
