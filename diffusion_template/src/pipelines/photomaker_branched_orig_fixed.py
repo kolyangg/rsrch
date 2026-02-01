@@ -963,7 +963,8 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                         input_id_images, height=height, width=width
                     )  # (B,3,H,W) in [-1,1]
                     ref_pixels = ref_pixels.to(device=self._execution_device, dtype=latents.dtype)
-                    ref_latents = self.vae.encode(ref_pixels).latent_dist.sample()
+                    # ref_latents = self.vae.encode(ref_pixels).latent_dist.sample()
+                    ref_latents = self.vae.encode(ref_pixels).latent_dist.mode() # 01 FEB fix
                     ref_latents = ref_latents * self.vae.config.scaling_factor
                 # If multiple refs, average or pick first; keep shape [1,4,h_lat,w_lat]
                 if ref_latents.shape[0] > 1:
@@ -988,7 +989,8 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     ref_pixels = self.image_processor.preprocess(pil, height=rh, width=rw)  # (1,3,rh,rw) in [-1,1]
                     ref_pixels = F.pad(ref_pixels, (pl, pr, pt, pb), value=0.0)            # letterbox to (H,W)
                     ref_pixels = ref_pixels.to(device=self._execution_device, dtype=latents.dtype)
-                    ref_latents = self.vae.encode(ref_pixels).latent_dist.sample() * self.vae.config.scaling_factor
+                    # ref_latents = self.vae.encode(ref_pixels).latent_dist.sample() * self.vae.config.scaling_factor
+                    ref_latents = self.vae.encode(ref_pixels).latent_dist.mode() * self.vae.config.scaling_factor # 01 FEB fix
                 self._ref_latents_all = ref_latents  # shape (1,4,H/8,W/8)
 
 
@@ -1109,6 +1111,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         if id_pixel_values is not None and hasattr(self, "id_encoder"):
             pm_feats = self.id_encoder.extract_id_features(
                 id_pixel_values.to(device=self.device, dtype=prompt_embeds.dtype),
+                id_embeds=id_embeds, ### 01 FEB fix
                 class_tokens_mask=class_tokens_mask
             )  # [B,2048]
             self._pm_id_embeds_2048 = pm_feats.to(device=self.device, dtype=self.unet.dtype)
@@ -1593,10 +1596,12 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         ## CLEANUP ##
         if use_branched_attention:
             # Restore original processors
-             restore_original_processors(self)
+            restore_original_processors(self)
              
-             # Clean up temporary attributes
-             for attr in ['_reference_latents', '_face_prompt_embeds', '_ref_latents_all']:
+            # Clean up temporary attributes
+            #  for attr in ['_reference_latents', '_face_prompt_embeds', '_ref_latents_all']:
+            for attr in ['_reference_latents', '_face_prompt_embeds', '_ref_latents_all', '_ref_noise']: ### 01 FEB FIX
+
                  if hasattr(self, attr):
                      delattr(self, attr)
 

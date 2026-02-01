@@ -154,7 +154,9 @@ class PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken(CLIPVisionModelWithProjecti
     
 
     @torch.no_grad()
-    def extract_id_features(self, id_pixel_values, class_tokens_mask=None, reduce: str = "mean"):
+    # def extract_id_features(self, id_pixel_values, class_tokens_mask=None, reduce: str = "mean"):
+    def extract_id_features(self, id_pixel_values, id_embeds=None, class_tokens_mask=None, reduce: str = "mean"): # 01 FEB fix
+
         """
         Return per-sample 2048-D PhotoMaker ID features (NOT fused text).
         Shape: [B, 2048]. If multiple ID images per sample are given (N),
@@ -163,17 +165,43 @@ class PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken(CLIPVisionModelWithProjecti
         b, n, c, h, w = id_pixel_values.shape  # [B,N,C,H,W]
         x = id_pixel_values.view(b * n, c, h, w)
 
-        shared = self.vision_model(x)[1]                 # [B*N, 1024]
-        e1 = self.visual_projection(shared)              # [B*N,  768]
-        e2 = self.visual_projection_2(shared)            # [B*N, 1280]
-        e  = torch.cat([e1, e2], dim=-1)                 # [B*N, 2048]
-        e  = e.view(b, n, 2048)                          # [B, N, 2048]
+        # shared = self.vision_model(x)[1]                 # [B*N, 1024]
+        # e1 = self.visual_projection(shared)              # [B*N,  768]
+        # e2 = self.visual_projection_2(shared)            # [B*N, 1280]
+        # e  = torch.cat([e1, e2], dim=-1)                 # [B*N, 2048]
+        # e  = e.view(b, n, 2048)                          # [B, N, 2048]
 
+        ### 01 FEB fix
+        if id_embeds is not None:
+            last_hidden_state = self.vision_model(x)[0]          # [B*N, T, 1024]
+            id_flat = id_embeds.view(b * n, -1).to(
+                device=last_hidden_state.device, dtype=last_hidden_state.dtype
+            )                                                    # [B*N, 512]
+            toks = self.qformer_perceiver(id_flat, last_hidden_state)  # [B*N, num_tokens, 2048]
+            e = toks.mean(dim=1)                                 # [B*N, 2048]
+        else:
+            shared = self.vision_model(x)[1]                     # [B*N, 1024]
+            e1 = self.visual_projection(shared)                  # [B*N,  768]
+            e2 = self.visual_projection_2(shared)                # [B*N, 1280]
+            e  = torch.cat([e1, e2], dim=-1)                     # [B*N, 2048]
+        ### 01 FEB fix
+
+
+        # if reduce == "mean":
+        #     e = e.mean(dim=1)
+        # elif reduce == "max":
+        #     e = e.max(dim=1).values
+        # # else: no reduction -> caller can handle [B,N,2048]
+        
+        ### 01 FEB fix
+        
+        e = e.reshape(b, n, 2048)
         if reduce == "mean":
             e = e.mean(dim=1)
         elif reduce == "max":
             e = e.max(dim=1).values
-        # else: no reduction -> caller can handle [B,N,2048]
+        ### 01 FEB fix
+       
 
         print('[DEBUG] id features from PM extracted')
 

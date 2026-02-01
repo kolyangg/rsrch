@@ -364,6 +364,7 @@ class PhotomakerBranchedLora(SDXL):
                 if self.face_embed_strategy == "id_embeds":  
                     pm_features = self.id_encoder.extract_id_features(
                         id_pixel_values.to(device=self.device, dtype=self.id_encoder.dtype),
+                        id_embeds=id_embeds, ### 01 FEB fix
                         class_tokens_mask=class_tokens_mask,
                     )
                     pm_feature_list.append(pm_features.to(device=self.device, dtype=self.unet.dtype))
@@ -595,7 +596,8 @@ class PhotomakerBranchedLora(SDXL):
             ref_tensor = ref_tensor.to(device=self.device, dtype=self.vae.dtype)
 
         with torch.no_grad():
-            latents = self.vae.encode(ref_tensor).latent_dist.sample()
+            # latents = self.vae.encode(ref_tensor).latent_dist.sample()
+            latents = self.vae.encode(ref_tensor).latent_dist.mode() # 01 FEB fix
         latents = latents * self.vae.config.scaling_factor
 
         if latents.shape[-2:] != target_shape:

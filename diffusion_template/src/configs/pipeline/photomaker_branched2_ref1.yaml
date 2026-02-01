@@ -17,7 +17,8 @@ train_branch_mode: both # both # both or ref_only
 pose_adapt_ratio: 0.25
 # ca_mixing_for_face: true
 ca_mixing_for_face: false
-face_embed_strategy: id_embeds
+# face_embed_strategy: id_embeds
+face_embed_strategy: id # id = use original PM embeddings
 # auto_mask_ref: true
 # use_dynamic_mask: true
 # use_bbox_mask_ref: false
