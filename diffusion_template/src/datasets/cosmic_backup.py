@@ -1,10 +1,10 @@
 from copy import deepcopy
 import json
-import random
 
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image
 from tqdm import tqdm
+from torchvision.transforms import RandomHorizontalFlip
 
 from src.datasets.base_dataset import BaseDataset
 from src.datasets.data_utils import get_bigger_crop, get_crop_values
@@ -58,7 +58,7 @@ class CosmicDoubledTrain(BaseDataset):
             index.append(v)
             self.ids.append(k.replace("LAION-5B", "LAION-5B-Filtered-Large"))
 
-        # self.flip = RandomHorizontalFlip(p=0.5)
+        self.flip = RandomHorizontalFlip(p=0.5)
 
         super().__init__(index, *args, **kwargs)
 
@@ -76,28 +76,12 @@ class CosmicDoubledTrain(BaseDataset):
             assert img_arr.shape[1] == 1024, img_arr
             img = Image.fromarray(img_arr)
 
-        # instance_data["pixel_values"] = img
-        # bbox = img_data["face_crop_new"]
-        # instance_data["face_bbox"] = deepcopy(bbox)
-
-        # ref_img = deepcopy(img)
-        # ref_images = [self.flip(get_bigger_crop(ref_img, crop=deepcopy(bbox)))]
-
-        ### FIX 01 FEB ###
-        bbox = deepcopy(img_data["face_crop_new"])
-        if random.random() < 0.5:
-            w, _ = img.size
-            img = ImageOps.mirror(img)
-            x0, y0, x1, y1 = bbox
-            bbox = [w - x1, y0, w - x0, y1]
-
         instance_data["pixel_values"] = img
-        instance_data["face_bbox"] = bbox
+        bbox = img_data["face_crop_new"]
+        instance_data["face_bbox"] = deepcopy(bbox)
 
-        ref_images = [get_bigger_crop(deepcopy(img), crop=deepcopy(bbox))]
-        ### FIX 01 FEB ###
-    
-    
+        ref_img = deepcopy(img)
+        ref_images = [self.flip(get_bigger_crop(ref_img, crop=deepcopy(bbox)))]
         instance_data["ref_images"] = ref_images
 
         prompt = ", ".join(
@@ -152,7 +136,7 @@ class OneIDTrain(BaseDataset):
             index.append(v)
             self.ids.append(k)
 
-        # self.flip = RandomHorizontalFlip(p=0.5)
+        self.flip = RandomHorizontalFlip(p=0.5)
 
         super().__init__(index, *args, **kwargs)
 
@@ -163,28 +147,13 @@ class OneIDTrain(BaseDataset):
         instance_data = {}
 
         img = Image.open(f"{self.images_path}/{path}").convert("RGB")
-        # instance_data["pixel_values"] = img
-
-        # bbox = img_data["face_crop"]
-        # instance_data["face_bbox"] = deepcopy(bbox)
-
-        # ref_img = deepcopy(img)
-        # ref_images = [self.flip(get_bigger_crop(ref_img, crop=deepcopy(bbox)))]
-        
-        ### 01 FEB ###
-        bbox = deepcopy(img_data["face_crop"])
-        if random.random() < 0.5:
-            w, _ = img.size
-            img = ImageOps.mirror(img)
-            x0, y0, x1, y1 = bbox
-            bbox = [w - x1, y0, w - x0, y1]
-
         instance_data["pixel_values"] = img
-        instance_data["face_bbox"] = bbox
 
-        ref_images = [get_bigger_crop(deepcopy(img), crop=deepcopy(bbox))]
-        ### 01 FEB ###
-        
+        bbox = img_data["face_crop"]
+        instance_data["face_bbox"] = deepcopy(bbox)
+
+        ref_img = deepcopy(img)
+        ref_images = [self.flip(get_bigger_crop(ref_img, crop=deepcopy(bbox)))]
         instance_data["ref_images"] = ref_images
 
         text = img_data.get("text", "")
