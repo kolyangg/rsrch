@@ -85,13 +85,25 @@ class PhotomakerBranchedLora(SDXL):
         ### 26 JAN - FIX OOM ERROR WITH HIGHER  LR ###
         # Pin ONNXRuntime CUDA provider to the per-rank GPU; otherwise multiple ranks may load on GPU:0 and OOM.
         _device_id = int(os.environ.get("LOCAL_RANK", "0")) if torch.cuda.is_available() else 0
+        # self.face_analyzer = FaceAnalysis2(
+        #     providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+        #     provider_options=[{"device_id": _device_id}, {}],
+        #     allowed_modules=["detection", "recognition"],
+        # )
+        # ### 26 JAN - FIX OOM ERROR WITH HIGHER  LR ###
+        # ctx_id = int(os.environ.get("LOCAL_RANK", "0")) if torch.cuda.is_available() else -1  # --- MODIFIED For training integration ---
+
+
+        ### 01 FEB FIX OOM TRY ###
+        # Debug / low-VRAM mode: avoid ORT CUDA allocations (prevents init-time OOM).
         self.face_analyzer = FaceAnalysis2(
-            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
-            provider_options=[{"device_id": _device_id}, {}],
+            providers=["CPUExecutionProvider"],
             allowed_modules=["detection", "recognition"],
         )
-        ### 26 JAN - FIX OOM ERROR WITH HIGHER  LR ###
-        ctx_id = int(os.environ.get("LOCAL_RANK", "0")) if torch.cuda.is_available() else -1  # --- MODIFIED For training integration ---
+        ctx_id = -1
+        ### 01 FEB FIX OOM TRY ###
+
+
         try:
             self.face_analyzer.prepare(ctx_id=ctx_id, det_size=(640, 640))  
         except Exception:
