@@ -10,7 +10,7 @@ use_safetensors: True
 variant: fp16
 photomaker_start_step: 0
 merge_start_step: 0
-branched_attn_start_step: 0
+branched_attn_start_step: 1
 branched_start_mode: both
 train_branch_mode: both # both # both or ref_only
 # pose_adapt_ratio: 0
