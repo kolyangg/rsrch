@@ -59,6 +59,13 @@ ddp_timeout_seconds: 21600  # 6 hours to cover long validations
 # temporary validation model so their effect is visible in validation.
 update_proc_weights_val: true
 
+# If true, validation will:
+#   (1) run plain PhotoMaker (no BA),
+#   (2) detect face bbox on the generated image and write *_auto.json,
+#   (3) run branched attention using that bbox as gen-mask,
+#   (4) save bbox overlay into validation_args.debug_dir/00,01,...
+automatic_bboxes: false
+
 # Optional: use a different base for validation-only pipeline
 pretrained_model_for_validation_name_or_path: SG161222/RealVisXL_V4.0
 

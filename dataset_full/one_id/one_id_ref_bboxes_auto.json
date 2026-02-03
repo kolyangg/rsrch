@@ -1,0 +1,242 @@
+{
+  "Reading pa_51.png": {
+    "face_crop_old": [
+      262,
+      88,
+      542,
+      461
+    ],
+    "face_crop_new": [
+      281,
+      114,
+      523,
+      435
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ]
+  },
+  "Rushing ma_51.png": {
+    "face_crop_old": [
+      514,
+      187,
+      776,
+      560
+    ],
+    "face_crop_new": [
+      532,
+      213,
+      758,
+      534
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ]
+  },
+  "Skiing man_51.png": {
+    "face_crop_old": [
+      379,
+      358,
+      726,
+      826
+    ],
+    "face_crop_new": [
+      403,
+      390,
+      702,
+      794
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ]
+  },
+  "Drumming m_51.png": {
+    "face_crop_old": [
+      337,
+      221,
+      542,
+      505
+    ],
+    "face_crop_new": [
+      351,
+      240,
+      528,
+      486
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ]
+  },
+  "Kickboxing_51.png": {
+    "face_crop_old": [
+      359,
+      95,
+      700,
+      528
+    ],
+    "face_crop_new": [
+      383,
+      125,
+      676,
+      498
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ]
+  },
+  "Dancing ma_51.png": {
+    "face_crop_old": [
+      345,
+      97,
+      473,
+      306
+    ],
+    "face_crop_new": [
+      354,
+      111,
+      464,
+      291
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ]
+  },
+  "Angry man _51.png": {
+    "face_crop_old": [
+      436,
+      178,
+      679,
+      505
+    ],
+    "face_crop_new": [
+      453,
+      200,
+      662,
+      483
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ]
+  },
+  "Crying man_51.png": {
+    "face_crop_old": [
+      229,
+      334,
+      475,
+      671
+    ],
+    "face_crop_new": [
+      246,
+      357,
+      458,
+      648
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ]
+  },
+  "Laughing m_51.png": {
+    "face_crop_old": [
+      306,
+      168,
+      541,
+      492
+    ],
+    "face_crop_new": [
+      322,
+      190,
+      525,
+      469
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ]
+  },
+  "Jumping ma_51.png": {
+    "face_crop_old": [
+      518,
+      324,
+      626,
+      485
+    ],
+    "face_crop_new": [
+      526,
+      335,
+      618,
+      473
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ]
+  },
+  "Night-ride_51.png": {
+    "face_crop_old": [
+      488,
+      143,
+      695,
+      405
+    ],
+    "face_crop_new": [
+      502,
+      161,
+      681,
+      387
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ]
+  },
+  "Chef man i_51.png": {
+    "face_crop_old": [
+      575,
+      420,
+      690,
+      570
+    ],
+    "face_crop_new": [
+      583,
+      431,
+      682,
+      559
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ]
+  }
+}

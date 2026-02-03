@@ -256,39 +256,102 @@ class PhotomakerLoraTrainer(SDXLTrainer):
 
         batch_size = len(prompts)
 
+        # Optional: generate gen-bboxes on-the-fly via an extra PhotoMaker-only pass.
+        # Only makes sense when branched attention is expected to run.
+        automatic_bboxes = bool(getattr(self.config, "automatic_bboxes", False))
+        use_gen_mask = bool(self.config.validation_args.get("use_bbox_mask_gen", False))
+        use_branched_attention = bool(self.config.validation_args.get("use_branched_attention", False))
+        try:
+            sm = int(self.config.validation_args.get("photomaker_start_step", 0))
+            bs = int(self.config.validation_args.get("branched_attn_start_step", 0))
+            nsteps = int(self.config.validation_args.get("num_inference_steps", 50))
+        except Exception:
+            sm, bs, nsteps = 0, 1, 50
+
+        # Branched attention is expected to run whenever it is enabled and starts within the denoising horizon.
+        # (bs==sm is a valid "start from step 0" configuration.)
+        branched_expected = bool(use_branched_attention) and (bs < nsteps)
+        auto_bbox_enabled = bool(automatic_bboxes and use_gen_mask and branched_expected)
+        if auto_bbox_enabled and not hasattr(self, "_printed_auto_bbox"):
+            print("[AutoBboxGen] enabled: will run PhotoMaker-only pass to detect gen bboxes")
+            self._printed_auto_bbox = True
+
         # Lazily load name-keyed bbox map once, matching infer.py behavior
         if not hasattr(self, "_gen_bbox_by_name"):
             gen_bbox = None
-            # Try to read from the active validation dataset object
-            try:
-                for _name, _loader in getattr(self, "evaluation_dataloaders", {}).items():
-                    ds = getattr(_loader, "dataset", None)
-                    # Prefer a raw JSON dict if present (ManualPhotoMakerValDataset stores one)
-                    if ds is not None and hasattr(ds, "_bbox_gen_json") and getattr(ds, "_bbox_gen_json") is not None:
-                        gen_bbox = getattr(ds, "_bbox_gen_json")
-                        break
-            except Exception:
-                gen_bbox = None
+            manual_gen_bbox = None
 
-            # Fallback to path in config if available
-            if gen_bbox is None:
+            if auto_bbox_enabled:
+                # Prefer placing auto JSON next to the configured bbox_mask_gen path.
+                bbox_path = None
+                images_dir = None
+                try:
+                    for _name, _loader in getattr(self, "evaluation_dataloaders", {}).items():
+                        ds = getattr(_loader, "dataset", None)
+                        if ds is None:
+                            continue
+                        images_dir = getattr(ds, "images_dir", None) or images_dir
+                except Exception:
+                    images_dir = None
+
                 try:
                     val_names = list(getattr(self.config, "val_datasets_names", []))
                     if val_names:
                         ds_name = val_names[0]
                         ds_cfg = self.config.datasets.val.get(ds_name)
                         bbox_path = getattr(ds_cfg, "bbox_mask_gen", None) if ds_cfg is not None else None
-                        if bbox_path:
-                            import json as _json
-                            with open(str(bbox_path), "r", encoding="utf-8") as _fh:
-                                gen_bbox = _json.load(_fh)
+                except Exception:
+                    bbox_path = None
+
+                if bbox_path:
+                    p = Path(str(bbox_path))
+                    auto_path = p.with_name(p.stem + "_auto.json")
+                    # Load the manual bbox map too (to support per-entry force_manual flags).
+                    try:
+                        import json as _json
+                        with open(str(p), "r", encoding="utf-8") as _fh:
+                            manual_gen_bbox = _json.load(_fh)
+                    except Exception:
+                        manual_gen_bbox = None
+                elif images_dir:
+                    auto_path = Path(str(images_dir)).resolve().parent / "bbox_mask_gen_auto.json"
+                else:
+                    auto_path = Path("bbox_mask_gen_auto.json")
+
+                from src.utils.auto_bbox_gen import AutoGenBboxStore
+                self._auto_bbox_store = AutoGenBboxStore(auto_path)
+                gen_bbox = self._auto_bbox_store.data
+            else:
+                # Try to read from the active validation dataset object
+                try:
+                    for _name, _loader in getattr(self, "evaluation_dataloaders", {}).items():
+                        ds = getattr(_loader, "dataset", None)
+                        # Prefer a raw JSON dict if present (ManualPhotoMakerValDataset stores one)
+                        if ds is not None and hasattr(ds, "_bbox_gen_json") and getattr(ds, "_bbox_gen_json") is not None:
+                            gen_bbox = getattr(ds, "_bbox_gen_json")
+                            break
                 except Exception:
                     gen_bbox = None
 
+                # Fallback to path in config if available
+                if gen_bbox is None:
+                    try:
+                        val_names = list(getattr(self.config, "val_datasets_names", []))
+                        if val_names:
+                            ds_name = val_names[0]
+                            ds_cfg = self.config.datasets.val.get(ds_name)
+                            bbox_path = getattr(ds_cfg, "bbox_mask_gen", None) if ds_cfg is not None else None
+                            if bbox_path:
+                                import json as _json
+                                with open(str(bbox_path), "r", encoding="utf-8") as _fh:
+                                    gen_bbox = _json.load(_fh)
+                    except Exception:
+                        gen_bbox = None
+
             self._gen_bbox_by_name = gen_bbox if isinstance(gen_bbox, dict) else None
+            self._manual_gen_bbox_by_name = manual_gen_bbox if isinstance(manual_gen_bbox, dict) else None
 
         # If generation bbox masks are required, enforce presence of the map
-        use_gen_mask = bool(self.config.validation_args.get("use_bbox_mask_gen", False))
         if use_gen_mask and self._gen_bbox_by_name is None:
             err = (
                 "use_bbox_mask_gen=True but bbox mask map not loaded. "
@@ -344,6 +407,20 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             sample_id = ids_list[idx]
             sample_seed = seeds_list[idx]
 
+            # Stable per-sample debug indexing (used for hm_debug/<idx>/), independent of extra pipeline calls.
+            batch_debug_idx = sample.get("debug_idx", 0)
+            batch_debug_total = sample.get("debug_total", 0)
+            try:
+                batch_debug_idx = int(batch_debug_idx)
+            except Exception:
+                batch_debug_idx = 0
+            try:
+                batch_debug_total = int(batch_debug_total)
+            except Exception:
+                batch_debug_total = 0
+            sample_debug_idx = batch_debug_idx * batch_size + idx if batch_size > 1 else batch_debug_idx
+            debug_dir = self.config.validation_args.get("debug_dir", None)
+
             # ### To align validation with infer.py generation ###
             # Use a device-matched generator (GPU when available)
             generator = torch.Generator(device=self.device).manual_seed(int(sample_seed))
@@ -371,7 +448,59 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 base = f"{sample_prompt[:10]}_{sample_id}"
                 key = f"{base}.png"
                 entry = self._gen_bbox_by_name.get(key)
+                manual_entry = None
+                try:
+                    if auto_bbox_enabled and getattr(self, "_manual_gen_bbox_by_name", None) is not None:
+                        manual_entry = self._manual_gen_bbox_by_name.get(key)
+                except Exception:
+                    manual_entry = None
                 if use_gen_mask:
+                    # Per-entry override: if force_manual is set, never recalculate; always use the manual file value.
+                    force_manual = bool(isinstance(manual_entry, dict) and manual_entry.get("force_manual", False))
+                    if force_manual:
+                        entry = manual_entry
+
+                    # Auto mode: if missing (or overlay missing), run a plain PhotoMaker pass (no BA) to
+                    # detect gen bbox and/or save overlay for this exact validation sample.
+                    if (not force_manual) and auto_bbox_enabled and hasattr(self, "_auto_bbox_store"):
+                        overlay_path = None
+                        if debug_dir:
+                            overlay_path = Path(str(debug_dir)) / f"{int(sample_debug_idx):02d}" / "auto_bbox_overlay.png"
+
+                        need_overlay = bool(overlay_path is not None and not overlay_path.exists())
+                        if entry is None or need_overlay:
+                            pm_kwargs = dict(self.config.validation_args)
+                            pm_kwargs["use_branched_attention"] = False
+                            pm_kwargs["use_bbox_mask_gen"] = False
+                            pm_kwargs["debug_dir"] = None
+                            pm_kwargs["debug_idx"] = int(sample_debug_idx)
+                            pm_kwargs["debug_total"] = int(batch_debug_total)
+                            # Use a fresh generator so BA generation stays deterministic for the requested seed.
+                            pm_gen = torch.Generator(device=self.device).manual_seed(int(sample_seed))
+                            pm_img = self.pipe(
+                                prompt=sample_prompt,
+                                generator=pm_gen,
+                                input_id_images=sample_ref_images,
+                                face_bbox_ref=face_bbox_ref,
+                                face_bbox_gen=None,
+                                **pm_kwargs,
+                            ).images[0]
+                            entry = self._auto_bbox_store.ensure(
+                                key,
+                                photomaker_image=pm_img,
+                                meta={
+                                    "debug_idx": int(sample_debug_idx),
+                                    "prompt": str(sample_prompt),
+                                    "id": str(sample_id),
+                                    "seed": int(sample_seed),
+                                },
+                                overlay_path=overlay_path,
+                                force_overlay=False,
+                                force_recompute=False,
+                            )
+                            # Refresh local view
+                            self._gen_bbox_by_name[key] = entry
+
                     if entry is None:
                         err = f"No bbox entry in bbox_mask_gen for expected output name '{key}'"
                         if getattr(self, "logger", None) is not None:
@@ -421,6 +550,10 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             except Exception:
                 id_embeds_vec = None
 
+            val_kwargs = dict(self.config.validation_args)
+            val_kwargs["debug_idx"] = int(sample_debug_idx)
+            val_kwargs["debug_total"] = int(batch_debug_total)
+
             generated_images = self.pipe(
                 prompt=sample_prompt,
                 generator=generator,
@@ -430,8 +563,37 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 face_bbox_ref=face_bbox_ref,
                 face_bbox_gen=face_bbox_gen,
                 callback_on_step_end=callback,
-                **self.config.validation_args
+                **val_kwargs
             ).images
+
+            # Save the final BA image into the per-sample hm_debug/<idx>/ folder too.
+            try:
+                if debug_dir and isinstance(generated_images, list) and generated_images:
+                    out_dir = Path(str(debug_dir)) / f"{int(sample_debug_idx):02d}"
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    if len(generated_images) == 1:
+                        generated_images[0].save(out_dir / "generated_ba.png")
+                    else:
+                        for j, img in enumerate(generated_images):
+                            img.save(out_dir / f"generated_ba_{j:02d}.png")
+
+                    # If force_manual is active, save an overlay using the manual bbox without triggering PM-only pass.
+                    if use_gen_mask and auto_bbox_enabled and isinstance(manual_entry, dict) and bool(manual_entry.get("force_manual", False)):
+                        try:
+                            from bbox_utils.visualize_bboxes import save_annotated_pil
+
+                            overlay_path = out_dir / "auto_bbox_overlay.png"
+                            if not overlay_path.exists() and face_bbox_gen is not None:
+                                save_annotated_pil(
+                                    generated_images[0],
+                                    {"face_crop_new": face_bbox_gen},
+                                    overlay_path,
+                                    line_width=4,
+                                )
+                        except Exception:
+                            pass
+            except Exception:
+                pass
             pipe_time = time.time() - pipe_start
             total_pipe_time += pipe_time
 

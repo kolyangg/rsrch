@@ -17,7 +17,8 @@
       91,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Angry man _elon.png": {
     "face_crop_old": [
@@ -37,7 +38,8 @@
       33,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Angry man _jensen.png": {
     "face_crop_old": [
@@ -57,7 +59,8 @@
       62,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Angry man _keanu.png": {
     "face_crop_old": [
@@ -77,7 +80,8 @@
       53,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Angry man _lex.png": {
     "face_crop_old": [
@@ -97,7 +101,8 @@
       56,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Angry woma_jennie.png": {
     "face_crop_old": [
@@ -117,7 +122,8 @@
       73,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Angry woma_jisoo.png": {
     "face_crop_old": [
@@ -137,7 +143,8 @@
       55,
       916,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Angry woma_marion.png": {
     "face_crop_old": [
@@ -157,7 +164,8 @@
       83,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Chef man i_eddie.png": {
     "face_crop_old": [
@@ -177,7 +185,8 @@
       326,
       883,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Chef man i_elon.png": {
     "face_crop_old": [
@@ -197,7 +206,8 @@
       328,
       869,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Chef man i_jensen.png": {
     "face_crop_old": [
@@ -217,7 +227,8 @@
       325,
       880,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Chef man i_keanu.png": {
     "face_crop_old": [
@@ -237,7 +248,8 @@
       325,
       905,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Chef man i_lex.png": {
     "face_crop_old": [
@@ -257,7 +269,8 @@
       326,
       883,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Chef woman_jennie.png": {
     "face_crop_old": [
@@ -277,7 +290,8 @@
       324,
       768,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Chef woman_jisoo.png": {
     "face_crop_old": [
@@ -297,7 +311,8 @@
       323,
       782,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Chef woman_marion.png": {
     "face_crop_old": [
@@ -317,7 +332,8 @@
       325,
       790,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Crying man_eddie.png": {
     "face_crop_old": [
@@ -337,7 +353,8 @@
       176,
       966,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Crying man_elon.png": {
     "face_crop_old": [
@@ -357,7 +374,8 @@
       158,
       832,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Crying man_jensen.png": {
     "face_crop_old": [
@@ -377,7 +395,8 @@
       129,
       829,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Crying man_keanu.png": {
     "face_crop_old": [
@@ -397,7 +416,8 @@
       170,
       878,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Crying man_lex.png": {
     "face_crop_old": [
@@ -417,7 +437,8 @@
       139,
       872,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Crying wom_jennie.png": {
     "face_crop_old": [
@@ -437,7 +458,8 @@
       47,
       822,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Crying wom_jisoo.png": {
     "face_crop_old": [
@@ -457,7 +479,8 @@
       19,
       835,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Crying wom_marion.png": {
     "face_crop_old": [
@@ -477,7 +500,8 @@
       44,
       755,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Dancing ma_eddie.png": {
     "face_crop_old": [
@@ -497,7 +521,8 @@
       99,
       896,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Dancing ma_elon.png": {
     "face_crop_old": [
@@ -517,7 +542,8 @@
       84,
       977,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Dancing ma_jensen.png": {
     "face_crop_old": [
@@ -537,7 +563,8 @@
       91,
       966,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Dancing ma_keanu.png": {
     "face_crop_old": [
@@ -557,7 +584,8 @@
       86,
       895,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Dancing ma_lex.png": {
     "face_crop_old": [
@@ -577,7 +605,8 @@
       106,
       964,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Dancing wo_jennie.png": {
     "face_crop_old": [
@@ -597,7 +626,8 @@
       91,
       856,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Dancing wo_jisoo.png": {
     "face_crop_old": [
@@ -617,7 +647,8 @@
       91,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Dancing wo_marion.png": {
     "face_crop_old": [
@@ -637,7 +668,8 @@
       70,
       827,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Drumming m_eddie.png": {
     "face_crop_old": [
@@ -657,7 +689,8 @@
       0,
       817,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Drumming m_elon.png": {
     "face_crop_old": [
@@ -677,7 +710,8 @@
       71,
       832,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Drumming m_jensen.png": {
     "face_crop_old": [
@@ -697,7 +731,8 @@
       38,
       816,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Drumming m_keanu.png": {
     "face_crop_old": [
@@ -717,7 +752,8 @@
       20,
       820,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Drumming m_lex.png": {
     "face_crop_old": [
@@ -737,7 +773,8 @@
       4,
       838,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Drumming w_jennie.png": {
     "face_crop_old": [
@@ -757,7 +794,8 @@
       70,
       816,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Drumming w_jisoo.png": {
     "face_crop_old": [
@@ -777,7 +815,8 @@
       113,
       813,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Drumming w_marion.png": {
     "face_crop_old": [
@@ -797,7 +836,8 @@
       104,
       819,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Jumping ma_eddie.png": {
     "face_crop_old": [
@@ -817,7 +857,8 @@
       275,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Jumping ma_elon.png": {
     "face_crop_old": [
@@ -837,7 +878,8 @@
       266,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Jumping ma_jensen.png": {
     "face_crop_old": [
@@ -857,7 +899,8 @@
       261,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Jumping ma_keanu.png": {
     "face_crop_old": [
@@ -877,7 +920,8 @@
       274,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Jumping ma_lex.png": {
     "face_crop_old": [
@@ -897,7 +941,8 @@
       278,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Jumping wo_jennie.png": {
     "face_crop_old": [
@@ -917,7 +962,8 @@
       155,
       916,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Jumping wo_jisoo.png": {
     "face_crop_old": [
@@ -937,7 +983,8 @@
       144,
       898,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Jumping wo_marion.png": {
     "face_crop_old": [
@@ -957,7 +1004,8 @@
       114,
       898,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Kickboxing_eddie.png": {
     "face_crop_old": [
@@ -977,7 +1025,8 @@
       0,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Kickboxing_elon.png": {
     "face_crop_old": [
@@ -997,7 +1046,8 @@
       0,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Kickboxing_jennie.png": {
     "face_crop_old": [
@@ -1017,7 +1067,8 @@
       88,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Kickboxing_jensen.png": {
     "face_crop_old": [
@@ -1037,7 +1088,8 @@
       0,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Kickboxing_jisoo.png": {
     "face_crop_old": [
@@ -1057,7 +1109,8 @@
       81,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Kickboxing_keanu.png": {
     "face_crop_old": [
@@ -1077,7 +1130,8 @@
       0,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Kickboxing_lex.png": {
     "face_crop_old": [
@@ -1097,7 +1151,8 @@
       0,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Kickboxing_marion.png": {
     "face_crop_old": [
@@ -1117,7 +1172,8 @@
       114,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Laughing m_eddie.png": {
     "face_crop_old": [
@@ -1137,7 +1193,8 @@
       141,
       914,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Laughing m_elon.png": {
     "face_crop_old": [
@@ -1157,7 +1214,8 @@
       12,
       917,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Laughing m_jensen.png": {
     "face_crop_old": [
@@ -1177,7 +1235,8 @@
       115,
       918,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Laughing m_keanu.png": {
     "face_crop_old": [
@@ -1197,7 +1256,8 @@
       100,
       921,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Laughing m_lex.png": {
     "face_crop_old": [
@@ -1217,7 +1277,8 @@
       81,
       908,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Laughing w_jennie.png": {
     "face_crop_old": [
@@ -1237,7 +1298,8 @@
       297,
       886,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Laughing w_jisoo.png": {
     "face_crop_old": [
@@ -1257,7 +1319,8 @@
       282,
       894,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Laughing w_marion.png": {
     "face_crop_old": [
@@ -1277,7 +1340,8 @@
       732,
       373,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Night-ride_eddie.png": {
     "face_crop_old": [
@@ -1297,7 +1361,8 @@
       86,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Night-ride_elon.png": {
     "face_crop_old": [
@@ -1317,7 +1382,8 @@
       31,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Night-ride_jennie.png": {
     "face_crop_old": [
@@ -1337,7 +1403,8 @@
       155,
       825,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Night-ride_jensen.png": {
     "face_crop_old": [
@@ -1357,7 +1424,8 @@
       12,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Night-ride_jisoo.png": {
     "face_crop_old": [
@@ -1377,7 +1445,8 @@
       146,
       957,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Night-ride_keanu.png": {
     "face_crop_old": [
@@ -1397,7 +1466,8 @@
       15,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Night-ride_lex.png": {
     "face_crop_old": [
@@ -1417,7 +1487,8 @@
       45,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Night-ride_marion.png": {
     "face_crop_old": [
@@ -1437,7 +1508,8 @@
       141,
       1008,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Reading pa_eddie.png": {
     "face_crop_old": [
@@ -1457,7 +1529,8 @@
       12,
       881,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Reading pa_elon.png": {
     "face_crop_old": [
@@ -1477,7 +1550,8 @@
       4,
       900,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Reading pa_jennie.png": {
     "face_crop_old": [
@@ -1497,7 +1571,8 @@
       18,
       881,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Reading pa_jensen.png": {
     "face_crop_old": [
@@ -1517,7 +1592,8 @@
       0,
       881,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Reading pa_jisoo.png": {
     "face_crop_old": [
@@ -1537,7 +1613,8 @@
       21,
       758,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Reading pa_keanu.png": {
     "face_crop_old": [
@@ -1557,7 +1634,8 @@
       0,
       872,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Reading pa_lex.png": {
     "face_crop_old": [
@@ -1577,7 +1655,8 @@
       0,
       871,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Reading pa_marion.png": {
     "face_crop_old": [
@@ -1597,7 +1676,8 @@
       16,
       830,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Rushing ma_eddie.png": {
     "face_crop_old": [
@@ -1617,7 +1697,8 @@
       118,
       856,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Rushing ma_elon.png": {
     "face_crop_old": [
@@ -1637,7 +1718,8 @@
       82,
       850,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Rushing ma_jensen.png": {
     "face_crop_old": [
@@ -1657,7 +1739,8 @@
       418,
       185,
       757
-    ]
+    ],
+    "force_manual": false
   },
   "Rushing ma_keanu.png": {
     "face_crop_old": [
@@ -1677,7 +1760,8 @@
       97,
       862,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Rushing ma_lex.png": {
     "face_crop_old": [
@@ -1697,7 +1781,8 @@
       417,
       184,
       754
-    ]
+    ],
+    "force_manual": false
   },
   "Rushing wo_jennie.png": {
     "face_crop_old": [
@@ -1717,7 +1802,8 @@
       419,
       181,
       728
-    ]
+    ],
+    "force_manual": false
   },
   "Rushing wo_jisoo.png": {
     "face_crop_old": [
@@ -1737,7 +1823,8 @@
       414,
       186,
       754
-    ]
+    ],
+    "force_manual": false
   },
   "Rushing wo_marion.png": {
     "face_crop_old": [
@@ -1757,7 +1844,8 @@
       417,
       201,
       757
-    ]
+    ],
+    "force_manual": false
   },
   "Skiing man_eddie.png": {
     "face_crop_old": [
@@ -1777,7 +1865,8 @@
       102,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Skiing man_elon.png": {
     "face_crop_old": [
@@ -1797,7 +1886,8 @@
       118,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Skiing man_jensen.png": {
     "face_crop_old": [
@@ -1817,7 +1907,8 @@
       122,
       947,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Skiing man_keanu.png": {
     "face_crop_old": [
@@ -1837,7 +1928,8 @@
       124,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Skiing man_lex.png": {
     "face_crop_old": [
@@ -1857,7 +1949,8 @@
       95,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Skiing wom_jennie.png": {
     "face_crop_old": [
@@ -1877,7 +1970,8 @@
       76,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Skiing wom_jisoo.png": {
     "face_crop_old": [
@@ -1897,7 +1991,8 @@
       28,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   },
   "Skiing wom_marion.png": {
     "face_crop_old": [
@@ -1917,6 +2012,7 @@
       20,
       1023,
       1023
-    ]
+    ],
+    "force_manual": false
   }
 }

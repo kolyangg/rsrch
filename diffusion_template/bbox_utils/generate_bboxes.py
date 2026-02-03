@@ -17,17 +17,13 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple
 
 import torch
 from PIL import Image
 
-try:
-    from ultralytics import YOLO
-except ImportError as exc:  # pragma: no cover - dependency missing at runtime
-    raise ImportError(
-        "Ultralytics package is required. Install with `pip install ultralytics`."
-    ) from exc
+if TYPE_CHECKING:  # pragma: no cover
+    from ultralytics import YOLO  # noqa: F401
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
@@ -156,7 +152,7 @@ def enlarge_box(box: List[float], width: int, height: int, padding_ratio: float)
 
 
 def detect_primary_box(
-    model: YOLO,
+    model: Any,
     image_path: Path,
     conf: float,
     device: str,
@@ -196,6 +192,12 @@ def load_face_detector(
     backend: str, model_name: str, device: str
 ) -> Tuple[Any, str]:
     if backend == "yolo":
+        try:
+            from ultralytics import YOLO
+        except ImportError as exc:  # pragma: no cover - dependency missing at runtime
+            raise ImportError(
+                "Ultralytics package is required for --face-detector yolo. Install with `pip install ultralytics`."
+            ) from exc
         try:
             detector = YOLO(model_name)
         except FileNotFoundError as exc:
@@ -242,6 +244,35 @@ def detect_face_box(
 
     raise ValueError(f"Unsupported face detector backend: {backend}")
 
+def face_record_from_pil(
+    pil_image: Image.Image,
+    *,
+    detector: Any,
+    backend: str,
+    conf: float = 0.3,
+    device: str = "cpu",
+    face_padding: float = 0.08,
+) -> Dict[str, List[int]]:
+    """
+    Generate a face bbox record from an in-memory PIL image.
+    Returns the same dict shape as JSON entries:
+      {face_crop_old, face_crop_new, body_crop}
+    """
+    width, height = pil_image.size
+    dummy_path = Path("_in_memory.png")
+    face_box = detect_face_box(detector, backend, dummy_path, pil_image, conf, device)
+    if face_box is None:
+        cx, cy = width / 2, height / 2
+        size = min(width, height) * 0.45
+        face_box = [cx - size, cy - size, cx + size, cy + size]
+    face_crop_new = clamp_bbox(face_box, width, height)
+    face_crop_old = enlarge_box(face_box, width, height, face_padding)
+    return {
+        "face_crop_old": face_crop_old,
+        "face_crop_new": face_crop_new,
+        "body_crop": [0, 0, width, height],
+    }
+
 
 def main() -> None:
     args = parse_args()
@@ -253,6 +284,13 @@ def main() -> None:
     device = resolve_device(args.device)
 
     face_detector, face_backend = load_face_detector(args.face_detector, args.face_model, device)
+    try:
+        from ultralytics import YOLO
+    except ImportError as exc:  # pragma: no cover - dependency missing at runtime
+        raise ImportError(
+            "Ultralytics package is required for body detection. Install with `pip install ultralytics`."
+        ) from exc
+
     body_model = YOLO(args.body_model)
     body_model.to(device)
 

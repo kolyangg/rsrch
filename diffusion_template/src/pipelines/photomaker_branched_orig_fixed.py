@@ -1056,14 +1056,18 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         
         ### FIX 01 FEB - RESTORE (REMOVE WRONG INDENT)
         
-        # Also store as _reference_latents for the new approach
-        self._reference_latents = self._ref_latents_all
+        # Also store as _reference_latents for the new approach.
+        # NOTE: this attribute only exists when branched-attention path prepared ref latents.
+        # PM-only calls (use_branched_attention=False) must not touch it.
+        if use_branched_attention and hasattr(self, "_ref_latents_all"):
+            self._reference_latents = self._ref_latents_all
 
         # Store the original RGB for debug
         self._ref_img = id_pixel_values[0] if id_pixel_values.dim() == 5 else id_pixel_values
 
-        # IMPORTANT: Create ref_noise with same generator as latents for consistency
-        if not hasattr(self, '_ref_noise'):
+        # IMPORTANT: Create ref_noise with same generator as latents for consistency.
+        # Only relevant for branched-attention runs that prepared reference latents.
+        if use_branched_attention and hasattr(self, "_ref_latents_all") and not hasattr(self, "_ref_noise"):
             # --- ADDED For training integration ---
             gen = None
             if generator is not None:

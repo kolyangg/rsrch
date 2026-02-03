@@ -67,46 +67,57 @@ def draw_boxes(
     line_width: int,
 ) -> None:
     with Image.open(image_path).convert("RGB") as img:
-        draw = ImageDraw.Draw(img)
-        try:
-            font = ImageFont.load_default()
-        except Exception:  # pragma: no cover - PIL always ships a default font
-            font = None
-
-        color_cycle = [
-            (0, 255, 0),
-            (255, 0, 0),
-            (0, 128, 255),
-            (255, 165, 0),
-            (255, 255, 0),
-        ]
-
-        for idx, (label, coords) in enumerate(boxes.items()):
-            if not isinstance(coords, (list, tuple)) or len(coords) != 4:
-                continue
-            color = color_cycle[idx % len(color_cycle)]
-            x1, y1, x2, y2 = [int(round(c)) for c in coords]
-            draw.rectangle([x1, y1, x2, y2], outline=color, width=line_width)
-            if font is not None:
-                text = str(label)
-                try:
-                    text_w, text_h = draw.textsize(text, font=font)
-                except Exception:  # pragma: no cover - fallback in case Pillow removes textsize
-                    bbox = font.getbbox(text)
-                    text_w = bbox[2] - bbox[0]
-                    text_h = bbox[3] - bbox[1]
-                text_pos = (x1 + 4, max(0, y1 - text_h - 4))
-                bg_rect = [
-                    text_pos[0] - 2,
-                    text_pos[1] - 2,
-                    text_pos[0] + text_w + 2,
-                    text_pos[1] + text_h + 2,
-                ]
-                draw.rectangle(bg_rect, fill=color)
-                draw.text(text_pos, text, fill=(0, 0, 0), font=font)
-
+        img = annotate_pil(img, boxes, line_width=line_width)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         img.save(output_path)
+
+
+def annotate_pil(img: Image.Image, boxes: Dict[str, Iterable[int]], line_width: int = 4) -> Image.Image:
+    img = img.convert("RGB").copy()
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.load_default()
+    except Exception:  # pragma: no cover - PIL always ships a default font
+        font = None
+
+    color_cycle = [
+        (0, 255, 0),
+        (255, 0, 0),
+        (0, 128, 255),
+        (255, 165, 0),
+        (255, 255, 0),
+    ]
+
+    for idx, (label, coords) in enumerate(boxes.items()):
+        if not isinstance(coords, (list, tuple)) or len(coords) != 4:
+            continue
+        color = color_cycle[idx % len(color_cycle)]
+        x1, y1, x2, y2 = [int(round(c)) for c in coords]
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=line_width)
+        if font is not None:
+            text = str(label)
+            try:
+                text_w, text_h = draw.textsize(text, font=font)
+            except Exception:  # pragma: no cover - fallback in case Pillow removes textsize
+                bbox = font.getbbox(text)
+                text_w = bbox[2] - bbox[0]
+                text_h = bbox[3] - bbox[1]
+            text_pos = (x1 + 4, max(0, y1 - text_h - 4))
+            bg_rect = [
+                text_pos[0] - 2,
+                text_pos[1] - 2,
+                text_pos[0] + text_w + 2,
+                text_pos[1] + text_h + 2,
+            ]
+            draw.rectangle(bg_rect, fill=color)
+            draw.text(text_pos, text, fill=(0, 0, 0), font=font)
+
+    return img
+
+
+def save_annotated_pil(img: Image.Image, boxes: Dict[str, Iterable[int]], output_path: Path, line_width: int = 4) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    annotate_pil(img, boxes, line_width=line_width).save(output_path)
 
 
 def main() -> None:
