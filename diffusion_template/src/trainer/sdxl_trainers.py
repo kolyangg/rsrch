@@ -319,7 +319,13 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                     auto_path = Path("bbox_mask_gen_auto.json")
 
                 from src.utils.auto_bbox_gen import AutoGenBboxStore
-                self._auto_bbox_store = AutoGenBboxStore(auto_path)
+                face_detector = getattr(self.config, "face_detector", "mtcnn")
+                face_model = getattr(self.config, "face_model", "yolov8n-face.pt")
+                self._auto_bbox_store = AutoGenBboxStore(
+                    auto_path,
+                    face_detector=face_detector,
+                    face_model=face_model,
+                )
                 gen_bbox = self._auto_bbox_store.data
             else:
                 # Try to read from the active validation dataset object

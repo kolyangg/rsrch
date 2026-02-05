@@ -118,12 +118,12 @@ class BranchedAttnProcessor(nn.Module):
         
         # Prepare mask
         mask_gate = None
-        if self.mask is not None:
-            mask_gate = self._prepare_mask(self.mask, seq_len, batch_size)
-            mask_gate = mask_gate.to(dtype=q.dtype, device=q.device)
-        else:
+        if self.mask is  None:
             raise ValueError("Branched attention requires a mask for the background branch")
-
+        
+        mask_gate = self._prepare_mask(self.mask, seq_len, batch_size)
+        mask_gate = mask_gate.to(dtype=q.dtype, device=q.device)
+        
 
         # ======================================== BACKGROUND BRANCH ==========================================================
         # Q: background from noise, K/V: full noise
@@ -132,11 +132,11 @@ class BranchedAttnProcessor(nn.Module):
         key_bg = key_bg.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         value_bg = value_bg.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         
-        if mask_gate is not None:
-            q_bg = q * (1.0 - mask_gate) # non-face area of noise_hidden
-        else:
-            q_bg = q
+        if mask_gate is None:
             raise ValueError("Branched attention requires a mask for the background branch")
+        
+        q_bg = q * (1.0 - mask_gate) # non-face area of noise_hidden
+            
             
         hidden_bg = F.scaled_dot_product_attention(q_bg, key_bg, value_bg, dropout_p=0.0, is_causal=False)
         hidden_bg = hidden_bg.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
@@ -151,18 +151,16 @@ class BranchedAttnProcessor(nn.Module):
         # key_face = attn.to_k(ref_hidden)
         # value_face = attn.to_v(ref_hidden)
         
-        if mask_gate is not None:
-            mask_flat = mask_gate.squeeze(1).squeeze(-1).to(dtype=hidden_bg.dtype)
-            if mask_flat.dim() == 1:
-                mask_flat = mask_flat.unsqueeze(0)
-            if mask_flat.dim() == 2:
-                mask_flat = mask_flat.unsqueeze(-1)
+        if mask_gate is None:
+            raise ValueError("mask_gate is required for face branch")
+
+        mask_flat = mask_gate.squeeze(1).to(dtype=hidden_bg.dtype)  # [B, L, 1]
 
         # --- use runtime-tunable values instead of hard-coded locals ---
         POSE_ADAPT_RATIO   = getattr(self, "pose_adapt_ratio", 0.25)
         CA_MIXING_FOR_FACE = getattr(self, "ca_mixing_for_face", True)
 
-        # Check if we're in pre-PhotoMaker state and override POSE_ADAPT_RATIO
+        #### Check if we're in pre-PhotoMaker state (and override POSE_ADAPT_RATIO) ####
         if hasattr(self, "_disable_reference") and self._disable_reference:
             original_ratio = POSE_ADAPT_RATIO
             POSE_ADAPT_RATIO = 1.0  # Use only current noise, no reference
@@ -172,96 +170,79 @@ class BranchedAttnProcessor(nn.Module):
         elif hasattr(self, "_printed_force") and self._printed_force:
             print(f"[BranchedAttn] Relaxing POSE_ADAPT_RATIO back to {POSE_ADAPT_RATIO:.2f}")
             self._printed_force = F
-
+        #### Check if we're in pre-PhotoMaker state (and override POSE_ADAPT_RATIO) ####
+        
+    
 
         # Use ID features only when both a runtime flag and embeddings are present.
         use_id_flag = getattr(self, "use_id_embeds", True)
         USE_ID_EMBEDS = bool(use_id_flag) and (self.id_embeds is not None)
 
         
-        if self.mask_ref is not None:
-            ref_mask = self._prepare_mask(self.mask_ref, seq_len, batch_size)
-            ref_mask = ref_mask.to(dtype=ref_hidden.dtype, device=ref_hidden.device)
-            ref_mask_flat = ref_mask.squeeze(1).squeeze(-1)
-            if ref_mask_flat.dim() == 2:
-                ref_mask_flat = ref_mask_flat.unsqueeze(-1)
-            if getattr(self, "_dbg_mask_stats", 0) < 5:
-                mr = ref_mask.detach().float().reshape(ref_mask.shape[0], -1)
-                uniq_approx = torch.unique((mr * 1000).round().to(torch.int32)).numel()
-                frac_mid = ((mr > 1e-3) & (mr < 1 - 1e-3)).float().mean().item()
-                print(
-                    f"[BrSA ref_mask] min={mr.min().item():.4f} max={mr.max().item():.4f} "
-                    f"mean={mr.mean().item():.4f} frac_mid(0..1)={frac_mid:.4f} uniq≈{uniq_approx}"
-                )
-                self._dbg_mask_stats += 1
-
-            # Extract face regions from both noise and reference
-            noise_face_hidden = noise_hidden * mask_flat  # Face from current noise
-            
-            ref_face_hidden = ref_hidden * ref_mask_flat   # Face from reference
-
-            # Blend them to allow pose adaptation while preserving identity
-            # Higher POSE_ADAPT_RATIO = more pose flexibility, less identity preservation
-            face_hidden_mixed = (1 - POSE_ADAPT_RATIO) * ref_face_hidden + POSE_ADAPT_RATIO * noise_face_hidden
-            
-
-            # Inject ID embeddings into the mixed face hidden states (2048-D → hidden)
-            if USE_ID_EMBEDS:
-                if not hasattr(self, 'id_to_hidden') or self.id_to_hidden is None:
-                    self.id_to_hidden = nn.Linear(
-                        self.id_embeds.shape[-1], 
-                        face_hidden_mixed.shape[-1],
-                        bias=False
-                    ).to(face_hidden_mixed.device, face_hidden_mixed.dtype)
-                    # Initialize with small weights
-                    with torch.no_grad():
-                        self.id_to_hidden.weight.mul_(0.1)
-                
-                id_features = self.id_to_hidden(self.id_embeds)
-                if id_features.dim() == 2:
-                    id_features = id_features.unsqueeze(1).expand(-1, face_hidden_mixed.shape[1], -1)
-                
-                # Blend ID features with the mixed face.
-                # Allow runtime override via pipeline/processor attribute; default to 0.3.
-                id_alpha = getattr(self, "id_alpha", 0.3)
-                face_hidden_mixed = face_hidden_mixed * (1 - id_alpha) + id_features * id_alpha
-            
-            
-            if CA_MIXING_FOR_FACE:
-               # Use blended face and pure noise face for K/V
-               # This allows attending to both pose-adapted reference and current noise
-                combined_face_hidden = torch.cat([face_hidden_mixed, noise_face_hidden], dim=1)  # Double sequence length
-            else:
-                # Just use the blended face directly
-                ref_face_hidden = face_hidden_mixed
-
-
-            # ref_face_hidden = face_hidden_mixed
-
-        else:
-            if not CA_MIXING_FOR_FACE:
-                ref_face_hidden = ref_hidden
-            else:
-                combined_face_hidden = ref_hidden
+        if self.mask_ref is None:
             raise ValueError("Branched attention requires a mask for the reference branch")
 
-        if not CA_MIXING_FOR_FACE:
-            key_face = attn.to_k(ref_face_hidden)
-            value_face = attn.to_v(ref_face_hidden)
+        ref_mask = self._prepare_mask(self.mask_ref, seq_len, batch_size)
+        ref_mask = ref_mask.to(dtype=ref_hidden.dtype, device=ref_hidden.device)
+        ref_mask_flat = ref_mask.squeeze(1)  # [B, L, 1]
+
+
+        # Extract face regions from both noise and reference
+        noise_face_hidden = noise_hidden * mask_flat  # Face from current noise
+        ref_face_hidden = ref_hidden * ref_mask_flat   # Face from reference
+
+        # Blend them to allow pose adaptation while preserving identity
+        # Higher POSE_ADAPT_RATIO = more pose flexibility, less identity preservation
+        face_hidden_mixed = (1 - POSE_ADAPT_RATIO) * ref_face_hidden + POSE_ADAPT_RATIO * noise_face_hidden
+        
+
+        # Inject ID embeddings into the mixed face hidden states (2048-D → hidden)
+        if USE_ID_EMBEDS:
+            if not hasattr(self, 'id_to_hidden') or self.id_to_hidden is None:
+                self.id_to_hidden = nn.Linear(
+                    self.id_embeds.shape[-1], 
+                    face_hidden_mixed.shape[-1],
+                    bias=False
+                ).to(face_hidden_mixed.device, face_hidden_mixed.dtype)
+                # Initialize with small weights
+                with torch.no_grad():
+                    self.id_to_hidden.weight.mul_(0.1)
+            
+            id_features = self.id_to_hidden(self.id_embeds)
+            if id_features.dim() == 2:
+                id_features = id_features.unsqueeze(1)  # [B, 1, C], broadcasts over L
+            
+            # Blend ID features with the mixed face.
+            # Allow runtime override via pipeline/processor attribute; default to 0.3.
+            id_alpha = getattr(self, "id_alpha", 0.3)
+            face_hidden_mixed = face_hidden_mixed * (1 - id_alpha) + id_features * id_alpha
+        
+        
+        if CA_MIXING_FOR_FACE:
+            # Use blended face and pure noise face for K/V
+            # This allows attending to both pose-adapted reference and current noise
+            combined_face_hidden = torch.cat([face_hidden_mixed, noise_face_hidden], dim=1)  # Double sequence length
         else:
+            # Just use the blended face directly
+            ref_face_hidden = face_hidden_mixed
+
+
+
+        if CA_MIXING_FOR_FACE:
             key_face = attn.to_k(combined_face_hidden)
             value_face = attn.to_v(combined_face_hidden)
-
+        else:
+            key_face = attn.to_k(ref_face_hidden)
+            value_face = attn.to_v(ref_face_hidden)
 
 
         key_face = key_face.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         value_face = value_face.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         
-        if mask_gate is not None:
-            q_face = q * mask_gate # face area of noise_hidden
-        else:
-            q_face = q
+        if mask_gate is  None:
             raise ValueError("Branched attention requires a mask for the face branch")
+        
+        q_face = q * mask_gate # face area of noise_hidden
             
         hidden_face = F.scaled_dot_product_attention(q_face, key_face, value_face, dropout_p=0.0, is_causal=False)
         hidden_face = hidden_face.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
@@ -292,21 +273,13 @@ class BranchedAttnProcessor(nn.Module):
 
 
         # === MERGE ===
-        if mask_gate is not None:
-            # mask_flat = mask_gate.squeeze(1).squeeze(-1)
-            mask_flat = mask_gate.squeeze(1).squeeze(-1).to(dtype=hidden_bg.dtype)
-            if mask_flat.dim() == 1:
-                mask_flat = mask_flat.unsqueeze(0)
-            if mask_flat.dim() == 2:
-                mask_flat = mask_flat.unsqueeze(-1)
-            
-
-            merged = hidden_bg * (1 - mask_flat) + hidden_face * mask_flat * self.scale
-
-        else:
-            merged = hidden_bg + hidden_face * self.scale
-            print('warning - no mask on merge')
+        if mask_gate is  None:
             raise ValueError("Branched attention requires a mask for the background branch")
+
+        mask_flat = mask_gate.squeeze(1).to(dtype=hidden_bg.dtype)  # [B, L, 1]
+        
+        merged = hidden_bg * (1 - mask_flat) + hidden_face * mask_flat * self.scale
+    
         
         # Combine:
         hidden_states = torch.cat([merged, hidden_ref], dim=0) # merged = updated noise and face branch output
@@ -335,14 +308,19 @@ class BranchedAttnProcessor(nn.Module):
         H = int(math.sqrt(target_len))
         W = H
         assert H * W == target_len, f"seq_len {target_len} is not square"
+        
+        B = mask.shape[0]
         if mask.ndim == 4:  # [B, C, H0, W0]
-            m2d = F.interpolate(mask[:, :1].float(), size=(H, W), mode="bilinear", align_corners=False)
+            m4 = mask[:, :1].float()              # [B,1,H0,W0]
         else:               # [B, L, 1] or [B, 1, L] → [B,1,H0,W0] first
-            L0 = mask.view(mask.shape[0], -1).shape[1]
-            h0 = int(math.sqrt(L0)); w0 = h0
-            assert h0 * w0 == L0, f"mask length {L0} not square"
-            m2d = mask.view(mask.shape[0], -1)[:, :L0].float().view(mask.shape[0], 1, h0, w0)
-            m2d = F.interpolate(m2d, size=(H, W), mode="bilinear", align_corners=False)
+            flat = mask.reshape(B, -1).float()    # [B,L0]
+            h0 = int(math.isqrt(flat.shape[1]))
+            assert h0 * h0 == flat.shape[1], f"mask length {flat.shape[1]} not square"
+            m4 = flat.reshape(B, 1, h0, h0)       # [B,1,h0,w0]
+
+        m2d = F.interpolate(m4, size=(H, W), mode="bilinear", align_corners=False)
+                    
+                    
         if getattr(self, "force_binary_masks", False):
             m2d = (m2d > 0.5).to(dtype=m2d.dtype)
         m = m2d.flatten(2).transpose(1, 2)  # [B, H*W, 1]
@@ -478,16 +456,13 @@ class BranchedCrossAttnProcessor(nn.Module):
         noise_hidden = hidden_states[:half_batch]
         ref_hidden = hidden_states[half_batch:]
         
-        if encoder_hidden_states is not None:
-            gen_prompt = encoder_hidden_states[:half_batch]
-            face_prompt = encoder_hidden_states[half_batch:]
-        else:
-            # Self-attention fallback
-            gen_prompt = noise_hidden
-            face_prompt = ref_hidden
+        if encoder_hidden_states is None:
             raise ValueError ("Branched cross-attention requires encoder_hidden_states")
         
-        # batch_size = half_batch
+        gen_prompt = encoder_hidden_states[:half_batch]
+        face_prompt = encoder_hidden_states[half_batch:]
+            
+    
 
 
         # Ensure encoder prompts match the **latent half-batch** (handles num_images_per_prompt > 1)
@@ -592,7 +567,8 @@ class BranchedCrossAttnProcessor(nn.Module):
         
         # Expand for batch if needed
         if m.shape[0] != batch_size:
-            m = m.expand(batch_size, -1, -1)
+            # m = m.expand(batch_size, -1, -1)
+            m = m.repeat((batch_size + m.shape[0] - 1) // m.shape[0], 1, 1)[:batch_size]
             
         # Reshape for multi-head attention [B, 1, L, 1]
         return m.view(batch_size, 1, target_len, 1)

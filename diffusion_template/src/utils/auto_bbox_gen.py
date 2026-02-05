@@ -20,12 +20,16 @@ class AutoGenBboxStore:
         self,
         json_path: Path,
         *,
+        face_detector: str = "mtcnn",
+        face_model: str = "yolov8n-face.pt",
         face_conf: float = 0.3,
         face_padding: float = 0.08,
         device: str = "cpu",
         line_width: int = 4,
     ):
         self.json_path = Path(json_path)
+        self.face_detector = str(face_detector)
+        self.face_model = str(face_model)
         self.face_conf = float(face_conf)
         self.face_padding = float(face_padding)
         self.device = str(device)
@@ -44,8 +48,8 @@ class AutoGenBboxStore:
         from bbox_utils.generate_bboxes import load_face_detector
 
         self._detector, self._backend = load_face_detector(
-            backend="mtcnn",
-            model_name="yolov8n-face.pt",
+            backend=self.face_detector,
+            model_name=self.face_model,
             device=self.device,
         )
 

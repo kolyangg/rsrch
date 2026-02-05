@@ -153,13 +153,15 @@ def enlarge_box(box: List[float], width: int, height: int, padding_ratio: float)
 
 def detect_primary_box(
     model: Any,
-    image_path: Path,
+    source: Any,
     conf: float,
     device: str,
     person_only: bool = False,
 ) -> Optional[List[float]]:
+    if isinstance(source, Path):
+        source = str(source)
     results = model(
-        str(image_path),
+        source,
         conf=conf,
         device=device,
         verbose=False,
@@ -225,13 +227,14 @@ def load_face_detector(
 def detect_face_box(
     detector: Any,
     backend: str,
-    image_path: Path,
+    image_path: Optional[Path],
     pil_image: Image.Image,
     conf: float,
     device: str,
 ) -> Optional[List[float]]:
     if backend == "yolo":
-        return detect_primary_box(detector, image_path, conf, device)
+        source = image_path if image_path is not None else pil_image
+        return detect_primary_box(detector, source, conf, device)
 
     if backend == "mtcnn":
         boxes, probs = detector.detect(pil_image, landmarks=False)
@@ -259,8 +262,7 @@ def face_record_from_pil(
       {face_crop_old, face_crop_new, body_crop}
     """
     width, height = pil_image.size
-    dummy_path = Path("_in_memory.png")
-    face_box = detect_face_box(detector, backend, dummy_path, pil_image, conf, device)
+    face_box = detect_face_box(detector, backend, None, pil_image, conf, device)
     if face_box is None:
         cx, cy = width / 2, height / 2
         size = min(width, height) * 0.45
