@@ -199,8 +199,12 @@ class BaseTrainer:
 
             ### Modified for attention processors training ###
             # Ensure branched processors are re-installed on all ranks before training resumes
-            if hasattr(self.model, "ensure_branched_after_eval"):
-                self.model.ensure_branched_after_eval()
+            try:
+                unwrapped = self.accelerator.unwrap_model(self.model)
+            except Exception:
+                unwrapped = self.model
+            if hasattr(unwrapped, "ensure_branched_after_eval"):
+                unwrapped.ensure_branched_after_eval()
             ### Modified for attention processors training ###
 
         # Always synchronize before entering the training dataloader loop.
@@ -292,8 +296,12 @@ class BaseTrainer:
         
         ### Modified for attention processors training ###
         # Ensure branched processors are re-installed on all ranks before training resumes
-        if hasattr(self.model, "ensure_branched_after_eval"):
-            self.model.ensure_branched_after_eval()
+        try:
+            unwrapped = self.accelerator.unwrap_model(self.model)
+        except Exception:
+            unwrapped = self.model
+        if hasattr(unwrapped, "ensure_branched_after_eval"):
+            unwrapped.ensure_branched_after_eval()
         self.accelerator.wait_for_everyone()
         ### Modified for attention processors training ###
 

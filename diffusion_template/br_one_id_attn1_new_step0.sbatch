@@ -52,4 +52,5 @@ CUDA_VISIBLE_DEVICES=0,1 \
     validation_args.num_images_per_prompt=1 \
     lr_scheduler.warmup_steps=20 \
     writer=cometml writer.run_name=photomaker_bf16 model.weight_dtype=bf16 \
-    dataloaders.manual_val.batch_size=4
+    dataloaders.manual_val.batch_size=4  \
+    
