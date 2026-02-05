@@ -64,7 +64,7 @@ update_proc_weights_val: true
 #   (2) detect face bbox on the generated image and write *_auto.json,
 #   (3) run branched attention using that bbox as gen-mask,
 #   (4) save bbox overlay into validation_args.debug_dir/00,01,...
-automatic_bboxes: false
+automatic_bboxes: true
 face_detector: yolo
 face_model: bbox_utils/yolov8n-face.pt
 
