@@ -19,6 +19,7 @@ echo "photomaker_NS env activated"
 export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH 
 echo "lib_path exported"
 export HYDRA_FULL_ERROR=1
+export PYTHONNOUSERSITE=1
 
 
 # Sanity checks: these must point inside your conda env
@@ -52,4 +53,3 @@ CUDA_VISIBLE_DEVICES=0,1 \
     lr_scheduler.warmup_steps=20 \
     writer=cometml writer.run_name=photomaker_bf16 model.weight_dtype=bf16 \
     dataloaders.manual_val.batch_size=4
-
