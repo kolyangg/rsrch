@@ -1,0 +1,128 @@
+{
+  "GID": 100,
+  "UID": 2743,
+  "active_prefix": "/home/dnbobkov/.conda/envs/photomaker_NS",
+  "active_prefix_name": "photomaker_NS",
+  "av_data_dir": "/opt/software/python/anaconda/2023_03/etc/conda",
+  "av_metadata_url_base": null,
+  "channels": [
+    "http://nexus.charisma:5080/pkgs/main/linux-64",
+    "http://nexus.charisma:5080/pkgs/main/noarch"
+  ],
+  "conda_build_version": "3.23.3",
+  "conda_env_version": "23.1.0",
+  "conda_location": "/opt/software/python/anaconda/2023_03/lib/python3.10/site-packages/conda",
+  "conda_prefix": "/opt/software/python/anaconda/2023_03",
+  "conda_shlvl": 1,
+  "conda_version": "23.1.0",
+  "config_files": [
+    "/etc/conda/condarc.d/10-nexus.yml",
+    "/opt/software/python/anaconda/2023_03/.condarc"
+  ],
+  "default_prefix": "/home/dnbobkov/.conda/envs/photomaker_NS",
+  "env_vars": {
+    "CIO_TEST": "<not set>",
+    "CONDA_DEFAULT_ENV": "photomaker_NS",
+    "CONDA_EXE": "/opt/software/python/anaconda/2023_03/bin/conda",
+    "CONDA_PREFIX": "/home/dnbobkov/.conda/envs/photomaker_NS",
+    "CONDA_PROMPT_MODIFIER": "(photomaker_NS) ",
+    "CONDA_PYTHON_EXE": "/opt/software/python/anaconda/2023_03/bin/python",
+    "CONDA_ROOT": "/opt/software/python/anaconda/2023_03",
+    "CONDA_SHLVL": "1",
+    "CPATH": "/opt/software/tools/autotools/libtool/v2.4.7/include",
+    "CPLUS_INCLUDE_PATH": "/opt/software/tools/autotools/libtool/v2.4.7/include",
+    "CURL_CA_BUNDLE": "<not set>",
+    "LD_LIBRARY_PATH": "/opt/software/mpi/openmpi/v5.0.3/lib:/opt/ohpc/pub/compiler/gcc/8.3.0/lib64:/opt/software/tools/autotools/libtool/v2.4.7/lib",
+    "LD_PRELOAD": "<not set>",
+    "LIBRARY_PATH": "/opt/software/tools/autotools/libtool/v2.4.7/lib",
+    "MANPATH": ":::/opt/software/mpi/openmpi/v5.0.3/share/man:/opt/ohpc/pub/compiler/gcc/8.3.0/share/man:/opt/software/tools/autotools/autoconf/v2.72/man:/opt/software/tools/autotools/automake/v1.16.5/man",
+    "MODULEPATH": "/opt/ohpc/pub/modulefiles:/opt/ohpc/private/modulefiles",
+    "PATH": "/home/dnbobkov/.conda/envs/photomaker_NS/bin:/home/dnbobkov/.vscode-server/cli/servers/Stable-b1c0a14de1414fcdaa400695b4db1c0799bc3124/server/bin/remote-cli:/opt/software/python/anaconda/2023_03/condabin:/opt/software/mpi/openmpi/v5.0.3/bin:/opt/ohpc/pub/compiler/gcc/8.3.0/bin:/opt/software/tools/autotools/libtool/v2.4.7/bin:/opt/software/tools/autotools/automake/v1.16.5/bin:/opt/software/tools/autotools/autoconf/v2.72/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/home/dnbobkov/.local/bin:/home/dnbobkov/bin",
+    "PKG_CONFIG_PATH": "/opt/software/mpi/openmpi/v5.0.3/lib/pkgconfig",
+    "REQUESTS_CA_BUNDLE": "<not set>",
+    "SSL_CERT_FILE": "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+    "__LMOD_REF_COUNT_CPATH": "/opt/software/tools/autotools/libtool/v2.4.7/include:1",
+    "__LMOD_REF_COUNT_CPLUS_INCLUDE_PATH": "/opt/software/tools/autotools/libtool/v2.4.7/include:1",
+    "__LMOD_REF_COUNT_LD_LIBRARY_PATH": "/opt/software/mpi/openmpi/v5.0.3/lib:1;/opt/ohpc/pub/compiler/gcc/8.3.0/lib64:1;/opt/software/tools/autotools/libtool/v2.4.7/lib:1",
+    "__LMOD_REF_COUNT_LIBRARY_PATH": "/opt/software/tools/autotools/libtool/v2.4.7/lib:1",
+    "__LMOD_REF_COUNT_MANPATH": "/opt/software/mpi/openmpi/v5.0.3/share/man:1;/opt/ohpc/pub/compiler/gcc/8.3.0/share/man:1;/opt/software/tools/autotools/autoconf/v2.72/man:2;/opt/software/tools/autotools/automake/v1.16.5/man:1",
+    "__LMOD_REF_COUNT_MODULEPATH": "/opt/ohpc/pub/modulefiles:1;/opt/ohpc/private/modulefiles:1",
+    "__LMOD_REF_COUNT_PATH": "/opt/software/mpi/openmpi/v5.0.3/bin:1;/opt/ohpc/pub/compiler/gcc/8.3.0/bin:1;/opt/software/tools/autotools/libtool/v2.4.7/bin:1;/opt/software/tools/autotools/automake/v1.16.5/bin:1;/opt/software/tools/autotools/autoconf/v2.72/bin:1;/usr/local/bin:1;/usr/bin:1",
+    "__LMOD_REF_COUNT_PKG_CONFIG_PATH": "/opt/software/mpi/openmpi/v5.0.3/lib/pkgconfig:1"
+  },
+  "envs": [
+    "/home/dnbobkov/.conda/envs/basic_env",
+    "/home/dnbobkov/.conda/envs/lang",
+    "/home/dnbobkov/.conda/envs/lngbind",
+    "/home/dnbobkov/.conda/envs/mask2former",
+    "/home/dnbobkov/.conda/envs/mask2former23",
+    "/home/dnbobkov/.conda/envs/mask2former4",
+    "/home/dnbobkov/.conda/envs/new_psp",
+    "/home/dnbobkov/.conda/envs/photomaker",
+    "/home/dnbobkov/.conda/envs/photomaker_NS",
+    "/home/dnbobkov/.conda/envs/photomaker_matos",
+    "/home/dnbobkov/.conda/envs/photomaker_new",
+    "/home/dnbobkov/.conda/envs/psi_env",
+    "/home/dnbobkov/.conda/envs/psp_a100",
+    "/home/dnbobkov/.conda/envs/psp_env",
+    "/home/dnbobkov/.conda/envs/sfe",
+    "/home/dnbobkov/.conda/envs/sfe_anna",
+    "/home/dnbobkov/.conda/envs/sgxl",
+    "/home/dnbobkov/.conda/envs/test_env",
+    "/home/dnbobkov/.conda/envs/torch_test",
+    "/home/dnbobkov/.conda/envs/yt_down",
+    "/home/dnbobkov/.conda/envs/zarina_sfe",
+    "/home/dnbobkov/.conda/envs/zarina_sfe2",
+    "/opt/software/python/anaconda/2023_03",
+    "/opt/software/python/anaconda/2023_03/envs/olymp_v1",
+    "/opt/software/python/anaconda/2023_03/envs/tensorflow-gpu2_9_updated"
+  ],
+  "envs_dirs": [
+    "/home/dnbobkov/.conda/envs",
+    "/opt/software/python/anaconda/2023_03/envs"
+  ],
+  "netrc_file": "/home/dnbobkov/.netrc",
+  "offline": false,
+  "pkgs_dirs": [
+    "/opt/software/python/anaconda/2023_03/pkgs",
+    "/home/dnbobkov/.conda/pkgs"
+  ],
+  "platform": "linux-64",
+  "python_version": "3.10.9.final.0",
+  "rc_path": "/home/dnbobkov/.condarc",
+  "requests_version": "2.32.5",
+  "root_prefix": "/opt/software/python/anaconda/2023_03",
+  "root_writable": false,
+  "site_dirs": [
+    "~/.local/lib/python3.9",
+    "~/.local/lib/python3.10"
+  ],
+  "sys.executable": "/opt/software/python/anaconda/2023_03/bin/python",
+  "sys.prefix": "/opt/software/python/anaconda/2023_03",
+  "sys.version": "3.10.9 (main, Mar  1 2023, 18:23:06) [GCC 11.2.0]",
+  "sys_rc_path": "/opt/software/python/anaconda/2023_03/.condarc",
+  "user_agent": "conda/23.1.0 requests/2.32.5 CPython/3.10.9 Linux/3.10.0-1160.59.1.el7.x86_64 centos/7.9.2009 glibc/2.17 solver/libmamba conda-libmamba-solver/22.8.1 libmambapy/1.3.1",
+  "user_rc_path": "/home/dnbobkov/.condarc",
+  "virtual_pkgs": [
+    [
+      "__archspec",
+      "1",
+      "x86_64"
+    ],
+    [
+      "__glibc",
+      "2.17",
+      "0"
+    ],
+    [
+      "__linux",
+      "3.10.0",
+      "0"
+    ],
+    [
+      "__unix",
+      "0",
+      "0"
+    ]
+  ]
+}
