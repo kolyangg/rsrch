@@ -131,6 +131,11 @@ class BaseTrainer:
         if from_pretrained is not None:
             self._from_pretrained(from_pretrained)
 
+        # Keep epoch counters identical across ranks. If one rank accidentally
+        # resumes from a different epoch, rank-conditional first-epoch logic
+        # (initial validation, barriers) can desynchronize collectives.
+        self._sync_start_epoch()
+
 
     def train(self):
         """
@@ -143,6 +148,40 @@ class BaseTrainer:
                 self.logger.info("Saving model on keyboard interrupt")
             self._save_checkpoint(self._last_epoch)
             raise e
+
+    def _sync_start_epoch(self):
+        """Force a single start_epoch value across all distributed ranks."""
+        if int(getattr(self.accelerator, "num_processes", 1)) <= 1:
+            return
+        try:
+            local_start = int(self.start_epoch)
+            epoch_tensor = torch.tensor([local_start], device=self.device, dtype=torch.long)
+            gathered = self.accelerator.gather(epoch_tensor)
+            synced_start = int(gathered[0].item())
+            unique = {int(v.item()) for v in gathered}
+            if len(unique) > 1 and self.accelerator.is_main_process:
+                msg = (
+                    f"[DDP Sync] start_epoch mismatch across ranks: {sorted(unique)}. "
+                    f"Using rank0 value {synced_start} on all ranks."
+                )
+                if self.logger is not None:
+                    self.logger.warning(msg)
+                else:
+                    print(msg)
+            self.start_epoch = synced_start
+            # Per-rank startup trace to verify all workers converge to one epoch.
+            rank = int(getattr(self.accelerator, "process_index", -1))
+            world = int(getattr(self.accelerator, "num_processes", 1))
+            rank_msg = (
+                f"[DDP Sync] rank={rank}/{world} start_epoch local={local_start} synced={self.start_epoch}"
+            )
+            if self.accelerator.is_main_process and self.logger is not None:
+                self.logger.info(rank_msg)
+            else:
+                print(rank_msg)
+        except Exception:
+            # Best effort only; do not block training if gathering fails.
+            pass
 
     def _train_process(self):
         """
