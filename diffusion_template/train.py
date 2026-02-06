@@ -123,7 +123,10 @@ def main(config):
     # on some cluster setups).
     # Also disable DDP buffer broadcasts: validation runs on rank0 only and may
     # leave rank-local non-critical buffers out of sync at train restart.
-    ddp_kwargs = DistributedDataParallelKwargs(broadcast_buffers=False)
+    ddp_kwargs = DistributedDataParallelKwargs(
+        broadcast_buffers=False,
+        find_unused_parameters=True,
+    )
     accelerator = Accelerator(kwargs_handlers=[pg_kwargs, ddp_kwargs], rng_types=[])
 
     project_config = OmegaConf.to_container(config)

@@ -209,12 +209,8 @@ class BaseTrainer:
                     unwrapped = self.model
                 if hasattr(unwrapped, "ensure_branched_after_eval"):
                     unwrapped.ensure_branched_after_eval()
+                self.accelerator.wait_for_everyone()
             ### Modified for attention processors training ###
-
-        # Always synchronize before entering the training dataloader loop.
-        # This prevents rank skew (e.g., one rank starting the dataloader RNG sync
-        # broadcast while another is still finishing validation/setup).
-        self.accelerator.wait_for_everyone()
 
         for batch_idx, batch in enumerate(
             tqdm(self.train_dataloader, desc=f"train_{pid}", total=self.epoch_len)
