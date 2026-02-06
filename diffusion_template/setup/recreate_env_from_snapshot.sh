@@ -72,20 +72,66 @@ if [[ -f "${PIP_FILE}" ]]; then
   echo "[3/3] Installing pip packages from ${PIP_FILE}"
   python -m pip install --upgrade pip
   CLIP_SOURCE="${CLIP_SOURCE:-git+https://github.com/openai/CLIP.git}"
-  PIP_FILE_TO_INSTALL="${PIP_FILE}"
-  TMP_PIP_FILE=""
-  if grep -Eq '^clip==1\.0$' "${PIP_FILE}"; then
-    TMP_PIP_FILE="$(mktemp)"
-    awk -v clip_src="${CLIP_SOURCE}" '
-      /^clip==1\.0$/ { print clip_src; next }
-      { print }
-    ' "${PIP_FILE}" > "${TMP_PIP_FILE}"
-    PIP_FILE_TO_INSTALL="${TMP_PIP_FILE}"
-    echo "[3/3] Replaced clip==1.0 with ${CLIP_SOURCE}"
+  TMP_PIP_FILE="$(mktemp)"
+  FAILED_REQS_FILE="${SNAPSHOT_DIR}/pip_failed_requirements.txt"
+  : > "${FAILED_REQS_FILE}"
+
+  # Normalize freeze file for cross-machine restore:
+  # - replace clip==1.0 with installable OpenAI CLIP source
+  # - drop comments/empty lines
+  # - map local file refs ("pkg @ file://...") to bare package name
+  # - deduplicate while preserving first occurrence
+  awk -v clip_src="${CLIP_SOURCE}" '
+    {
+      gsub(/\r$/, "", $0)
+      if ($0 ~ /^[[:space:]]*$/) next
+      if ($0 ~ /^[[:space:]]*#/) next
+      if ($0 == "clip==1.0") $0 = clip_src
+      if ($0 ~ /@ file:\/\//) {
+        n = split($0, parts, " @ ")
+        if (n >= 1 && parts[1] != "") {
+          $0 = parts[1]
+        } else {
+          next
+        }
+      }
+      if (!seen[$0]++) print $0
+    }
+  ' "${PIP_FILE}" > "${TMP_PIP_FILE}"
+
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "[3/3] Installing uv for faster pip restore"
+    python -m pip install --upgrade uv
   fi
-  python -m pip install -r "${PIP_FILE_TO_INSTALL}"
-  if [[ -n "${TMP_PIP_FILE}" && -f "${TMP_PIP_FILE}" ]]; then
-    rm -f "${TMP_PIP_FILE}"
+
+  PY_BIN="$(command -v python)"
+  echo "[3/3] Installing with uv (bulk pass)"
+  set +e
+  uv pip install --python "${PY_BIN}" -r "${TMP_PIP_FILE}"
+  UV_STATUS=$?
+  set -e
+
+  if [[ ${UV_STATUS} -ne 0 ]]; then
+    echo "[3/3] Bulk uv install failed. Retrying package-by-package to maximize coverage."
+    while IFS= read -r req; do
+      [[ -z "${req}" ]] && continue
+      set +e
+      uv pip install --python "${PY_BIN}" "${req}"
+      ONE_STATUS=$?
+      set -e
+      if [[ ${ONE_STATUS} -ne 0 ]]; then
+        echo "${req}" >> "${FAILED_REQS_FILE}"
+      fi
+    done < "${TMP_PIP_FILE}"
+  fi
+
+  rm -f "${TMP_PIP_FILE}"
+
+  if [[ -s "${FAILED_REQS_FILE}" ]]; then
+    echo "WARNING: Some pip requirements could not be installed."
+    echo "See: ${FAILED_REQS_FILE}"
+  else
+    rm -f "${FAILED_REQS_FILE}"
   fi
 else
   echo "[3/3] pip_freeze.txt not found; skipping pip install."
