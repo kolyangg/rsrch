@@ -118,7 +118,10 @@ def main(config):
     # Let Accelerate own distributed init; keep long timeout for validation
     ddp_timeout = int(getattr(config, "ddp_timeout_seconds", 3600))
     pg_kwargs = InitProcessGroupKwargs(timeout=datetime.timedelta(seconds=ddp_timeout))
-    accelerator = Accelerator(kwargs_handlers=[pg_kwargs])
+    # Disable Accelerate's dataloader RNG synchronization to avoid extra
+    # broadcast collectives at iterator start (can desync ranks after validation
+    # on some cluster setups).
+    accelerator = Accelerator(kwargs_handlers=[pg_kwargs], rng_types=[])
 
     project_config = OmegaConf.to_container(config)
     logger = None
