@@ -466,15 +466,14 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                     if force_manual:
                         entry = manual_entry
 
-                    # Auto mode: if missing (or overlay missing), run a plain PhotoMaker pass (no BA) to
-                    # detect gen bbox and/or save overlay for this exact validation sample.
+                    # Auto mode: run a plain PhotoMaker pass (no BA) only when the bbox
+                    # entry is missing. Do not rerun PM-only generation just to refresh
+                    # a debug overlay file; that extra pass can desync multi-GPU train start.
                     if (not force_manual) and auto_bbox_enabled and hasattr(self, "_auto_bbox_store"):
                         overlay_path = None
                         if debug_dir:
                             overlay_path = Path(str(debug_dir)) / f"{int(sample_debug_idx):02d}" / "auto_bbox_overlay.png"
-
-                        need_overlay = bool(overlay_path is not None and not overlay_path.exists())
-                        if entry is None or need_overlay:
+                        if entry is None:
                             pm_kwargs = dict(self.config.validation_args)
                             pm_kwargs["use_branched_attention"] = False
                             pm_kwargs["use_bbox_mask_gen"] = False
