@@ -71,7 +71,22 @@ conda activate "${TARGET_ENV}"
 if [[ -f "${PIP_FILE}" ]]; then
   echo "[3/3] Installing pip packages from ${PIP_FILE}"
   python -m pip install --upgrade pip
-  python -m pip install -r "${PIP_FILE}"
+  CLIP_SOURCE="${CLIP_SOURCE:-git+https://github.com/openai/CLIP.git}"
+  PIP_FILE_TO_INSTALL="${PIP_FILE}"
+  TMP_PIP_FILE=""
+  if grep -Eq '^clip==1\.0$' "${PIP_FILE}"; then
+    TMP_PIP_FILE="$(mktemp)"
+    awk -v clip_src="${CLIP_SOURCE}" '
+      /^clip==1\.0$/ { print clip_src; next }
+      { print }
+    ' "${PIP_FILE}" > "${TMP_PIP_FILE}"
+    PIP_FILE_TO_INSTALL="${TMP_PIP_FILE}"
+    echo "[3/3] Replaced clip==1.0 with ${CLIP_SOURCE}"
+  fi
+  python -m pip install -r "${PIP_FILE_TO_INSTALL}"
+  if [[ -n "${TMP_PIP_FILE}" && -f "${TMP_PIP_FILE}" ]]; then
+    rm -f "${TMP_PIP_FILE}"
+  fi
 else
   echo "[3/3] pip_freeze.txt not found; skipping pip install."
 fi
