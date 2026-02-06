@@ -153,35 +153,50 @@ class BaseTrainer:
         """Force a single start_epoch value across all distributed ranks."""
         if int(getattr(self.accelerator, "num_processes", 1)) <= 1:
             return
-        try:
-            local_start = int(self.start_epoch)
-            epoch_tensor = torch.tensor([local_start], device=self.device, dtype=torch.long)
-            gathered = self.accelerator.gather(epoch_tensor)
-            synced_start = int(gathered[0].item())
-            unique = {int(v.item()) for v in gathered}
-            if len(unique) > 1 and self.accelerator.is_main_process:
-                msg = (
-                    f"[DDP Sync] start_epoch mismatch across ranks: {sorted(unique)}. "
-                    f"Using rank0 value {synced_start} on all ranks."
-                )
-                if self.logger is not None:
-                    self.logger.warning(msg)
-                else:
-                    print(msg)
-            self.start_epoch = synced_start
-            # Per-rank startup trace to verify all workers converge to one epoch.
-            rank = int(getattr(self.accelerator, "process_index", -1))
-            world = int(getattr(self.accelerator, "num_processes", 1))
-            rank_msg = (
-                f"[DDP Sync] rank={rank}/{world} start_epoch local={local_start} synced={self.start_epoch}"
+        if not torch.distributed.is_available() or not torch.distributed.is_initialized():
+            raise RuntimeError(
+                "[DDP Sync] Distributed is not initialized while num_processes > 1; "
+                "cannot synchronize start_epoch safely."
             )
-            if self.accelerator.is_main_process and self.logger is not None:
-                self.logger.info(rank_msg)
+
+        local_start = int(self.start_epoch)
+        rank = int(getattr(self.accelerator, "process_index", torch.distributed.get_rank()))
+        world = int(getattr(self.accelerator, "num_processes", torch.distributed.get_world_size()))
+
+        # First, audit local values to expose unexpected per-rank resume behavior.
+        local_tensor = torch.tensor([local_start], device=self.device, dtype=torch.long)
+        gathered_local = [torch.zeros_like(local_tensor) for _ in range(world)]
+        torch.distributed.all_gather(gathered_local, local_tensor)
+        all_local = [int(t.item()) for t in gathered_local]
+
+        # Then force rank0 value on all ranks via broadcast.
+        epoch_tensor = torch.tensor(
+            [local_start if rank == 0 else 0],
+            device=self.device,
+            dtype=torch.long,
+        )
+        torch.distributed.broadcast(epoch_tensor, src=0)
+        self.start_epoch = int(epoch_tensor.item())
+
+        if len(set(all_local)) > 1 and self.accelerator.is_main_process:
+            msg = (
+                f"[DDP Sync] start_epoch mismatch across ranks: {sorted(set(all_local))}. "
+                f"Using rank0 value {self.start_epoch} on all ranks."
+            )
+            if self.logger is not None:
+                self.logger.warning(msg)
             else:
-                print(rank_msg)
-        except Exception:
-            # Best effort only; do not block training if gathering fails.
-            pass
+                print(msg)
+
+        # Per-rank startup trace to verify all workers converge to one epoch.
+        rank_msg = (
+            f"[DDP Sync] rank={rank}/{world} start_epoch local={local_start} "
+            f"all_local={all_local} synced={self.start_epoch}"
+        )
+        if self.accelerator.is_main_process and self.logger is not None:
+            self.logger.info(rank_msg)
+        else:
+            print(rank_msg)
 
     def _train_process(self):
         """
