@@ -198,13 +198,17 @@ class BaseTrainer:
             self.accelerator.wait_for_everyone()
 
             ### Modified for attention processors training ###
-            # Ensure branched processors are re-installed on all ranks before training resumes
-            try:
-                unwrapped = self.accelerator.unwrap_model(self.model)
-            except Exception:
-                unwrapped = self.model
-            if hasattr(unwrapped, "ensure_branched_after_eval"):
-                unwrapped.ensure_branched_after_eval()
+            # Ensure branched processors are re-installed on all ranks only when
+            # validation used the training base model itself.
+            val_pretrained = getattr(self.config, "pretrained_model_for_validation_name_or_path", None)
+            needs_reinstall = not bool(val_pretrained)
+            if needs_reinstall:
+                try:
+                    unwrapped = self.accelerator.unwrap_model(self.model)
+                except Exception:
+                    unwrapped = self.model
+                if hasattr(unwrapped, "ensure_branched_after_eval"):
+                    unwrapped.ensure_branched_after_eval()
             ### Modified for attention processors training ###
 
         # Always synchronize before entering the training dataloader loop.
@@ -295,13 +299,17 @@ class BaseTrainer:
         self.accelerator.wait_for_everyone()
         
         ### Modified for attention processors training ###
-        # Ensure branched processors are re-installed on all ranks before training resumes
-        try:
-            unwrapped = self.accelerator.unwrap_model(self.model)
-        except Exception:
-            unwrapped = self.model
-        if hasattr(unwrapped, "ensure_branched_after_eval"):
-            unwrapped.ensure_branched_after_eval()
+        # Ensure branched processors are re-installed only when validation used
+        # the training base model itself.
+        val_pretrained = getattr(self.config, "pretrained_model_for_validation_name_or_path", None)
+        needs_reinstall = not bool(val_pretrained)
+        if needs_reinstall:
+            try:
+                unwrapped = self.accelerator.unwrap_model(self.model)
+            except Exception:
+                unwrapped = self.model
+            if hasattr(unwrapped, "ensure_branched_after_eval"):
+                unwrapped.ensure_branched_after_eval()
         self.accelerator.wait_for_everyone()
         ### Modified for attention processors training ###
 

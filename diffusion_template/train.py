@@ -5,7 +5,7 @@ import torch
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 from accelerate import Accelerator
-from accelerate.utils import InitProcessGroupKwargs
+from accelerate.utils import InitProcessGroupKwargs, DistributedDataParallelKwargs
 
 from src.datasets.data_utils import get_dataloaders
 from src.utils.init_utils import set_random_seed, setup_saving_and_logging
@@ -121,7 +121,10 @@ def main(config):
     # Disable Accelerate's dataloader RNG synchronization to avoid extra
     # broadcast collectives at iterator start (can desync ranks after validation
     # on some cluster setups).
-    accelerator = Accelerator(kwargs_handlers=[pg_kwargs], rng_types=[])
+    # Also disable DDP buffer broadcasts: validation runs on rank0 only and may
+    # leave rank-local non-critical buffers out of sync at train restart.
+    ddp_kwargs = DistributedDataParallelKwargs(broadcast_buffers=False)
+    accelerator = Accelerator(kwargs_handlers=[pg_kwargs, ddp_kwargs], rng_types=[])
 
     project_config = OmegaConf.to_container(config)
     logger = None
