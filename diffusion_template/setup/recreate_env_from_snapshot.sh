@@ -342,7 +342,7 @@ if [[ "${SKIP_CLIP_PREFETCH}" != "1" ]]; then
 
   if ! "${PY_BIN}" - <<'PY' >/dev/null 2>&1
 import clip
-required = ("load", "tokenize", "_MODELS")
+required = ("load", "tokenize")
 ok = all(hasattr(clip, name) for name in required)
 raise SystemExit(0 if ok else 1)
 PY
@@ -355,84 +355,39 @@ PY
     fi
     uv pip install --python "${PY_BIN}" --no-deps "${CLIP_SOURCE}"
   fi
-  CLIP_META="$(
-    CLIP_MODEL_NAME="${CLIP_MODEL_NAME}" "${PY_BIN}" - <<'PY'
+  CLIP_MODEL_NAME="${CLIP_MODEL_NAME}" CLIP_CACHE_DIR="${CLIP_CACHE_DIR}" CLIP_PREFETCH_RETRIES="${CLIP_PREFETCH_RETRIES}" "${PY_BIN}" - <<'PY'
 import os
-import clip
-
-model_name = os.environ["CLIP_MODEL_NAME"]
-if not hasattr(clip, "_MODELS"):
-    raise RuntimeError(
-        f"Installed clip module does not expose _MODELS: {getattr(clip, '__file__', '<unknown>')}"
-    )
-if model_name not in clip._MODELS:
-    available = clip.available_models() if hasattr(clip, "available_models") else []
-    raise RuntimeError(f"Unknown CLIP model: {model_name}. Available: {available}")
-url = clip._MODELS[model_name]
-sha = url.split("/")[-2]
-filename = url.split("/")[-1]
-print(url)
-print(sha)
-print(filename)
-PY
-  )"
-
-  CLIP_URL="$(printf '%s\n' "${CLIP_META}" | sed -n '1p')"
-  CLIP_SHA="$(printf '%s\n' "${CLIP_META}" | sed -n '2p')"
-  CLIP_FILENAME="$(printf '%s\n' "${CLIP_META}" | sed -n '3p')"
-  CLIP_TARGET="${CLIP_CACHE_DIR}/${CLIP_FILENAME}"
-
-  echo "[8/8] CLIP URL: ${CLIP_URL}"
-  echo "[8/8] Target: ${CLIP_TARGET}"
-
-  CLIP_DONE=0
-  for ((attempt=1; attempt<=CLIP_PREFETCH_RETRIES; attempt++)); do
-    echo "[8/8] CLIP download attempt ${attempt}/${CLIP_PREFETCH_RETRIES}"
-    if command -v wget >/dev/null 2>&1; then
-      set +e
-      wget -c --tries=20 --timeout=30 -O "${CLIP_TARGET}" "${CLIP_URL}"
-      DL_STATUS=$?
-      set -e
-    elif command -v curl >/dev/null 2>&1; then
-      set +e
-      curl -L --retry 20 --retry-all-errors --connect-timeout 30 -C - -o "${CLIP_TARGET}" "${CLIP_URL}"
-      DL_STATUS=$?
-      set -e
-    else
-      set +e
-      CLIP_URL="${CLIP_URL}" CLIP_TARGET="${CLIP_TARGET}" "${PY_BIN}" - <<'PY'
-import os
-import urllib.request
-
-url = os.environ["CLIP_URL"]
-target = os.environ["CLIP_TARGET"]
-urllib.request.urlretrieve(url, target)
-PY
-      DL_STATUS=$?
-      set -e
-    fi
-
-    if [[ ${DL_STATUS} -eq 0 ]] && echo "${CLIP_SHA}  ${CLIP_TARGET}" | sha256sum -c - >/dev/null 2>&1; then
-      CLIP_DONE=1
-      break
-    fi
-    rm -f "${CLIP_TARGET}"
-    sleep 2
-  done
-
-  if [[ ${CLIP_DONE} -ne 1 ]]; then
-    echo "ERROR: Failed to download CLIP model with valid checksum after ${CLIP_PREFETCH_RETRIES} attempts."
-    exit 1
-  fi
-
-  CLIP_MODEL_NAME="${CLIP_MODEL_NAME}" CLIP_CACHE_DIR="${CLIP_CACHE_DIR}" "${PY_BIN}" - <<'PY'
-import os
+import time
 import clip
 
 model_name = os.environ["CLIP_MODEL_NAME"]
 cache_dir = os.path.expanduser(os.environ["CLIP_CACHE_DIR"])
-clip.load(model_name, device="cpu", download_root=cache_dir)
-print(f"CLIP prefetch OK: {model_name} -> {cache_dir}")
+retries = int(os.environ.get("CLIP_PREFETCH_RETRIES", "10"))
+
+if hasattr(clip, "available_models"):
+    available = clip.available_models()
+    if isinstance(available, (list, tuple)) and available and model_name not in available:
+        raise RuntimeError(f"Unknown CLIP model: {model_name}. Available: {available}")
+
+last_error = None
+for attempt in range(1, retries + 1):
+    try:
+        clip.load(model_name, device="cpu", download_root=cache_dir)
+        print(f"CLIP prefetch OK: {model_name} -> {cache_dir}")
+        raise SystemExit(0)
+    except RuntimeError as exc:
+        last_error = exc
+        text = str(exc).lower()
+        if "sha256 checksum" in text or "checksum does not not match" in text:
+            for name in os.listdir(cache_dir):
+                if name.endswith(".pt"):
+                    try:
+                        os.remove(os.path.join(cache_dir, name))
+                    except OSError:
+                        pass
+        time.sleep(2)
+
+raise RuntimeError(f"Failed to prefetch CLIP model {model_name} after {retries} attempts: {last_error}")
 PY
 else
   echo "[8/8] Skipping CLIP prefetch (SKIP_CLIP_PREFETCH=1)."
