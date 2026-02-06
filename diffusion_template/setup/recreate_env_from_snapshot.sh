@@ -43,7 +43,33 @@ echo "Restoring environment:"
 echo "  snapshot: ${SNAPSHOT_DIR}"
 echo "  target_env: ${TARGET_ENV}"
 
-if conda env list | awk '{print $1}' | grep -Fxq "${TARGET_ENV}"; then
+# Keep conda operations isolated from active runtime overlays (e.g. _gcc_runtime),
+# otherwise libmamba can fail to load due to incompatible libstdc++/CXXABI.
+_clean_ld_library_path() {
+  local input="${1:-}"
+  local out=""
+  local part=""
+  IFS=':' read -r -a _parts <<< "${input}"
+  for part in "${_parts[@]}"; do
+    [[ -z "${part}" ]] && continue
+    case "${part}" in
+      */_gcc_runtime/lib* ) continue ;;
+    esac
+    if [[ -z "${out}" ]]; then
+      out="${part}"
+    else
+      out="${out}:${part}"
+    fi
+  done
+  printf '%s' "${out}"
+}
+
+CONDA_CLEAN_LD_LIBRARY_PATH="$(_clean_ld_library_path "${LD_LIBRARY_PATH:-}")"
+run_conda() {
+  CONDA_SOLVER=classic LD_PRELOAD= LD_LIBRARY_PATH="${CONDA_CLEAN_LD_LIBRARY_PATH}" conda "$@"
+}
+
+if run_conda env list | awk '{print $1}' | grep -Fxq "${TARGET_ENV}"; then
   echo "ERROR: conda env '${TARGET_ENV}' already exists. Choose another name."
   exit 1
 fi
@@ -51,7 +77,7 @@ fi
 set +e
 if [[ -f "${EXPLICIT_FILE}" ]]; then
   echo "[1/3] Trying exact conda restore from ${EXPLICIT_FILE}"
-  conda create -y -n "${TARGET_ENV}" --file "${EXPLICIT_FILE}"
+  run_conda create -y -n "${TARGET_ENV}" --file "${EXPLICIT_FILE}"
   STATUS=$?
 else
   STATUS=1
@@ -65,10 +91,18 @@ if [[ ${STATUS} -ne 0 ]]; then
   fi
   echo "[1/3] Exact restore failed (likely OS/arch/build mismatch)."
   echo "[2/3] Falling back to portable conda spec ${NOBUILDS_FILE}"
-  conda env create -n "${TARGET_ENV}" -f "${NOBUILDS_FILE}"
+  run_conda env create -n "${TARGET_ENV}" -f "${NOBUILDS_FILE}"
 fi
 
-eval "$(conda shell.bash hook)"
+# Enter activated env with cleaned loader variables.
+unset LD_PRELOAD
+if [[ -n "${CONDA_CLEAN_LD_LIBRARY_PATH}" ]]; then
+  export LD_LIBRARY_PATH="${CONDA_CLEAN_LD_LIBRARY_PATH}"
+else
+  unset LD_LIBRARY_PATH
+fi
+
+eval "$(run_conda shell.bash hook)"
 conda activate "${TARGET_ENV}"
 
 if [[ -f "${PIP_FILE}" ]]; then
@@ -192,7 +226,7 @@ if [[ "${SKIP_RUNTIME_OVERLAY}" != "1" ]]; then
 
   if [[ ! -f "${RUNTIME_PREFIX}/lib/libstdc++.so.6" ]]; then
     echo "[5/8] Creating runtime overlay at ${RUNTIME_PREFIX}"
-    conda create -y -p "${RUNTIME_PREFIX}" \
+    run_conda create -y -p "${RUNTIME_PREFIX}" \
       -c "${RUNTIME_CHANNEL}" \
       --override-channels \
       "libstdcxx-ng=${RUNTIME_LIBSTDCPP_VERSION}" \
