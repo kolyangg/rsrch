@@ -5,6 +5,7 @@ import torch
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 from accelerate import Accelerator
+from accelerate.utils import InitProcessGroupKwargs
 
 from src.datasets.data_utils import get_dataloaders
 from src.utils.init_utils import set_random_seed, setup_saving_and_logging
@@ -113,13 +114,11 @@ def main(config):
     Args:
         config (DictConfig): hydra experiment config.
     """
-    # Allow longer watchdog timeout to accommodate long validations
-    ddp_timeout = int(getattr(config, "ddp_timeout_seconds", 3600))
-    torch.distributed.init_process_group(
-        backend="nccl", timeout=datetime.timedelta(seconds=ddp_timeout)
-    )
     set_random_seed(config.trainer.seed)
-    accelerator = Accelerator()
+    # Let Accelerate own distributed init; keep long timeout for validation
+    ddp_timeout = int(getattr(config, "ddp_timeout_seconds", 3600))
+    pg_kwargs = InitProcessGroupKwargs(timeout=datetime.timedelta(seconds=ddp_timeout))
+    accelerator = Accelerator(kwargs_handlers=[pg_kwargs])
 
     project_config = OmegaConf.to_container(config)
     logger = None
