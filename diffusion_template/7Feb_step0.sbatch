@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --nodes=1                    # Количество используемых узлов
-#SBATCH --job-name=br_1r_sp             # Заместо aboba напишите ваше незвание эксперимента
+#SBATCH --job-name=br_st0             # Заместо aboba напишите ваше незвание эксперимента
 #SBATCH --error=runs/pm_branched-%j.err    # Файл для вывода ошибок
 #SBATCH --output=runs/pm_branched-%j.log   # Файл для вывода результатов
 #SBATCH --gpus=1                     # Количество запрашиваемых гпу
@@ -43,7 +43,7 @@ export TORCH_DISTRIBUTED_DEBUG=DETAIL
 CUDA_VISIBLE_DEVICES=0 \
     COMET_API_KEY=wSzl6h2PsRcopvISb2TJvtkzH \
     accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=1 train.py \
-    --config-name=one_id_br_attn1_lr4_new \
+    --config-name=one_id_br_attn1_step0_new \
     trainer.epoch_len=200 \
     dataloaders.train.batch_size=4 \
     dataloaders.train.num_workers=12 \

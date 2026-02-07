@@ -7,7 +7,8 @@ defaults:
   - lr_scheduler: custom_linear
   # - pipeline: photomaker_branched2_both # Modified to make attn_processor trainable in branched version
   # - pipeline: photomaker_branched2_ref
-  - pipeline: photomaker_branched2_ref1
+  # - pipeline: photomaker_branched2_ref1
+  - pipeline: photomaker_branched2_ref1_step0
   # - pipeline: photomaker_branched # Modified to make attn_processor trainable in branched version
   # - metrics: all_metrics
   - metrics: all_metrics_oneid
@@ -64,6 +65,7 @@ update_proc_weights_val: true
 #   (2) detect face bbox on the generated image and write *_auto.json,
 #   (3) run branched attention using that bbox as gen-mask,
 #   (4) save bbox overlay into validation_args.debug_dir/00,01,...
+# automatic_bboxes: false
 automatic_bboxes: true
 face_detector: yolo
 face_model: bbox_utils/yolov8n-face.pt
@@ -79,7 +81,7 @@ optimizer:
 loss_function:
   _target_: src.loss.diffusion_loss.MaskedDiffusionLoss
 
-lr_for_lora: 1e-4
+lr_for_lora: 1e-5
 # Optional separate LR for processors; falls back to lr_for_lora if omitted
 # lr_for_attn_processors: 1e-5
 
