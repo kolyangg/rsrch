@@ -229,8 +229,6 @@ class SDXLTrainer(BaseTrainer):
                     img.save(save_root / f"{name}.png")
                 if i < len(mask_images) and mask_images[i] is not None:
                     self.writer.add_image(f"{name}_mask.png", mask_images[i])
-                    if hasattr(mask_images[i], "save"):
-                        mask_images[i].save(save_root / f"{name}_mask.png")
             ### Make validation filenames match bbox JSON keys: f"{prompt[:10]}_{id}.png" ###
             # --- MODIFIED For training integration ---
 
@@ -277,6 +275,7 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         # Optional: generate gen-bboxes on-the-fly via an extra PhotoMaker-only pass.
         # Only makes sense when branched attention is expected to run.
         automatic_bboxes = bool(getattr(self.config, "automatic_bboxes", False))
+        automatic_bboxes_every_val = bool(getattr(self.config, "automatic_bboxes_every_val", True))
         use_gen_mask = bool(self.config.validation_args.get("use_bbox_mask_gen", False))
         use_branched_attention = bool(self.config.validation_args.get("use_branched_attention", False))
         try:
@@ -486,14 +485,14 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                     if force_manual:
                         entry = manual_entry
 
-                    # Auto mode: run a plain PhotoMaker pass (no BA) only when the bbox
-                    # entry is missing. Do not rerun PM-only generation just to refresh
-                    # a debug overlay file; that extra pass can desync multi-GPU train start.
+                    # Auto mode: run a plain PhotoMaker pass (no BA) for missing entries,
+                    # or every validation epoch when automatic_bboxes_every_val is enabled.
                     if (not force_manual) and auto_bbox_enabled and hasattr(self, "_auto_bbox_store"):
                         overlay_path = None
                         if debug_dir:
                             overlay_path = Path(str(debug_dir)) / f"{int(sample_debug_idx):02d}" / "auto_bbox_overlay.png"
-                        if entry is None:
+                        should_recompute_entry = bool(automatic_bboxes_every_val)
+                        if entry is None or should_recompute_entry:
                             pm_kwargs = dict(self.config.validation_args)
                             pm_kwargs["use_branched_attention"] = False
                             pm_kwargs["use_bbox_mask_gen"] = False
@@ -520,8 +519,8 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                                     "seed": int(sample_seed),
                                 },
                                 overlay_path=overlay_path,
-                                force_overlay=False,
-                                force_recompute=False,
+                                force_overlay=bool(overlay_path is not None and should_recompute_entry),
+                                force_recompute=should_recompute_entry,
                             )
                             # Refresh local view
                             self._gen_bbox_by_name[key] = entry
@@ -616,21 +615,6 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                         for j, img in enumerate(generated_images):
                             img.save(out_dir / f"generated_ba_{j:02d}.png")
 
-                    # If force_manual is active, save an overlay using the manual bbox without triggering PM-only pass.
-                    if use_gen_mask and auto_bbox_enabled and isinstance(manual_entry, dict) and bool(manual_entry.get("force_manual", False)):
-                        try:
-                            from bbox_utils.visualize_bboxes import save_annotated_pil
-
-                            overlay_path = out_dir / "auto_bbox_overlay.png"
-                            if not overlay_path.exists() and face_bbox_gen is not None:
-                                save_annotated_pil(
-                                    generated_images[0],
-                                    {"face_crop_new": face_bbox_gen},
-                                    overlay_path,
-                                    line_width=4,
-                                )
-                        except Exception:
-                            pass
             except Exception:
                 pass
             pipe_time = time.time() - pipe_start
