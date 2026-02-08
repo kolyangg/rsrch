@@ -165,6 +165,20 @@ class SDXLTrainer(BaseTrainer):
             if not images:
                 return 
             # --- MODIFIED For training integration ---
+
+            generated_masks = batch.get("generated_masks")
+            mask_images = []
+            if generated_masks is not None:
+                if isinstance(generated_masks, list):
+                    for item in generated_masks:
+                        if isinstance(item, list):
+                            mask_images.extend(item)
+                        else:
+                            mask_images.append(item)
+                else:
+                    mask_images = [generated_masks]
+            if mask_images and len(mask_images) < len(images):
+                mask_images.extend([None] * (len(images) - len(mask_images)))
             
             # --- MODIFIED For training integration ---
             num_per_prompt = self.config.validation_args.get("num_images_per_prompt", 1)
@@ -207,12 +221,16 @@ class SDXLTrainer(BaseTrainer):
             save_root = Path(self.checkpoint_dir) / "val_images" / mode / f"step_{getattr(self.writer, 'step', 0)}_batch_{batch_idx}"
             save_root.mkdir(parents=True, exist_ok=True)
 
-            for img, name in zip(images, sanitized):
+            for i, (img, name) in enumerate(zip(images, sanitized)):
                 # ### To align validation with infer.py generation ###
                 # Log and save using the exact bbox-JSON-like filename
                 self.writer.add_image(f"{name}.png", img)
                 if hasattr(img, "save"):
                     img.save(save_root / f"{name}.png")
+                if i < len(mask_images) and mask_images[i] is not None:
+                    self.writer.add_image(f"{name}_mask.png", mask_images[i])
+                    if hasattr(mask_images[i], "save"):
+                        mask_images[i].save(save_root / f"{name}_mask.png")
             ### Make validation filenames match bbox JSON keys: f"{prompt[:10]}_{id}.png" ###
             # --- MODIFIED For training integration ---
 
@@ -399,6 +417,7 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         total_metric_time = 0.0
         total_steps = 0
         step_max = 0.0
+        generated_masks_collection = []
 
         for idx in range(batch_size):
             sample = {}
@@ -426,6 +445,7 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 batch_debug_total = 0
             sample_debug_idx = batch_debug_idx * batch_size + idx if batch_size > 1 else batch_debug_idx
             debug_dir = self.config.validation_args.get("debug_dir", None)
+            sample_mask_image = None
 
             # ### To align validation with infer.py generation ###
             # Use a device-matched generator (GPU when available)
@@ -505,6 +525,20 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                             )
                             # Refresh local view
                             self._gen_bbox_by_name[key] = entry
+                            # Keep the exact overlay in memory for writer logging
+                            # at the same validation step without loading from disk.
+                            try:
+                                from bbox_utils.visualize_bboxes import annotate_pil
+                                line_w = int(getattr(self._auto_bbox_store, "line_width", 4))
+                                face_box_new = entry.get("face_crop_new") if isinstance(entry, dict) else None
+                                if face_box_new is not None:
+                                    sample_mask_image = annotate_pil(
+                                        pm_img,
+                                        {"face_crop_new": face_box_new},
+                                        line_width=line_w,
+                                    )
+                            except Exception:
+                                sample_mask_image = None
 
                     if entry is None:
                         err = f"No bbox entry in bbox_mask_gen for expected output name '{key}'"
@@ -618,12 +652,18 @@ class PhotomakerLoraTrainer(SDXLTrainer):
 
             total_metric_time += metric_time
             generated_collection.append(generated_images)
+            sample_images = generated_images if isinstance(generated_images, list) else [generated_images]
+            if sample_mask_image is None:
+                generated_masks_collection.append([None] * len(sample_images))
+            else:
+                generated_masks_collection.append([sample_mask_image.copy() for _ in range(len(sample_images))])
 
             if self.validation_debug_timing and step_durations:
                 total_steps += len(step_durations)
                 step_max = max(step_max, max(step_durations))
 
         batch["generated"] = generated_collection if batch_size > 1 else generated_collection[0]
+        batch["generated_masks"] = generated_masks_collection if batch_size > 1 else generated_masks_collection[0]
 
         if self.validation_debug_timing and self.accelerator.is_main_process:
             if total_steps > 0:
