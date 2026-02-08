@@ -454,7 +454,23 @@ PY
     if ! command -v uv >/dev/null 2>&1; then
       "${PY_BIN}" -m pip install --upgrade uv
     fi
+    # Some fresh envs fail to build CLIP with:
+    #   ModuleNotFoundError: No module named 'pkg_resources'
+    # Ensure setuptools/wheel exist in the target env, then fallback to pip
+    # without build isolation if uv build isolation still fails.
+    CLIP_SETUPTOOLS_SPEC="${CLIP_SETUPTOOLS_SPEC:-setuptools<81}"
+    uv pip install --python "${PY_BIN}" --upgrade "${CLIP_SETUPTOOLS_SPEC}" wheel
+
+    set +e
     uv pip install --python "${PY_BIN}" --no-deps "${CLIP_SOURCE}"
+    CLIP_INSTALL_STATUS=$?
+    set -e
+
+    if [[ ${CLIP_INSTALL_STATUS} -ne 0 ]]; then
+      echo "[8/8] uv CLIP install failed. Retrying with pip --no-build-isolation"
+      "${PY_BIN}" -m pip install --upgrade "${CLIP_SETUPTOOLS_SPEC}" wheel
+      "${PY_BIN}" -m pip install --no-deps --no-build-isolation "${CLIP_SOURCE}"
+    fi
   fi
   CLIP_MODEL_NAME="${CLIP_MODEL_NAME}" CLIP_CACHE_DIR="${CLIP_CACHE_DIR}" CLIP_PREFETCH_RETRIES="${CLIP_PREFETCH_RETRIES}" "${PY_BIN}" - <<'PY'
 import os
