@@ -1414,9 +1414,10 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
                     # Call the new two_branch_predict function
 
-                    # Apply mask-merge only from merge_start_step onwards
-                    _mask4     = mask4     if i >= merge_start_step else None
-                    _mask4_ref = mask4_ref if i >= merge_start_step else None
+                    # Apply mask-merge only from merge_start_step onwards.
+                    # Keep non-None masks to satisfy branched processor contracts.
+                    _mask4     = mask4     if i >= merge_start_step else torch.zeros_like(mask4)
+                    _mask4_ref = mask4_ref if i >= merge_start_step else torch.zeros_like(mask4_ref)
 
 
                     # Build face-branch encoder_hidden_states from 2048-D PM ID features
@@ -1457,8 +1458,8 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                         t=t,
                         prompt_embeds=current_prompt_embeds, 
                         added_cond_kwargs=added_cond_kwargs,
-                        mask4=mask4,
-                        mask4_ref=mask4_ref,
+                        mask4=_mask4,
+                        mask4_ref=_mask4_ref,
                         reference_latents=self._ref_latents_all,
                         # For "face" → use text; for "id_embeds" → use PM ID features as pseudo-tokens
                         face_prompt_embeds=(self._face_prompt_embeds if fes_step == "face" else id_face_ehs),
