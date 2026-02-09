@@ -191,6 +191,18 @@ class PhotomakerBranchedLora(SDXL):
                     for p in proc.parameters():
                         p.requires_grad_(True)
 
+            # id_embeds-only: pre-create projection params before optimizer is built.
+            if self.face_embed_strategy == "id_embeds" and not self.use_attn_v2:
+                for name, proc in self.unet.attn_processors.items():
+                    if not name.endswith("attn1.processor"):
+                        continue
+                    if getattr(proc, "id_to_hidden", None) is None and hasattr(proc, "hidden_size"):
+                        proc.id_to_hidden = torch.nn.Linear(2048, proc.hidden_size, bias=False).to(
+                            self.unet.device, dtype=self.unet.dtype
+                        )
+                        with torch.no_grad():
+                            proc.id_to_hidden.weight.mul_(0.1)
+
             ### 28 Nov: train only BA layers ###
             # Optionally restrict training to branched processors + LoRA on attention projections.
             if getattr(self, "train_ba_only", False):
@@ -404,11 +416,14 @@ class PhotomakerBranchedLora(SDXL):
         class_tokens_mask = torch.cat(class_tokens_mask_list, dim=0).to(device=self.device)
 
         # --- MODIFIED For training integration ---
+        id_features = None
         if self.face_embed_strategy == "face":  
             face_prompt_text = ["a close-up human face laughing hard"] * batch_size 
             face_prompt_embeds, _ = self.encode_prompt(face_prompt_text, do_cfg=False)
             face_prompt_embeds = face_prompt_embeds.to(device=self.device, dtype=self.unet.dtype)
-        elif self.face_embed_strategy == "id_embeds" and pm_feature_list:
+        elif self.face_embed_strategy == "id_embeds":
+            if not pm_feature_list:
+                raise ValueError("id_embeds strategy requires PM features in training forward.")
             id_features = torch.cat(pm_feature_list, dim=0)
             seq_len = prompt_embeds.shape[1]
             dim = prompt_embeds.shape[2]
@@ -460,7 +475,7 @@ class PhotomakerBranchedLora(SDXL):
             face_prompt_embeds=face_prompt_embeds,  # --- MODIFIED For training integration ---
             class_tokens_mask=class_tokens_mask,
             face_embed_strategy=self.face_embed_strategy,
-            id_embeds=None,
+            id_embeds=id_features if self.face_embed_strategy == "id_embeds" else None,
             step_idx=0,
             scale=1.0,
             timestep_cond=None,

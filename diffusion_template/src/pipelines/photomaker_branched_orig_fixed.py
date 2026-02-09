@@ -1422,35 +1422,40 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
                     # Build face-branch encoder_hidden_states from 2048-D PM ID features
                     id_face_ehs = None
+                    proc_id_embeds = None
                     if fes_step == "id_embeds":
                         pm = getattr(self, "_pm_id_embeds_2048", None)  # [B, 2048]
-                        if pm is not None:
-                            # match [B or 2B, seq_len, dim] of current_prompt_embeds
-                            seq_len = current_prompt_embeds.shape[1]
-                            dim = current_prompt_embeds.shape[2]
-                            # B = pm.shape[0]
-                            # pos = pm.unsqueeze(1).expand(B, seq_len, dim)          # [B, L, D]
-                            
-                            ### FIX 01 FEB - Repeat PM ID features to match UNet batch
-                            B_pos = current_prompt_embeds.shape[0] // (2 if self.do_classifier_free_guidance else 1)
-                            if pm.shape[0] == B_pos:
-                                pm_b = pm
-                            elif pm.shape[0] == 1:
-                                pm_b = pm.expand(B_pos, -1)
-                            else:
-                                pm_b = pm.mean(dim=0, keepdim=True).expand(B_pos, -1)
-                            pos = pm_b.unsqueeze(1).expand(B_pos, seq_len, dim)    # [B_pos, L, D]
-                    
-                            ### FIX 01 FEB - Repeat PM ID features to match UNet batch
-                            
-                            
-                            if self.do_classifier_free_guidance:
-                                neg = torch.zeros_like(pos)                          # [B, L, D]
-                                id_face_ehs = torch.cat([neg, pos], dim=0)           # [2B, L, D]
-                            else:
-                                id_face_ehs = pos                                     # [B, L, D]
-                            id_face_ehs = id_face_ehs.to(device=current_prompt_embeds.device,
-                                                         dtype=current_prompt_embeds.dtype)
+                        if pm is None:
+                            raise ValueError("id_embeds strategy requires cached _pm_id_embeds_2048.")
+                        # match [B or 2B, seq_len, dim] of current_prompt_embeds
+                        seq_len = current_prompt_embeds.shape[1]
+                        dim = current_prompt_embeds.shape[2]
+
+                        ### FIX 01 FEB - Repeat PM ID features to match UNet batch
+                        B_pos = current_prompt_embeds.shape[0] // (2 if self.do_classifier_free_guidance else 1)
+                        if pm.shape[0] == B_pos:
+                            pm_b = pm
+                        elif pm.shape[0] == 1:
+                            pm_b = pm.expand(B_pos, -1)
+                        else:
+                            pm_b = pm.mean(dim=0, keepdim=True).expand(B_pos, -1)
+                        pos = pm_b.unsqueeze(1).expand(B_pos, seq_len, dim)    # [B_pos, L, D]
+                        ### FIX 01 FEB - Repeat PM ID features to match UNet batch
+
+                        if self.do_classifier_free_guidance:
+                            neg = torch.zeros_like(pos)                                # [B, L, D]
+                            id_face_ehs = torch.cat([neg, pos], dim=0)                 # [2B, L, D]
+                            proc_id_embeds = torch.cat([torch.zeros_like(pm_b), pm_b], dim=0)  # [2B, 2048]
+                        else:
+                            id_face_ehs = pos                                           # [B, L, D]
+                            proc_id_embeds = pm_b                                       # [B, 2048]
+
+                        id_face_ehs = id_face_ehs.to(
+                            device=current_prompt_embeds.device, dtype=current_prompt_embeds.dtype
+                        )
+                        proc_id_embeds = proc_id_embeds.to(
+                            device=current_prompt_embeds.device, dtype=current_prompt_embeds.dtype
+                        )
 
                     noise_pred, noise_face, noise_bg = two_branch_predict(
                         self,  # pipeline
@@ -1466,8 +1471,8 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                         class_tokens_mask=class_tokens_mask,
                         # face_embed_strategy=self.face_embed_strategy,
                         face_embed_strategy=fes_step,
-                        # We no longer inject ID via processors for this mode; Cross-Attn uses id_face_ehs.
-                        id_embeds=None,
+                        # id_embeds mode: also feed 2048-D PM features to branched SA processors.
+                        id_embeds=proc_id_embeds,
                         step_idx=i,
                         scale=photomaker_scale,  # Use the new parameter
                         timestep_cond=timestep_cond,
