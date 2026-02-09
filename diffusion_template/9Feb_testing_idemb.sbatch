@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --nodes=1                    # Количество используемых узлов
-#SBATCH --job-name=br_face            # Заместо aboba напишите ваше незвание эксперимента
+#SBATCH --job-name=br_idemb            # Заместо aboba напишите ваше незвание эксперимента
 #SBATCH --error=runs/pm_branched-%j.err    # Файл для вывода ошибок
 #SBATCH --output=runs/pm_branched-%j.log   # Файл для вывода результатов
 #SBATCH --gpus=1                     # Количество запрашиваемых гпу
