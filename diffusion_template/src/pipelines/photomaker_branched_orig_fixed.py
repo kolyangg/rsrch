@@ -890,7 +890,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
 
         if use_branched_attention or save_heatmaps or save_hm_pdf:
-            collect_attention_hooks(
+            hooked_layers = collect_attention_hooks(
                 self,
                 heatmap_mode,
                 focus_token,
@@ -898,6 +898,10 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 self.do_classifier_free_guidance,
                 self._heatmaps,
                 self._orig_forwards,
+            )
+            log_debug_image(
+                f"[HookDebug] attached={int(hooked_layers)} backup_size={len(getattr(self, '_orig_forwards', {}))} "
+                f"debug_idx={debug_idx}"
             )
 
 
@@ -1626,6 +1630,17 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
              # Cleanup dynamic mask generator
              self.mask_generator.cleanup()
+
+        # Restore CrossAttention forwards patched by collect_attention_hooks.
+        # Prevent wrapper accumulation across pipeline calls.
+        if hasattr(self, "_orig_forwards") and self._orig_forwards:
+            restore_count = len(self._orig_forwards)
+            for name, module in self.unet.named_modules():
+                orig = self._orig_forwards.get(name)
+                if orig is not None:
+                    module.forward = orig
+            self._orig_forwards.clear()
+            log_debug_image(f"[HookDebug] restored={restore_count} debug_idx={debug_idx}")
 
             
         ### NEW BRANCHED ATTENTION LOGIC ###
