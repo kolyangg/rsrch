@@ -577,9 +577,59 @@ EOF
   echo "       ${HOOK_DEACT_FILE}"
 fi
 
+# Auto-upgrade torch stack only when the restored snapshot torch build
+# is confirmed incompatible with the target GPU architecture.
+TORCH_ARCH_UPGRADE_APPLIED=0
+TORCH_ARCH_COMPAT_UPGRADE="${TORCH_ARCH_COMPAT_UPGRADE:-1}"
+if [[ "${TORCH_ARCH_COMPAT_UPGRADE}" == "1" ]]; then
+  PY_BIN="$(command -v python)"
+  echo "[torch-arch] Checking torch CUDA architecture compatibility"
+  set +e
+  TORCH_ARCH_CHECK_OUTPUT="$("${PY_BIN}" - <<'PY'
+import json
+import torch
+
+info = {
+    "torch": torch.__version__,
+    "torch_cuda": torch.version.cuda,
+    "cuda_available": bool(torch.cuda.is_available()),
+    "compatible": True,
+}
+
+if info["cuda_available"]:
+    cc = torch.cuda.get_device_capability(0)
+    sm = f"sm_{cc[0]}{cc[1]}"
+    archs = set(torch.cuda.get_arch_list())
+    info["compute_capability"] = cc
+    info["required_sm"] = sm
+    info["arch_list"] = sorted(archs)
+    info["compatible"] = (sm in archs) or (f"compute_{cc[0]}{cc[1]}" in archs)
+
+print(json.dumps(info))
+raise SystemExit(0 if info["compatible"] else 42)
+PY
+)"
+  TORCH_ARCH_CHECK_STATUS=$?
+  set -e
+
+  if [[ ${TORCH_ARCH_CHECK_STATUS} -eq 42 ]]; then
+    echo "[torch-arch] Incompatible torch build detected for target GPU."
+    echo "[torch-arch] Replacing torch/torchvision/torchaudio with nightly cu130 build"
+    python -m pip uninstall -y torch torchvision torchaudio >/dev/null 2>&1 || true
+    python -m pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu130
+    TORCH_ARCH_UPGRADE_APPLIED=1
+  elif [[ ${TORCH_ARCH_CHECK_STATUS} -eq 0 ]]; then
+    echo "[torch-arch] Compatibility OK"
+  else
+    echo "[torch-arch] Compatibility check skipped (no actionable signal)."
+  fi
+fi
+
 # Hard guard: ensure critical torch stack versions still match the snapshot.
 ENFORCE_TORCH_GUARD="${ENFORCE_TORCH_GUARD:-1}"
-if [[ "${ENFORCE_TORCH_GUARD}" == "1" && -f "${PIP_FILE}" ]]; then
+if [[ "${TORCH_ARCH_UPGRADE_APPLIED}" == "1" ]]; then
+  echo "[guard] Skipping torch stack snapshot guard (arch-compat upgrade was applied)."
+elif [[ "${ENFORCE_TORCH_GUARD}" == "1" && -f "${PIP_FILE}" ]]; then
   echo "[guard] Verifying torch stack versions"
   TORCH_GUARD_FILE="$(mktemp)"
   awk '/^(torch|torchvision|torchaudio|triton)==/ {print}' "${PIP_FILE}" | sort -u > "${TORCH_GUARD_FILE}"
