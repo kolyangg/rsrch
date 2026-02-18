@@ -135,21 +135,6 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
   ```
 
 - [`src/model/photomaker_branched/branch_helpers.py`](src/model/photomaker_branched/branch_helpers.py) - small mask utility module; currently provides `prepare_mask4(...)` to normalize/resize face masks to current latent resolution for branched steps.
-  ```python
-  def prepare_mask4(pipeline, latents: torch.Tensor, suffix) -> torch.Tensor:
-      if suffix == "_ref" and hasattr(pipeline, f"_face_mask_highres{suffix}"):
-          ...
-          m = F.interpolate(m, size=latents.shape[-2:], mode="bicubic", align_corners=False)
-          return (m > 0.5).to(dtype=latents.dtype)
 
-      mask_attr = f"_face_mask{suffix}"
-      mask_np = getattr(pipeline, mask_attr)
-      is_np = isinstance(mask_np, np.ndarray)
-      m = torch.from_numpy(mask_np)[None, None] if is_np else getattr(pipeline, mask_attr)[:, None]
-      m = m.to(device=latents.device, dtype=latents.dtype)
-      if m.shape[-2:] != latents.shape[-2:]:
-          m = F.interpolate(m, size=latents.shape[-2:], mode="nearest")
-      return m
-  ```
 
 These files together define how branched attention is integrated into both training and inference: processor-level branching (`attn_processor_clean.py`), runtime patch/forward orchestration (`branched_runtime.py`), pipeline wiring (`photomaker_branched_clean.py` + `br_pipeline_helpers.py`), and training wiring (`lora2.py` + `lora2_helpers.py`).
