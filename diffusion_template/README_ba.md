@@ -189,7 +189,7 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
 
 - [`src/configs/pipeline/photomaker_branched2_ref1.yaml`](src/configs/pipeline/photomaker_branched2_ref1.yaml) – validation pipeline config (branched PhotoMaker; sets `branched_attn_start_step`, `pose_adapt_ratio`, `face_embed_strategy`)  
   ```yaml
-  _target_: src.pipelines.photomaker_branched_orig_fixed.PhotomakerBranchedPipeline.from_pretrained
+  _target_: src.pipelines.photomaker_branched_clean.PhotomakerBranchedPipeline.from_pretrained
   pretrained_model_name_or_path: stabilityai/stable-diffusion-xl-base-1.0
   photomaker_start_step: 10
   merge_start_step: 10
@@ -201,7 +201,7 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml train.py \
   face_embed_strategy: id_embeds
   ```
 
-- [`src/pipelines/photomaker_branched_orig_fixed.py`](src/pipelines/photomaker_branched_orig_fixed.py) – SDXL pipeline wrapper used for validation (imports `branched_new2`, and exposes `pose_adapt_ratio`, `face_embed_strategy`, `use_id_embeds`, `id_alpha` to the processors)  
+- [`src/pipelines/photomaker_branched_clean.py`](src/pipelines/photomaker_branched_clean.py) – SDXL pipeline wrapper used for validation (imports `branched_new2`, and exposes `pose_adapt_ratio`, `face_embed_strategy`, `use_id_embeds`, `id_alpha` to the processors)  
   ```python
   class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
       ...  # modified SDXL pipeline with PhotoMaker v2 + branched logic

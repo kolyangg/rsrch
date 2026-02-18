@@ -1,6 +1,6 @@
 ### Modified to make attn_processor trainable in branched version ###
 # _target_: src.pipelines.photomaker_branched2.PhotomakerBranchedPipeline.from_pretrained
-_target_: src.pipelines.photomaker_branched_orig_fixed.PhotomakerBranchedPipeline.from_pretrained
+_target_: src.pipelines.photomaker_branched_clean.PhotomakerBranchedPipeline.from_pretrained
 
 
 pretrained_model_name_or_path: stabilityai/stable-diffusion-xl-base-1.0

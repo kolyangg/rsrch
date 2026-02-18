@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from diffusers import DDIMScheduler
 from transformers import CLIPImageProcessor
 
-from src.model.photomaker_branched.branched_new2 import (
+from src.model.photomaker_branched.branched_runtime import (
     encode_face_prompt,
     restore_original_processors,
     two_branch_predict,

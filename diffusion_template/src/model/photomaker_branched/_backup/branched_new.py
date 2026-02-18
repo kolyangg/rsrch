@@ -20,7 +20,7 @@ def patch_unet_attention_processors(
     """
     Patch UNet with branched attention processors for both self and cross attention.
     """
-    from ..attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
+    from .._old_attn_pr.attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
     
     # Store original processors once
     if not hasattr(pipeline, '_original_attn_processors'):

@@ -5,7 +5,7 @@ from typing import Sequence
 import numpy as np
 import torch
 
-from .branched_new2 import patch_unet_attention_processors, two_branch_predict
+from .branched_runtime import patch_unet_attention_processors, two_branch_predict
 from .insightface_package import analyze_faces
 
 
