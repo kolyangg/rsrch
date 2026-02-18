@@ -22,14 +22,9 @@ def patch_unet_attention_processors(
     """
     Patch UNet with branched attention processors for both self and cross attention.
     """
-    ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
-    # Allow disabling branched self-attention and/or cross-attention via runtime flags.
-    #  - disable_branched_sa=True  → keep original attn1 processors (no branched SA)
-    #  - disable_branched_ca=True  → keep original attn2 processors (no branched CA)
     disable_sa = bool(getattr(pipeline, "disable_branched_sa", False))
     disable_ca = bool(getattr(pipeline, "disable_branched_ca", False))
-    ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
-    # Optional: switch between legacy (v1) and trainable (v2) branched attention processors.
+
     # Default to legacy (v1) when flag is not provided.
     use_attn_v2 = bool(getattr(pipeline, "use_attn_v2", False))
     if use_attn_v2:
@@ -59,11 +54,11 @@ def patch_unet_attention_processors(
         for k in ("pose_adapt_ratio", "ca_mixing_for_face", "train_branch_mode", "id_alpha", "use_id_embeds"):
             if hasattr(pipe, k):
                 setattr(proc, k, getattr(pipe, k))
-        ### 29 Nov - Clean separataion of BA-specific parameters ###
+
         # Optional toggle for per-branch BA-specific adapters.
         if hasattr(pipe, "ba_weights_split"):
             setattr(proc, "ba_weights_split", getattr(pipe, "ba_weights_split"))
-        ### 29 Nov - Clean separataion of BA-specific parameters ###
+
    
     # Build safe, consistent context (batch, id_embeds)
     # Ensure masks are non-None to avoid runtime errors
@@ -244,34 +239,6 @@ def two_branch_predict(
     dtype = latent_model_input.dtype
     batch_size = latent_model_input.shape[0]
     
-
-    # REF_NOISE_ONCE = True # CRITICAL FIX: Initialize reference noise ONCE at pipeline start
-    
-    # if not hasattr(pipeline, '_ref_noise'):
-    #     if not REF_NOISE_ONCE:
-    #         pipeline._ref_noise = torch.randn_like(reference_latents)
-    #     else:
-    #         # Use a fixed seed for consistent reference noise
-    #         ref_gen = torch.Generator(device=device)
-    #         if hasattr(pipeline, 'generator') and pipeline.generator is not None:
-    #             # Use pipeline's generator seed if available
-    #             ref_gen.manual_seed(42)  # Or extract seed from pipeline.generator
-    #         try:
-    #             pipeline._ref_noise = torch.randn_like(reference_latents, generator=ref_gen)
-    #         # --- ADDED For training integration ---
-    #         except TypeError:
-    #             pipeline._ref_noise = torch.randn(
-    #                 reference_latents.shape,
-    #                 generator=ref_gen,
-    #                 device=reference_latents.device,
-    #                 dtype=reference_latents.dtype,
-    #             )
-    #         # --- ADDED For training integration ---
-    #         print(f"[2BP] Initialized reference noise (fixed for entire generation)")
-
-
-           
-    ### FIX 01 FEB ###
     
     REF_NOISE_ONCE = True  # keep same ref noise across steps within one generation
     if not hasattr(pipeline, "_ref_noise"):
@@ -297,7 +264,7 @@ def two_branch_predict(
         else:
             # IMPORTANT: don't use a fresh unseeded torch.Generator() (it’s deterministic); use global RNG instead.
             pipeline._ref_noise = torch.randn_like(reference_latents)
-    ### FIX 01 FEB ###
+
 
 
     
@@ -418,14 +385,7 @@ def two_branch_predict(
 
     
     # --- Build face-branch text properly and concat ------------------------
-    # Ensure face_prompt_embeds exists and matches shape/dtype of prompt_embeds
-    # if face_prompt_embeds is None or face_prompt_embeds.shape != prompt_embeds.shape:
-    #    # re-encode a clean face text that mirrors CFG/batch exactly
-    #     face_prompt_embeds = encode_face_prompt(
-    #         pipeline, device, batch_size, pipeline.do_classifier_free_guidance
-    #     )
-    
-    ### FIX 01 FEB - Don’t silently replace id_embeds face branch with generic face text ###
+
     if (face_embed_strategy or "face") == "id_embeds":
         if face_prompt_embeds is None or face_prompt_embeds.shape != prompt_embeds.shape:
             raise ValueError("id_embeds mode requires face_prompt_embeds.shape == prompt_embeds.shape")
@@ -433,7 +393,7 @@ def two_branch_predict(
         face_prompt_embeds = encode_face_prompt(
             pipeline, device, batch_size, pipeline.do_classifier_free_guidance
         )    
-    ### FIX 01 FEB - Don’t silently replace id_embeds face branch with generic face text ###
+
         
         
     face_prompt_embeds = face_prompt_embeds.to(prompt_embeds.device, prompt_embeds.dtype)

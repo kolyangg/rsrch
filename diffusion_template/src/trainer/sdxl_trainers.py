@@ -568,14 +568,15 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             try:
                 # Lazily prepare FaceAnalysis once
                 if not hasattr(self, "_val_face_analyzer"):
-                    from src.model.photomaker_branched.insightface_package import FaceAnalysis2, analyze_faces
-                    _fa = FaceAnalysis2(providers=['CUDAExecutionProvider'], allowed_modules=['detection', 'recognition'])
-                    try:
-                        _fa.prepare(ctx_id=0, det_size=(640, 640))
-                    except Exception:
-                        # Best-effort fallback
-                        _fa.prepare(ctx_id=-1, det_size=(640, 640))
-                    self._val_face_analyzer = _fa
+                    from src.model.photomaker_branched.insightface_package import create_face_analyzer
+                    self._val_face_analyzer = create_face_analyzer(
+                        providers=["CUDAExecutionProvider"],
+                        allowed_modules=["detection", "recognition"],
+                        ctx_id=0,
+                        det_size=(640, 640),
+                        fallback_ctx_id=-1,
+                        quiet=True,
+                    )
                 # Extract from the first reference image if available
                 first_ref = sample_ref_images[0] if isinstance(sample_ref_images, (list, tuple)) and sample_ref_images else sample_ref_images
                 if first_ref is not None:

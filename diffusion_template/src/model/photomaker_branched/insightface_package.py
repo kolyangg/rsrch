@@ -1,3 +1,6 @@
+import io
+from contextlib import redirect_stderr, redirect_stdout
+
 import numpy as np
 # pip install insightface==0.7.3
 from insightface.app import FaceAnalysis
@@ -16,6 +19,42 @@ class FaceAnalysis2(FaceAnalysis):
             self.det_model.input_size = det_size
 
         return super().get(img, max_num)
+
+
+def create_face_analyzer(
+    *,
+    providers,
+    allowed_modules,
+    provider_options=None,
+    ctx_id=0,
+    det_size=(640, 640),
+    fallback_ctx_id=-1,
+    quiet=True,
+):
+    """
+    Create and prepare FaceAnalysis2 while optionally suppressing upstream insightface stdout/stderr prints.
+    """
+
+    def _build():
+        kwargs = {
+            "providers": providers,
+            "allowed_modules": allowed_modules,
+        }
+        if provider_options is not None:
+            kwargs["provider_options"] = provider_options
+
+        analyzer = FaceAnalysis2(**kwargs)
+        try:
+            analyzer.prepare(ctx_id=ctx_id, det_size=det_size)
+        except Exception:
+            analyzer.prepare(ctx_id=fallback_ctx_id, det_size=det_size)
+        return analyzer
+
+    if not quiet:
+        return _build()
+
+    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        return _build()
 
 def analyze_faces(face_analysis: FaceAnalysis, img_data: np.ndarray, det_size=(640, 640)):
     # NOTE: try detect faces, if no faces detected, lower det_size until it does

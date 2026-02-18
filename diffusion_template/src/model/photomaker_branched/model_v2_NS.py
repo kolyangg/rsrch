@@ -47,7 +47,6 @@ class QFormerPerceiver(nn.Module):
         self.num_tokens = num_tokens
         self.cross_attention_dim = cross_attention_dim
         self.use_residual = use_residual
-        print(cross_attention_dim*num_tokens)
         self.token_proj = nn.Sequential(
             nn.Linear(id_embeddings_dim, id_embeddings_dim*ratio),
             nn.GELU(),

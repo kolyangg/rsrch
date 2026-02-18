@@ -19,7 +19,7 @@ from src.model.sdxl.original import SDXL
 
 ##### BRANCHED ATTENTION - ADDITIONAL IMPORTS #####
 """Import branched-attention forward/patch helpers and PMv2 face-ID dependencies used by training."""
-from .insightface_package import FaceAnalysis2
+from .insightface_package import create_face_analyzer
 from .lora2_helpers import (
     install_branched_processors_for_training,
     prepare_branched_training_inputs,
@@ -98,23 +98,25 @@ class PhotomakerBranchedLora(SDXL):
         
         # Instantiate FaceAnalysis once for extracting 512-D identity embeddings.
         if FACEANALYSIS_CPU:
-            self.face_analyzer = FaceAnalysis2(
+            self.face_analyzer = create_face_analyzer(
                 providers=["CPUExecutionProvider"],
                 allowed_modules=["detection", "recognition"],
+                ctx_id=-1,
+                det_size=(640, 640),
+                fallback_ctx_id=-1,
+                quiet=True,
             )
-            ctx_id = -1
-        else:        
-            self.face_analyzer = FaceAnalysis2(
+        else:
+            ctx_id = int(os.environ.get("LOCAL_RANK", "0")) if torch.cuda.is_available() else -1
+            self.face_analyzer = create_face_analyzer(
                 providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
                 provider_options=[{"device_id": _device_id}, {}],
                 allowed_modules=["detection", "recognition"],
+                ctx_id=ctx_id,
+                det_size=(640, 640),
+                fallback_ctx_id=-1,
+                quiet=True,
             )
-            ctx_id = int(os.environ.get("LOCAL_RANK", "0")) if torch.cuda.is_available() else -1
-
-        try:
-            self.face_analyzer.prepare(ctx_id=ctx_id, det_size=(640, 640))  
-        except Exception:
-            self.face_analyzer.prepare(ctx_id=-1, det_size=(640, 640))  
         ### FIX FOR OOM ERROR ###
          
         ####  PhotoMaker v2 integration END: upgraded ID encoder & face embeddings ---

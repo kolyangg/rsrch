@@ -1,11 +1,17 @@
-from src.utils.id_utils import FaceAnalysis2, analyze_faces
+from src.utils.id_utils import analyze_faces, create_face_analyzer
 import numpy as np
 
 
 class Aligner():
     def __init__(self):
-        self.face_detector = FaceAnalysis2(providers=['CPUExecutionProvider'], allowed_modules=['detection', 'recognition'])
-        self.face_detector.prepare(ctx_id=0, det_size=(640, 640))
+        self.face_detector = create_face_analyzer(
+            providers=["CPUExecutionProvider"],
+            allowed_modules=["detection", "recognition"],
+            ctx_id=0,
+            det_size=(640, 640),
+            fallback_ctx_id=-1,
+            quiet=True,
+        )
 
     def __call__(self, input_images):
         bboxes = []
