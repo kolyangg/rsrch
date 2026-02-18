@@ -17,19 +17,19 @@ from diffusers.utils import (
 )
 from src.model.sdxl.original import SDXL
 
-# --- Branched-attention specific import ---
-from .branched_new2 import (
-    two_branch_predict,
-    patch_unet_attention_processors,
-)  # Use v2 branched logic end-to-end
-### Modified to make attention processors train ###
-
-# --- PhotoMaker v2 upgraded ID encoder + InsightFace integration START ---
-from .insightface_package import FaceAnalysis2, analyze_faces
+##### BRANCHED ATTENTION - ADDITIONAL IMPORTS #####
+"""Import branched-attention forward/patch helpers and PMv2 face-ID dependencies used by training."""
+from .insightface_package import FaceAnalysis2
+from .lora2_helpers import (
+    install_branched_processors_for_training,
+    prepare_branched_training_inputs,
+    run_branched_forward_pass,
+    ensure_branched_after_eval as ensure_branched_after_eval_helper,
+)
 from .model_v2_NS import PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken
-# --- PhotoMaker v2 upgraded ID encoder + InsightFace integration END ---
+##### BRANCHED ATTENTION - ADDITIONAL IMPORTS #####
 
-
+### PhotomakerLora upgraged for BA ###
 class PhotomakerBranchedLora(SDXL):
     """
     PhotoMaker LoRA model that trains with the branched-attention modifications.
@@ -49,19 +49,20 @@ class PhotomakerBranchedLora(SDXL):
         lora_modules,
         target_size: int = 1024,
         trigger_word: str = "img",
+        ##### BRANCHED ATTENTION - NEW PARAMS 1 #####
         photomaker_lora_rank: int = 64,
-        pose_adapt_ratio: float = 0.25, # --- ADDED For training integration
-        ca_mixing_for_face: bool = True,  # --- ADDED For training integration
-        face_embed_strategy: str = "face", # --- ADDED For training integration
+        pose_adapt_ratio: float = 0.25, 
+        ca_mixing_for_face: bool = True,  
+        face_embed_strategy: str = "face", 
         train_branch_mode: str = "both",   # 'both' or 'ref_only' for BranchedAttnProcessor
         train_ba_only: bool = False,       # 28 Nov: optionally train only branched-attn layers
-        ### 29 Nov - Clean separataion of BA-specific parameters ###
         ba_weights_split: bool = False,    # optionally enable per-branch BA-specific adapters
-        ### 29 Nov - Clean separataion of BA-specific parameters ###
         use_attn_v2: bool = True,          # toggle between attn_processor2 (v2) and attn_processor (legacy)
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
+        ##### BRANCHED ATTENTION - NEW PARAMS 1 #####
     ):
+        """NEW PARAMS 1: define BA training controls (strategy, processor variant, ID mixing, and BA-only toggles)."""
         super().__init__(
             pretrained_model_name_or_path=pretrained_model_name_or_path,
             weight_dtype=weight_dtype,
@@ -70,56 +71,61 @@ class PhotomakerBranchedLora(SDXL):
         self.lora_rank = rank
         self.init_lora_weights = init_lora_weights
         self.lora_modules = lora_modules
-        self.target_size = target_size
 
         self.id_image_processor = CLIPImageProcessor()
-        self.feature_extractor = self.id_image_processor  # --- MODIFIED For training integration ---
-        self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1) if hasattr(self.vae.config, "block_out_channels") else 8  # --- MODIFIED For training integration ---
-
-        # --- PhotoMaker v2 integration START: upgraded ID encoder & face embeddings ---
+        
+        
+        
+        
+        ####  PhotoMaker v2 integration START: upgraded ID encoder & face embeddings ---
+        
         # Mirror the PhotoMaker v2 ID encoder configuration (512-d InsightFace input).
         self.id_encoder = PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken()
+        self.target_size = target_size
 
-        # Instantiate FaceAnalysis once for extracting 512-D identity embeddings.
-        ### 26 JAN - FIX OOM ERROR WITH HIGHER  LR ###
+
+        ##### BRANCHED ATTENTION - NEW PARAMS 2 #####
+        """NEW PARAMS 2: initialize BA sizing helpers used for mask resolution and reference preprocessing."""
+        # self.feature_extractor = self.id_image_processor  # --- MODIFIED For training integration ---
+        self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1) if hasattr(self.vae.config, "block_out_channels") else 8
+        ##### BRANCHED ATTENTION - NEW PARAMS 2 #####
+        
+
+        ### FIX FOR OOM ERROR ###
         # Pin ONNXRuntime CUDA provider to the per-rank GPU; otherwise multiple ranks may load on GPU:0 and OOM.
         _device_id = int(os.environ.get("LOCAL_RANK", "0")) if torch.cuda.is_available() else 0
-        
-        
         FACEANALYSIS_CPU = False  # Set to True to force CPU provider (debug / low-VRAM mode)
         
+        # Instantiate FaceAnalysis once for extracting 512-D identity embeddings.
         if FACEANALYSIS_CPU:
-            ### 01 FEB FIX OOM TRY ###
-            # Debug / low-VRAM mode: avoid ORT CUDA allocations (prevents init-time OOM).
             self.face_analyzer = FaceAnalysis2(
                 providers=["CPUExecutionProvider"],
                 allowed_modules=["detection", "recognition"],
             )
             ctx_id = -1
-            ### 01 FEB FIX OOM TRY ###
         else:        
             self.face_analyzer = FaceAnalysis2(
                 providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
                 provider_options=[{"device_id": _device_id}, {}],
                 allowed_modules=["detection", "recognition"],
             )
-            ### 26 JAN - FIX OOM ERROR WITH HIGHER  LR ###
-            ctx_id = int(os.environ.get("LOCAL_RANK", "0")) if torch.cuda.is_available() else -1  # --- MODIFIED For training integration ---
-
-
+            ctx_id = int(os.environ.get("LOCAL_RANK", "0")) if torch.cuda.is_available() else -1
 
         try:
             self.face_analyzer.prepare(ctx_id=ctx_id, det_size=(640, 640))  
         except Exception:
-            self.face_analyzer.prepare(ctx_id=-1, det_size=(640, 640))  # --- MODIFIED For training integration ---
-        # --- PhotoMaker v2 integration END ---
-
-        self.trigger_word = trigger_word
-        self.num_tokens = self.id_encoder.num_tokens
+            self.face_analyzer.prepare(ctx_id=-1, det_size=(640, 640))  
+        ### FIX FOR OOM ERROR ###
+         
+        ####  PhotoMaker v2 integration END: upgraded ID encoder & face embeddings ---
+        
+        self.trigger_word = trigger_word ### "img" hardcoded by default
+        self.num_tokens = self.id_encoder.num_tokens ### 1 hardcoded by default
         self.tokenizer.add_tokens([self.trigger_word], special_tokens=True)
         self.tokenizer_2.add_tokens([self.trigger_word], special_tokens=True)
 
-        # --- Branched-attention integration START: runtime knobs used by branched processors ---
+        ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
+        """NEW PARAMS 3: persist runtime BA knobs on the model so patched processors can read them."""
         # Branched helpers expect ``scheduler`` attribute – alias it once.
         self.scheduler = self.noise_scheduler
         self.pose_adapt_ratio = float(pose_adapt_ratio) # --- ADDED For training integration
@@ -130,19 +136,18 @@ class PhotomakerBranchedLora(SDXL):
         self.id_alpha = float(id_alpha)
         # Global on/off switch for BranchedAttnProcessor.id_to_hidden usage
         self.use_id_embeds = bool(use_id_embeds)
-        ### 28 Nov: train only BA layers ###
         self.train_ba_only = bool(train_ba_only)
         ### 28 Nov: train only BA layers ###
         ### 29 Nov - Clean separataion of BA-specific parameters ###
-        self.ba_weights_split = bool(ba_weights_split)
+        self.ba_weights_split = bool(ba_weights_split) # Clean separataion of BA-specific parameters
         ### 29 Nov - Clean separataion of BA-specific parameters ###
         # Select which branched attention processor implementation to use at train time.
         self.use_attn_v2 = bool(use_attn_v2)
-        # --- Branched-attention integration END ---
+        ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 
         photomaker_lora_config = LoraConfig(
-            r=photomaker_lora_rank,
-            lora_alpha=photomaker_lora_rank,
+            r=photomaker_lora_rank, ### 64 by default
+            lora_alpha=photomaker_lora_rank, ### 64 by default
             init_lora_weights="gaussian",
             target_modules=["to_k", "to_q", "to_v", "to_out.0"],
         )
@@ -165,74 +170,22 @@ class PhotomakerBranchedLora(SDXL):
         )
         self.unet.add_adapter(adapter_lora_config, adapter_name="lora_adapter")
         self.unet.set_adapter(["lora_adapter", "default"])
-        
-        ### Modified to make attention processors train ###
 
-        # --- enable training of branched attention processors (minimal) ---
-        # Install processors *once* so their parameters are registered before the optimizer is built.
-        try:
-            # Safe zero masks at latent resolution (prevents "requires a mask" errors during validation startup)
-            H = self.target_size // int(self.vae_scale_factor)
-            W = self.target_size // int(self.vae_scale_factor)
-            zero_ctx = torch.zeros(1, 1, H, W, device=self.unet.device, dtype=self.unet.dtype)
 
-            patch_unet_attention_processors(
-                pipeline=self,
-                mask=zero_ctx,
-                mask_ref=zero_ctx,
-                scale=1.0,
-                id_embeds=None,
-                class_tokens_mask=None,
-            )
-            # Ensure processor params are trainable (will be included in your existing param filter)
-            if hasattr(self.unet, "attn_processors"):
-                for proc in self.unet.attn_processors.values():
-                    for p in proc.parameters():
-                        p.requires_grad_(True)
+        ##### BRANCHED ATTENTION - NEW BLOCK 1 #####
+        """NEW BLOCK 1: pre-install branched attention processors before optimizer creation and mark their params trainable."""
+        install_branched_processors_for_training(self)
 
-            # id_embeds-only: pre-create projection params before optimizer is built.
-            if self.face_embed_strategy == "id_embeds" and not self.use_attn_v2:
-                for name, proc in self.unet.attn_processors.items():
-                    if not name.endswith("attn1.processor"):
-                        continue
-                    if getattr(proc, "id_to_hidden", None) is None and hasattr(proc, "hidden_size"):
-                        proc.id_to_hidden = torch.nn.Linear(2048, proc.hidden_size, bias=False).to(
-                            self.unet.device, dtype=self.unet.dtype
-                        )
-                        with torch.no_grad():
-                            proc.id_to_hidden.weight.mul_(0.1)
-
-            ### 28 Nov: train only BA layers ###
-            # Optionally restrict training to branched processors + LoRA on attention projections.
-            if getattr(self, "train_ba_only", False):
-                # First freeze everything in UNet.
-                for name, p in self.unet.named_parameters():
-                    p.requires_grad_(False)
-
-                # Re-enable branched attention processors.
-                if hasattr(self.unet, "attn_processors"):
-                    for proc in self.unet.attn_processors.values():
-                        for p in proc.parameters():
-                            p.requires_grad_(True)
-
-                # Re-enable ONLY the trainable LoRA adapter; keep PhotoMaker base ("default") frozen.
-                for name, p in self.unet.named_parameters():
-                    if ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name:
-                        p.requires_grad_(True)
-            ### 28 Nov: train only BA layers ###
-        except Exception as e:
-            print(f"[PhotomakerBranchedLora] warning while installing branched processors: {e}")
-        # --- end minimal change ---
-
-        ### Modified to make attention processors train ###
+        ##### BRANCHED ATTENTION - NEW BLOCK 1 #####
 
 
     def load_photomaker_state_dict_(self, state_dict):
         # load lora
         lora_state_dict = state_dict["lora_weights"]
-        unet_state_dict = {k.replace("unet.", ""): v for k, v in lora_state_dict.items()}
+        unet_state_dict = {f'{k.replace("unet.", "")}': v for k, v in lora_state_dict.items()}
         unet_state_dict = convert_unet_state_dict_to_peft(unet_state_dict)
         incompatible_keys = set_peft_model_state_dict(self.unet, unet_state_dict, adapter_name="default")
+        
         if incompatible_keys is not None:
             unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
             assert not unexpected_keys, unexpected_keys
@@ -241,30 +194,34 @@ class PhotomakerBranchedLora(SDXL):
         self.id_encoder.load_state_dict(state_dict["id_encoder"], strict=True)
 
     def get_trainable_params(self, config):
-        ### 28 Nov: train only BA layers ###
-        if getattr(self, "train_ba_only", False):
-            # Train branched attention processors + LoRA weights on attention projections.
-            proc_params = []
-            lora_params = []
-            for name, p in self.unet.named_parameters():
-                if not p.requires_grad:
-                    continue
-                if ".attn1.processor." in name or ".attn2.processor." in name:
-                    proc_params.append(p)
-                elif "lora_A" in name or "lora_B" in name:
-                    lora_params.append(p)
 
-            param_groups = []
-            if proc_params:
-                param_groups.append(
-                    {"params": proc_params, "lr": config.lr_for_lora, "name": "branched_processors"}
-                )
-            if lora_params:
-                param_groups.append(
-                    {"params": lora_params, "lr": config.lr_for_lora, "name": "branched_lora"}
-                )
-            return param_groups
-        ### 28 Nov: train only BA layers ###
+        ##### BRANCHED ATTENTION - NEW BLOCK 2 #####
+        """NEW BLOCK 2: optional custom optimizer grouping for branched processor parameters and BA-related LoRA params."""
+        # ### TRAIN_BA_ONLY - CHECK ###
+        # if getattr(self, "train_ba_only", False):
+        #     # Train branched attention processors + LoRA weights on attention projections.
+        #     proc_params = []
+        #     lora_params = []
+        #     for name, p in self.unet.named_parameters():
+        #         if not p.requires_grad:
+        #             continue
+        #         if ".attn1.processor." in name or ".attn2.processor." in name:
+        #             proc_params.append(p)
+        #         elif "lora_A" in name or "lora_B" in name:
+        #             lora_params.append(p)
+
+        #     param_groups = []
+        #     if proc_params:
+        #         param_groups.append(
+        #             {"params": proc_params, "lr": config.lr_for_lora, "name": "branched_processors"}
+        #         )
+        #     if lora_params:
+        #         param_groups.append(
+        #             {"params": lora_params, "lr": config.lr_for_lora, "name": "branched_lora"}
+        #         )
+        #     return param_groups
+        # ### TRAIN_BA_ONLY - CHECK ###
+        ##### BRANCHED ATTENTION - NEW BLOCK 2 #####
 
         # Default behavior: train all UNet parameters with requires_grad=True (LoRA + processors).
         lora_params = filter(lambda p: p.requires_grad, self.unet.parameters())
@@ -304,182 +261,91 @@ class PhotomakerBranchedLora(SDXL):
         del do_cfg  # classifier-free guidance is not used during training
 
         pixel_values = pixel_values.to(self.device, self.vae.dtype)
-        with torch.no_grad():
-            latents = self.vae.encode(pixel_values).latent_dist.sample()
+        with torch.no_grad(): ### TO CHECK - torch.no_grad() only here now
+            latents = self.vae.encode(pixel_values).latent_dist.sample() ### latents are caled model_input in lora v1
         latents = latents * self.vae.config.scaling_factor
 
+        # Sample noise that we'll add to the latents
         noise = torch.randn_like(latents)
         batch_size = latents.shape[0]
 
+        # Sample a random timestep for each image
         timesteps = torch.randint(
             0,
             self.noise_scheduler.config.num_train_timesteps,
             (batch_size,),
             device=latents.device,
         ).long()
+
+        # Add noise to the model input according to the noise magnitude at each timestep
+        # (this is the forward diffusion process)
+
         noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
 
         add_time_ids = torch.cat(
             [self.compute_time_ids(orig_size, crop) for orig_size, crop in zip(original_sizes, crop_top_lefts)]
         )
 
-        prompt_embeds_list = []
-        pooled_prompt_embeds_list = []
-        class_tokens_mask_list = []
-        mask_list = []
-        ref_latents_list = []
-        pm_feature_list = []  # --- MODIFIED For training integration ---
+        ##### BRANCHED ATTENTION - NEW BLOCK 4 #####
+        """NEW BLOCK 4: delegate BA sample preparation (masks, refs, embeddings) to helper utilities."""
+        (
+            prompt_embeds,
+            pooled_prompt_embeds,
+            class_tokens_mask,
+            face_prompt_embeds,
+            id_features,
+            mask4,
+            mask4_ref,
+            reference_latents,
+        ) = prepare_branched_training_inputs(
+            self,
+            prompts=prompts,
+            ref_images=ref_images,
+            face_bbox=face_bbox,
+            pixel_values=pixel_values,
+            noisy_latents=noisy_latents,
+        )
+        ##### BRANCHED ATTENTION - NEW BLOCK 4 #####
 
-        image_h, image_w = pixel_values.shape[-2:]
-        latent_h, latent_w = noisy_latents.shape[-2:]
+        ##### BRANCHED ATTENTION - NEW BLOCK 5 #####
+        """NEW BLOCK 5 is implemented in `lora2_helpers.prepare_branched_training_inputs`."""
+        ##### BRANCHED ATTENTION - NEW BLOCK 5 #####
 
-        for prompt, refs, bbox in zip(prompts, ref_images, face_bbox):
-            refs = refs if isinstance(refs, (list, tuple)) else [refs]
-
-            prompt_embeds, pooled_prompt_embeds, class_tokens_mask = self.encode_prompt_with_trigger_word(
-                prompt=prompt,
-                num_id_images=len(refs),
-                do_cfg=False,
-            )
-
-            with torch.no_grad():
-                # --- PhotoMaker v2 integration START: derive InsightFace embeddings for v2 ID encoder ---
-                id_pixel_values = self.id_image_processor(refs, return_tensors="pt").pixel_values.unsqueeze(0)
-                id_pixel_values = id_pixel_values.to(self.device, dtype=self.id_encoder.dtype)
-
-                prompt_for_id = prompt_embeds.to(dtype=self.id_encoder.dtype)
-                id_embed_list = []
-                for ref in refs:
-                    img_np = np.array(ref.convert("RGB"))[:, :, ::-1]
-                    faces = analyze_faces(self.face_analyzer, img_np)
-                    if faces:
-                        embedding = torch.from_numpy(faces[0]["embedding"]).float()
-                    else:
-                        embedding = torch.zeros(512, dtype=torch.float32)
-                    id_embed_list.append(embedding)
-
-                id_embeds = torch.stack(id_embed_list, dim=0).unsqueeze(0)
-                id_embeds = id_embeds.to(device=self.device, dtype=self.id_encoder.dtype)
-
-                prompt_embeds = self.id_encoder(
-                    id_pixel_values,
-                    prompt_for_id,
-                    class_tokens_mask,
-                    id_embeds,
-                )
-                # --- PhotoMaker v2 integration END ---
-
-                # --- Branched-attention integration START: prepare reference latents for branch mixing ---
-                # # --- MODIFIED For training integration ---
-                # reference_latent = prepare_reference_latents(
-                #     self,  
-                #     refs[0],
-                #     image_h,
-                #     image_w,
-                #     noisy_latents.dtype,
-                # )
-                # # --- MODIFIED For training integration ---
-
-                ### 29 JAN FIX ###
-                # refs[0] is a face crop; encode it with VAE-normalized pixels ([-1,1]) like inference.
-                reference_latent = self._encode_reference_latent(refs[0], target_shape=(latent_h, latent_w))
-                ### 29 JAN FIX ###
-
-
-                # --- Branched-attention integration END ---
-
-                # --- MODIFIED For training integration ---
-                if self.face_embed_strategy == "id_embeds":  
-                    pm_features = self.id_encoder.extract_id_features(
-                        id_pixel_values.to(device=self.device, dtype=self.id_encoder.dtype),
-                        id_embeds=id_embeds, ### 01 FEB fix
-                        class_tokens_mask=class_tokens_mask,
-                    )
-                    pm_feature_list.append(pm_features.to(device=self.device, dtype=self.unet.dtype))
-                # --- MODIFIED For training integration ---
-
-            prompt_embeds_list.append(prompt_embeds)
-            pooled_prompt_embeds_list.append(pooled_prompt_embeds)
-            class_tokens_mask_list.append(class_tokens_mask)
-            ref_latents_list.append(reference_latent)
-            mask_list.append(
-                self._bbox_to_mask(
-                    bbox,
-                    latent_shape=(latent_h, latent_w),
-                    image_shape=(image_h, image_w),
-                )
-            )
-
-        prompt_embeds = torch.cat(prompt_embeds_list, dim=0).to(device=self.device, dtype=self.unet.dtype)
-        pooled_prompt_embeds = torch.cat(pooled_prompt_embeds_list, dim=0).to(device=self.device, dtype=self.unet.dtype)
-        class_tokens_mask = torch.cat(class_tokens_mask_list, dim=0).to(device=self.device)
-
-        # --- MODIFIED For training integration ---
-        id_features = None
-        if self.face_embed_strategy == "face":  
-            face_prompt_text = ["a close-up human face laughing hard"] * batch_size 
-            face_prompt_embeds, _ = self.encode_prompt(face_prompt_text, do_cfg=False)
-            face_prompt_embeds = face_prompt_embeds.to(device=self.device, dtype=self.unet.dtype)
-        elif self.face_embed_strategy == "id_embeds":
-            if not pm_feature_list:
-                raise ValueError("id_embeds strategy requires PM features in training forward.")
-            id_features = torch.cat(pm_feature_list, dim=0)
-            seq_len = prompt_embeds.shape[1]
-            dim = prompt_embeds.shape[2]
-            face_prompt_embeds = id_features.unsqueeze(1).expand(-1, seq_len, dim).contiguous()
-        else:
-            face_prompt_embeds = prompt_embeds  
-        # --- MODIFIED For training integration ---
-
-        # --- Branched-attention integration START: cache masks, reference latents, CFG state ---
-        # mask4 = torch.cat(mask_list, dim=0).to(device=self.device, dtype=noisy_latents.dtype)
-        # mask4_ref = mask4.clone()
-
-        ### 29 JAN FIX ###
-        mask4 = torch.cat(mask_list, dim=0).to(device=self.device, dtype=noisy_latents.dtype)
-        # ref is a face crop, so treat the whole ref latent as "face" (bbox coords are in full-image space).
-        # mask4_ref = torch.ones_like(mask4)
-        ### 29 JAN FIX ###
-        
-        ### 01 FEB FIX ###
-        # ref is full-image (same coordinate space as bbox)
-        mask4_ref = mask4.clone()
-        ### 01 FEB FIX ###
-
-        reference_latents = torch.cat(ref_latents_list, dim=0).to(device=self.device, dtype=noisy_latents.dtype)
-        self._ref_latents_all = reference_latents
-        self._face_prompt_embeds = prompt_embeds
-        self.do_classifier_free_guidance = False
-        # --- Branched-attention integration END ---
-
-        # Re-sample reference noise every forward pass for training stability.
-        if hasattr(self, "_ref_noise"):
-            delattr(self, "_ref_noise")
+        ##### BRANCHED ATTENTION - NEW BLOCK 6 #####
+        """NEW BLOCK 6 is implemented in `lora2_helpers.prepare_branched_training_inputs`."""
+        ##### BRANCHED ATTENTION - NEW BLOCK 6 #####
 
         added_cond_kwargs = {
             "text_embeds": pooled_prompt_embeds,
             "time_ids": add_time_ids.to(device=self.device, dtype=self.unet.dtype),
         }
 
-        # --- Branched-attention integration START: run dual-branch UNet pass ---
-        noise_pred, _, _ = two_branch_predict(
-            pipeline=self,
-            latent_model_input=noisy_latents,
-            t=timesteps,
+        ### MEMO: INITIAL LORA UNet pass ###
+        # model_pred = self.unet(
+        #     noisy_model_input,
+        #     timesteps,
+        #     encoder_hidden_states=prompt_embeds,
+        #     added_cond_kwargs=added_cond_kwargs,
+        #     return_dict=False,
+        # )[0]
+        ### MEMO: INITIAL LORA UNet pass ###
+
+        ##### BRANCHED ATTENTION - FORWARD PASS #####
+        """FORWARD PASS: run branched prediction via helper wrapper around `two_branch_predict`."""
+        noise_pred = run_branched_forward_pass(
+            self,
+            noisy_latents=noisy_latents,
+            timesteps=timesteps,
             prompt_embeds=prompt_embeds,
             added_cond_kwargs=added_cond_kwargs,
             mask4=mask4,
             mask4_ref=mask4_ref,
             reference_latents=reference_latents,
-            face_prompt_embeds=face_prompt_embeds,  # --- MODIFIED For training integration ---
+            face_prompt_embeds=face_prompt_embeds,
             class_tokens_mask=class_tokens_mask,
-            face_embed_strategy=self.face_embed_strategy,
-            id_embeds=id_features if self.face_embed_strategy == "id_embeds" else None,
-            step_idx=0,
-            scale=1.0,
-            timestep_cond=None,
+            id_features=id_features,
         )
-        # --- Branched-attention integration END ---
+        ##### BRANCHED ATTENTION - FORWARD PASS #####
 
         return {
             'model_pred': noise_pred,
@@ -496,8 +362,10 @@ class PhotomakerBranchedLora(SDXL):
         class_tokens_mask: Optional[torch.LongTensor] = None,
         do_cfg: bool = False,
     ):
+        # Find the token id of the trigger word
         image_token_id = self.tokenizer_2.convert_tokens_to_ids(self.trigger_word)
 
+        # Define tokenizers and text encoders
         tokenizers = [self.tokenizer, self.tokenizer_2] if self.tokenizer is not None else [self.tokenizer_2]
         text_encoders = (
             [self.text_encoder, self.text_encoder_2] if self.text_encoder is not None else [self.text_encoder_2]
@@ -506,6 +374,7 @@ class PhotomakerBranchedLora(SDXL):
         prompt = prompt if not do_cfg else ""
 
         if prompt_embeds is None:
+            # textual inversion: process multi-vector tokens if necessary
             prompt_embeds_list = []
             for tokenizer, text_encoder in zip(tokenizers, text_encoders):
                 text_inputs = tokenizer(
@@ -516,10 +385,12 @@ class PhotomakerBranchedLora(SDXL):
                     return_tensors="pt",
                 )
                 text_input_ids = text_inputs.input_ids
+
                 if not do_cfg:
                     clean_index = 0
                     clean_input_ids = []
                     class_token_index = []
+                    # Find out the corresponding class word token based on the newly added trigger word token
                     for i, token_id in enumerate(text_input_ids.tolist()[0]):
                         if token_id == image_token_id:
                             class_token_index.append(clean_index - 1)
@@ -534,6 +405,7 @@ class PhotomakerBranchedLora(SDXL):
                         )
                     class_token_index = class_token_index[0]
 
+                    # Expand the class word token and corresponding mask
                     class_token = clean_input_ids[class_token_index]
                     clean_input_ids = (
                         clean_input_ids[:class_token_index]
@@ -541,6 +413,7 @@ class PhotomakerBranchedLora(SDXL):
                         + clean_input_ids[class_token_index + 1 :]
                     )
 
+                    # Truncation or padding
                     max_len = tokenizer.model_max_length
                     if len(clean_input_ids) > max_len:
                         clean_input_ids = clean_input_ids[:max_len]
@@ -573,7 +446,8 @@ class PhotomakerBranchedLora(SDXL):
 
         return prompt_embeds, pooled_prompt_embeds, class_tokens_mask
 
-    # --- Branched-attention helper utilities START ---
+    ##### BRANCHED ATTENTION - HELPER UTILS #####
+    """HELPER UTILS: utilities for bbox-to-latent masks, reference-latent encoding, and branched re-patching after eval."""
     def _bbox_to_mask(
         self,
         bbox: Optional[Sequence[float]],
@@ -627,32 +501,14 @@ class PhotomakerBranchedLora(SDXL):
             ref_tensor = ref_tensor.to(device=self.device, dtype=self.vae.dtype)
 
         with torch.no_grad():
-            # latents = self.vae.encode(ref_tensor).latent_dist.sample()
-            latents = self.vae.encode(ref_tensor).latent_dist.mode() # 01 FEB fix
+            latents = self.vae.encode(ref_tensor).latent_dist.mode() 
         latents = latents * self.vae.config.scaling_factor
 
         if latents.shape[-2:] != target_shape:
             latents = F.interpolate(latents, size=target_shape, mode="bilinear", align_corners=False)
 
         return latents
-    # --- Branched-attention helper utilities END ---
 
-    ### Modified to make attention processors train ###
     def ensure_branched_after_eval(self):
-        # Re-install (no-op if already installed); pass safe masks/embeds
-        from .branched_new2 import patch_unet_attention_processors
-        
-        # patcher expects `pipeline.device`; ensure it's present on this module
-        dev = getattr(self, "device", None) or self.unet.device
-        if not hasattr(self, "device"):
-            self.device = dev
-        dt = self.unet.dtype
-
-        # 1x1 dummy masks just to initialize; real masks are set during forward
-        z = torch.zeros(1, 1, 1, 1, device=dev, dtype=dt)
-        idem = torch.zeros(1, 2048, device=dev, dtype=dt)
-        patch_unet_attention_processors(
-            self, z, z, scale=1.0,
-            id_embeds=idem, class_tokens_mask=None
-        )
-    ### Modified to make attention processors train ###
+        ensure_branched_after_eval_helper(self)
+    ##### BRANCHED ATTENTION - HELPER UTILS #####
