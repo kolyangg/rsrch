@@ -22,49 +22,38 @@
 
 import inspect
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-from pathlib import Path  # --- MODIFIED For training integration ---
-# --- ADDED For training integration (FOLDER STUCTURE) ---
-# from src.model.photomaker_branched.branched_new2 import (
-# from src.model.photomaker_branched.branched_new import (
+from pathlib import Path  
+
+##### BRANCHED ATTENTION - ADDITIONAL IMPORTS #####
+
 from src.model.photomaker_branched.branched_new2 import (
     two_branch_predict,
-    prepare_reference_latents,
     encode_face_prompt,
-    patch_unet_attention_processors,
     restore_original_processors,
-    save_debug_images,
 )
 
 
-# --- ADDED For training integration (FOLDER STUCTURE) ---
-from src.model.photomaker_branched.branch_helpers import (
-    aggregate_heatmaps_to_mask,
-    prepare_mask4,
+from src.model.photomaker_branched.branch_helpers import prepare_mask4
+
+from src.model.photomaker_branched.debug_helpers import (
     save_branch_previews,
     debug_reference_latents_once,
     save_debug_ref_latents,
     save_debug_ref_mask_overlay,
-    collect_attention_hooks,
+    log_debug_image,
 )
 
-from src.model.photomaker_branched.branch_helpers import log_debug_image
-
-# Only import what's actually needed
-# --- ADDED For training integration (FOLDER STUCTURE) ---
-from src.model.photomaker_branched.mask_utils import compute_binary_face_mask, simple_threshold_mask
-# --- ADDED For training integration (FOLDER STUCTURE) ---
-from src.model.photomaker_branched.mask_utils import MASK_LAYERS_CONFIG
-
 # Import dynamic mask generation
-# --- ADDED For training integration (FOLDER STUCTURE) ---
-from src.model.photomaker_branched.add_masking import DynamicMaskGenerator, get_default_mask_config
+from src.model.photomaker_branched.insightface_package import FaceAnalysis2, analyze_faces
+
+OLD_HEATMAP_MASKING = False
+
+##### BRANCHED ATTENTION - ADDITIONAL IMPORTS #####
 
 
 import os
 import numpy as np
-from PIL import Image
 import torch.nn.functional as F
-
 
 import PIL
 
@@ -102,12 +91,8 @@ else:
     XLA_AVAILABLE = False
 
 
-# --- ADDED For training integration (FOLDER STUCTURE) ---
 from src.model.photomaker_branched.model import PhotoMakerIDEncoder  # PhotoMaker v1
-# --- ADDED For training integration (FOLDER STUCTURE) ---
 from src.model.photomaker_branched.model_v2_NS import PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken  # PhotoMaker v2
-# --- ADDED For training integration (FOLDER STUCTURE) ---
-from src.model.photomaker_branched.insightface_package import FaceAnalysis2, analyze_faces
 
 PipelineImageInput = Union[
     PIL.Image.Image,
@@ -583,82 +568,34 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         # start_merge_step kept for back-compat. If provided, it will populate both new knobs.
         start_merge_step: int = 10, # TODO: change to `style_strength_ratio` in the future
         # NEW: split the semantics
-        photomaker_start_step: int = 10,
-        merge_start_step: int = 10,
         class_tokens_mask: Optional[torch.LongTensor] = None,
         id_embeds: Optional[torch.FloatTensor] = None,
         prompt_embeds_text_only: Optional[torch.FloatTensor] = None,
         pooled_prompt_embeds_text_only: Optional[torch.FloatTensor] = None,
 
-        # ───────────────────  Branched-attention switches  ───────────────────
+        ##### BRANCHED ATTENTION - ADDITIONAL SWITCHES #####
+        photomaker_start_step: int = 10,
+        merge_start_step: int = 10,
         use_branched_attention: bool = False,
         photomaker_scale: float = 1.0,  # Add scale parameter for attention
-        save_heatmaps: bool = True,
         branched_attn_start_step: int = 10,
-        heatmap_mode: str = "identity", # "focus_token", # "identity",  # "identity" or "focus_token" - choose heatmap generation approach
-        # heatmap_mode: str = "focus_token", # 
-        # focus_token: str = "",
-        focus_token: str = "face",
-        mask_mode: str = "spec",                 # or "simple"
         face_embed_strategy: str = "face", # "face", #  "face" or "id_embeds"
-        # BBox-driven masking toggles (validation convenience)
-        use_bbox_mask_ref: bool = False,
-        use_bbox_mask_gen: bool = False,
-        # Optional per-sample face boxes (x0,y0,x1,y1) in pixel space
-        face_bbox_ref: Optional[List[float]] = None,
-        face_bbox_gen: Optional[List[float]] = None,
-        import_mask: Optional[str] = "../compare/testing/ref2_masks/keanu_gen_mask.png",
-        # import_mask: Optional[str] = "../compare/testing/ref5_masks/marion_gen_mask.png",
-        # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_new.jpg",
-        # import_mask: Optional[str] = "../compare/testing/ref5_masks/marion_gen_mask_simple.png",
-        # import_mask: Optional[str] = "hm_debug/keanu_gen_mask_white_new.png",
-        # import_mask_ref: Optional[str] = "hm_debug/keanu_ref_mask.png",
-        
+        use_bbox_mask_ref: bool = False, # BBox-driven masking toggles (validation convenience)
+        use_bbox_mask_gen: bool = False, # BBox-driven masking toggles (validation convenience)
+        face_bbox_ref: Optional[List[float]] = None, # Optional per-sample face boxes (x0,y0,x1,y1) in pixel space
+        face_bbox_gen: Optional[List[float]] = None, # Optional per-sample face boxes (x0,y0,x1,y1) in pixel space
+        import_mask: Optional[str] = "../compare/testing/ref2_masks/keanu_gen_mask.png",        
         import_mask_ref: Optional[str] = None, # to debug auto_mask_ref
 
-        # New: folder-based lookup (ignored if use_dynamic_mask=True)
-        import_mask_folder: Optional[str] = "../compare/testing/gen_masks",
-        use_mask_folder: bool = True,
-        
-        # import_mask_ref: Optional[str] = "../compare/testing/ref5_masks/marion_ref_mask.png",
-        
-        # auto_mask_ref: bool = False,
+               
         auto_mask_ref: bool = True,
-
-        # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_new.jpg",
-        # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_new_easy.png",
-        # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_white_new.png",
-        # import_mask_ref: Optional[str] = "../compare/testing/ref3_masks/eddie_mask_new.png",
+        use_dynamic_mask: bool = True, # generation mask
         
-        # import_mask: Optional[str] = "../compare/testing/ref3_masks/eddie_pm_mask_white.jpg",
-        # import_mask_ref: Optional[str] = "../compare/testing/ref3_masks/eddie_mask_white.jpg",
-        # ───────── Debug / branch-preview switches ─────────
-
-        # ───────── Dynamic mask generation parameters ─────────────
-        # use_dynamic_mask_ref: bool = False,
-
-        # generation mask
-        use_dynamic_mask: bool = True,
-        # use_dynamic_mask: bool = False,
-        
-        mask_start: int = 10,
-        mask_end: int = 20,
-        save_heatmaps_dynamic: bool = True,
-        token_focus: str = "face",
-        add_token_to_prompt: bool = False,
-        mask_layers_config: Optional[List[Dict]] = None,
-        # save_heatmap_pdf: bool = False,
-        # save_hm_pdf: bool = True,
-        save_hm_pdf: bool = False,
-        heatmap_interval: int = 5,
- 
-
-        debug_save_face_branch: bool = True,
-        debug_save_bg_branch: bool = True,
         debug_dir: Optional[str] = None,
         debug_idx: Optional[int] = None,
-        debug_total: Optional[int] = None,
         force_par_before_pm: bool = False,
+        ##### BRANCHED ATTENTION - ADDITIONAL SWITCHES #####
+        
         **kwargs,
     ):
         r"""
@@ -684,20 +621,9 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             `tuple`. When returning a tuple, the first element is a list with the generated images.
         """
 
-        full_debug = False # NEW
-
-        # --- Back-compat for older callers that still pass start_merge_step ---
-        if start_merge_step is not None:
-            # If explicit new knobs are not set differently by caller, mirror legacy.
-            photomaker_start_step = photomaker_start_step if photomaker_start_step is not None else start_merge_step
-            merge_start_step      = merge_start_step      if merge_start_step      is not None else start_merge_step
-        # --- Back-compat for older callers that still pass start_merge_step ---
-    
-
         callback = kwargs.pop("callback", None)
         callback_steps = kwargs.pop("callback_steps", None)
         
-        # self._guidance_scale = 0 # TEMP WTF!
 
         if callback is not None:
             deprecate(
@@ -839,79 +765,14 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
         id_pixel_values = id_pixel_values.unsqueeze(0).to(device=device, dtype=dtype) # TODO: multiple prompts
         
-        print(f"[DEBUG_NEW] debug_idx={debug_idx}")
-
-        if debug_idx is None:
-            debug_idx = getattr(self, "_call_debug_counter", 0)
-        self._call_debug_counter = debug_idx + 1
-
-        if debug_dir:
-            debug_dir = os.path.join(debug_dir, f"{int(debug_idx):02d}")
-
-        log_debug_image(f"[DebugImage] pipeline call idx={debug_idx} total={debug_total} dir={debug_dir}")
-        if debug_dir:
-            os.makedirs(debug_dir, exist_ok=True)
-        self._current_debug_idx = debug_idx  # --- MODIFIED For training integration ---
-        self._current_debug_total = debug_total  # --- MODIFIED For training integration ---
-
-        # ================================================================
-        #  Branched-attention one-off preparation
-        # ================================================================
-        if use_branched_attention or save_heatmaps or save_hm_pdf:
-
-            self._heatmaps      = {}
-            self._hm_layers     = [s["name"] for s in MASK_LAYERS_CONFIG]
-            self._step_tags     = []              # for pretty frame labels
-            self._orig_forwards = {}
-
-        # ================================================================
-        #  Initialize dynamic mask generator
-        # ================================================================
-        # if save_heatmaps or save_hm_pdf:
-        if use_dynamic_mask or save_heatmaps or save_hm_pdf:
-            self.mask_generator = DynamicMaskGenerator(
-                pipeline=self,
-                use_dynamic_mask=use_dynamic_mask,
-                mask_start=mask_start,
-                mask_end=mask_end,
-                save_heatmaps=save_heatmaps_dynamic,
-                token_focus=token_focus,
-                add_to_prompt=add_token_to_prompt,
-                mask_layers_config=mask_layers_config or get_default_mask_config(),
-                debug_dir=debug_dir,
-                save_hm_pdf=save_hm_pdf,
-                heatmap_interval=heatmap_interval,
-                num_inference_steps=num_inference_steps,
-                heatmap_mode=heatmap_mode,
-            )
-
-            # Setup hooks before denoising loop
-            self.mask_generator.setup_hooks(prompt, class_tokens_mask)
-
-
-        if use_branched_attention or save_heatmaps or save_hm_pdf:
-            hooked_layers = collect_attention_hooks(
-                self,
-                heatmap_mode,
-                focus_token,
-                class_tokens_mask,
-                self.do_classifier_free_guidance,
-                self._heatmaps,
-                self._orig_forwards,
-            )
-            log_debug_image(
-                f"[HookDebug] attached={int(hooked_layers)} backup_size={len(getattr(self, '_orig_forwards', {}))} "
-                f"debug_idx={debug_idx}"
-            )
-
 
         # 7. Get the update text embedding with the stacked ID embedding
-        self._ensure_face_analyzer()
 
         if id_embeds is not None:
             id_embeds = id_embeds.unsqueeze(0).to(device=device, dtype=dtype)
         else:
-            # --- ADDED For training integration ---
+        ##### BRANCHED ATTENTION - ALWAYS NEED ID EMBEDS #####
+            self._ensure_face_analyzer()
             embeddings = []
             for ref in input_id_images:
                 if isinstance(ref, torch.Tensor):
@@ -931,11 +792,10 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 else:
                     embedding = torch.zeros(512, dtype=torch.float32)
                 embeddings.append(embedding)
-            # --- ADDED For training integration ---
-
             id_embeds = torch.stack(embeddings, dim=0).unsqueeze(0).to(device=device, dtype=dtype)
 
         prompt_embeds = self.id_encoder(id_pixel_values, prompt_embeds, class_tokens_mask, id_embeds)
+        ##### BRANCHED ATTENTION - ALWAYS NEED ID EMBEDS #####
         
         bs_embed, seq_len, _ = prompt_embeds.shape
         # duplicate text embeddings for each generation per prompt, using mps friendly method
@@ -957,108 +817,39 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         
         
         
-        ##### NEW BRANCHED ATTENTION LOGIC #####
-
-        if use_branched_attention:
-            # Encode reference latents with AR-preserving resize + letterbox to (H,W)
-            if input_id_images is not None and len(input_id_images) > 0:
-                with torch.no_grad():
-                    ref_pixels = self.image_processor.preprocess(
-                        input_id_images, height=height, width=width
-                    )  # (B,3,H,W) in [-1,1]
-                    ref_pixels = ref_pixels.to(device=self._execution_device, dtype=latents.dtype)
-                    # ref_latents = self.vae.encode(ref_pixels).latent_dist.sample()
-                    ref_latents = self.vae.encode(ref_pixels).latent_dist.mode() # 01 FEB fix
-                    ref_latents = ref_latents * self.vae.config.scaling_factor
-                # If multiple refs, average or pick first; keep shape [1,4,h_lat,w_lat]
-                if ref_latents.shape[0] > 1:
-                    ref_latents = ref_latents.mean(dim=0, keepdim=True)
-                self._ref_latents_all = ref_latents
-                
-                from math import sqrt
-                from PIL import Image
-                import torch.nn.functional as F
-                pil = input_id_images[0] if isinstance(input_id_images, (list, tuple)) else input_id_images
-                ow, oh = pil.size
-                self._ref_orig_size = (oh, ow)
-                # scale to fit inside (height,width) while keeping AR; make divisible by 8
-                s = min(width / ow, height / oh)
-                rw = max(8, int(round(ow * s)) // 8 * 8)
-                rh = max(8, int(round(oh * s)) // 8 * 8)
-                pl = (width  - rw) // 2; pr = width  - rw - pl
-                pt = (height - rh) // 2; pb = height - rh - pt
-                self._ref_pad = (pl, pr, pt, pb)
-                self._ref_scaled_size = (rh, rw)
-                with torch.no_grad():
-                    ref_pixels = self.image_processor.preprocess(pil, height=rh, width=rw)  # (1,3,rh,rw) in [-1,1]
-                    ref_pixels = F.pad(ref_pixels, (pl, pr, pt, pb), value=0.0)            # letterbox to (H,W)
-                    ref_pixels = ref_pixels.to(device=self._execution_device, dtype=latents.dtype)
-                    # ref_latents = self.vae.encode(ref_pixels).latent_dist.sample() * self.vae.config.scaling_factor
-                    ref_latents = self.vae.encode(ref_pixels).latent_dist.mode() * self.vae.config.scaling_factor # 01 FEB fix
-                self._ref_latents_all = ref_latents  # shape (1,4,H/8,W/8)
+        ##### BRANCHED ATTENTION - BIG BA BLOCK #####
+        ### START NEW BRANCHED ATTENTION LOGIC ###
 
 
-                # ── Auto-generate reference face mask *early* so downstream uses it
-                if auto_mask_ref:                    
-                    # --- ADDED For training integration (FOLDER STUCTURE) ---
-                    from src.model.photomaker_branched.create_mask_ref import compute_face_mask_from_pil
-                    os.makedirs(debug_dir, exist_ok=True)
-                    auto_ref_path = os.path.join(debug_dir, "auto_ref_mask.png")
-                    mask_array = compute_face_mask_from_pil(pil)
-                    Image.fromarray(mask_array).save(auto_ref_path)
-                    log_debug_image(f"[DebugImage] auto_ref_mask → {auto_ref_path}")
-                    import_mask_ref = auto_ref_path
-                    print(f"[AutoMaskRef] Generated ref mask → {auto_ref_path}")
-                else:
-                    print(f"[AutoMaskRef] Using existing ref mask at {import_mask_ref}")
-
-                # Strict check: if bbox-ref masking requested but bbox missing, error out
-                if (not auto_mask_ref) and use_bbox_mask_ref and face_bbox_ref is None:
-                    raise RuntimeError(
-                        "use_bbox_mask_ref=True but no face_bbox_ref provided for reference image;"
-                        " ensure ref_bboxes.json contains an entry for this reference."
-                    )
-
-                # If explicit bbox mask is requested for reference and auto-mask is disabled,
-                # materialize a binary mask now aligned to (height, width).
-                if (not auto_mask_ref) and use_bbox_mask_ref and face_bbox_ref is not None:
-                    # Start with an empty mask at final resolution
-                    ref_mask = np.zeros((height, width), dtype=bool)
-                    # Account for AR-preserving scale + letterbox paddings used for ref image
-                    s = min(width / float(ow), height / float(oh))
-                    sx, sy = s, s
-                    x0, y0, x1, y1 = [float(v) for v in face_bbox_ref]
-                    # scale then pad to full frame
-                    x0s = int(round(x0 * sx + pl)); x1s = int(round(x1 * sx + pl))
-                    y0s = int(round(y0 * sy + pt)); y1s = int(round(y1 * sy + pt))
-                    x0s = max(0, min(width, x0s)); x1s = max(0, min(width, x1s))
-                    y0s = max(0, min(height, y0s)); y1s = max(0, min(height, y1s))
-                    if x1s > x0s and y1s > y0s:
-                        ref_mask[y0s:y1s, x0s:x1s] = True
-                    # Stash for downstream prepare_mask4(..., suffix="_ref")
-                    self._face_mask_ref = ref_mask
-                    self._face_mask_t_ref = torch.from_numpy(ref_mask.astype(np.uint8))[None, None]
-
-        # If explicit bbox mask is requested for generated image and dynamic mask is disabled,
-        # pre-create the binary mask in (height, width) pixel grid.
-        if (not use_dynamic_mask) and use_bbox_mask_gen and face_bbox_gen is not None:
-            gen_mask = np.zeros((height, width), dtype=bool)
-            x0, y0, x1, y1 = [float(v) for v in face_bbox_gen]
-            x0i = max(0, min(width, int(round(x0)))); x1i = max(0, min(width, int(round(x1))))
-            y0i = max(0, min(height, int(round(y0)))); y1i = max(0, min(height, int(round(y1))))
-            if x1i > x0i and y1i > y0i:
-                gen_mask[y0i:y1i, x0i:x1i] = True
-            self._face_mask = gen_mask
-            self._face_mask_t = torch.from_numpy(gen_mask.astype(np.uint8))[None, None]
-        elif (not use_dynamic_mask) and use_bbox_mask_gen and face_bbox_gen is None:
-            raise RuntimeError(
-                "use_bbox_mask_gen=True but no face_bbox_gen provided for generated image;"
-                " ensure pm20_bboxes.json contains an entry for the current validation index"
-                " (e.g., '00.png', '01.png', ...)."
+        if use_branched_attention and input_id_images:
+            pil = input_id_images[0] if isinstance(input_id_images, (list, tuple)) else input_id_images
+            self._ref_latents_all = self._prepare_ref_latents(
+                pil=pil,
+                height=height,
+                width=width,
+                latents_dtype=latents.dtype,
             )
+            import_mask_ref = self._prepare_ref_mask(
+                pil=pil,
+                auto_mask_ref=auto_mask_ref,
+                use_bbox_mask_ref=use_bbox_mask_ref,
+                face_bbox_ref=face_bbox_ref,
+                import_mask_ref=import_mask_ref,
+                debug_dir=debug_dir,
+                height=height,
+                width=width,
+            )
+
+     
+        self._prepare_gen_mask(
+            use_dynamic_mask=use_dynamic_mask,
+            use_bbox_mask_gen=use_bbox_mask_gen,
+            face_bbox_gen=face_bbox_gen,
+            height=height,
+            width=width,
+        )
         
         
-        ### FIX 01 FEB - RESTORE (REMOVE WRONG INDENT)
         
         # Also store as _reference_latents for the new approach.
         # NOTE: this attribute only exists when branched-attention path prepared ref latents.
@@ -1093,14 +884,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 dtype=self._ref_latents_all.dtype
             )
             
-        # else:
-        #     # Fallback: use initial latents as reference
-        #     self._ref_latents_all = latents.clone()
-        #     self._reference_latents = self._ref_latents_all
-        #     self._ref_img = None
-        # else: keep existing _ref_noise (two_branch_predict handles ref-noise lifecycle)
 
-        
         # Canonicalize strategy & keep for per-step call
         fes = (face_embed_strategy or "face").lower()
         if fes in {"faceanalysis"}:   # old CLI synonyms
@@ -1112,22 +896,17 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 self, device=device, batch_size=batch_size,
                 do_classifier_free_guidance=self.do_classifier_free_guidance,
             ).to(device)
-        # Cache ID token positions for masking (used in id_embeds mode)
-        self._id_token_idx = class_tokens_mask[0].nonzero(as_tuple=True)[0]
+      
 
-        # --- NEW: cache raw 2048-D PhotoMaker ID features (not fused text) ---
-        if id_pixel_values is not None and hasattr(self, "id_encoder"):
-            pm_feats = self.id_encoder.extract_id_features(
-                id_pixel_values.to(device=self.device, dtype=prompt_embeds.dtype),
-                id_embeds=id_embeds, ### 01 FEB fix
-                class_tokens_mask=class_tokens_mask
-            )  # [B,2048]
-            self._pm_id_embeds_2048 = pm_feats.to(device=self.device, dtype=self.unet.dtype)
-
-
-        ##### END NEW BRANCHED ATTENTION LOGIC #####
+        self._prepare_id_features(
+            id_pixel_values=id_pixel_values,
+            prompt_embeds=prompt_embeds,
+            id_embeds=id_embeds,
+            class_tokens_mask=class_tokens_mask,
+        )
         
-        ### FIX 01 FEB - RESTORE (REMOVE WRONG INDENT)
+        ### END NEW BRANCHED ATTENTION LOGIC ###
+        ##### BRANCHED ATTENTION - BIG BA BLOCK #####
 
         # 9. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
@@ -1172,7 +951,9 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 batch_size * num_images_per_prompt,
                 self.do_classifier_free_guidance,
             )
-        
+            
+            
+        ##### BRANCHED ATTENTION BLOCK #####
         #### NEW BRANCHED ATTENTION LOGIC ####
         # Store original processors once before denoising loop
         # Prepare reference latents once
@@ -1182,21 +963,18 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
              
              # Prepare reference latents if not already done
              if not hasattr(self, '_ref_latents_all'):
-                 if id_pixel_values is not None:
-                     self._ref_latents_all = prepare_reference_latents(
-                         self,
-                         id_pixel_values[0, 0] if id_pixel_values.dim() == 5 else id_pixel_values[0],
-                         height,
-                         width,
-                         latents.dtype,
-                         generator
-                     )
-                 else:
-                     # Fallback: use initial latents as reference
-                     self._ref_latents_all = latents.clone()
+                 has_id_pixels = id_pixel_values is not None
+                 msg = (
+                     "[BranchedAttention] Missing _ref_latents_all before denoising loop. "
+                     f"use_branched_attention={use_branched_attention}, has_id_pixel_values={has_id_pixels}. "
+                     "Reference latents must be prepared in the earlier branched setup block."
+                 )
+                 print(msg)
+                 raise RuntimeError(msg)
                
 
         #### NEW BRANCHED ATTENTION LOGIC ####
+        ##### BRANCHED ATTENTION BLOCK #####
         
         
 
@@ -1245,64 +1023,86 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
                 
-                # ----------------------------------------------------------------
-                #  Initialise per-step branch tensors (may stay None this step)
-                # ----------------------------------------------------------------
-                noise_face: torch.Tensor | None = None
-                noise_bg:   torch.Tensor | None = None
+                
+                ##### BRANCHED ATTENTION BLOCK #####
+                
+                # # ----------------------------------------------------------------
+                # #  Initialise per-step branch tensors (may stay None this step)
+                # # ----------------------------------------------------------------
+                # noise_face: torch.Tensor | None = None
+                # noise_bg:   torch.Tensor | None = None
                 
   
                 
-                # ───── choose prompt-conditioning for this step (must come FIRST) ─────
-                # Before PhotoMaker merge: use text-only to avoid early leakage.
-                # After that (and for branched attention), keep the ID-enhanced embeddings.
+                # # ───── choose prompt-conditioning for this step (must come FIRST) ─────
+                # # Before PhotoMaker merge: use text-only to avoid early leakage.
+                # # After that (and for branched attention), keep the ID-enhanced embeddings.
                 
-                # Initial defaults; will be overridden by mode below
-                # use_text_only = (i <= start_merge_step)
-                use_text_only = (i <= photomaker_start_step)
-                base_prompt   = prompt_embeds_text_only if use_text_only else prompt_embeds
-                base_pooled   = pooled_prompt_embeds_text_only if use_text_only else pooled_prompt_embeds
+                # # Initial defaults; will be overridden by mode below
+                # use_text_only = (i <= photomaker_start_step)
+                # base_prompt   = prompt_embeds_text_only if use_text_only else prompt_embeds
+                # base_pooled   = pooled_prompt_embeds_text_only if use_text_only else pooled_prompt_embeds
                 
-                # ── PoseAdapt pre-PhotoMaker: force ratio=1.0, relax back after ──
-                if force_par_before_pm:
-                    _desired_par = 1.0 if use_text_only else self._pose_user_ratio
-                else:
-                    _desired_par = self._pose_user_ratio
+                # # ── PoseAdapt pre-PhotoMaker: force ratio=1.0, relax back after ──
+                # if force_par_before_pm:
+                #     _desired_par = 1.0 if use_text_only else self._pose_user_ratio
+                # else:
+                #     _desired_par = self._pose_user_ratio
                     
-                if getattr(self, "pose_adapt_ratio", None) != _desired_par:
-                    self.pose_adapt_ratio = _desired_par
-                    if _desired_par == 1.0 and not _pose_forced_logged:
-                        print(f"[PoseAdapt] Forcing POSE_ADAPT_RATIO=1.0 until photomaker_start_step={photomaker_start_step}")
-                        _pose_forced_logged = True
-                    elif _desired_par != 1.0 and not _pose_relaxed_logged:
-                        print(f"[PoseAdapt] Relaxing POSE_ADAPT_RATIO to user value {self._pose_user_ratio:.2f} at step {i}")
-                        _pose_relaxed_logged = True
+                # if getattr(self, "pose_adapt_ratio", None) != _desired_par:
+                #     self.pose_adapt_ratio = _desired_par
+                #     if _desired_par == 1.0 and not _pose_forced_logged:
+                #         print(f"[PoseAdapt] Forcing POSE_ADAPT_RATIO=1.0 until photomaker_start_step={photomaker_start_step}")
+                #         _pose_forced_logged = True
+                #     elif _desired_par != 1.0 and not _pose_relaxed_logged:
+                #         print(f"[PoseAdapt] Relaxing POSE_ADAPT_RATIO to user value {self._pose_user_ratio:.2f} at step {i}")
+                #         _pose_relaxed_logged = True
      
 
-                bs = branched_attn_start_step
-                # sm = start_merge_step
-                sm = photomaker_start_step
-                a  = min(sm, bs)
-                b  = max(sm, bs)
-                bsm = getattr(self, "branched_start_mode", "both").lower()  # "both" or "branched"
-                # Case A: sm < bs  → NO_ID → PHOTOMAKER → (BOTH/BRANCHED)
-                # Case B: bs <= sm → NO_ID → (BOTH/BRANCHED) → PHOTOMAKER
-                if i < a:
-                    mode = "NO_ID"
-                elif sm < bs:
-                    mode = "PHOTOMAKER" if i < b else ("BOTH" if bsm == "both" else "BRANCHED")
-                else:
-                    mode = ("BOTH" if bsm == "both" else "BRANCHED") if i < b else "PHOTOMAKER"
+                # bs = branched_attn_start_step
+                # # sm = start_merge_step
+                # sm = photomaker_start_step
+                # a  = min(sm, bs)
+                # b  = max(sm, bs)
+                # bsm = getattr(self, "branched_start_mode", "both").lower()  # "both" or "branched"
+                # # Case A: sm < bs  → NO_ID → PHOTOMAKER → (BOTH/BRANCHED)
+                # # Case B: bs <= sm → NO_ID → (BOTH/BRANCHED) → PHOTOMAKER
+                # if i < a:
+                #     mode = "NO_ID"
+                # elif sm < bs:
+                #     mode = "PHOTOMAKER" if i < b else ("BOTH" if bsm == "both" else "BRANCHED")
+                # else:
+                #     mode = ("BOTH" if bsm == "both" else "BRANCHED") if i < b else "PHOTOMAKER"
+
+
+                mode, base_prompt, base_pooled, _pose_forced_logged, _pose_relaxed_logged = (
+                    self._select_mode_and_prompts(
+                        i=i,
+                        photomaker_start_step=photomaker_start_step,
+                        branched_attn_start_step=branched_attn_start_step,
+                        prompt_embeds_text_only=prompt_embeds_text_only,
+                        pooled_prompt_embeds_text_only=pooled_prompt_embeds_text_only,
+                        prompt_embeds=prompt_embeds,
+                        pooled_prompt_embeds=pooled_prompt_embeds,
+                        force_par_before_pm=force_par_before_pm,
+                        pose_forced_logged=_pose_forced_logged,
+                        pose_relaxed_logged=_pose_relaxed_logged,
+                    )
+                )
 
 
                 if mode != prev_mode:
-                    print(f"[Switch] step {int(i)} → {mode}  (photomaker_start_step={int(photomaker_start_step)}, branched_attn_start_step={int(bs)})")
+                    print(
+                        f"[Switch] step {int(i)} → {mode}  "
+                        f"(photomaker_start_step={int(photomaker_start_step)}, "
+                        f"branched_attn_start_step={int(branched_attn_start_step)})"
+                    )
                     prev_mode = mode
 
-                # Prompts by mode: PHOTOMAKER/BOTH → ID-enhanced, else text-only
-                if mode in ("PHOTOMAKER", "BOTH"):
-                    base_prompt = prompt_embeds
-                    base_pooled = pooled_prompt_embeds
+                # # Prompts by mode: PHOTOMAKER/BOTH → ID-enhanced, else text-only
+                # if mode in ("PHOTOMAKER", "BOTH"):
+                #     base_prompt = prompt_embeds
+                #     base_pooled = pooled_prompt_embeds
 
 
                 current_prompt_embeds = (
@@ -1320,175 +1120,192 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 
 
                 ##### NEW BRANCHED ATTENTION LOGIC #####
-                
-                # ------------------------------------------------------------
-                #  Activate branched-attention after <branched_attn_start_step>
-                # ------------------------------------------------------------
-                mask4 = None
-                mask4_ref = None
+                noise_face = None
 
-                # ============================================================
-                #  Update dynamic mask if enabled
-                # ============================================================
-                # if use_dynamic_mask:
-                if hasattr(self, 'mask_generator'):
-                    # self.mask_generator.update_mask(i)
-                    self.mask_generator.update_mask(i, latents)
+                branched_active = use_branched_attention and (mode in ("BRANCHED", "BOTH"))
+                mask4 = None
+
+                
+                # # ------------------------------------------------------------
+                # #  Activate branched-attention after <branched_attn_start_step>
+                # # ------------------------------------------------------------
+                
+                # mask4_ref = None
+
+                # # ============================================================
+                # #  Update dynamic mask if enabled
+                # # ============================================================
+                # # if use_dynamic_mask:
+                # if hasattr(self, 'mask_generator'):
+                #     # self.mask_generator.update_mask(i)
+                #     self.mask_generator.update_mask(i, latents)
                                 
                 
-                # Only run branched block when the schedule says so (BRANCHED or BOTH)
-                branched_active = use_branched_attention and (mode in ("BRANCHED", "BOTH"))
+                # # Only run branched block when the schedule says so (BRANCHED or BOTH)
+                # branched_active = use_branched_attention and (mode in ("BRANCHED", "BOTH"))
 
                 
+                
+                #     # Build noise mask - use dynamic if available, otherwise use import_mask
+                #     if use_dynamic_mask:
+                #         mask_np, mask_tensor = self.mask_generator.get_mask_for_pipeline()
+                #         if mask_np is not None:
+                #             self._face_mask = mask_np
+                #             self._face_mask_t = mask_tensor
+                    
+
+                #     mask4     = prepare_mask4(self, latent_model_input, suffix="")
+                    
+                #     # Build ref mask from import_mask_ref (unchanged)
+                #     mask4_ref = prepare_mask4(self, latent_model_input, suffix="_ref")
+                    
+                #     # Quick checks & one-off debug (moved here)
+                #     if mask4 is not None and mask4_ref is not None and (i == branched_attn_start_step or i % 10 == 0):
+                #         print(f"[PL] step={i}  mask_gen>0.5={(mask4>0.5).float().mean().item():.4f}  mask_ref>0.5={(mask4_ref>0.5).float().mean().item():.4f}")
+                #         md = (mask4 - mask4_ref).abs().mean().item()
+                #         if md < 0.01:
+                #             print(f"[Warning] Noise and ref masks are nearly identical (diff={md:.4f})")
+                #     debug_reference_latents_once(self, mask4_ref, debug_dir)
+                #     if i == branched_attn_start_step:
+                #         # --- MODIFIED For training integration (hm_debug) ---
+                #         base_debug_dir = Path(debug_dir) if debug_dir is not None else None  
+                #         if base_debug_dir is not None:
+                #             ref_masks = mask4_ref
+                #             total_outputs = latents.shape[0]
+                #             # total_outputs = 10 # TEMP!!!
+                #             if ref_masks.dim() == 4 and ref_masks.shape[0] == total_outputs:
+                #                 ref_masks_iter = [ref_masks[idx:idx+1] for idx in range(total_outputs)]
+                #             else:
+                #                 ref_masks_iter = [ref_masks] * total_outputs
+                #             for idx, mask_ref_single in enumerate(ref_masks_iter):
+                #                 per_image_dir = base_debug_dir if total_outputs == 1 else base_debug_dir / f"{idx:02d}"
+                #                 per_image_dir.mkdir(parents=True, exist_ok=True)
+                #                 save_debug_ref_latents(self, str(per_image_dir))
+                #                 save_debug_ref_mask_overlay(self, mask_ref_single, str(per_image_dir))
+                #         # --- MODIFIED For training integration (hm_debug) ---
+                #         else:
+                #             save_debug_ref_latents(self, debug_dir)
+                #             save_debug_ref_mask_overlay(self, mask4_ref, debug_dir)
+                #         print(f"[Debug] Step {i}: Ref mask overlay saved.")
+
+                        
+                #     # # # NEW: if branched starts before PhotoMaker, keep face branch text-only until start_merge_step
+
+                #     fes_step = self.face_embed_strategy
+                #     # In BOTH mode we allow ID/id_embeds even before start_merge_step
+                #     # In BOTH mode we allow ID/id_embeds even before photomaker_start_step
+                #     # if fes_step in {"id", "id_embeds"} and i < start_merge_step and mode != "BOTH":
+                #     if fes_step in {"id", "id_embeds"} and i < photomaker_start_step and mode != "BOTH":
+                #         fes_step = "face"
+                        
+                #     # pick face embeddings per strategy
+                #     face_ehs = (
+                #         current_prompt_embeds
+                #         # if self.face_embed_strategy in {"id", "id_embeds"}
+                #         if fes_step in {"id", "id_embeds"}
+                #         else self._face_prompt_embeds
+                #     )
+
+                #     id_embeds_2048 = getattr(self, "_pm_id_embeds_2048", None) if fes_step == "id_embeds" else None
+                #     if full_debug:
+                #         print('[DEBUG] id_embeds_2048:', id_embeds_2048)
+
+
+
+                #     # Call the new two_branch_predict function
+
+                #     # Apply mask-merge only from merge_start_step onwards.
+                #     # Keep non-None masks to satisfy branched processor contracts.
+                #     _mask4     = mask4     if i >= merge_start_step else torch.zeros_like(mask4)
+                #     _mask4_ref = mask4_ref if i >= merge_start_step else torch.zeros_like(mask4_ref)
+
+
+                #     # Build face-branch encoder_hidden_states from 2048-D PM ID features
+                #     id_face_ehs = None
+                #     proc_id_embeds = None
+                #     if fes_step == "id_embeds":
+                #         pm = getattr(self, "_pm_id_embeds_2048", None)  # [B, 2048]
+                #         if pm is None:
+                #             raise ValueError("id_embeds strategy requires cached _pm_id_embeds_2048.")
+                #         # match [B or 2B, seq_len, dim] of current_prompt_embeds
+                #         seq_len = current_prompt_embeds.shape[1]
+                #         dim = current_prompt_embeds.shape[2]
+
+                #         ### FIX 01 FEB - Repeat PM ID features to match UNet batch
+                #         B_pos = current_prompt_embeds.shape[0] // (2 if self.do_classifier_free_guidance else 1)
+                #         if pm.shape[0] == B_pos:
+                #             pm_b = pm
+                #         elif pm.shape[0] == 1:
+                #             pm_b = pm.expand(B_pos, -1)
+                #         else:
+                #             pm_b = pm.mean(dim=0, keepdim=True).expand(B_pos, -1)
+                #         pos = pm_b.unsqueeze(1).expand(B_pos, seq_len, dim)    # [B_pos, L, D]
+                #         ### FIX 01 FEB - Repeat PM ID features to match UNet batch
+
+                #         if self.do_classifier_free_guidance:
+                #             neg = torch.zeros_like(pos)                                # [B, L, D]
+                #             id_face_ehs = torch.cat([neg, pos], dim=0)                 # [2B, L, D]
+                #             proc_id_embeds = torch.cat([torch.zeros_like(pm_b), pm_b], dim=0)  # [2B, 2048]
+                #         else:
+                #             id_face_ehs = pos                                           # [B, L, D]
+                #             proc_id_embeds = pm_b                                       # [B, 2048]
+
+                #         id_face_ehs = id_face_ehs.to(
+                #             device=current_prompt_embeds.device, dtype=current_prompt_embeds.dtype
+                #         )
+                #         proc_id_embeds = proc_id_embeds.to(
+                #             device=current_prompt_embeds.device, dtype=current_prompt_embeds.dtype
+                #         )
+
+                #     noise_pred, noise_face, noise_bg = two_branch_predict(
+                #         self,  # pipeline
+                #         latent_model_input,  # latent_model_input
+                #         t=t,
+                #         prompt_embeds=current_prompt_embeds, 
+                #         added_cond_kwargs=added_cond_kwargs,
+                #         mask4=_mask4,
+                #         mask4_ref=_mask4_ref,
+                #         reference_latents=self._ref_latents_all,
+                #         # For "face" → use text; for "id_embeds" → use PM ID features as pseudo-tokens
+                #         face_prompt_embeds=(self._face_prompt_embeds if fes_step == "face" else id_face_ehs),
+                #         class_tokens_mask=class_tokens_mask,
+                #         # face_embed_strategy=self.face_embed_strategy,
+                #         face_embed_strategy=fes_step,
+                #         # id_embeds mode: also feed 2048-D PM features to branched SA processors.
+                #         id_embeds=proc_id_embeds,
+                #         step_idx=i,
+                #         scale=photomaker_scale,  # Use the new parameter
+                #         timestep_cond=timestep_cond,
+                #     )
+
+                    # # Debug: check if noise_pred has expected values
+                    # if i < (branched_attn_start_step + 3):
+                    #     print(f"[Debug] Step {i}: noise_pred stats - "
+                    #           f"mean={noise_pred.mean().item():.4f}, "
+                    #           f"std={noise_pred.std().item():.4f}, "
+                    #           f"min={noise_pred.min().item():.4f}, "
+                    #           f"max={noise_pred.max().item():.4f}")                    
+                    
+                    # # Clear any temporary state
+                    # if hasattr(self, '_kv_override'):
+                    #     self._kv_override = None
                 if branched_active:
-                    # Build noise mask - use dynamic if available, otherwise use import_mask
-                    if use_dynamic_mask:
-                        mask_np, mask_tensor = self.mask_generator.get_mask_for_pipeline()
-                        if mask_np is not None:
-                            self._face_mask = mask_np
-                            self._face_mask_t = mask_tensor
-                    
-                    if not hasattr(self, '_face_mask') or self._face_mask is None:
-                        aggregate_heatmaps_to_mask(self, mask_mode, import_mask, suffix="")
-
-                    mask4     = prepare_mask4(self, latent_model_input, suffix="")
-                    
-                    # Build ref mask from import_mask_ref (unchanged)
-                    aggregate_heatmaps_to_mask(self, mask_mode, import_mask_ref, suffix="_ref")
-
-
-                    mask4_ref = prepare_mask4(self, latent_model_input, suffix="_ref")
-                    
-                    # Quick checks & one-off debug (moved here)
-                    if mask4 is not None and mask4_ref is not None and (i == branched_attn_start_step or i % 10 == 0):
-                        print(f"[PL] step={i}  mask_gen>0.5={(mask4>0.5).float().mean().item():.4f}  mask_ref>0.5={(mask4_ref>0.5).float().mean().item():.4f}")
-                        md = (mask4 - mask4_ref).abs().mean().item()
-                        if md < 0.01:
-                            print(f"[Warning] Noise and ref masks are nearly identical (diff={md:.4f})")
-                    debug_reference_latents_once(self, mask4_ref, debug_dir)
-                    if i == branched_attn_start_step:
-                        # --- MODIFIED For training integration (hm_debug) ---
-                        base_debug_dir = Path(debug_dir) if debug_dir is not None else None  
-                        if base_debug_dir is not None:
-                            ref_masks = mask4_ref
-                            total_outputs = latents.shape[0]
-                            # total_outputs = 10 # TEMP!!!
-                            if ref_masks.dim() == 4 and ref_masks.shape[0] == total_outputs:
-                                ref_masks_iter = [ref_masks[idx:idx+1] for idx in range(total_outputs)]
-                            else:
-                                ref_masks_iter = [ref_masks] * total_outputs
-                            for idx, mask_ref_single in enumerate(ref_masks_iter):
-                                per_image_dir = base_debug_dir if total_outputs == 1 else base_debug_dir / f"{idx:02d}"
-                                per_image_dir.mkdir(parents=True, exist_ok=True)
-                                save_debug_ref_latents(self, str(per_image_dir))
-                                save_debug_ref_mask_overlay(self, mask_ref_single, str(per_image_dir))
-                        # --- MODIFIED For training integration (hm_debug) ---
-                        else:
-                            save_debug_ref_latents(self, debug_dir)
-                            save_debug_ref_mask_overlay(self, mask4_ref, debug_dir)
-                        print(f"[Debug] Step {i}: Ref mask overlay saved.")
-
-                        
-                    # # # NEW: if branched starts before PhotoMaker, keep face branch text-only until start_merge_step
-
-                    fes_step = self.face_embed_strategy
-                    # In BOTH mode we allow ID/id_embeds even before start_merge_step
-                    # In BOTH mode we allow ID/id_embeds even before photomaker_start_step
-                    # if fes_step in {"id", "id_embeds"} and i < start_merge_step and mode != "BOTH":
-                    if fes_step in {"id", "id_embeds"} and i < photomaker_start_step and mode != "BOTH":
-                        fes_step = "face"
-                        
-                    # pick face embeddings per strategy
-                    face_ehs = (
-                        current_prompt_embeds
-                        # if self.face_embed_strategy in {"id", "id_embeds"}
-                        if fes_step in {"id", "id_embeds"}
-                        else self._face_prompt_embeds
-                    )
-
-                    id_embeds_2048 = getattr(self, "_pm_id_embeds_2048", None) if fes_step == "id_embeds" else None
-                    if full_debug:
-                        print('[DEBUG] id_embeds_2048:', id_embeds_2048)
-
-
-
-                    # Call the new two_branch_predict function
-
-                    # Apply mask-merge only from merge_start_step onwards.
-                    # Keep non-None masks to satisfy branched processor contracts.
-                    _mask4     = mask4     if i >= merge_start_step else torch.zeros_like(mask4)
-                    _mask4_ref = mask4_ref if i >= merge_start_step else torch.zeros_like(mask4_ref)
-
-
-                    # Build face-branch encoder_hidden_states from 2048-D PM ID features
-                    id_face_ehs = None
-                    proc_id_embeds = None
-                    if fes_step == "id_embeds":
-                        pm = getattr(self, "_pm_id_embeds_2048", None)  # [B, 2048]
-                        if pm is None:
-                            raise ValueError("id_embeds strategy requires cached _pm_id_embeds_2048.")
-                        # match [B or 2B, seq_len, dim] of current_prompt_embeds
-                        seq_len = current_prompt_embeds.shape[1]
-                        dim = current_prompt_embeds.shape[2]
-
-                        ### FIX 01 FEB - Repeat PM ID features to match UNet batch
-                        B_pos = current_prompt_embeds.shape[0] // (2 if self.do_classifier_free_guidance else 1)
-                        if pm.shape[0] == B_pos:
-                            pm_b = pm
-                        elif pm.shape[0] == 1:
-                            pm_b = pm.expand(B_pos, -1)
-                        else:
-                            pm_b = pm.mean(dim=0, keepdim=True).expand(B_pos, -1)
-                        pos = pm_b.unsqueeze(1).expand(B_pos, seq_len, dim)    # [B_pos, L, D]
-                        ### FIX 01 FEB - Repeat PM ID features to match UNet batch
-
-                        if self.do_classifier_free_guidance:
-                            neg = torch.zeros_like(pos)                                # [B, L, D]
-                            id_face_ehs = torch.cat([neg, pos], dim=0)                 # [2B, L, D]
-                            proc_id_embeds = torch.cat([torch.zeros_like(pm_b), pm_b], dim=0)  # [2B, 2048]
-                        else:
-                            id_face_ehs = pos                                           # [B, L, D]
-                            proc_id_embeds = pm_b                                       # [B, 2048]
-
-                        id_face_ehs = id_face_ehs.to(
-                            device=current_prompt_embeds.device, dtype=current_prompt_embeds.dtype
-                        )
-                        proc_id_embeds = proc_id_embeds.to(
-                            device=current_prompt_embeds.device, dtype=current_prompt_embeds.dtype
-                        )
-
-                    noise_pred, noise_face, noise_bg = two_branch_predict(
-                        self,  # pipeline
-                        latent_model_input,  # latent_model_input
-                        t=t,
-                        prompt_embeds=current_prompt_embeds, 
-                        added_cond_kwargs=added_cond_kwargs,
-                        mask4=_mask4,
-                        mask4_ref=_mask4_ref,
-                        reference_latents=self._ref_latents_all,
-                        # For "face" → use text; for "id_embeds" → use PM ID features as pseudo-tokens
-                        face_prompt_embeds=(self._face_prompt_embeds if fes_step == "face" else id_face_ehs),
-                        class_tokens_mask=class_tokens_mask,
-                        # face_embed_strategy=self.face_embed_strategy,
-                        face_embed_strategy=fes_step,
-                        # id_embeds mode: also feed 2048-D PM features to branched SA processors.
-                        id_embeds=proc_id_embeds,
-                        step_idx=i,
-                        scale=photomaker_scale,  # Use the new parameter
-                        timestep_cond=timestep_cond,
-                    )
-
-                    # Debug: check if noise_pred has expected values
-                    if i < (branched_attn_start_step + 3):
-                        print(f"[Debug] Step {i}: noise_pred stats - "
-                              f"mean={noise_pred.mean().item():.4f}, "
-                              f"std={noise_pred.std().item():.4f}, "
-                              f"min={noise_pred.min().item():.4f}, "
-                              f"max={noise_pred.max().item():.4f}")                    
-                    
-                    # Clear any temporary state
-                    if hasattr(self, '_kv_override'):
-                        self._kv_override = None
+                    noise_pred, noise_face, mask4 = self._run_branched_step(
+                            i=i,
+                            t=t,
+                            mode=mode,
+                            latent_model_input=latent_model_input,
+                            current_prompt_embeds=current_prompt_embeds,
+                            added_cond_kwargs=added_cond_kwargs,
+                            class_tokens_mask=class_tokens_mask,
+                            timestep_cond=timestep_cond,
+                            photomaker_scale=photomaker_scale,
+                            merge_start_step=merge_start_step,
+                            photomaker_start_step=photomaker_start_step,
+                            branched_attn_start_step=branched_attn_start_step,
+                            debug_dir=debug_dir,
+                            num_outputs=latents.shape[0],
+                    )    
                         
                 else:
                     # Standard single-branch prediction
@@ -1505,63 +1322,78 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                 
                 ##### NEW BRANCHED ATTENTION LOGIC ##### 
     
-                # ## TODO: need to add mask_ref here?
+                # # ## TODO: need to add mask_ref here?
 
-                # optional PNG previews of intermediate predictions
-                # NOTE: previously this only ran in branched mode; extend to non-branched
-                # runs by using a full-image mask when no face mask is available.
-                if i % 10 == 0 or i == num_inference_steps - 1:  # every 10 steps
-                    if "mask4" in locals() and "noise_face" in locals() and noise_face is not None:
-                        base_debug_dir = Path(debug_dir) if debug_dir is not None else None
-                        if base_debug_dir is not None:
-                            total_outputs = latents.shape[0]
-                            for idx, latent_sample in enumerate(latents):
-                                per_image_dir = base_debug_dir if total_outputs == 1 else base_debug_dir / f"{idx:02d}"
-                                per_image_dir.mkdir(parents=True, exist_ok=True)
-                                mask_slice = mask4[idx:idx+1] if mask4.shape[0] > idx else mask4
-                                save_branch_previews(
-                                    self,
-                                    latent_sample.unsqueeze(0),
-                                    noise_pred,
-                                    mask_slice,
-                                    t,
-                                    i,
-                                    str(per_image_dir),
-                                    extra_step_kwargs,
-                                )
-                        else:
-                            save_branch_previews(
-                                self,
-                                latents,
-                                noise_pred,
-                                mask4,
-                                t,
-                                i,
-                                debug_dir,
-                                extra_step_kwargs,
-                            )
-                    else:
-                        # Non-branched path: still save a debug prediction using a full mask.
-                        if debug_dir is not None:
-                            base_debug_dir = Path(debug_dir)
-                            base_debug_dir.mkdir(parents=True, exist_ok=True)
-                            total_outputs = latents.shape[0]
-                            full_mask = torch.ones_like(latents[:, :1, :, :])
-                            for idx, latent_sample in enumerate(latents):
-                                per_image_dir = base_debug_dir if total_outputs == 1 else base_debug_dir / f"{idx:02d}"
-                                per_image_dir.mkdir(parents=True, exist_ok=True)
-                                mask_slice = full_mask[idx:idx+1]
-                                save_branch_previews(
-                                    self,
-                                    latent_sample.unsqueeze(0),
-                                    noise_pred,
-                                    mask_slice,
-                                    t,
-                                    i,
-                                    str(per_image_dir),
-                                    extra_step_kwargs,
-                                )
+                # # optional PNG previews of intermediate predictions
+                # # NOTE: previously this only ran in branched mode; extend to non-branched
+                # # runs by using a full-image mask when no face mask is available.
+                # if i % 10 == 0 or i == num_inference_steps - 1:  # every 10 steps
+                #     if "mask4" in locals() and "noise_face" in locals() and noise_face is not None:
+                #         base_debug_dir = Path(debug_dir) if debug_dir is not None else None
+                #         if base_debug_dir is not None:
+                #             total_outputs = latents.shape[0]
+                #             for idx, latent_sample in enumerate(latents):
+                #                 per_image_dir = base_debug_dir if total_outputs == 1 else base_debug_dir / f"{idx:02d}"
+                #                 per_image_dir.mkdir(parents=True, exist_ok=True)
+                #                 mask_slice = mask4[idx:idx+1] if mask4.shape[0] > idx else mask4
+                #                 save_branch_previews(
+                #                     self,
+                #                     latent_sample.unsqueeze(0),
+                #                     noise_pred,
+                #                     mask_slice,
+                #                     t,
+                #                     i,
+                #                     str(per_image_dir),
+                #                     extra_step_kwargs,
+                #                 )
+                #         else:
+                #             save_branch_previews(
+                #                 self,
+                #                 latents,
+                #                 noise_pred,
+                #                 mask4,
+                #                 t,
+                #                 i,
+                #                 debug_dir,
+                #                 extra_step_kwargs,
+                #             )
 
+
+                    # else:
+                    #     # Non-branched path: still save a debug prediction using a full mask.
+                    #     if debug_dir is not None:
+                    #         base_debug_dir = Path(debug_dir)
+                    #         base_debug_dir.mkdir(parents=True, exist_ok=True)
+                    #         total_outputs = latents.shape[0]
+                    #         full_mask = torch.ones_like(latents[:, :1, :, :])
+                    #         for idx, latent_sample in enumerate(latents):
+                    #             per_image_dir = base_debug_dir if total_outputs == 1 else base_debug_dir / f"{idx:02d}"
+                    #             per_image_dir.mkdir(parents=True, exist_ok=True)
+                    #             mask_slice = full_mask[idx:idx+1]
+                    #             save_branch_previews(
+                    #                 self,
+                    #                 latent_sample.unsqueeze(0),
+                    #                 noise_pred,
+                    #                 mask_slice,
+                    #                 t,
+                    #                 i,
+                    #                 str(per_image_dir),
+                    #                 extra_step_kwargs,
+                    #             )
+                                
+                self._save_step_previews(
+                    i=i,
+                    t=t,
+                    num_inference_steps=num_inference_steps,
+                    debug_dir=debug_dir,
+                    latents=latents,
+                    noise_pred=noise_pred,
+                    mask4=mask4,
+                    noise_face=noise_face,
+                    extra_step_kwargs=extra_step_kwargs,
+                )
+
+                ##### BRANCHED ATTENTION BLOCK #####
 
                 # perform guidance
                 if self.do_classifier_free_guidance:
@@ -1605,7 +1437,8 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
                 if XLA_AVAILABLE:
                     xm.mark_step()
-                
+        
+        ##### BRANCHED ATTENTION BLOCK #####
         ### NEW BRANCHED ATTENTION LOGIC ###
         ## CLEANUP ##
         if use_branched_attention:
@@ -1621,35 +1454,41 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
             #  # Save heatmap PDF after inference completes
             #  if hasattr(self, 'mask_generator') and self.mask_generator.save_hm_pdf:
-        # Save heatmap PDF and cleanup (moved outside branched attention block)
-        if hasattr(self, 'mask_generator'):
-             if self.mask_generator.save_hm_pdf:
+        # # Save heatmap PDF and cleanup (moved outside branched attention block)
+        # if hasattr(self, 'mask_generator'):
+        #      if self.mask_generator.save_hm_pdf:
 
-                 # Get final image from last latents
-                 final_image = None
-                 if latents is not None:
-                     with torch.no_grad():
-                         lat_scaled = (latents[0:1] / self.vae.config.scaling_factor).to(self.vae.dtype)
-                         img = self.vae.decode(lat_scaled).sample[0]
-                         final_image = ((img.float() / 2 + 0.5).clamp(0, 1).permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
-                 self.mask_generator.save_heatmap_pdf(final_image)
+        # # Legacy heatmap cleanup (disabled by default via OLD_HEATMAP_MASKING).
+        # if OLD_HEATMAP_MASKING and hasattr(self, "mask_generator"):
+        #     if self.mask_generator.save_hm_pdf:
 
-             # Cleanup dynamic mask generator
-             self.mask_generator.cleanup()
 
-        # Restore CrossAttention forwards patched by collect_attention_hooks.
-        # Prevent wrapper accumulation across pipeline calls.
-        if hasattr(self, "_orig_forwards") and self._orig_forwards:
-            restore_count = len(self._orig_forwards)
-            for name, module in self.unet.named_modules():
-                orig = self._orig_forwards.get(name)
-                if orig is not None:
-                    module.forward = orig
-            self._orig_forwards.clear()
-            log_debug_image(f"[HookDebug] restored={restore_count} debug_idx={debug_idx}")
+        #         # Get final image from last latents
+        #         final_image = None
+        #         if latents is not None:
+        #             with torch.no_grad():
+        #                 lat_scaled = (latents[0:1] / self.vae.config.scaling_factor).to(self.vae.dtype)
+        #                 img = self.vae.decode(lat_scaled).sample[0]
+        #                 final_image = ((img.float() / 2 + 0.5).clamp(0, 1).permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
+        #         self.mask_generator.save_heatmap_pdf(final_image)
+
+        #     # Cleanup dynamic mask generator
+        #     self.mask_generator.cleanup()
+
+        # # Legacy hook restore path (only relevant when legacy hook collection is enabled).
+        # if OLD_HEATMAP_MASKING and hasattr(self, "_orig_forwards") and self._orig_forwards:
+
+        #     restore_count = len(self._orig_forwards)
+        #     for name, module in self.unet.named_modules():
+        #         orig = self._orig_forwards.get(name)
+        #         if orig is not None:
+        #             module.forward = orig
+        #     self._orig_forwards.clear()
+        #     log_debug_image(f"[HookDebug] restored={restore_count} debug_idx={debug_idx}")
 
             
         ### NEW BRANCHED ATTENTION LOGIC ###
+        ##### BRANCHED ATTENTION BLOCK #####
 
         if not output_type == "latent":
             # make sure the VAE is in float32 mode, as it overflows in float16
@@ -1698,6 +1537,8 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
         return StableDiffusionXLPipelineOutput(images=image)
     
+    
+    ##### BRANCHED ATTENTION BLOCK #####
     ### NEW BRANCHED ATTENTION LOGIC ###
     @property
     def cross_attention_kwargs(self):
@@ -1723,8 +1564,357 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         except Exception:
             self._face_analyzer.prepare(ctx_id=-1, det_size=(640, 640))
     # --- ADDED For training integration ---
+    
+    def _prepare_ref_latents(
+        self,
+        *,
+        pil: PIL.Image.Image,
+        height: int,
+        width: int,
+        latents_dtype: torch.dtype,
+    ) -> torch.Tensor:
+        ow, oh = pil.size
+        self._ref_orig_size = (oh, ow)
+
+        # scale to fit inside (height,width) while keeping AR; make divisible by 8
+        s = min(width / ow, height / oh)
+        rw = max(8, int(round(ow * s)) // 8 * 8)
+        rh = max(8, int(round(oh * s)) // 8 * 8)
+        pl = (width - rw) // 2
+        pr = width - rw - pl
+        pt = (height - rh) // 2
+        pb = height - rh - pt
+        self._ref_pad = (pl, pr, pt, pb)
+        self._ref_scaled_size = (rh, rw)
+
+        with torch.no_grad():
+            ref_pixels = self.image_processor.preprocess(pil, height=rh, width=rw)  # (1,3,rh,rw) in [-1,1]
+            ref_pixels = F.pad(ref_pixels, (pl, pr, pt, pb), value=0.0)            # letterbox to (H,W)
+            ref_pixels = ref_pixels.to(device=self._execution_device, dtype=latents_dtype)
+            ref_latents = self.vae.encode(ref_pixels).latent_dist.mode() * self.vae.config.scaling_factor
+        return ref_latents  # shape (1,4,H/8,W/8)
+
+    def _prepare_ref_mask(
+        self,
+        *,
+        pil: PIL.Image.Image,
+        auto_mask_ref: bool,
+        use_bbox_mask_ref: bool,
+        face_bbox_ref: Optional[List[float]],
+        import_mask_ref: Optional[str],
+        debug_dir: Optional[str],
+        height: int,
+        width: int,
+    ) -> Optional[str]:
+        # ── Auto-generate reference face mask *early* so downstream uses it
+        if auto_mask_ref:
+            from src.model.photomaker_branched.create_mask_ref import compute_face_mask_from_pil
+            os.makedirs(debug_dir, exist_ok=True)
+            auto_ref_path = os.path.join(debug_dir, "auto_ref_mask.png")
+            mask_array = compute_face_mask_from_pil(pil)
+            PIL.Image.fromarray(mask_array).save(auto_ref_path)
+            log_debug_image(f"[DebugImage] auto_ref_mask → {auto_ref_path}")
+            import_mask_ref = auto_ref_path
+            print(f"[AutoMaskRef] Generated ref mask → {auto_ref_path}")
+        else:
+            print(f"[AutoMaskRef] Using existing ref mask at {import_mask_ref}")
+
+        # Strict check: if bbox-ref masking requested but bbox missing, error out
+        if (not auto_mask_ref) and use_bbox_mask_ref and face_bbox_ref is None:
+            raise RuntimeError(
+                "use_bbox_mask_ref=True but no face_bbox_ref provided for reference image;"
+                " ensure ref_bboxes.json contains an entry for this reference."
+            )
+
+        # If explicit bbox mask is requested for reference and auto-mask is disabled,
+        # materialize a binary mask now aligned to (height, width).
+        if (not auto_mask_ref) and use_bbox_mask_ref and face_bbox_ref is not None:
+            ref_mask = np.zeros((height, width), dtype=bool)
+            ow, oh = pil.size
+            pl, _, pt, _ = self._ref_pad
+            s = min(width / float(ow), height / float(oh))
+            sx, sy = s, s
+            x0, y0, x1, y1 = [float(v) for v in face_bbox_ref]
+            x0s = int(round(x0 * sx + pl)); x1s = int(round(x1 * sx + pl))
+            y0s = int(round(y0 * sy + pt)); y1s = int(round(y1 * sy + pt))
+            x0s = max(0, min(width, x0s)); x1s = max(0, min(width, x1s))
+            y0s = max(0, min(height, y0s)); y1s = max(0, min(height, y1s))
+            if x1s > x0s and y1s > y0s:
+                ref_mask[y0s:y1s, x0s:x1s] = True
+            self._face_mask_ref = ref_mask
+            self._face_mask_t_ref = torch.from_numpy(ref_mask.astype(np.uint8))[None, None]
+
+        return import_mask_ref
+
+    def _prepare_gen_mask(
+        self,
+        *,
+        use_dynamic_mask: bool,
+        use_bbox_mask_gen: bool,
+        face_bbox_gen: Optional[List[float]],
+        height: int,
+        width: int,
+    ) -> None:
+        if (not use_dynamic_mask) and use_bbox_mask_gen and face_bbox_gen is not None:
+            gen_mask = np.zeros((height, width), dtype=bool)
+            x0, y0, x1, y1 = [float(v) for v in face_bbox_gen]
+            x0i = max(0, min(width, int(round(x0)))); x1i = max(0, min(width, int(round(x1))))
+            y0i = max(0, min(height, int(round(y0)))); y1i = max(0, min(height, int(round(y1))))
+            if x1i > x0i and y1i > y0i:
+                gen_mask[y0i:y1i, x0i:x1i] = True
+            self._face_mask = gen_mask
+            self._face_mask_t = torch.from_numpy(gen_mask.astype(np.uint8))[None, None]
+        elif (not use_dynamic_mask) and use_bbox_mask_gen and face_bbox_gen is None:
+            raise RuntimeError(
+                "use_bbox_mask_gen=True but no face_bbox_gen provided for generated image;"
+                " ensure pm20_bboxes.json contains an entry for the current validation index"
+                " (e.g., '00.png', '01.png', ...)."
+            )
+
+    def _prepare_id_features(
+        self,
+        *,
+        id_pixel_values: Optional[torch.Tensor],
+        prompt_embeds: torch.Tensor,
+        id_embeds: Optional[torch.Tensor],
+        class_tokens_mask: torch.LongTensor,
+    ) -> None:
+        if id_pixel_values is not None and hasattr(self, "id_encoder"):
+            pm_feats = self.id_encoder.extract_id_features(
+                id_pixel_values.to(device=self.device, dtype=prompt_embeds.dtype),
+                id_embeds=id_embeds,
+                class_tokens_mask=class_tokens_mask,
+            )  # [B,2048]
+            self._pm_id_embeds_2048 = pm_feats.to(device=self.device, dtype=self.unet.dtype)
+
+    def _select_mode_and_prompts(
+        self,
+        *,
+        i: int,
+        photomaker_start_step: int,
+        branched_attn_start_step: int,
+        prompt_embeds_text_only: torch.Tensor,
+        pooled_prompt_embeds_text_only: torch.Tensor,
+        prompt_embeds: torch.Tensor,
+        pooled_prompt_embeds: torch.Tensor,
+        force_par_before_pm: bool,
+        pose_forced_logged: bool,
+        pose_relaxed_logged: bool,
+    ) -> Tuple[str, torch.Tensor, torch.Tensor, bool, bool]:
+        use_text_only = i <= photomaker_start_step
+        base_prompt = prompt_embeds_text_only if use_text_only else prompt_embeds
+        base_pooled = pooled_prompt_embeds_text_only if use_text_only else pooled_prompt_embeds
+
+        desired_par = 1.0 if (force_par_before_pm and use_text_only) else self._pose_user_ratio
+        if getattr(self, "pose_adapt_ratio", None) != desired_par:
+            self.pose_adapt_ratio = desired_par
+            if desired_par == 1.0 and not pose_forced_logged:
+                print(
+                    f"[PoseAdapt] Forcing POSE_ADAPT_RATIO=1.0 until "
+                    f"photomaker_start_step={photomaker_start_step}"
+                )
+                pose_forced_logged = True
+            elif desired_par != 1.0 and not pose_relaxed_logged:
+                print(
+                    f"[PoseAdapt] Relaxing POSE_ADAPT_RATIO to user value "
+                    f"{self._pose_user_ratio:.2f} at step {i}"
+                )
+                pose_relaxed_logged = True
+
+        sm = photomaker_start_step
+        bs = branched_attn_start_step
+        a = min(sm, bs)
+        b = max(sm, bs)
+        bsm = getattr(self, "branched_start_mode", "both").lower()
+        if i < a:
+            mode = "NO_ID"
+        elif sm < bs:
+            mode = "PHOTOMAKER" if i < b else ("BOTH" if bsm == "both" else "BRANCHED")
+        else:
+            mode = ("BOTH" if bsm == "both" else "BRANCHED") if i < b else "PHOTOMAKER"
+
+        if mode in ("PHOTOMAKER", "BOTH"):
+            base_prompt = prompt_embeds
+            base_pooled = pooled_prompt_embeds
+
+        return mode, base_prompt, base_pooled, pose_forced_logged, pose_relaxed_logged
+
+    def _run_branched_step(
+        self,
+        *,
+        i: int,
+        t: torch.Tensor,
+        mode: str,
+        latent_model_input: torch.Tensor,
+        current_prompt_embeds: torch.Tensor,
+        added_cond_kwargs: Dict[str, Any],
+        class_tokens_mask: Optional[torch.LongTensor],
+        timestep_cond: Optional[torch.Tensor],
+        photomaker_scale: float,
+        merge_start_step: int,
+        photomaker_start_step: int,
+        branched_attn_start_step: int,
+        debug_dir: Optional[str],
+        num_outputs: int,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
+        mask4 = prepare_mask4(self, latent_model_input, suffix="")
+        mask4_ref = prepare_mask4(self, latent_model_input, suffix="_ref")
+        if mask4 is None or mask4_ref is None:
+            raise RuntimeError("Branched attention requires both mask4 and mask4_ref.")
+
+        if i == branched_attn_start_step or i % 10 == 0:
+            print(
+                f"[PL] step={i}  mask_gen>0.5={(mask4 > 0.5).float().mean().item():.4f}  "
+                f"mask_ref>0.5={(mask4_ref > 0.5).float().mean().item():.4f}"
+            )
+            md = (mask4 - mask4_ref).abs().mean().item()
+            if md < 0.01:
+                print(f"[Warning] Noise and ref masks are nearly identical (diff={md:.4f})")
+
+        debug_reference_latents_once(self, mask4_ref, debug_dir)
+        if i == branched_attn_start_step:
+            base_debug_dir = Path(debug_dir) if debug_dir is not None else None
+            if base_debug_dir is not None:
+                ref_masks = mask4_ref
+                if ref_masks.dim() == 4 and ref_masks.shape[0] == num_outputs:
+                    ref_masks_iter = [ref_masks[idx:idx + 1] for idx in range(num_outputs)]
+                else:
+                    ref_masks_iter = [ref_masks] * num_outputs
+                for idx, mask_ref_single in enumerate(ref_masks_iter):
+                    per_image_dir = base_debug_dir if num_outputs == 1 else base_debug_dir / f"{idx:02d}"
+                    per_image_dir.mkdir(parents=True, exist_ok=True)
+                    save_debug_ref_latents(self, str(per_image_dir))
+                    save_debug_ref_mask_overlay(self, mask_ref_single, str(per_image_dir))
+            else:
+                save_debug_ref_latents(self, debug_dir)
+                save_debug_ref_mask_overlay(self, mask4_ref, debug_dir)
+            print(f"[Debug] Step {i}: Ref mask overlay saved.")
+
+        fes_step = self.face_embed_strategy
+        if fes_step in {"id", "id_embeds"} and i < photomaker_start_step and mode != "BOTH":
+            fes_step = "face"
+
+        id_face_ehs = None
+        proc_id_embeds = None
+        if fes_step == "id_embeds":
+            pm = getattr(self, "_pm_id_embeds_2048", None)
+            if pm is None:
+                raise ValueError("id_embeds strategy requires cached _pm_id_embeds_2048.")
+
+            seq_len = current_prompt_embeds.shape[1]
+            dim = current_prompt_embeds.shape[2]
+            b_pos = current_prompt_embeds.shape[0] // (2 if self.do_classifier_free_guidance else 1)
+            if pm.shape[0] == b_pos:
+                pm_b = pm
+            elif pm.shape[0] == 1:
+                pm_b = pm.expand(b_pos, -1)
+            else:
+                pm_b = pm.mean(dim=0, keepdim=True).expand(b_pos, -1)
+
+            pos = pm_b.unsqueeze(1).expand(b_pos, seq_len, dim)
+            if self.do_classifier_free_guidance:
+                neg = torch.zeros_like(pos)
+                id_face_ehs = torch.cat([neg, pos], dim=0)
+                proc_id_embeds = torch.cat([torch.zeros_like(pm_b), pm_b], dim=0)
+            else:
+                id_face_ehs = pos
+                proc_id_embeds = pm_b
+
+            id_face_ehs = id_face_ehs.to(
+                device=current_prompt_embeds.device,
+                dtype=current_prompt_embeds.dtype,
+            )
+            proc_id_embeds = proc_id_embeds.to(
+                device=current_prompt_embeds.device,
+                dtype=current_prompt_embeds.dtype,
+            )
+
+        mask4_for_merge = mask4 if i >= merge_start_step else torch.zeros_like(mask4)
+        mask4_ref_for_merge = mask4_ref if i >= merge_start_step else torch.zeros_like(mask4_ref)
+
+        noise_pred, noise_face, _ = two_branch_predict(
+            self,
+            latent_model_input,
+            t=t,
+            prompt_embeds=current_prompt_embeds,
+            added_cond_kwargs=added_cond_kwargs,
+            mask4=mask4_for_merge,
+            mask4_ref=mask4_ref_for_merge,
+            reference_latents=self._ref_latents_all,
+            face_prompt_embeds=(self._face_prompt_embeds if fes_step == "face" else id_face_ehs),
+            class_tokens_mask=class_tokens_mask,
+            face_embed_strategy=fes_step,
+            id_embeds=proc_id_embeds,
+            step_idx=i,
+            scale=photomaker_scale,
+            timestep_cond=timestep_cond,
+        )
+
+        if i < (branched_attn_start_step + 3):
+            print(
+                f"[Debug] Step {i}: noise_pred stats - "
+                f"mean={noise_pred.mean().item():.4f}, "
+                f"std={noise_pred.std().item():.4f}, "
+                f"min={noise_pred.min().item():.4f}, "
+                f"max={noise_pred.max().item():.4f}"
+            )
+
+        if hasattr(self, "_kv_override"):
+            self._kv_override = None
+
+        return noise_pred, noise_face, mask4
+
+    def _save_step_previews(
+        self,
+        *,
+        i: int,
+        t: torch.Tensor,
+        num_inference_steps: int,
+        debug_dir: Optional[str],
+        latents: torch.Tensor,
+        noise_pred: torch.Tensor,
+        mask4: Optional[torch.Tensor],
+        noise_face: Optional[torch.Tensor],
+        extra_step_kwargs: Dict[str, Any],
+    ) -> None:
+        if not (i % 10 == 0 or i == num_inference_steps - 1):
+            return
+
+        if mask4 is not None and noise_face is not None:
+            base_debug_dir = Path(debug_dir) if debug_dir is not None else None
+            if base_debug_dir is not None:
+                total_outputs = latents.shape[0]
+                for idx, latent_sample in enumerate(latents):
+                    per_image_dir = base_debug_dir if total_outputs == 1 else base_debug_dir / f"{idx:02d}"
+                    per_image_dir.mkdir(parents=True, exist_ok=True)
+                    mask_slice = mask4[idx:idx + 1] if mask4.shape[0] > idx else mask4
+                    save_branch_previews(
+                        self, latent_sample.unsqueeze(0), noise_pred, mask_slice, t, i, str(per_image_dir), extra_step_kwargs
+                    )
+            else:
+                save_branch_previews(self, latents, noise_pred, mask4, t, i, debug_dir, extra_step_kwargs)
+            return
+
+        if debug_dir is not None:
+            base_debug_dir = Path(debug_dir)
+            base_debug_dir.mkdir(parents=True, exist_ok=True)
+            total_outputs = latents.shape[0]
+            full_mask = torch.ones_like(latents[:, :1, :, :])
+            for idx, latent_sample in enumerate(latents):
+                per_image_dir = base_debug_dir if total_outputs == 1 else base_debug_dir / f"{idx:02d}"
+                per_image_dir.mkdir(parents=True, exist_ok=True)
+                mask_slice = full_mask[idx:idx + 1]
+                save_branch_previews(
+                    self, latent_sample.unsqueeze(0), noise_pred, mask_slice, t, i, str(per_image_dir), extra_step_kwargs
+                )
 
 
+
+    
+    ##### BRANCHED ATTENTION BLOCK #####
+    
+
+##### BRANCHED ATTENTION BLOCK #####
 class PhotomakerBranchedPipeline:
     @staticmethod
     def from_pretrained(model, accelerator, *args, **kwargs):
@@ -1747,10 +1937,14 @@ class PhotomakerBranchedPipeline:
         # Pull runtime knobs from config or model so that
         # BranchedAttnProcessor / BranchedCrossAttnProcessor
         # (in attn_processor.py) see the same values during training.
-        photomaker_start_step_cfg = kwargs.pop("photomaker_start_step", 10)
-        merge_start_step_cfg = kwargs.pop("merge_start_step", 10)
-        branched_attn_start_step_cfg = kwargs.pop("branched_attn_start_step", 10)
-        branched_start_mode_cfg = kwargs.pop("branched_start_mode", "both")
+        # photomaker_start_step_cfg = kwargs.pop("photomaker_start_step", 10)
+        # merge_start_step_cfg = kwargs.pop("merge_start_step", 10)
+        # branched_attn_start_step_cfg = kwargs.pop("branched_attn_start_step", 10)
+        # branched_start_mode_cfg = kwargs.pop("branched_start_mode", "both")
+        kwargs.pop("photomaker_start_step", None)
+        kwargs.pop("merge_start_step", None)
+        kwargs.pop("branched_attn_start_step", None)
+        kwargs.pop("branched_start_mode", None)
         pose_adapt_ratio_cfg = kwargs.pop(
             "pose_adapt_ratio",
             getattr(unwrapped_model, "pose_adapt_ratio", 0.25),
@@ -1804,14 +1998,18 @@ class PhotomakerBranchedPipeline:
         pipeline.tokenizer.add_tokens([pipeline.trigger_word], special_tokens=True)
         pipeline.tokenizer_2.add_tokens([pipeline.trigger_word], special_tokens=True)
 
-        pipeline._config_photomaker_start_step = photomaker_start_step_cfg
-        pipeline._config_merge_start_step = merge_start_step_cfg
-        pipeline._config_branched_attn_start_step = branched_attn_start_step_cfg
-        pipeline._config_branched_start_mode = branched_start_mode_cfg
-        pipeline._config_pose_adapt_ratio = pose_adapt_ratio_cfg
-        pipeline._config_ca_mixing_for_face = ca_mixing_for_face_cfg
-        pipeline._config_face_embed_strategy = face_embed_strategy_cfg
-        pipeline._config_use_id_embeds = bool(use_id_embeds_cfg)
-        pipeline._config_id_alpha = float(id_alpha_cfg)
+        # pipeline._config_photomaker_start_step = photomaker_start_step_cfg
+        # pipeline._config_merge_start_step = merge_start_step_cfg
+        # pipeline._config_branched_attn_start_step = branched_attn_start_step_cfg
+        # pipeline._config_branched_start_mode = branched_start_mode_cfg
+        # pipeline._config_pose_adapt_ratio = pose_adapt_ratio_cfg
+        # pipeline._config_ca_mixing_for_face = ca_mixing_for_face_cfg
+        # pipeline._config_face_embed_strategy = face_embed_strategy_cfg
+        # pipeline._config_use_id_embeds = bool(use_id_embeds_cfg)
+        # pipeline._config_id_alpha = float(id_alpha_cfg)
+        # Legacy `_config_*` cache removed: active code reads runtime attrs
+        # (e.g., `pipeline.pose_adapt_ratio`, `pipeline.face_embed_strategy`, `pipeline.id_alpha`).
+
 
         return pipeline
+##### BRANCHED ATTENTION BLOCK #####

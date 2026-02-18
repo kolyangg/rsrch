@@ -8,6 +8,8 @@ from typing import Optional, Dict, Any, Tuple
 import os
 from PIL import Image
 
+from .debug_helpers import save_debug_images
+
 
 def patch_unet_attention_processors(
     pipeline,
@@ -535,89 +537,6 @@ def restore_original_processors(pipeline):
    return False
 
 
-def prepare_reference_latents(
-   pipeline,
-   reference_image: torch.Tensor,
-   height: int,
-   width: int,
-   dtype: torch.dtype,
-   generator: Optional[torch.Generator] = None,
-) -> torch.Tensor:
-   """
-   Encode reference image to latents.
-   """
-   device = pipeline.device
-   vae = pipeline.vae
-   
-   # Convert PIL to tensor if needed
-   if isinstance(reference_image, Image.Image):
-       reference_image = pipeline.feature_extractor(
-           reference_image, return_tensors="pt"
-       ).pixel_values[0]
-   
-   # Ensure correct shape
-   if reference_image.dim() == 3:
-       reference_image = reference_image.unsqueeze(0)
-   
-   # Move to VAE device/dtype for encoding
-   vae_device = next(vae.parameters()).device
-   vae_dtype = next(vae.parameters()).dtype
-   reference_image = reference_image.to(device=vae_device, dtype=vae_dtype)
-   
-   # Encode
-   with torch.no_grad():
-       latents = vae.encode(reference_image).latent_dist.sample(generator)
-       latents = latents * vae.config.scaling_factor
-   
-   # Resize if needed
-   target_h = height // pipeline.vae_scale_factor
-   target_w = width // pipeline.vae_scale_factor
-   
-   if latents.shape[2] != target_h or latents.shape[3] != target_w:
-       latents = F.interpolate(
-           latents.float(),
-           size=(target_h, target_w),
-           mode='bilinear',
-           align_corners=False
-       )
-   
-   # Normalize for stable attention
-   latents = (latents - latents.mean()) / latents.std().clamp(min=1e-4)
-   
-   return latents.to(device=device, dtype=dtype)
-
-
-def save_debug_images(
-   pipeline,
-   noise_pred: torch.Tensor,
-   mask: torch.Tensor,
-   step_idx: int,
-   output_dir: str = "debug",
-):
-   """Save debug visualizations."""
-   os.makedirs(output_dir, exist_ok=True)
-   
-   # Save mask visualization
-   if mask is not None and step_idx % 10 == 0:
-       if mask.dim() == 4:
-           mask_vis = mask[0, 0].cpu().numpy()
-       else:
-           mask_vis = mask[0].cpu().numpy()
-       mask_vis = (mask_vis * 255).astype("uint8")
-       Image.fromarray(mask_vis).save(f"{output_dir}/mask_step_{step_idx:03d}.png")
-   
-   # Save noise prediction stats
-   if step_idx < 3:
-       stats = {
-           "step": step_idx,
-           "mean": noise_pred.mean().item(),
-           "std": noise_pred.std().item(),
-           "min": noise_pred.min().item(),
-           "max": noise_pred.max().item(),
-       }
-       print(f"[Debug] Step {step_idx} stats: {stats}")
-       
-    
 def gaussian_blur_mask(mask: torch.Tensor, kernel_size: int = 5) -> torch.Tensor:
     """Apply Gaussian blur to mask for smoother transitions."""
     import torch.nn.functional as F

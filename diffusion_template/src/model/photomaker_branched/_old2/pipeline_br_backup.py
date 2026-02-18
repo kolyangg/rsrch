@@ -25,7 +25,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 # ------------------------------------------------------------------
 # Branched-attention helpers (all the heavy code is in branched.py)
 # ------------------------------------------------------------------
-from ..branched_new import (
+from .._backup.branched_new import (
     two_branch_predict,
     prepare_reference_latents,
     encode_face_prompt,

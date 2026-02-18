@@ -20,7 +20,22 @@ def patch_unet_attention_processors(
     """
     Patch UNet with branched attention processors for both self and cross attention.
     """
-    from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
+    ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
+    # Allow disabling branched self-attention and/or cross-attention via runtime flags.
+    disable_sa = bool(getattr(pipeline, "disable_branched_sa", False))
+    disable_ca = bool(getattr(pipeline, "disable_branched_ca", False))
+    ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
+    
+    # Optional: switch between legacy (v1) and trainable (v2) branched attention processors.
+    # Default to legacy (v1) when flag is not provided.
+    use_attn_v2 = bool(getattr(pipeline, "use_attn_v2", False))
+    if use_attn_v2:
+        from .._old2.attn_processor2 import BranchedAttnProcessor, BranchedCrossAttnProcessor
+    else:
+        # from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
+        from ..attn_processor_clean import BranchedAttnProcessor, BranchedCrossAttnProcessor
+
+    # print(f'[TEMP DEBUG] mask in patch_unet_attention_processors: {mask}')
     
     # Store original processors once
     if not hasattr(pipeline, '_original_attn_processors'):
@@ -38,10 +53,25 @@ def patch_unet_attention_processors(
 
     def _apply_runtime_flags(proc, pipe):
         # propagate key runtime knobs from model/pipeline onto processors
-        for k in ("pose_adapt_ratio", "ca_mixing_for_face", "use_id_embeds"):
+        for k in ("pose_adapt_ratio", "ca_mixing_for_face", "train_branch_mode", "id_alpha", "use_id_embeds"):
             if hasattr(pipe, k):
                 setattr(proc, k, getattr(pipe, k))
+        ### 29 Nov - Clean separataion of BA-specific parameters ###
+        # Optional toggle for per-branch BA-specific adapters.
+        if hasattr(pipe, "ba_weights_split"):
+            setattr(proc, "ba_weights_split", getattr(pipe, "ba_weights_split"))
+        ### 29 Nov - Clean separataion of BA-specific parameters ###
    
+    # Build safe, consistent context (batch, id_embeds)
+    # Ensure masks are non-None to avoid runtime errors
+    B = (mask.shape[0] if mask is not None else mask_ref.shape[0])
+    dev, dt = pipeline.device, pipeline.unet.dtype
+    _mask  = mask     if mask     is not None else torch.zeros(B, 1,  mask_ref.shape[-2], mask_ref.shape[-1], device=dev, dtype=dt)
+    _mref  = mask_ref if mask_ref is not None else _mask
+    # Always provide id_embeds so processor-local weights participate on every rank
+    _idem = id_embeds.to(dev, dt) if id_embeds is not None else torch.zeros(B, 2048, device=dev, dtype=dt)   
+
+
     if not has_branched:
         # Create new processors
         new_procs = {}
@@ -65,39 +95,49 @@ def patch_unet_attention_processors(
                 hidden_size = pipeline.unet.config.block_out_channels[0]
             
             if name.endswith("attn1.processor"):
-                # Self-attention: use branched processor
-                proc = BranchedAttnProcessor(
-                    hidden_size=hidden_size,
-                    cross_attention_dim=hidden_size,
-                    scale=scale,
-                ).to(pipeline.device, dtype=pipeline.unet.dtype)
-                proc.set_masks(mask, mask_ref)
-                _apply_runtime_flags(proc, pipeline)
-                if id_embeds is not None:
-                    proc.id_embeds = id_embeds.to(pipeline.device, dtype=pipeline.unet.dtype)
-                
-                new_procs[name] = proc
+                if disable_sa:
+                    # Keep original self-attn processor; no branching on attn1.
+                    new_procs[name] = pipeline._original_attn_processors[name]
+                else:
+                    # Self-attention: use branched processor
+                    proc = BranchedAttnProcessor(
+                        hidden_size=hidden_size,
+                        cross_attention_dim=hidden_size,
+                        scale=scale,
+                    ).to(pipeline.device, dtype=pipeline.unet.dtype)
+                    proc.set_masks(_mask, _mref)
+                    _apply_runtime_flags(proc, pipeline)
+
+                    # Wire id_embeds (zeros if missing); whether they are used is controlled by use_id_embeds
+                    proc.id_embeds = _idem
+
+                    new_procs[name] = proc
                 
             elif name.endswith("attn2.processor"):
-                # Cross-attention: use branched cross-attention processor
-                num_tokens = 77  # Standard CLIP token count
-                if hasattr(pipeline, 'tokenizer_2'):
-                    num_tokens = pipeline.tokenizer_2.model_max_length
-                    
-                proc = BranchedCrossAttnProcessor(
-                    hidden_size=hidden_size,
-                    cross_attention_dim=cross_attention_dim,
-                    scale=scale,
-                    num_tokens=num_tokens,
-                ).to(pipeline.device, dtype=pipeline.unet.dtype)
-                # enable KV equalizer for face branch
-                setattr(proc, "equalize_face_kv", True)
-                setattr(proc, "equalize_clip", (1/3, 8.0))
-                proc.set_masks(mask, mask_ref)
-                if id_embeds is not None:
-                    proc.id_embeds = id_embeds.to(pipeline.device, dtype=pipeline.unet.dtype)
+                if disable_ca:
+                    # Keep original cross-attn processor; no branched CA.
+                    new_procs[name] = pipeline._original_attn_processors[name]
+                else:
+                    # Cross-attention: use branched cross-attention processor
+                    num_tokens = 77  # Standard CLIP token count
+                    if hasattr(pipeline, 'tokenizer_2'):
+                        num_tokens = pipeline.tokenizer_2.model_max_length
+
+                    proc = BranchedCrossAttnProcessor(
+                        hidden_size=hidden_size,
+                        cross_attention_dim=cross_attention_dim,
+                        scale=scale,
+                        num_tokens=num_tokens,
+                    ).to(pipeline.device, dtype=pipeline.unet.dtype)
+                    # enable KV equalizer for face branch
+                    setattr(proc, "equalize_face_kv", True)
+                    setattr(proc, "equalize_clip", (1/3, 8.0))
+                    proc.set_masks(_mask, _mref)
+                    # Keep CA path consistent too (even if CA doesn’t always consume id_embeds)
+                    proc.id_embeds = _idem
                     proc.class_tokens_mask = class_tokens_mask
-                new_procs[name] = proc
+
+                    new_procs[name] = proc
                 
             else:
                 # Keep original for other processors
@@ -105,14 +145,16 @@ def patch_unet_attention_processors(
         
         pipeline.unet.set_attn_processor(new_procs)
     else:
-        # Update masks on existing processors
+                # Update masks on existing processors
         for name, proc in pipeline.unet.attn_processors.items():
             if isinstance(proc, (BranchedAttnProcessor, BranchedCrossAttnProcessor)):
-                proc.set_masks(mask, mask_ref)
+                # proc.set_masks(mask, mask_ref)
+                proc.set_masks(_mask, _mref)
                 _apply_runtime_flags(proc, pipeline)
-                # Also (re)apply 2048-D ID features when provided this step.
-                if isinstance(proc, BranchedAttnProcessor) and id_embeds is not None:
-                    proc.id_embeds = id_embeds.to(pipeline.device, dtype=pipeline.unet.dtype)
+
+                # (Re)apply id_embeds (zeros if missing); actual usage is gated by use_id_embeds
+                if hasattr(proc, "id_embeds"):
+                    proc.id_embeds = _idem
 
 def encode_face_prompt(
     pipeline,
@@ -200,10 +242,7 @@ def two_branch_predict(
     batch_size = latent_model_input.shape[0]
     
 
-    # CRITICAL FIX: Initialize reference noise ONCE at pipeline start
-
-    REF_NOISE_ONCE = True
-    # REF_NOISE_ONCE = False
+    REF_NOISE_ONCE = True # CRITICAL FIX: Initialize reference noise ONCE at pipeline start
     
     if not hasattr(pipeline, '_ref_noise'):
         if not REF_NOISE_ONCE:
@@ -243,8 +282,8 @@ def two_branch_predict(
         t_ref
     )
 
-    # critical: match UNet’s expected scaling at this timestep
-    ref_noised = pipeline.scheduler.scale_model_input(ref_noised, t_ref).to(latent_model_input.dtype)
+    
+    ref_noised = pipeline.scheduler.scale_model_input(ref_noised, t_ref).to(latent_model_input.dtype) # critical: match UNet’s expected scaling at this timestep
 
     if full_debug:
         if step_idx in (0, 1) or step_idx % 10 == 0:
@@ -296,8 +335,6 @@ def two_branch_predict(
         )
 
     
-    
-    # if (face_embed_strategy or "face") in {"id","id_embeds"}:
     # Only mirror the main text into the face branch for legacy "id".
     # For "id_embeds" we keep actual "face" text and use the 2048-D ID features.
     if (face_embed_strategy or "face") in {"id"}:    
@@ -366,6 +403,7 @@ def two_branch_predict(
             diff_mu = (prompt_embeds.detach().float() - face_prompt_embeds.detach().float()).abs().mean().item()
             print(f"[2BP]   encoder_hidden_states Δ(gen,face)μ={diff_mu:.4f}")
 
+
     # Double added_cond_kwargs
     doubled_kwargs = {}
     for k, v in added_cond_kwargs.items():
@@ -414,7 +452,6 @@ def two_branch_predict(
 
 
 
-
     
     # Extract merged result (first half)
     noise_pred_merged = noise_pred[:batch_size]
@@ -422,10 +459,8 @@ def two_branch_predict(
     USE_SOFT_BLENDING = True
     
     if USE_SOFT_BLENDING:
-        # CRITICAL FIX: Apply soft blending near mask boundaries
         if mask4 is not None and mask4.shape[-2:] == noise_pred_merged.shape[-2:]:
-            # Apply gaussian blur to mask for smoother transitions
-            mask4 = gaussian_blur_mask(mask4, kernel_size=5)
+            mask4 = gaussian_blur_mask(mask4, kernel_size=5) # Apply gaussian blur to mask for smoother transitions
     
     
     # For debugging: approximate branch outputs

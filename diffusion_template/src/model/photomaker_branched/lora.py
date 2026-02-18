@@ -18,7 +18,7 @@ from diffusers.utils import (
 from src.model.sdxl.original import SDXL
 
 # --- Branched-attention specific import ---
-from .branched_new import two_branch_predict, prepare_reference_latents  # --- MODIFIED For training integration ---
+from ._backup.branched_new import two_branch_predict, prepare_reference_latents  # --- MODIFIED For training integration ---
 
 # --- PhotoMaker v2 upgraded ID encoder + InsightFace integration START ---
 from .insightface_package import FaceAnalysis2, analyze_faces

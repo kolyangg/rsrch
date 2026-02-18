@@ -8,7 +8,7 @@ import torch
 import math
 from typing import Dict, List, Optional, Any
 from pathlib import Path
-from src.model.photomaker_branched.branch_helpers import DEBUG_LOG_DEBUG_IMAGES, log_debug_image
+from src.model.photomaker_branched.debug_helpers import DEBUG_LOG_DEBUG_IMAGES, log_debug_image
 from PIL import Image
 import matplotlib.cm as cm
 from PIL import ImageDraw, ImageFont
