@@ -24,5 +24,57 @@
       "id": "51",
       "seed": 0
     }
+  },
+  "Rushing ma_51.png": {
+    "face_crop_old": [
+      515,
+      195,
+      774,
+      546
+    ],
+    "face_crop_new": [
+      533,
+      220,
+      756,
+      522
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "debug_idx": 1,
+      "prompt": "Rushing man img portrait, subway platform, anxious face, swinging briefcase",
+      "id": "51",
+      "seed": 0
+    }
+  },
+  "Skiing man_51.png": {
+    "face_crop_old": [
+      380,
+      352,
+      724,
+      822
+    ],
+    "face_crop_new": [
+      404,
+      384,
+      700,
+      789
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "debug_idx": 2,
+      "prompt": "Skiing man img, snowy slope, fearless grin, orange goggles",
+      "id": "51",
+      "seed": 0
+    }
   }
 }
