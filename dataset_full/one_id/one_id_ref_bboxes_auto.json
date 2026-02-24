@@ -76,5 +76,31 @@
       "id": "51",
       "seed": 0
     }
+  },
+  "Drumming m_51.png": {
+    "face_crop_old": [
+      332,
+      213,
+      540,
+      497
+    ],
+    "face_crop_new": [
+      347,
+      233,
+      525,
+      477
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "debug_idx": 3,
+      "prompt": "Drumming man img, rock concert in rain, passionate angry face, black t-shirt",
+      "id": "51",
+      "seed": 0
+    }
   }
 }

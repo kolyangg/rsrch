@@ -31,7 +31,8 @@ def patch_unet_attention_processors(
         from ._old2.attn_processor2 import BranchedAttnProcessor, BranchedCrossAttnProcessor
     else:
         # from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
-        from .attn_processor_clean import BranchedAttnProcessor, BranchedCrossAttnProcessor
+        # from .attn_processor_clean import BranchedAttnProcessor, BranchedCrossAttnProcessor
+        from .attn_processor_cleanest import BranchedAttnProcessor, BranchedCrossAttnProcessor # New ver 25 Feb
 
     # print(f'[TEMP DEBUG] mask in patch_unet_attention_processors: {mask}')
     
@@ -51,13 +52,18 @@ def patch_unet_attention_processors(
 
     def _apply_runtime_flags(proc, pipe):
         # propagate key runtime knobs from model/pipeline onto processors
-        for k in ("pose_adapt_ratio", "ca_mixing_for_face", "train_branch_mode", "id_alpha", "use_id_embeds"):
-            if hasattr(pipe, k):
-                setattr(proc, k, getattr(pipe, k))
+        # for k in ("pose_adapt_ratio", "ca_mixing_for_face", "train_branch_mode", "id_alpha", "use_id_embeds"):
+        #     if hasattr(pipe, k):
+        #         setattr(proc, k, getattr(pipe, k))
+        
+        # Keep only static toggles on processor instances.
+        # Per-step runtime knobs are passed via UNet cross_attention_kwargs
 
         # Optional toggle for per-branch BA-specific adapters.
         if hasattr(pipe, "ba_weights_split"):
             setattr(proc, "ba_weights_split", getattr(pipe, "ba_weights_split"))
+            
+        
 
    
     # Build safe, consistent context (batch, id_embeds)
@@ -424,6 +430,21 @@ def two_branch_predict(
         timestep_cond_doubled = torch.cat([timestep_cond, timestep_cond], dim=0)
     else:
         timestep_cond_doubled = None
+
+    # Runtime knobs for branched processors via call kwargs
+    base_cross_attention_kwargs = getattr(pipeline, "_cross_attention_kwargs", None)
+    runtime_cross_attention_kwargs = (
+        dict(base_cross_attention_kwargs) if isinstance(base_cross_attention_kwargs, dict) else {}
+    )
+    runtime_cross_attention_kwargs.update(
+        {
+            "ba_pose_adapt_ratio": float(getattr(pipeline, "pose_adapt_ratio", 0.25)),
+            "ba_ca_mixing_for_face": bool(getattr(pipeline, "ca_mixing_for_face", True)),
+            "ba_use_id_embeds": bool(getattr(pipeline, "use_id_embeds", True)),
+            "ba_id_alpha": float(getattr(pipeline, "id_alpha", 0.3)),
+            "ba_id_embeds": id_embeds,
+        }
+    )
     
     # Single forward pass with doubled batch
     noise_pred = pipeline.unet(
@@ -431,7 +452,7 @@ def two_branch_predict(
         t_batched,
         encoder_hidden_states=encoder_hidden_states,
         timestep_cond=timestep_cond_doubled,
-        cross_attention_kwargs=getattr(pipeline, '_cross_attention_kwargs', None),
+        cross_attention_kwargs=runtime_cross_attention_kwargs if runtime_cross_attention_kwargs else None,
         added_cond_kwargs=doubled_kwargs,
         return_dict=False,
     )[0]
