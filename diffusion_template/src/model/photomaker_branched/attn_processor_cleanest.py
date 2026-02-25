@@ -20,8 +20,6 @@ class BranchedAttnProcessor(nn.Module):
         hidden_size: int,
         cross_attention_dim: Optional[int] = None,
         scale: float = 1.0,
-        # equalize_face_kv = True,
-        # equalize_clip = (1/3, 8.0)
     ):
         super().__init__()
 
@@ -36,23 +34,6 @@ class BranchedAttnProcessor(nn.Module):
         
         self.mask = None
         self.mask_ref = None
-
-        # self.equalize_face_kv = equalize_face_kv
-        # self.equalize_clip = equalize_clip
-
-        # # Runtime-tunable identity/pose controls (defaults match current behavior)
-        # self.pose_adapt_ratio: float = 0.0    # POSE_ADAPT_RATIO; use 0.25 for more pose flexibility
-        # self.ca_mixing_for_face: bool = True   # CA_MIXING_FOR_FACE
-        # self.use_id_embeds: bool = True        # USE_ID_EMBEDS (can be toggled via config)
-
-        # # Optional: ID feature cache
-        # self.id_embeds = None
-        
-        # Runtime knobs should come from __call__(..., cross_attention_kwargs=...)
-        # Keep only learnable/stateful tensors here.
-        self.id_to_hidden = None
-        # # Debug: print mask stats a few times per run
-        # self._dbg_mask_stats = 0
         
         # If True: keep masks strictly binary after resize (avoids soft boundary blending)
         self.force_binary_masks: bool = True # False
@@ -73,8 +54,6 @@ class BranchedAttnProcessor(nn.Module):
         temb: Optional[torch.Tensor] = None,
         scale: float = 1.0,
         cross_attention_kwargs: Optional[dict] = None,
-        id_embedding: Optional[torch.Tensor] = None,
-        id_scale: float = 1.0,
         
     ) -> torch.Tensor:
         """
@@ -167,8 +146,8 @@ class BranchedAttnProcessor(nn.Module):
         
         # Runtime values are passed via UNet cross_attention_kwargs
         runtime = cross_attention_kwargs if isinstance(cross_attention_kwargs, dict) else {}
-        POSE_ADAPT_RATIO = float(runtime.get("ba_pose_adapt_ratio", 0.25))
-        CA_MIXING_FOR_FACE = bool(runtime.get("ba_ca_mixing_for_face", True))
+        POSE_ADAPT_RATIO = 0.25 # hardcoded to 0.25 for simplicity
+        CA_MIXING_FOR_FACE = False # hardcoded to False for simplicity
 
 
         #### Check if we're in pre-PhotoMaker state (and override POSE_ADAPT_RATIO) ####
@@ -183,20 +162,7 @@ class BranchedAttnProcessor(nn.Module):
             self._printed_force = F
         #### Check if we're in pre-PhotoMaker state (and override POSE_ADAPT_RATIO) ####
         
-    
 
-        # # Use ID features only when both a runtime flag and embeddings are present.
-        # use_id_flag = getattr(self, "use_id_embeds", True)
-        # USE_ID_EMBEDS = bool(use_id_flag) and (self.id_embeds is not None)
-
-        # ID features come from runtime kwargs (with compatibility fallback)
-        runtime_id_embeds = runtime.get("ba_id_embeds", None)
-        if runtime_id_embeds is None:
-            runtime_id_embeds = id_embedding
-        if runtime_id_embeds is None:
-            runtime_id_embeds = getattr(self, "id_embeds", None)  # backward compatibility only
-        use_id_flag = bool(runtime.get("ba_use_id_embeds", True))
-        USE_ID_EMBEDS = use_id_flag and (runtime_id_embeds is not None)
 
         
         if self.mask_ref is None:
@@ -215,46 +181,9 @@ class BranchedAttnProcessor(nn.Module):
         # Higher POSE_ADAPT_RATIO = more pose flexibility, less identity preservation
         face_hidden_mixed = (1 - POSE_ADAPT_RATIO) * ref_face_hidden + POSE_ADAPT_RATIO * noise_face_hidden
         
-
-        # Inject ID embeddings into the mixed face hidden states (2048-D → hidden)
-        if USE_ID_EMBEDS:
-            if not hasattr(self, 'id_to_hidden') or self.id_to_hidden is None:
-                self.id_to_hidden = nn.Linear(
-                    runtime_id_embeds.shape[-1],
-                    face_hidden_mixed.shape[-1],
-                    bias=False
-                ).to(face_hidden_mixed.device, face_hidden_mixed.dtype)
-                # Initialize with small weights
-                with torch.no_grad():
-                    self.id_to_hidden.weight.mul_(0.1)
-            
-            # id_features = self.id_to_hidden(self.id_embeds)
-            id_features = self.id_to_hidden(runtime_id_embeds)
-            if id_features.dim() == 2:
-                id_features = id_features.unsqueeze(1)  # [B, 1, C], broadcasts over L
-            
-            # Blend ID features with the mixed face.
-            # Allow runtime override via pipeline/processor attribute; default to 0.3.
-            id_alpha = float(runtime.get("ba_id_alpha", 0.3))
-            face_hidden_mixed = face_hidden_mixed * (1 - id_alpha) + id_features * id_alpha
-        
-        
-        if CA_MIXING_FOR_FACE:
-            # Use blended face and pure noise face for K/V
-            # This allows attending to both pose-adapted reference and current noise
-            combined_face_hidden = torch.cat([face_hidden_mixed, noise_face_hidden], dim=1)  # Double sequence length
-        else:
-            # Just use the blended face directly
-            ref_face_hidden = face_hidden_mixed
-
-
-
-        if CA_MIXING_FOR_FACE:
-            key_face = attn.to_k(combined_face_hidden)
-            value_face = attn.to_v(combined_face_hidden)
-        else:
-            key_face = attn.to_k(ref_face_hidden)
-            value_face = attn.to_v(ref_face_hidden)
+        # Just use the blended face directly (previously had option for CA_MIXING_FOR_FACE but removed for simplicity)
+        key_face = attn.to_k(face_hidden_mixed)
+        value_face = attn.to_v(face_hidden_mixed)
 
 
         key_face = key_face.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
@@ -427,9 +356,6 @@ class BranchedCrossAttnProcessor(nn.Module):
         self.mask = None
         self.mask_ref = None
 
-        self.id_embeds = None
-        self.id_to_hidden = None
-        
         self.has_cross_attention_kwargs = True # Accept cross_attention_kwargs to avoid noisy warnings
     
     def set_masks(self, mask: torch.Tensor, mask_ref: Optional[torch.Tensor] = None):
@@ -446,8 +372,6 @@ class BranchedCrossAttnProcessor(nn.Module):
         temb: Optional[torch.Tensor] = None,
         scale: float = 1.0,
         cross_attention_kwargs: Optional[dict] = None,
-        id_embedding: Optional[torch.Tensor] = None,
-        id_scale: float = 1.0,
     ) -> torch.Tensor:
         """
         Process cross-attention with branching ONLY for the first half.

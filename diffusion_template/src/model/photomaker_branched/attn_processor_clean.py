@@ -160,19 +160,7 @@ class BranchedAttnProcessor(nn.Module):
         POSE_ADAPT_RATIO   = getattr(self, "pose_adapt_ratio", 0.25)
         CA_MIXING_FOR_FACE = getattr(self, "ca_mixing_for_face", True)
 
-        #### Check if we're in pre-PhotoMaker state (and override POSE_ADAPT_RATIO) ####
-        if hasattr(self, "_disable_reference") and self._disable_reference:
-            original_ratio = POSE_ADAPT_RATIO
-            POSE_ADAPT_RATIO = 1.0  # Use only current noise, no reference
-            if not hasattr(self, "_printed_force"):
-                print(f"[BranchedAttn] Forcing POSE_ADAPT_RATIO=1.0 (was {original_ratio:.2f}) - pre-PhotoMaker state")
-                self._printed_force = True
-        elif hasattr(self, "_printed_force") and self._printed_force:
-            print(f"[BranchedAttn] Relaxing POSE_ADAPT_RATIO back to {POSE_ADAPT_RATIO:.2f}")
-            self._printed_force = F
-        #### Check if we're in pre-PhotoMaker state (and override POSE_ADAPT_RATIO) ####
         
-    
 
         # Use ID features only when both a runtime flag and embeddings are present.
         use_id_flag = getattr(self, "use_id_embeds", True)

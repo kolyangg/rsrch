@@ -27,12 +27,13 @@ def patch_unet_attention_processors(
 
     # Default to legacy (v1) when flag is not provided.
     use_attn_v2 = bool(getattr(pipeline, "use_attn_v2", False))
-    if use_attn_v2:
-        from ._old2.attn_processor2 import BranchedAttnProcessor, BranchedCrossAttnProcessor
-    else:
-        # from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
-        # from .attn_processor_clean import BranchedAttnProcessor, BranchedCrossAttnProcessor
-        from .attn_processor_cleanest import BranchedAttnProcessor, BranchedCrossAttnProcessor # New ver 25 Feb
+    # if use_attn_v2:
+    #     from ._old2.attn_processor2 import BranchedAttnProcessor, BranchedCrossAttnProcessor
+    # else:
+    #     # from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
+    #     # from .attn_processor_clean import BranchedAttnProcessor, BranchedCrossAttnProcessor
+    
+    from .attn_processor_cleanest import BranchedAttnProcessor, BranchedCrossAttnProcessor # New ver 25 Feb
 
     # print(f'[TEMP DEBUG] mask in patch_unet_attention_processors: {mask}')
     
