@@ -146,21 +146,21 @@ class BranchedAttnProcessor(nn.Module):
         
         # Runtime values are passed via UNet cross_attention_kwargs
         runtime = cross_attention_kwargs if isinstance(cross_attention_kwargs, dict) else {}
-        POSE_ADAPT_RATIO = 0.25 # hardcoded to 0.25 for simplicity
+        POSE_ADAPT_RATIO = 0.0 # hardcoded to 0.0 for simplicity
         CA_MIXING_FOR_FACE = False # hardcoded to False for simplicity
 
 
-        #### Check if we're in pre-PhotoMaker state (and override POSE_ADAPT_RATIO) ####
-        if hasattr(self, "_disable_reference") and self._disable_reference:
-            original_ratio = POSE_ADAPT_RATIO
-            POSE_ADAPT_RATIO = 1.0  # Use only current noise, no reference
-            if not hasattr(self, "_printed_force"):
-                print(f"[BranchedAttn] Forcing POSE_ADAPT_RATIO=1.0 (was {original_ratio:.2f}) - pre-PhotoMaker state")
-                self._printed_force = True
-        elif hasattr(self, "_printed_force") and self._printed_force:
-            print(f"[BranchedAttn] Relaxing POSE_ADAPT_RATIO back to {POSE_ADAPT_RATIO:.2f}")
-            self._printed_force = F
-        #### Check if we're in pre-PhotoMaker state (and override POSE_ADAPT_RATIO) ####
+        # #### Check if we're in pre-PhotoMaker state (and override POSE_ADAPT_RATIO) ####
+        # if hasattr(self, "_disable_reference") and self._disable_reference:
+        #     original_ratio = POSE_ADAPT_RATIO
+        #     POSE_ADAPT_RATIO = 1.0  # Use only current noise, no reference
+        #     if not hasattr(self, "_printed_force"):
+        #         print(f"[BranchedAttn] Forcing POSE_ADAPT_RATIO=1.0 (was {original_ratio:.2f}) - pre-PhotoMaker state")
+        #         self._printed_force = True
+        # elif hasattr(self, "_printed_force") and self._printed_force:
+        #     print(f"[BranchedAttn] Relaxing POSE_ADAPT_RATIO back to {POSE_ADAPT_RATIO:.2f}")
+        #     self._printed_force = F
+        # #### Check if we're in pre-PhotoMaker state (and override POSE_ADAPT_RATIO) ####
         
 
 
