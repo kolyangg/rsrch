@@ -8,7 +8,8 @@ defaults:
   # - pipeline: photomaker_branched2_both # Modified to make attn_processor trainable in branched version
   # - pipeline: photomaker_branched2_ref
   # - pipeline: photomaker_branched2_ref1
-  - pipeline: pm_br_09Feb_testing
+  # - pipeline: pm_br_09Feb_testing
+  - pipeline: photomaker_branched2_ref1
   # - pipeline: photomaker_branched # Modified to make attn_processor trainable in branched version
   # - metrics: all_metrics
   - metrics: all_metrics_oneid
