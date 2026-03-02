@@ -19,7 +19,7 @@ pose_adapt_ratio: 0
 ca_mixing_for_face: false
 # face_embed_strategy: id_embeds
 # face_embed_strategy: id # id = use original PM embeddings
-face_embed_strategy: face
+face_embed_strategy: id
 # auto_mask_ref: true
 # use_dynamic_mask: true
 # use_bbox_mask_ref: false
