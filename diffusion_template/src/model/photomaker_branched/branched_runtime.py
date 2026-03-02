@@ -437,15 +437,15 @@ def two_branch_predict(
     runtime_cross_attention_kwargs = (
         dict(base_cross_attention_kwargs) if isinstance(base_cross_attention_kwargs, dict) else {}
     )
-    runtime_cross_attention_kwargs.update(
-        {
-            "ba_pose_adapt_ratio": float(getattr(pipeline, "pose_adapt_ratio", 0.25)),
-            "ba_ca_mixing_for_face": bool(getattr(pipeline, "ca_mixing_for_face", True)),
-            "ba_use_id_embeds": bool(getattr(pipeline, "use_id_embeds", True)),
-            "ba_id_alpha": float(getattr(pipeline, "id_alpha", 0.3)),
-            "ba_id_embeds": id_embeds,
-        }
-    )
+    # runtime_cross_attention_kwargs.update(
+    #     {
+    #         "ba_pose_adapt_ratio": float(getattr(pipeline, "pose_adapt_ratio", 0.25)),
+    #         "ba_ca_mixing_for_face": bool(getattr(pipeline, "ca_mixing_for_face", True)),
+    #         "ba_use_id_embeds": bool(getattr(pipeline, "use_id_embeds", True)),
+    #         "ba_id_alpha": float(getattr(pipeline, "id_alpha", 0.3)),
+    #         "ba_id_embeds": id_embeds,
+    #     }
+    # )
     
     # Single forward pass with doubled batch
     noise_pred = pipeline.unet(
