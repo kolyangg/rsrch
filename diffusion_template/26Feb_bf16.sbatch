@@ -38,6 +38,27 @@ PY
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_DISTRIBUTED_DEBUG=DETAIL
 
+# Git provenance (printed into SLURM log)
+echo "=== GIT INFO ==="
+echo "PWD: $(pwd)"
+GIT_TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$GIT_TOPLEVEL" ]; then
+    echo "ERROR: not inside a git repository"
+    exit 1
+fi
+echo "REPO: $GIT_TOPLEVEL"
+echo "BRANCH: $(git rev-parse --abbrev-ref HEAD)"
+echo "COMMIT: $(git rev-parse HEAD)"
+echo "SHORT:  $(git rev-parse --short HEAD)"
+echo "STATUS:"
+git status --short
+echo "================"
+
+if [ "$(git rev-parse --abbrev-ref HEAD)" != "main_clean" ]; then
+    echo "ERROR: expected branch main_clean"
+    exit 1
+fi
+
 
 # Branched version
 ACCELERATE_LOG_LEVEL=error \
@@ -58,4 +79,3 @@ CUDA_VISIBLE_DEVICES=0 \
     lr_scheduler.warmup_steps=50 \
     writer=cometml writer.run_name=photomaker_bf16 model.weight_dtype=bf16 \
     dataloaders.manual_val.batch_size=4 \
-
