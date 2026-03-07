@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from PIL import Image
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 
 class AutoGenBboxStore:
@@ -105,10 +112,38 @@ class AutoGenBboxStore:
             rec["_meta"] = dict(meta)
 
         self.data[key] = rec
-        tmp = self.json_path.with_suffix(self.json_path.suffix + ".tmp")
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(self.data, fh, indent=2)
-        tmp.replace(self.json_path)
+        #### 07 MAR - FIX AUTO-BBOX PROBLEM ####
+        lock_path = self.json_path.with_suffix(self.json_path.suffix + ".lock")
+        lock_fh = open(lock_path, "a+", encoding="utf-8")
+        try:
+            if fcntl is not None:
+                fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
+
+            latest_data: Dict[str, Dict[str, Any]] = {}
+            if self.json_path.exists():
+                try:
+                    with open(self.json_path, "r", encoding="utf-8") as fh:
+                        latest_data = json.load(fh) or {}
+                except Exception:
+                    latest_data = {}
+
+            merged = dict(latest_data)
+            merged.update(self.data)
+            self.data = merged
+
+            tmp = self.json_path.with_name(
+                f"{self.json_path.name}.tmp.{os.getpid()}.{uuid.uuid4().hex}"
+            )
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(self.data, fh, indent=2)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, self.json_path)
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
+            lock_fh.close()
+        #### 07 MAR - FIX AUTO-BBOX PROBLEM ####
 
         if overlay_path is not None:
             save_annotated_pil(
