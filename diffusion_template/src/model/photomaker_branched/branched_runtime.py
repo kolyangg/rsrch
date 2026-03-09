@@ -507,8 +507,12 @@ def two_branch_predict(
     
     # For debugging: approximate branch outputs
     mask_4ch = mask4.repeat(1, 4, 1, 1).to(dtype=dtype)
-    if mask_4ch.shape[0] < batch_size:
-        mask_4ch = mask_4ch.expand(batch_size, -1, -1, -1)
+    if mask_4ch.shape[0] != batch_size:
+        cur = int(mask_4ch.shape[0])
+        if cur <= 0:
+            raise RuntimeError(f"Invalid mask batch size: {cur}")
+        reps = (batch_size + cur - 1) // cur
+        mask_4ch = mask_4ch.repeat(reps, 1, 1, 1)[:batch_size]
     
     noise_bg = noise_pred_merged * (1 - mask_4ch)
     noise_face = noise_pred_merged * mask_4ch
