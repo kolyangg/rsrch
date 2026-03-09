@@ -29,13 +29,27 @@ def prepare_mask4(pipeline, latents: torch.Tensor, suffix) -> torch.Tensor:
     mask_attr = f"_face_mask{suffix}"
     mask_np = getattr(pipeline, mask_attr)
 
-    ### V2 ###
+    #### 08 MAR - FIX BATCHED VALIDATION ####
     is_np = isinstance(mask_np, np.ndarray)
-    m = (
-        torch.from_numpy(mask_np).to(device=latents.device, dtype=latents.dtype)[None, None]
-        if is_np else getattr(pipeline, mask_attr)[:, None].to(dtype=latents.dtype)
-    )
-    ### V2 ###
+    if is_np:
+        m = torch.from_numpy(mask_np).to(device=latents.device, dtype=latents.dtype)
+        if m.ndim == 2:
+            m = m[None, None]
+        elif m.ndim == 3:
+            m = m[:, None]
+        else:
+            raise ValueError(f"Unsupported numpy mask shape for {mask_attr}: {tuple(m.shape)}")
+    else:
+        m = getattr(pipeline, mask_attr).to(device=latents.device, dtype=latents.dtype)
+        if m.ndim == 2:
+            m = m[None, None]
+        elif m.ndim == 3:
+            m = m[:, None]
+        elif m.ndim == 4 and m.shape[1] == 1:
+            pass
+        else:
+            raise ValueError(f"Unsupported tensor mask shape for {mask_attr}: {tuple(m.shape)}")
+    #### 08 MAR - FIX BATCHED VALIDATION ####
 
     if m.shape[-2:] != latents.shape[-2:]:
         m = F.interpolate(m, size=latents.shape[-2:], mode="nearest")

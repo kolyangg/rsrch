@@ -368,42 +368,50 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                     )
 
                 clean_index = 0
-                clean_input_ids = []
-                class_token_index = []
-                # Find out the corresponding class word token based on the newly added trigger word token
-                for i, token_id in enumerate(text_input_ids.tolist()[0]):
-                    if token_id == image_token_id:
-                        class_token_index.append(clean_index - 1)
+                #### 08 MAR - FIX BATCHED VALIDATION ####
+                clean_input_ids_batch = []
+                class_tokens_mask_batch = []
+                for row_ids in text_input_ids.tolist():
+                    clean_index = 0
+                    clean_input_ids = []
+                    class_token_index = []
+                    # Find out the corresponding class word token based on the newly added trigger word token
+                    for token_id in row_ids:
+                        if token_id == image_token_id:
+                            class_token_index.append(clean_index - 1)
+                        else:
+                            clean_input_ids.append(token_id)
+                            clean_index += 1
+
+                    if len(class_token_index) != 1:
+                        raise ValueError(
+                            f"PhotoMaker currently does not support multiple trigger words in a single prompt.\
+                                Trigger word: {self.trigger_word}, Prompt: {prompt}."
+                        )
+                    class_token_index = class_token_index[0]
+
+                    # Expand the class word token and corresponding mask
+                    class_token = clean_input_ids[class_token_index]
+                    clean_input_ids = clean_input_ids[:class_token_index] + [class_token] * num_id_images * self.num_tokens + \
+                        clean_input_ids[class_token_index + 1:]
+
+                    # Truncation or padding
+                    max_len = tokenizer.model_max_length
+                    if len(clean_input_ids) > max_len:
+                        clean_input_ids = clean_input_ids[:max_len]
                     else:
-                        clean_input_ids.append(token_id)
-                        clean_index += 1
+                        clean_input_ids = clean_input_ids + [tokenizer.pad_token_id] * (max_len - len(clean_input_ids))
 
-                if len(class_token_index) != 1:
-                    raise ValueError(
-                        f"PhotoMaker currently does not support multiple trigger words in a single prompt.\
-                            Trigger word: {self.trigger_word}, Prompt: {prompt}."
-                    )
-                class_token_index = class_token_index[0]
+                    class_tokens_mask = [
+                        True if class_token_index <= i < class_token_index + (num_id_images * self.num_tokens) else False
+                        for i in range(len(clean_input_ids))
+                    ]
+                    clean_input_ids_batch.append(clean_input_ids)
+                    class_tokens_mask_batch.append(class_tokens_mask)
 
-                # Expand the class word token and corresponding mask
-                class_token = clean_input_ids[class_token_index]
-                clean_input_ids = clean_input_ids[:class_token_index] + [class_token] * num_id_images * self.num_tokens + \
-                    clean_input_ids[class_token_index+1:]                
-                    
-                # Truncation or padding
-                max_len = tokenizer.model_max_length
-                if len(clean_input_ids) > max_len:
-                    clean_input_ids = clean_input_ids[:max_len]
-                else:
-                    clean_input_ids = clean_input_ids + [tokenizer.pad_token_id] * (
-                        max_len - len(clean_input_ids)
-                    )
-
-                class_tokens_mask = [True if class_token_index <= i < class_token_index+(num_id_images * self.num_tokens) else False \
-                     for i in range(len(clean_input_ids))]
-                
-                clean_input_ids = torch.tensor(clean_input_ids, dtype=torch.long).unsqueeze(0)
-                class_tokens_mask = torch.tensor(class_tokens_mask, dtype=torch.bool).unsqueeze(0)
+                clean_input_ids = torch.tensor(clean_input_ids_batch, dtype=torch.long)
+                class_tokens_mask = torch.tensor(class_tokens_mask_batch, dtype=torch.bool)
+                #### 08 MAR - FIX BATCHED VALIDATION ####
 
                 prompt_embeds = text_encoder(clean_input_ids.to(device), output_hidden_states=True)
 
@@ -676,8 +684,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             raise ValueError(
                 "Provide `input_id_images`. Cannot leave `input_id_images` undefined for PhotoMaker pipeline."
             )
-        if not isinstance(input_id_images, list):
-            input_id_images = [input_id_images]
 
         # 2. Define call parameters
         if prompt is not None and isinstance(prompt, str):
@@ -687,14 +693,32 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         else:
             batch_size = prompt_embeds.shape[0]
 
+        #### 08 MAR - FIX BATCHED VALIDATION ####
+        per_prompt_id_images = False
+        if isinstance(input_id_images, list) and batch_size > 1 and len(input_id_images) == batch_size:
+            per_prompt_id_images = True
+            normalized = []
+            for refs in input_id_images:
+                refs_list = list(refs) if isinstance(refs, (list, tuple)) else [refs]
+                if len(refs_list) == 0:
+                    raise ValueError("Each prompt must provide at least one reference image.")
+                normalized.append(refs_list)
+            input_id_images = normalized
+            input_id_images_first = [refs[0] for refs in input_id_images]
+            num_id_images = 1  # keep validation batched with first ref image per prompt
+        else:
+            if not isinstance(input_id_images, list):
+                input_id_images = [input_id_images]
+            input_id_images_first = input_id_images
+            num_id_images = len(input_id_images)
+        #### 08 MAR - FIX BATCHED VALIDATION ####
+
         device = self._execution_device
 
         # 3. Encode input prompt
         lora_scale = (
             self.cross_attention_kwargs.get("scale", None) if self.cross_attention_kwargs is not None else None
         )
-        
-        num_id_images = len(input_id_images)
         (
             prompt_embeds, 
             _,
@@ -721,10 +745,21 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
         # 4. Encode input prompt without the trigger word for delayed conditioning
         # encode, remove trigger word token, then decode
-        tokens_text_only = self.tokenizer.encode(prompt, add_special_tokens=False)
+        #### 08 MAR - FIX BATCHED VALIDATION ####
         trigger_word_token = self.tokenizer.convert_tokens_to_ids(self.trigger_word)
-        tokens_text_only.remove(trigger_word_token)
-        prompt_text_only = self.tokenizer.decode(tokens_text_only, add_special_tokens=False)
+        if isinstance(prompt, list):
+            prompt_text_only = []
+            for single_prompt in prompt:
+                tokens_text_only = self.tokenizer.encode(single_prompt, add_special_tokens=False)
+                if trigger_word_token in tokens_text_only:
+                    tokens_text_only.remove(trigger_word_token)
+                prompt_text_only.append(self.tokenizer.decode(tokens_text_only, add_special_tokens=False))
+        else:
+            tokens_text_only = self.tokenizer.encode(prompt, add_special_tokens=False)
+            if trigger_word_token in tokens_text_only:
+                tokens_text_only.remove(trigger_word_token)
+            prompt_text_only = self.tokenizer.decode(tokens_text_only, add_special_tokens=False)
+        #### 08 MAR - FIX BATCHED VALIDATION ####
         (
             prompt_embeds_text_only,
             negative_prompt_embeds,
@@ -753,10 +788,30 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
         # 6. Prepare the input ID images
         dtype = next(self.id_encoder.parameters()).dtype
-        if not isinstance(input_id_images[0], torch.Tensor):
-            id_pixel_values = self.id_image_processor(input_id_images, return_tensors="pt").pixel_values
-
-        id_pixel_values = id_pixel_values.unsqueeze(0).to(device=device, dtype=dtype) # TODO: multiple prompts
+        #### 08 MAR - FIX BATCHED VALIDATION ####
+        if per_prompt_id_images:
+            if not isinstance(input_id_images_first[0], torch.Tensor):
+                id_pixel_values = self.id_image_processor(input_id_images_first, return_tensors="pt").pixel_values
+            else:
+                id_pixel_values = torch.stack(
+                    [x if x.dim() == 3 else x[0] for x in input_id_images_first],
+                    dim=0,
+                )
+            id_pixel_values = id_pixel_values.unsqueeze(1).to(device=device, dtype=dtype)
+            id_images_for_embeds = input_id_images
+            input_id_images_for_setup = input_id_images_first
+        else:
+            if not isinstance(input_id_images[0], torch.Tensor):
+                id_pixel_values = self.id_image_processor(input_id_images, return_tensors="pt").pixel_values
+            else:
+                id_pixel_values = torch.stack(
+                    [x if x.dim() == 3 else x[0] for x in input_id_images],
+                    dim=0,
+                )
+            id_pixel_values = id_pixel_values.unsqueeze(0).to(device=device, dtype=dtype)
+            id_images_for_embeds = input_id_images
+            input_id_images_for_setup = input_id_images
+        #### 08 MAR - FIX BATCHED VALIDATION ####
         
 
         # 7. Get the update text embedding with the stacked ID embedding
@@ -766,7 +821,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         id_embeds = ensure_id_embeds_helper(
             self,
             id_embeds=id_embeds,
-            input_id_images=input_id_images,
+            input_id_images=id_images_for_embeds,
             device=device,
             dtype=dtype,
         )
@@ -795,17 +850,25 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         
         ##### BRANCHED ATTENTION - BIG BA BLOCK #####
         """Prepare branched runtime state once (reference latents/masks, strategy cache, and ID features)."""
+        face_bbox_ref_for_setup = face_bbox_ref
+        if (
+            per_prompt_id_images
+            and isinstance(face_bbox_ref, (list, tuple))
+            and len(face_bbox_ref) > 0
+            and isinstance(face_bbox_ref[0], (list, tuple))
+        ):
+            face_bbox_ref_for_setup = face_bbox_ref[0]
         run_branched_setup_helper(
             self,
             use_branched_attention=use_branched_attention,
-            input_id_images=input_id_images,
+            input_id_images=input_id_images_for_setup,
             height=height,
             width=width,
             latents=latents,
             id_pixel_values=id_pixel_values,
             auto_mask_ref=auto_mask_ref,
             use_bbox_mask_ref=use_bbox_mask_ref,
-            face_bbox_ref=face_bbox_ref,
+            face_bbox_ref=face_bbox_ref_for_setup,
             import_mask_ref=import_mask_ref,
             debug_dir=debug_dir,
             use_dynamic_mask=use_dynamic_mask,

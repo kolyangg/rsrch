@@ -93,10 +93,14 @@ class FuseModule(nn.Module):
         id_embeds,
         class_tokens_mask,
     ) -> torch.Tensor:
+        #### 08 MAR - FIX BATCHED VALIDATION ####
         # id_embeds shape: [b, max_num_inputs, 1, 2048]
         id_embeds = id_embeds.to(prompt_embeds.dtype)
-        num_inputs = class_tokens_mask.sum().unsqueeze(0) # TODO: check for training case
         batch_size, max_num_inputs = id_embeds.shape[:2]
+        tokens_per_input = max(1, int(id_embeds.shape[2]))
+        class_tokens_mask = class_tokens_mask.view(batch_size, -1)
+        num_inputs = (class_tokens_mask.sum(dim=1) // tokens_per_input).long()
+        num_inputs = num_inputs.clamp(min=0, max=max_num_inputs)
         # seq_length: 77
         seq_length = prompt_embeds.shape[1]
         # flat_id_embeds shape: [b*max_num_inputs, 1, 2048]
@@ -119,6 +123,7 @@ class FuseModule(nn.Module):
         assert class_tokens_mask.sum() == stacked_id_embeds.shape[0], f"{class_tokens_mask.sum()} != {stacked_id_embeds.shape[0]}"
         prompt_embeds.masked_scatter_(class_tokens_mask[:, None], stacked_id_embeds.to(prompt_embeds.dtype))
         updated_prompt_embeds = prompt_embeds.view(batch_size, seq_length, -1)
+        #### 08 MAR - FIX BATCHED VALIDATION ####
         return updated_prompt_embeds
 
 

@@ -48,12 +48,38 @@ def ensure_id_embeds(
     device: torch.device,
     dtype: torch.dtype,
 ) -> torch.FloatTensor:
+    #### 08 MAR - FIX BATCHED VALIDATION ####
+    def _normalize_id_embeds(x: torch.FloatTensor) -> torch.FloatTensor:
+        if x.dim() == 1:
+            x = x.unsqueeze(0).unsqueeze(0)
+        elif x.dim() == 2:
+            x = x.unsqueeze(1)
+        elif x.dim() != 3:
+            raise ValueError(f"Unsupported id_embeds shape: {tuple(x.shape)}")
+        return x.to(device=device, dtype=dtype)
+
     if id_embeds is not None:
-        return id_embeds.unsqueeze(0).to(device=device, dtype=dtype)
+        return _normalize_id_embeds(id_embeds)
 
     ensure_face_analyzer(pipeline)
+
+    is_per_prompt = (
+        isinstance(input_id_images, (list, tuple))
+        and len(input_id_images) > 0
+        and isinstance(input_id_images[0], (list, tuple))
+    )
+    if is_per_prompt:
+        refs = []
+        for refs_for_prompt in input_id_images:
+            if isinstance(refs_for_prompt, (list, tuple)) and len(refs_for_prompt) > 0:
+                refs.append(refs_for_prompt[0])
+            else:
+                refs.append(refs_for_prompt)
+    else:
+        refs = list(input_id_images)
+
     embeddings = []
-    for ref in input_id_images:
+    for ref in refs:
         if isinstance(ref, torch.Tensor):
             ref_img = ref.detach().cpu()
             if ref_img.dim() == 3:
@@ -72,7 +98,13 @@ def ensure_id_embeds(
             embedding = torch.zeros(512, dtype=torch.float32)
         embeddings.append(embedding)
 
-    return torch.stack(embeddings, dim=0).unsqueeze(0).to(device=device, dtype=dtype)
+    stacked = torch.stack(embeddings, dim=0)
+    if is_per_prompt:
+        stacked = stacked.unsqueeze(1)
+    else:
+        stacked = stacked.unsqueeze(0)
+    #### 08 MAR - FIX BATCHED VALIDATION ####
+    return stacked.to(device=device, dtype=dtype)
 
 
 def prepare_ref_latents(
@@ -166,8 +198,34 @@ def prepare_gen_mask(
     face_bbox_gen: Optional[List[float]],
     height: int,
     width: int,
+    batch_size: int = 1,
 ) -> None:
+    #### 08 MAR - FIX BATCHED VALIDATION ####
     if (not use_dynamic_mask) and use_bbox_mask_gen and face_bbox_gen is not None:
+        per_sample_boxes = (
+            isinstance(face_bbox_gen, (list, tuple))
+            and len(face_bbox_gen) > 0
+            and isinstance(face_bbox_gen[0], (list, tuple))
+        )
+        if per_sample_boxes:
+            boxes = list(face_bbox_gen)
+            if len(boxes) != batch_size:
+                raise RuntimeError(
+                    f"use_bbox_mask_gen batch mismatch: got {len(boxes)} bboxes for batch_size={batch_size}"
+                )
+            gen_mask = np.zeros((batch_size, height, width), dtype=bool)
+            for bi, box in enumerate(boxes):
+                x0, y0, x1, y1 = [float(v) for v in box]
+                x0i = max(0, min(width, int(round(x0))))
+                x1i = max(0, min(width, int(round(x1))))
+                y0i = max(0, min(height, int(round(y0))))
+                y1i = max(0, min(height, int(round(y1))))
+                if x1i > x0i and y1i > y0i:
+                    gen_mask[bi, y0i:y1i, x0i:x1i] = True
+            pipeline._face_mask = gen_mask
+            pipeline._face_mask_t = torch.from_numpy(gen_mask.astype(np.uint8))[:, None]
+            return
+
         gen_mask = np.zeros((height, width), dtype=bool)
         x0, y0, x1, y1 = [float(v) for v in face_bbox_gen]
         x0i = max(0, min(width, int(round(x0))))
@@ -184,6 +242,7 @@ def prepare_gen_mask(
             " ensure pm20_bboxes.json contains an entry for the current validation index"
             " (e.g., '00.png', '01.png', ...)."
         )
+    #### 08 MAR - FIX BATCHED VALIDATION ####
 
 
 def prepare_id_features(
@@ -256,6 +315,7 @@ def run_branched_setup(
         face_bbox_gen=face_bbox_gen,
         height=height,
         width=width,
+        batch_size=batch_size,
     )
 
     if use_branched_attention and hasattr(pipeline, "_ref_latents_all"):
