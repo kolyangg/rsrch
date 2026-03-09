@@ -349,10 +349,11 @@ def run_branched_setup(
     pipeline.face_embed_strategy = fes
 
     if pipeline.face_embed_strategy == "face":
+        cfg_mult = 2 if pipeline.do_classifier_free_guidance else 1
         pipeline._face_prompt_embeds = encode_face_prompt(
             pipeline,
             device=device,
-            batch_size=batch_size,
+            batch_size=batch_size * cfg_mult,
             do_classifier_free_guidance=pipeline.do_classifier_free_guidance,
         ).to(device)
 

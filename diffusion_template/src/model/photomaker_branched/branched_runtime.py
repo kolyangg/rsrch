@@ -189,11 +189,16 @@ def encode_face_prompt(
         
         # Expand to batch size
         if do_classifier_free_guidance:
-            # Already has [neg, pos] structure
-            # Combine negative and positive
-            return torch.cat([neg_face_embeds, face_embeds], dim=0)
+            # Build [neg(B), pos(B)] to match CFG prompt layout.
+            if batch_size % 2 == 0:
+                half = batch_size // 2
+                neg = neg_face_embeds.expand(half, -1, -1)
+                pos = face_embeds.expand(half, -1, -1)
+                return torch.cat([neg, pos], dim=0)
+            # Fallback if caller passed non-CFG batch size while CFG is on.
+            return face_embeds.expand(batch_size, -1, -1)
         else:
-            return face_embeds
+            return face_embeds.expand(batch_size, -1, -1)
     
     return None
 
@@ -353,8 +358,17 @@ def two_branch_predict(
             m = class_tokens_mask.to(dev)
             if m.dim() == 1:
                 m = m.unsqueeze(0)
-            if m.shape[0] < face_prompt_embeds.shape[0]:
-               m = m.expand(face_prompt_embeds.shape[0], -1)
+            if m.shape[0] != face_prompt_embeds.shape[0]:
+                if m.shape[0] == 1:
+                    m = m.expand(face_prompt_embeds.shape[0], -1)
+                elif face_prompt_embeds.shape[0] % m.shape[0] == 0:
+                    reps = face_prompt_embeds.shape[0] // m.shape[0]
+                    m = m.repeat(reps, 1)
+                else:
+                    raise RuntimeError(
+                        f"class_tokens_mask batch mismatch: mask={tuple(m.shape)} "
+                        f"vs face_prompt_embeds={tuple(face_prompt_embeds.shape)}"
+                    )
             m = m.unsqueeze(-1).to(dtype=d)                # [B,L,1]
             one = torch.tensor(1.0, device=dev, dtype=d)
             id_scale = torch.tensor(getattr(pipeline, "id_token_scale", 2.5),
