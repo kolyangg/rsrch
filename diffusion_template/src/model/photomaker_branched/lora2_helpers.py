@@ -144,7 +144,9 @@ def prepare_branched_training_inputs(
         face_prompt_embeds = prompt_embeds
 
     mask4 = torch.cat(mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
-    mask4_ref = mask4.clone()
+    ### FIX 15 MAR ###
+    mask4_ref = torch.ones_like(mask4)
+    ### FIX 15 MAR ###
     reference_latents = torch.cat(ref_latents_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
 
     model._ref_latents_all = reference_latents
