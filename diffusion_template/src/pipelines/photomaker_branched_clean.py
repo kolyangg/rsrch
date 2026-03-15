@@ -850,14 +850,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         
         ##### BRANCHED ATTENTION - BIG BA BLOCK #####
         """Prepare branched runtime state once (reference latents/masks, strategy cache, and ID features)."""
-        face_bbox_ref_for_setup = face_bbox_ref
-        if (
-            per_prompt_id_images
-            and isinstance(face_bbox_ref, (list, tuple))
-            and len(face_bbox_ref) > 0
-            and isinstance(face_bbox_ref[0], (list, tuple))
-        ):
-            face_bbox_ref_for_setup = face_bbox_ref[0]
         run_branched_setup_helper(
             self,
             use_branched_attention=use_branched_attention,
@@ -868,7 +860,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             id_pixel_values=id_pixel_values,
             auto_mask_ref=auto_mask_ref,
             use_bbox_mask_ref=use_bbox_mask_ref,
-            face_bbox_ref=face_bbox_ref_for_setup,
+            face_bbox_ref=face_bbox_ref,
             import_mask_ref=import_mask_ref,
             debug_dir=debug_dir,
             use_dynamic_mask=use_dynamic_mask,

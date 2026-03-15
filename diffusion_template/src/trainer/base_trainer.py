@@ -503,12 +503,16 @@ class BaseTrainer:
             else:
                 self._val_generation_dir = None
             print(f"[DebugImage] total validation images: {total_images}")  # always show total
+            total_batches = len(dataloader)
             for batch_idx, batch in tqdm(
                 enumerate(dataloader),
                 desc=part,
-                total=len(dataloader),
+                total=total_batches,
             ):
-                print(f"[DebugImage] validation image {batch_idx:02d}/{total_images:02d}")  # always show current id
+                print(
+                    f"[DebugImage] validation batch {batch_idx:02d}/{total_batches:02d} "
+                    f"(batch_size={getattr(dataloader, 'batch_size', '?')})"
+                )
                 batch["debug_idx"] = batch_idx  # --- MODIFIED For training integration ---
                 batch["debug_total"] = total_images  # --- MODIFIED For training integration ---
                 fetch_done = time.time()
