@@ -245,7 +245,10 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         output = self.model(**batch, do_cfg=do_cfg)
         batch.update(output)
 
-        batch["is_masked_loss"] = (batch["batch_idx"] % self.masked_loss_step == 0)
+        batch["is_masked_loss"] = (
+            self.masked_loss_step > 0
+            and batch["batch_idx"] % self.masked_loss_step == 0
+        )
         all_losses = self.criterion(**batch)
         batch.update(all_losses)
         

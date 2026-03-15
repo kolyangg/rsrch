@@ -17,3 +17,7 @@ pose_adapt_ratio: ${pipeline.pose_adapt_ratio}
 ca_mixing_for_face: ${pipeline.ca_mixing_for_face}
 face_embed_strategy: ${pipeline.face_embed_strategy}
 train_branch_mode: ${pipeline.train_branch_mode}
+photomaker_start_step: 10
+merge_start_step: 10
+branched_attn_start_step: 15
+num_inference_steps: 50

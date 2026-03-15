@@ -60,6 +60,10 @@ class PhotomakerBranchedLora(SDXL):
         use_attn_v2: bool = True,          # toggle between attn_processor2 (v2) and attn_processor (legacy)
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
+        photomaker_start_step: int = 10,
+        merge_start_step: int = 10,
+        branched_attn_start_step: int = 15,
+        num_inference_steps: int = 50,
         ##### BRANCHED ATTENTION - NEW PARAMS 1 #####
     ):
         """NEW PARAMS 1: define BA training controls (strategy, processor variant, ID mixing, and BA-only toggles)."""
@@ -134,6 +138,10 @@ class PhotomakerBranchedLora(SDXL):
         self.ca_mixing_for_face = bool(ca_mixing_for_face) # --- ADDED For training integration
         self.face_embed_strategy = (face_embed_strategy or "face").lower() # --- ADDED For training integration
         self.train_branch_mode = (train_branch_mode or "both").lower()
+        self.photomaker_start_step = int(photomaker_start_step)
+        self.merge_start_step = int(merge_start_step)
+        self.branched_attn_start_step = int(branched_attn_start_step)
+        self.num_inference_steps = int(num_inference_steps)
         # ID embedding mixing strength for branched self-attention
         self.id_alpha = float(id_alpha)
         # Global on/off switch for BranchedAttnProcessor.id_to_hidden usage
@@ -327,9 +335,9 @@ class PhotomakerBranchedLora(SDXL):
             "time_ids": add_time_ids.to(device=self.device, dtype=self.unet.dtype),
         }
 
-        # Hardcoded to the current inference setup in pm_br_09Feb_testing.yaml
-        photomaker_start_ratio = 10.0 / 50.0
-        branched_start_ratio = 15.0 / 50.0
+        num_inference_steps = max(1, self.num_inference_steps)
+        photomaker_start_ratio = float(self.photomaker_start_step) / float(num_inference_steps)
+        branched_start_ratio = float(self.branched_attn_start_step) / float(num_inference_steps)
 
         text_only_prompts = []
         trigger_word_token = self.tokenizer.convert_tokens_to_ids(self.trigger_word)

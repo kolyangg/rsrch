@@ -90,7 +90,7 @@ validation_args:
   negative_prompt: "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry"
   debug_dir: hm_debug
   num_images_per_prompt: 5
-  num_inference_steps: 50
+  num_inference_steps: ${model.num_inference_steps}
   guidance_scale: 5
   height: 1024
   width: 1024
@@ -99,9 +99,9 @@ validation_args:
   crops_coords_top_left: [0, 0]
   use_branched_attention: true
   face_embed_strategy: ${pipeline.face_embed_strategy}
-  photomaker_start_step: ${pipeline.photomaker_start_step}
-  merge_start_step: ${pipeline.merge_start_step}
-  branched_attn_start_step: ${pipeline.branched_attn_start_step}
+  photomaker_start_step: ${model.photomaker_start_step}
+  merge_start_step: ${model.merge_start_step}
+  branched_attn_start_step: ${model.branched_attn_start_step}
   branched_start_mode: ${pipeline.branched_start_mode}
   #  Masking controls moved to config
   auto_mask_ref: ${pipeline.auto_mask_ref}
