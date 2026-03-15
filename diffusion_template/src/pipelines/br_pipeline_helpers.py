@@ -288,90 +288,25 @@ def run_branched_setup(
     class_tokens_mask: torch.LongTensor,
 ) -> None:
     if use_branched_attention and input_id_images:
-        refs = list(input_id_images) if isinstance(input_id_images, (list, tuple)) else [input_id_images]
-        use_batched_refs = batch_size > 1 and len(refs) == batch_size
-
-        if use_batched_refs:
-            if (
-                isinstance(face_bbox_ref, (list, tuple))
-                and len(face_bbox_ref) == batch_size
-                and all((box is None) or isinstance(box, (list, tuple)) for box in face_bbox_ref)
-            ):
-                ref_boxes = list(face_bbox_ref)
-            else:
-                ref_boxes = [face_bbox_ref] * batch_size
-
-            ref_latents = []
-            ref_masks = []
-            first_ref_meta = None
-
-            for idx, (pil, ref_box) in enumerate(zip(refs, ref_boxes)):
-                ref_latents.append(
-                    prepare_ref_latents(
-                        pipeline,
-                        pil=pil,
-                        height=height,
-                        width=width,
-                        latents_dtype=latents.dtype,
-                    )
-                )
-                if idx == 0:
-                    first_ref_meta = (
-                        getattr(pipeline, "_ref_orig_size", None),
-                        getattr(pipeline, "_ref_pad", None),
-                        getattr(pipeline, "_ref_scaled_size", None),
-                    )
-
-                sample_debug_dir = debug_dir
-                if sample_debug_dir is not None:
-                    sample_debug_dir = str(Path(sample_debug_dir) / f"{idx:02d}")
-
-                prepare_ref_mask(
-                    pipeline,
-                    pil=pil,
-                    auto_mask_ref=auto_mask_ref,
-                    use_bbox_mask_ref=use_bbox_mask_ref,
-                    face_bbox_ref=ref_box,
-                    import_mask_ref=import_mask_ref,
-                    debug_dir=sample_debug_dir,
-                    height=height,
-                    width=width,
-                )
-                sample_mask = getattr(pipeline, "_face_mask_ref", None)
-                if sample_mask is None:
-                    raise RuntimeError("Batched branched setup requires a reference mask for each sample.")
-                ref_masks.append(np.array(sample_mask, copy=True))
-
-            pipeline._ref_latents_all = torch.cat(ref_latents, dim=0)
-            pipeline._face_mask_ref = np.stack(ref_masks, axis=0)
-            pipeline._face_mask_t_ref = torch.from_numpy(pipeline._face_mask_ref.astype(np.uint8))[:, None]
-
-            if first_ref_meta is not None:
-                (
-                    pipeline._ref_orig_size,
-                    pipeline._ref_pad,
-                    pipeline._ref_scaled_size,
-                ) = first_ref_meta
-        else:
-            pil = refs[0]
-            pipeline._ref_latents_all = prepare_ref_latents(
-                pipeline,
-                pil=pil,
-                height=height,
-                width=width,
-                latents_dtype=latents.dtype,
-            )
-            prepare_ref_mask(
-                pipeline,
-                pil=pil,
-                auto_mask_ref=auto_mask_ref,
-                use_bbox_mask_ref=use_bbox_mask_ref,
-                face_bbox_ref=face_bbox_ref,
-                import_mask_ref=import_mask_ref,
-                debug_dir=debug_dir,
-                height=height,
-                width=width,
-            )
+        pil = input_id_images[0] if isinstance(input_id_images, (list, tuple)) else input_id_images
+        pipeline._ref_latents_all = prepare_ref_latents(
+            pipeline,
+            pil=pil,
+            height=height,
+            width=width,
+            latents_dtype=latents.dtype,
+        )
+        prepare_ref_mask(
+            pipeline,
+            pil=pil,
+            auto_mask_ref=auto_mask_ref,
+            use_bbox_mask_ref=use_bbox_mask_ref,
+            face_bbox_ref=face_bbox_ref,
+            import_mask_ref=import_mask_ref,
+            debug_dir=debug_dir,
+            height=height,
+            width=width,
+        )
 
     prepare_gen_mask(
         pipeline,
