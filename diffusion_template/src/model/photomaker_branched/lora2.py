@@ -271,13 +271,18 @@ class PhotomakerBranchedLora(SDXL):
         noise = torch.randn_like(latents)
         batch_size = latents.shape[0]
 
-        # Sample a random timestep for each image
-        timesteps = torch.randint(
+        # Match the current inference schedule at batch level:
+        # NO_ID (0-9), PHOTOMAKER (10-14), BOTH (15-49)
+        t_scalar = torch.randint(
             0,
             self.noise_scheduler.config.num_train_timesteps,
-            (batch_size,),
+            (1,),
             device=latents.device,
         ).long()
+        timesteps = t_scalar.repeat(batch_size)
+        denoise_progress = 1.0 - (
+            float(t_scalar.item()) / float(self.noise_scheduler.config.num_train_timesteps - 1)
+        )
 
         # Add noise to the model input according to the noise magnitude at each timestep
         # (this is the forward diffusion process)
@@ -322,6 +327,30 @@ class PhotomakerBranchedLora(SDXL):
             "time_ids": add_time_ids.to(device=self.device, dtype=self.unet.dtype),
         }
 
+        # Hardcoded to the current inference setup in pm_br_09Feb_testing.yaml
+        photomaker_start_ratio = 10.0 / 50.0
+        branched_start_ratio = 15.0 / 50.0
+
+        text_only_prompts = []
+        trigger_word_token = self.tokenizer.convert_tokens_to_ids(self.trigger_word)
+        for prompt in prompts:
+            tokens_text_only = self.tokenizer.encode(prompt, add_special_tokens=False)
+            if trigger_word_token in tokens_text_only:
+                tokens_text_only.remove(trigger_word_token)
+            text_only_prompts.append(
+                self.tokenizer.decode(tokens_text_only, add_special_tokens=False)
+            )
+
+        prompt_embeds_text_only, pooled_prompt_embeds_text_only = self.encode_prompt(
+            prompt=text_only_prompts,
+            do_cfg=False,
+        )
+
+        prompt_embeds_text_only = prompt_embeds_text_only.to(device=self.device, dtype=self.unet.dtype)
+        pooled_prompt_embeds_text_only = pooled_prompt_embeds_text_only.to(
+            device=self.device, dtype=self.unet.dtype
+        )
+
         ### MEMO: INITIAL LORA UNet pass ###
         # model_pred = self.unet(
         #     noisy_model_input,
@@ -332,22 +361,43 @@ class PhotomakerBranchedLora(SDXL):
         # )[0]
         ### MEMO: INITIAL LORA UNet pass ###
 
-        ##### BRANCHED ATTENTION - FORWARD PASS #####
-        """FORWARD PASS: run branched prediction via helper wrapper around `two_branch_predict`."""
-        noise_pred = run_branched_forward_pass(
-            self,
-            noisy_latents=noisy_latents,
-            timesteps=timesteps,
-            prompt_embeds=prompt_embeds,
-            added_cond_kwargs=added_cond_kwargs,
-            mask4=mask4,
-            mask4_ref=mask4_ref,
-            reference_latents=reference_latents,
-            face_prompt_embeds=face_prompt_embeds,
-            class_tokens_mask=class_tokens_mask,
-            id_features=id_features,
-        )
-        ##### BRANCHED ATTENTION - FORWARD PASS #####
+        if denoise_progress < photomaker_start_ratio:
+            text_only_kwargs = {
+                "text_embeds": pooled_prompt_embeds_text_only,
+                "time_ids": add_time_ids.to(device=self.device, dtype=self.unet.dtype),
+            }
+            noise_pred = self.unet(
+                noisy_latents,
+                timesteps,
+                encoder_hidden_states=prompt_embeds_text_only,
+                added_cond_kwargs=text_only_kwargs,
+                return_dict=False,
+            )[0]
+        elif denoise_progress < branched_start_ratio:
+            noise_pred = self.unet(
+                noisy_latents,
+                timesteps,
+                encoder_hidden_states=prompt_embeds,
+                added_cond_kwargs=added_cond_kwargs,
+                return_dict=False,
+            )[0]
+        else:
+            ##### BRANCHED ATTENTION - FORWARD PASS #####
+            """FORWARD PASS: run branched prediction via helper wrapper around `two_branch_predict`."""
+            noise_pred = run_branched_forward_pass(
+                self,
+                noisy_latents=noisy_latents,
+                timesteps=timesteps,
+                prompt_embeds=prompt_embeds,
+                added_cond_kwargs=added_cond_kwargs,
+                mask4=mask4,
+                mask4_ref=mask4_ref,
+                reference_latents=reference_latents,
+                face_prompt_embeds=face_prompt_embeds,
+                class_tokens_mask=class_tokens_mask,
+                id_features=id_features,
+            )
+            ##### BRANCHED ATTENTION - FORWARD PASS #####
 
         return {
             'model_pred': noise_pred,
