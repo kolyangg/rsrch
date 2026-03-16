@@ -94,9 +94,8 @@ class CosmicDoubledTrain(BaseDataset):
         instance_data["pixel_values"] = img
         instance_data["face_bbox"] = bbox
 
-        ### FIX 15 MAR ###
-        ref_images = [get_bigger_crop(deepcopy(img), crop=deepcopy(bbox))]
-        ### FIX 15 MAR ###
+        # ref_images = [get_bigger_crop(deepcopy(img), crop=deepcopy(bbox))]
+        ref_images = [deepcopy(img)] 
         ### FIX 01 FEB ###
     
     
@@ -184,9 +183,8 @@ class OneIDTrain(BaseDataset):
         instance_data["pixel_values"] = img
         instance_data["face_bbox"] = bbox
 
-        ### FIX 15 MAR ###
-        ref_images = [get_bigger_crop(deepcopy(img), crop=deepcopy(bbox))]
-        ### FIX 15 MAR ###
+        # ref_images = [get_bigger_crop(deepcopy(img), crop=deepcopy(bbox))]
+        ref_images = [deepcopy(img)] 
         ### 01 FEB ###
         
         instance_data["ref_images"] = ref_images
