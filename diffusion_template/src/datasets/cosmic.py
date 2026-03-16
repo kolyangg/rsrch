@@ -19,10 +19,17 @@ class CosmicDoubledTrain(BaseDataset):
         cosmic_large_texts_json_pth=None,
         images_path=None,
         num_refs=1,
+        train_on_separate_image=False,
+        same_id_ref_map_json_pth=None,
         *args,
         **kwargs,
     ):
         self.images_path = images_path
+        self.train_on_separate_image = bool(train_on_separate_image)
+        self.same_id_ref_map = {}
+        if same_id_ref_map_json_pth is not None:
+            with open(same_id_ref_map_json_pth) as f:
+                self.same_id_ref_map = json.load(f)
 
         # Init cosmic
         with open(cosmic_json_pth) as f:
@@ -35,12 +42,14 @@ class CosmicDoubledTrain(BaseDataset):
 
         index = []
         self.ids = []
+        self.meta_by_path = {}
         for k, v in tqdm(cosmic_json.items()):
             if k not in cosmic_texts_json:
                 continue
             v.update(cosmic_texts_json[k])
             index.append(v)
             self.ids.append(k)
+            self.meta_by_path[k] = v
 
         # Init cosmic large
         with open(cosmic_large_json_pth) as f:
@@ -56,18 +65,15 @@ class CosmicDoubledTrain(BaseDataset):
                 continue
             v.update(cosmic_large_texts_json[k])
             index.append(v)
-            self.ids.append(k.replace("LAION-5B", "LAION-5B-Filtered-Large"))
+            path = k.replace("LAION-5B", "LAION-5B-Filtered-Large")
+            self.ids.append(path)
+            self.meta_by_path[path] = v
 
         # self.flip = RandomHorizontalFlip(p=0.5)
 
         super().__init__(index, *args, **kwargs)
 
-    def __getitem__(self, ind):
-        img_data = self._index[ind]
-        path = self.ids[ind]
-
-        instance_data = {}
-
+    def _load_train_image(self, path, img_data):
         img = Image.open(f"{self.images_path}/{path}").convert("RGB")
         if img.size != (1024, 1024):
             body_crop = img_data["body_crop"]
@@ -75,6 +81,15 @@ class CosmicDoubledTrain(BaseDataset):
             assert img_arr.shape[0] == 1024, img_arr
             assert img_arr.shape[1] == 1024, img_arr
             img = Image.fromarray(img_arr)
+        return img
+
+    def __getitem__(self, ind):
+        img_data = self._index[ind]
+        path = self.ids[ind]
+
+        instance_data = {}
+
+        img = self._load_train_image(path, img_data)
 
         # instance_data["pixel_values"] = img
         # bbox = img_data["face_crop_new"]
@@ -93,10 +108,21 @@ class CosmicDoubledTrain(BaseDataset):
 
         instance_data["pixel_values"] = img
         instance_data["face_bbox"] = bbox
-        instance_data["face_bbox_ref"] = deepcopy(bbox)
-
-        # ref_images = [get_bigger_crop(deepcopy(img), crop=deepcopy(bbox))]
-        ref_images = [deepcopy(img)] 
+        if self.train_on_separate_image:
+            ref_candidates = [p for p in self.same_id_ref_map.get(path, []) if p != path]
+            if not ref_candidates:
+                raise ValueError(
+                    "train_on_separate_image=True for CosmicDoubledTrain requires "
+                    f"same_id_ref_map_json_pth with non-empty candidates for '{path}'"
+                )
+            ref_path = random.choice(ref_candidates)
+            ref_data = self.meta_by_path[ref_path]
+            ref_img = self._load_train_image(ref_path, ref_data)
+            ref_images = [ref_img]
+            instance_data["face_bbox_ref"] = deepcopy(ref_data["face_crop_new"])
+        else:
+            instance_data["face_bbox_ref"] = deepcopy(bbox)
+            ref_images = [deepcopy(img)]
         ### FIX 01 FEB ###
     
     
@@ -139,11 +165,13 @@ class OneIDTrain(BaseDataset):
         cosmic_json_pth=None,
         images_path=None,
         num_refs=1,
+        train_on_separate_image=False,
         *args,
         **kwargs,
     ):
         self.images_path = images_path
         self.num_refs = num_refs
+        self.train_on_separate_image = bool(train_on_separate_image)
 
         with open(cosmic_json_pth) as f:
             data_json = json.load(f)
@@ -183,10 +211,16 @@ class OneIDTrain(BaseDataset):
 
         instance_data["pixel_values"] = img
         instance_data["face_bbox"] = bbox
-        instance_data["face_bbox_ref"] = deepcopy(bbox)
-
-        # ref_images = [get_bigger_crop(deepcopy(img), crop=deepcopy(bbox))]
-        ref_images = [deepcopy(img)] 
+        if self.train_on_separate_image and len(self.ids) > 1:
+            ref_ind = random.choice([i for i in range(len(self.ids)) if i != ind])
+            ref_path = self.ids[ref_ind]
+            ref_data = self._index[ref_ind]
+            ref_img = Image.open(f"{self.images_path}/{ref_path}").convert("RGB")
+            ref_images = [ref_img]
+            instance_data["face_bbox_ref"] = deepcopy(ref_data["face_crop"])
+        else:
+            instance_data["face_bbox_ref"] = deepcopy(bbox)
+            ref_images = [deepcopy(img)]
         ### 01 FEB ###
         
         instance_data["ref_images"] = ref_images

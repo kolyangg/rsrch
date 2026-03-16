@@ -13,6 +13,8 @@ defaults:
   - dataloaders: all_dataloaders
   - _self_
 
+train_on_separate_image: false
+
 # Make validation model match inference base (RealVisXL_V4.0) for parity with
 # photomaker_origv2_infer_one_id.yaml, while keeping the same LoRA setup.
 model:

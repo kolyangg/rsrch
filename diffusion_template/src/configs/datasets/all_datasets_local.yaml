@@ -14,6 +14,8 @@ train:
         cosmic_large_texts_json_pth: ../dataset_full/all_texts_cosmic_large_by_qween3_trigger_word.json
         images_path: ../dataset_full
         num_refs: 1
+        train_on_separate_image: ${train_on_separate_image}
+        same_id_ref_map_json_pth: null
         instance_transforms: ${transforms.instance_transforms.train}
 
     one_id:
@@ -21,6 +23,7 @@ train:
         cosmic_json_pth: ../dataset_full/one_id/nm0005092_adj_train.json
         images_path: ../dataset_full/one_id/nm0005092_adj
         num_refs: 1
+        train_on_separate_image: ${train_on_separate_image}
         instance_transforms: ${transforms.instance_transforms.train}
     
 

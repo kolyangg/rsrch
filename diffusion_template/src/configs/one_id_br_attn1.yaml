@@ -18,6 +18,8 @@ defaults:
   - dataloaders: all_dataloaders
   - _self_
 
+train_on_separate_image: false
+
 model:
   # pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
   # pretrained_model_name_or_path: null # use SDXL (default)
