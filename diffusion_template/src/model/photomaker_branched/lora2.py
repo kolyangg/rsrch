@@ -264,6 +264,7 @@ class PhotomakerBranchedLora(SDXL):
         original_sizes: Sequence[Sequence[int]],
         crop_top_lefts: Sequence[Sequence[int]],
         face_bbox: Sequence[Sequence[float]],
+        face_bbox_ref: Sequence[Sequence[float]] | None = None,
         do_cfg: bool = False,
         *args,
         **kwargs,
@@ -317,6 +318,7 @@ class PhotomakerBranchedLora(SDXL):
             prompts=prompts,
             ref_images=ref_images,
             face_bbox=face_bbox,
+            face_bbox_ref=face_bbox_ref,
             pixel_values=pixel_values,
             noisy_latents=noisy_latents,
         )
@@ -508,6 +510,47 @@ class PhotomakerBranchedLora(SDXL):
 
     ##### BRANCHED ATTENTION - HELPER UTILS #####
     """HELPER UTILS: utilities for bbox-to-latent masks, reference-latent encoding, and branched re-patching after eval."""
+    def _bbox_to_ref_mask(
+        self,
+        bbox: Optional[Sequence[float]],
+        latent_shape: tuple[int, int],
+        image_shape: tuple[int, int],
+    ) -> torch.Tensor:
+        mask = torch.zeros(1, 1, self.target_size, self.target_size, device=self.device)
+        if bbox is None or len(bbox) < 4:
+            mask.fill_(1.0)
+        else:
+            x0, y0, x1, y1 = [float(v) for v in bbox]
+            if x1 <= x0 or y1 <= y0:
+                mask.fill_(1.0)
+            else:
+                image_h, image_w = image_shape
+                scale = min(
+                    self.target_size / max(image_w, 1),
+                    self.target_size / max(image_h, 1),
+                )
+                resized_w = max(8, int(round(image_w * scale)) // 8 * 8)
+                resized_h = max(8, int(round(image_h * scale)) // 8 * 8)
+                pad_left = (self.target_size - resized_w) // 2
+                pad_top = (self.target_size - resized_h) // 2
+
+                scale_w = resized_w / max(image_w, 1)
+                scale_h = resized_h / max(image_h, 1)
+
+                x_start = max(0, min(self.target_size, int(round(x0 * scale_w + pad_left))))
+                x_end = max(0, min(self.target_size, int(round(x1 * scale_w + pad_left))))
+                y_start = max(0, min(self.target_size, int(round(y0 * scale_h + pad_top))))
+                y_end = max(0, min(self.target_size, int(round(y1 * scale_h + pad_top))))
+
+                if x_end <= x_start or y_end <= y_start:
+                    mask.fill_(1.0)
+                else:
+                    mask[:, :, y_start:y_end, x_start:x_end] = 1.0
+
+        if mask.shape[-2:] != latent_shape:
+            mask = F.interpolate(mask, size=latent_shape, mode="nearest")
+        return mask
+
     def _bbox_to_mask(
         self,
         bbox: Optional[Sequence[float]],
@@ -554,10 +597,19 @@ class PhotomakerBranchedLora(SDXL):
         else:
             if not isinstance(ref_image, Image.Image):
                 raise TypeError(f"Unsupported reference image type: {type(ref_image)}")
-            ref_resized = ref_image.resize((self.target_size, self.target_size), Image.BILINEAR)
+            ow, oh = ref_image.size
+            scale = min(self.target_size / ow, self.target_size / oh)
+            rw = max(8, int(round(ow * scale)) // 8 * 8)
+            rh = max(8, int(round(oh * scale)) // 8 * 8)
+            pl = (self.target_size - rw) // 2
+            pr = self.target_size - rw - pl
+            pt = (self.target_size - rh) // 2
+            pb = self.target_size - rh - pt
+            ref_resized = ref_image.resize((rw, rh), Image.BILINEAR)
             ref_np = np.array(ref_resized).astype(np.float32) / 255.0
             ref_tensor = torch.from_numpy(ref_np).permute(2, 0, 1).unsqueeze(0)
             ref_tensor = (ref_tensor - 0.5) / 0.5
+            ref_tensor = F.pad(ref_tensor, (pl, pr, pt, pb), value=0.0)
             ref_tensor = ref_tensor.to(device=self.device, dtype=self.vae.dtype)
 
         with torch.no_grad():
