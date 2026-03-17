@@ -14,9 +14,12 @@ def configure_branched_trainables(model) -> None:
         return
 
     mode = (getattr(model, "branched_attn_weight_mode", "shared") or "shared").lower()
+    new_weight_kind = (getattr(model, "branched_attn_new_weight_kind", "full") or "full").lower()
     train_ca = bool(getattr(model, "train_branched_ca_lora", True))
     if mode not in {"shared", "ref_only", "noise_and_ref"}:
         raise ValueError(f"Unknown branched_attn_weight_mode: {mode}")
+    if new_weight_kind not in {"full", "lora"}:
+        raise ValueError(f"Unknown branched_attn_new_weight_kind: {new_weight_kind}")
 
     for _, p in model.unet.named_parameters():
         p.requires_grad_(False)
@@ -26,9 +29,13 @@ def configure_branched_trainables(model) -> None:
             if ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn1." in name:
                 p.requires_grad_(True)
         else:
-            if ".attn1.processor.ref_to_" in name:
+            if ".attn1.processor.ref_to_" in name and (
+                new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
+            ):
                 p.requires_grad_(True)
-            elif mode == "noise_and_ref" and ".attn1.processor.noise_to_" in name:
+            elif mode == "noise_and_ref" and ".attn1.processor.noise_to_" in name and (
+                new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
+            ):
                 p.requires_grad_(True)
 
         if train_ca and ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn2." in name:

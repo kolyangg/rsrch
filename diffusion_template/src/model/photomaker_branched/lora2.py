@@ -60,6 +60,7 @@ class PhotomakerBranchedLora(SDXL):
         ba_weights_split: bool = False,    # optionally enable per-branch BA-specific adapters
         use_attn_v2: bool = True,          # toggle between attn_processor2 (v2) and attn_processor (legacy)
         branched_attn_weight_mode: str = "shared",
+        branched_attn_new_weight_kind: str = "full",
         train_branched_ca_lora: bool = True,
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
@@ -76,6 +77,7 @@ class PhotomakerBranchedLora(SDXL):
             device=device,
         )
         self.lora_rank = rank
+        self.branched_attn_lora_rank = int(rank)
         self.init_lora_weights = init_lora_weights
         self.lora_modules = lora_modules
 
@@ -157,6 +159,7 @@ class PhotomakerBranchedLora(SDXL):
         # Select which branched attention processor implementation to use at train time.
         self.use_attn_v2 = bool(use_attn_v2)
         self.branched_attn_weight_mode = (branched_attn_weight_mode or "shared").lower()
+        self.branched_attn_new_weight_kind = (branched_attn_new_weight_kind or "full").lower()
         self.train_branched_ca_lora = bool(train_branched_ca_lora)
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 
@@ -254,7 +257,14 @@ class PhotomakerBranchedLora(SDXL):
         if hasattr(self.unet, "attn_processors"):
             proc_sd = {}
             for name, proc in self.unet.attn_processors.items():
-                sd = proc.state_dict()
+                trainable = tuple(n for n, p in proc.named_parameters() if p.requires_grad)
+                if not trainable:
+                    continue
+                full_sd = proc.state_dict()
+                sd = {
+                    k: v for k, v in full_sd.items()
+                    if any(k == n or k.startswith(n + ".") for n in trainable)
+                }
                 if sd:
                     proc_sd[name] = sd
             if proc_sd:

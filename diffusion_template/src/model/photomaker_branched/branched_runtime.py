@@ -116,6 +116,10 @@ def patch_unet_attention_processors(
                         cross_attention_dim=hidden_size,
                         scale=scale,
                         branched_attn_weight_mode=getattr(pipeline, "branched_attn_weight_mode", "shared"),
+                        branched_attn_new_weight_kind=getattr(pipeline, "branched_attn_new_weight_kind", "full"),
+                        branched_attn_lora_rank=int(
+                            getattr(pipeline, "branched_attn_lora_rank", getattr(pipeline, "lora_rank", 16))
+                        ),
                     )
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
                     proc = proc.to(pipeline.device, dtype=pipeline.unet.dtype)

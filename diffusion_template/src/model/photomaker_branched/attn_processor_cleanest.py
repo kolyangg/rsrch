@@ -9,22 +9,74 @@ from typing import Optional
 import math
 
 
-def _clone_effective_linear(attn_linear, adapter_name: str = "default") -> nn.Linear:
+class BranchLoRALinear(nn.Module):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        rank: int = 16,
+        alpha: Optional[int] = None,
+        bias: bool = True,
+        device=None,
+        dtype=None,
+    ):
+        super().__init__()
+        self.rank = int(rank)
+        self.scaling = float(alpha if alpha is not None else rank) / float(rank)
+        self.register_buffer("base_weight", torch.empty(out_features, in_features, device=device, dtype=dtype))
+        self.register_buffer("base_bias", torch.empty(out_features, device=device, dtype=dtype) if bias else None)
+        self.lora_A = nn.Parameter(torch.empty(self.rank, in_features, device=device, dtype=dtype))
+        self.lora_B = nn.Parameter(torch.zeros(out_features, self.rank, device=device, dtype=dtype))
+        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.linear(x, self.base_weight, self.base_bias) + F.linear(
+            F.linear(x, self.lora_A),
+            self.lora_B,
+        ) * self.scaling
+
+
+def _clone_effective_linear(
+    attn_linear,
+    *,
+    kind: str,
+    rank: int,
+    alpha: Optional[int] = None,
+    adapter_name: str = "default",
+):
     base = attn_linear.get_base_layer() if hasattr(attn_linear, "get_base_layer") else attn_linear
-    cloned = nn.Linear(
-        base.in_features,
-        base.out_features,
-        bias=base.bias is not None,
-        device=base.weight.device,
-        dtype=base.weight.dtype,
-    )
+    if kind == "full":
+        cloned = nn.Linear(
+            base.in_features,
+            base.out_features,
+            bias=base.bias is not None,
+            device=base.weight.device,
+            dtype=base.weight.dtype,
+        )
+    elif kind == "lora":
+        cloned = BranchLoRALinear(
+            base.in_features,
+            base.out_features,
+            rank=rank,
+            alpha=alpha,
+            bias=base.bias is not None,
+            device=base.weight.device,
+            dtype=base.weight.dtype,
+        )
+    else:
+        raise ValueError(f"Unknown branched_attn_new_weight_kind: {kind}")
     with torch.no_grad():
         weight = base.weight.detach().clone()
         if hasattr(attn_linear, "lora_A") and adapter_name in attn_linear.lora_A:
             weight = weight + attn_linear.get_delta_weight(adapter_name).detach().to(weight.device, weight.dtype)
-        cloned.weight.copy_(weight)
-        if base.bias is not None:
-            cloned.bias.copy_(base.bias.detach())
+        if kind == "full":
+            cloned.weight.copy_(weight)
+            if base.bias is not None:
+                cloned.bias.copy_(base.bias.detach())
+        else:
+            cloned.base_weight.copy_(weight)
+            if base.bias is not None:
+                cloned.base_bias.copy_(base.bias.detach())
     return cloned
 
 
@@ -40,6 +92,8 @@ class BranchedAttnProcessor(nn.Module):
         cross_attention_dim: Optional[int] = None,
         scale: float = 1.0,
         branched_attn_weight_mode: str = "shared",
+        branched_attn_new_weight_kind: str = "full",
+        branched_attn_lora_rank: int = 16,
     ):
         super().__init__()
 
@@ -52,6 +106,8 @@ class BranchedAttnProcessor(nn.Module):
         self.cross_attention_dim = cross_attention_dim or hidden_size
         self.scale = scale
         self.branched_attn_weight_mode = (branched_attn_weight_mode or "shared").lower()
+        self.branched_attn_new_weight_kind = (branched_attn_new_weight_kind or "full").lower()
+        self.branched_attn_lora_rank = int(branched_attn_lora_rank)
         
         self.mask = None
         self.mask_ref = None
@@ -70,13 +126,37 @@ class BranchedAttnProcessor(nn.Module):
     def init_from_attention(self, attn) -> None:
         mode = self.branched_attn_weight_mode
         if mode in {"ref_only", "noise_and_ref"}:
-            self.ref_to_q = _clone_effective_linear(attn.to_q)
-            self.ref_to_k = _clone_effective_linear(attn.to_k)
-            self.ref_to_v = _clone_effective_linear(attn.to_v)
+            self.ref_to_q = _clone_effective_linear(
+                attn.to_q,
+                kind=self.branched_attn_new_weight_kind,
+                rank=self.branched_attn_lora_rank,
+            )
+            self.ref_to_k = _clone_effective_linear(
+                attn.to_k,
+                kind=self.branched_attn_new_weight_kind,
+                rank=self.branched_attn_lora_rank,
+            )
+            self.ref_to_v = _clone_effective_linear(
+                attn.to_v,
+                kind=self.branched_attn_new_weight_kind,
+                rank=self.branched_attn_lora_rank,
+            )
         if mode == "noise_and_ref":
-            self.noise_to_q = _clone_effective_linear(attn.to_q)
-            self.noise_to_k = _clone_effective_linear(attn.to_k)
-            self.noise_to_v = _clone_effective_linear(attn.to_v)
+            self.noise_to_q = _clone_effective_linear(
+                attn.to_q,
+                kind=self.branched_attn_new_weight_kind,
+                rank=self.branched_attn_lora_rank,
+            )
+            self.noise_to_k = _clone_effective_linear(
+                attn.to_k,
+                kind=self.branched_attn_new_weight_kind,
+                rank=self.branched_attn_lora_rank,
+            )
+            self.noise_to_v = _clone_effective_linear(
+                attn.to_v,
+                kind=self.branched_attn_new_weight_kind,
+                rank=self.branched_attn_lora_rank,
+            )
 
     def _q_noise(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
         layer = self.noise_to_q if self.noise_to_q is not None else attn.to_q
