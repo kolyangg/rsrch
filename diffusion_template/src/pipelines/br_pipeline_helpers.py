@@ -293,6 +293,8 @@ def set_validation_unet_mode(pipeline, *, branched_active: bool) -> None:
         return
 
     if branched_active:
+        if hasattr(pipeline, "_branched_attn_processors"):
+            pipeline.unet.set_attn_processor(dict(pipeline._branched_attn_processors))
         adapters = getattr(pipeline, "_branched_active_adapters", None)
         if adapters:
             _set_unet_adapters(pipeline.unet, adapters)
@@ -872,6 +874,8 @@ def build_pipeline_from_pretrained(
     )
     if hasattr(unwrapped_model, "_original_attn_processors"):
         pipeline._original_attn_processors = dict(unwrapped_model._original_attn_processors)
+    if hasattr(unwrapped_model.unet, "attn_processors"):
+        pipeline._branched_attn_processors = dict(unwrapped_model.unet.attn_processors)
     active_adapters = _get_unet_active_adapters(unwrapped_model.unet)
     if active_adapters:
         pipeline._branched_active_adapters = active_adapters

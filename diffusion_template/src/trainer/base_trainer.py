@@ -456,13 +456,10 @@ class BaseTrainer:
                                 v_proc = v_procs.get(name)
                                 if v_proc is None:
                                     continue
-                                t_linear = getattr(t_proc, "id_to_hidden", None)
-                                v_linear = getattr(v_proc, "id_to_hidden", None)
-                                if t_linear is not None and v_linear is not None:
-                                    try:
-                                        v_linear.load_state_dict(t_linear.state_dict())
-                                    except Exception:
-                                        continue
+                                try:
+                                    v_proc.load_state_dict(t_proc.state_dict(), strict=False)
+                                except Exception:
+                                    continue
                     # Move the temporary validation model to the active device (GPU)
                     try:
                         _val_model.to(self.device)
