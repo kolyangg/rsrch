@@ -69,6 +69,8 @@ def patch_unet_attention_processors(
         # Optional toggle for per-branch BA-specific adapters.
         if hasattr(pipe, "ba_weights_split"):
             setattr(proc, "ba_weights_split", getattr(pipe, "ba_weights_split"))
+        if hasattr(pipe, "force_binary_masks"):
+            setattr(proc, "force_binary_masks", bool(getattr(pipe, "force_binary_masks")))
             
         
 

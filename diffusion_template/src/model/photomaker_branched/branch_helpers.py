@@ -16,13 +16,23 @@ __all__ = [
 def prepare_mask4(pipeline, latents: torch.Tensor, suffix) -> torch.Tensor:
     """Return `(1,1,H,W)` tensor mask matching *latents* spatial size."""
 
+    def _is_soft_mask(t: torch.Tensor) -> bool:
+        if not torch.is_floating_point(t):
+            return False
+        return bool(torch.any((t > 0) & (t < 1)).item())
+
+    force_binary = bool(getattr(pipeline, "force_binary_masks", True))
+
     # Use high-res mask for reference if available
     if suffix == "_ref" and hasattr(pipeline, f"_face_mask_highres{suffix}"):
         mask_np_highres = getattr(pipeline, f"_face_mask_highres{suffix}")
         m = torch.from_numpy(mask_np_highres).to(device=latents.device, dtype=torch.float32)[None, None]
         # Use bicubic for smoother downsampling
         m = F.interpolate(m, size=latents.shape[-2:], mode="bicubic", align_corners=False)
-        m = (m > 0.5).to(dtype=latents.dtype)  # Re-binarize
+        if force_binary or not _is_soft_mask(m):
+            m = (m > 0.5).to(dtype=latents.dtype)  # Re-binarize hard masks only
+        else:
+            m = m.to(dtype=latents.dtype)
         return m
 
     # pick which numpy mask to use
@@ -52,5 +62,8 @@ def prepare_mask4(pipeline, latents: torch.Tensor, suffix) -> torch.Tensor:
     #### 08 MAR - FIX BATCHED VALIDATION ####
 
     if m.shape[-2:] != latents.shape[-2:]:
-        m = F.interpolate(m, size=latents.shape[-2:], mode="nearest")
-    return m
+        if (not force_binary) and _is_soft_mask(m.float()):
+            m = F.interpolate(m.float(), size=latents.shape[-2:], mode="bilinear", align_corners=False)
+        else:
+            m = F.interpolate(m.float(), size=latents.shape[-2:], mode="nearest")
+    return m.to(dtype=latents.dtype)

@@ -78,6 +78,70 @@ def annotate_original_and_expanded_bbox(
     return annotate_pil(img, boxes, line_width=line_width)
 
 
+def _bbox_mask_from_original_and_expanded(
+    *,
+    original_bbox: Optional[Sequence[float]],
+    expanded_bbox: Optional[Sequence[float]],
+    height: int,
+    width: int,
+    mask_softness: float,
+) -> np.ndarray:
+    mask = np.zeros((height, width), dtype=np.float32)
+    if original_bbox is None and expanded_bbox is None:
+        return mask
+
+    base_bbox = expanded_bbox if expanded_bbox is not None else original_bbox
+    core_bbox = original_bbox if original_bbox is not None else base_bbox
+    if base_bbox is None or core_bbox is None:
+        return mask
+
+    ex0, ey0, ex1, ey1 = [int(round(v)) for v in base_bbox]
+    ox0, oy0, ox1, oy1 = [int(round(v)) for v in core_bbox]
+
+    ex0 = max(0, min(width, ex0))
+    ex1 = max(0, min(width, ex1))
+    ey0 = max(0, min(height, ey0))
+    ey1 = max(0, min(height, ey1))
+    ox0 = max(0, min(width, ox0))
+    ox1 = max(0, min(width, ox1))
+    oy0 = max(0, min(height, oy0))
+    oy1 = max(0, min(height, oy1))
+
+    if ex1 <= ex0 or ey1 <= ey0 or ox1 <= ox0 or oy1 <= oy0:
+        return mask
+
+    hard = np.zeros((height, width), dtype=np.float32)
+    hard[ey0:ey1, ex0:ex1] = 1.0
+
+    softness = float(np.clip(mask_softness, 0.0, 1.0))
+    if softness <= 0.0:
+        return hard
+
+    xs = np.arange(width, dtype=np.float32)
+    ys = np.arange(height, dtype=np.float32)
+    wx = np.zeros(width, dtype=np.float32)
+    wy = np.zeros(height, dtype=np.float32)
+
+    if ox0 > ex0:
+        sel = (xs >= ex0) & (xs < ox0)
+        wx[sel] = (xs[sel] - ex0) / max(float(ox0 - ex0), 1.0)
+    wx[(xs >= ox0) & (xs < ox1)] = 1.0
+    if ex1 > ox1:
+        sel = (xs >= ox1) & (xs < ex1)
+        wx[sel] = (ex1 - xs[sel]) / max(float(ex1 - ox1), 1.0)
+
+    if oy0 > ey0:
+        sel = (ys >= ey0) & (ys < oy0)
+        wy[sel] = (ys[sel] - ey0) / max(float(oy0 - ey0), 1.0)
+    wy[(ys >= oy0) & (ys < oy1)] = 1.0
+    if ey1 > oy1:
+        sel = (ys >= oy1) & (ys < ey1)
+        wy[sel] = (ey1 - ys[sel]) / max(float(ey1 - oy1), 1.0)
+
+    soft = np.minimum(wy[:, None], wx[None, :]).astype(np.float32)
+    return ((1.0 - softness) * hard + softness * soft).astype(np.float32)
+
+
 def ensure_face_analyzer(pipeline) -> None:
     if hasattr(pipeline, "_face_analyzer"):
         return
@@ -195,6 +259,7 @@ def prepare_ref_mask(
     use_bbox_mask_ref: bool,
     face_bbox_ref: Optional[List[float]],
     mask_expansion_ratio: float,
+    mask_softness: float,
     import_mask_ref: Optional[str],
     debug_dir: Optional[str],
     height: int,
@@ -240,12 +305,26 @@ def prepare_ref_mask(
         x1s = max(0, min(width, x1s))
         y0s = max(0, min(height, y0s))
         y1s = max(0, min(height, y1s))
-        if x1s > x0s and y1s > y0s:
-            ref_mask[y0s:y1s, x0s:x1s] = True
+        orig_x0, orig_y0, orig_x1, orig_y1 = [float(v) for v in face_bbox_ref]
+        ox0s = int(round(orig_x0 * sx + pl))
+        ox1s = int(round(orig_x1 * sx + pl))
+        oy0s = int(round(orig_y0 * sy + pt))
+        oy1s = int(round(orig_y1 * sy + pt))
+        ox0s = max(0, min(width, ox0s))
+        ox1s = max(0, min(width, ox1s))
+        oy0s = max(0, min(height, oy0s))
+        oy1s = max(0, min(height, oy1s))
+        ref_mask = _bbox_mask_from_original_and_expanded(
+            original_bbox=[ox0s, oy0s, ox1s, oy1s],
+            expanded_bbox=[x0s, y0s, x1s, y1s],
+            height=height,
+            width=width,
+            mask_softness=mask_softness,
+        )
         pipeline._face_bbox_ref_original = list(face_bbox_ref)
         pipeline._face_bbox_ref_expanded = list(expanded_bbox_ref)
         pipeline._face_mask_ref = ref_mask
-        pipeline._face_mask_t_ref = torch.from_numpy(ref_mask.astype(np.uint8))[None, None]
+        pipeline._face_mask_t_ref = torch.from_numpy(ref_mask.astype(np.float32))[None, None]
 
     return import_mask_ref
 
@@ -257,6 +336,7 @@ def prepare_gen_mask(
     use_bbox_mask_gen: bool,
     face_bbox_gen: Optional[List[float]],
     mask_expansion_ratio: float,
+    mask_softness: float,
     height: int,
     width: int,
     batch_size: int = 1,
@@ -284,37 +364,37 @@ def prepare_gen_mask(
                     height=height,
                 )
                 expanded_boxes.append(list(expanded_box))
-                x0, y0, x1, y1 = [float(v) for v in expanded_box]
-                x0i = max(0, min(width, int(round(x0))))
-                x1i = max(0, min(width, int(round(x1))))
-                y0i = max(0, min(height, int(round(y0))))
-                y1i = max(0, min(height, int(round(y1))))
-                if x1i > x0i and y1i > y0i:
-                    gen_mask[bi, y0i:y1i, x0i:x1i] = True
+                gen_mask[bi] = _bbox_mask_from_original_and_expanded(
+                    original_bbox=box,
+                    expanded_bbox=expanded_box,
+                    height=height,
+                    width=width,
+                    mask_softness=mask_softness,
+                )
             pipeline._face_bbox_gen_original = [list(box) for box in boxes]
             pipeline._face_bbox_gen_expanded = expanded_boxes
             pipeline._face_mask = gen_mask
-            pipeline._face_mask_t = torch.from_numpy(gen_mask.astype(np.uint8))[:, None]
+            pipeline._face_mask_t = torch.from_numpy(gen_mask.astype(np.float32))[:, None]
             return
 
-        gen_mask = np.zeros((height, width), dtype=bool)
+        gen_mask = np.zeros((height, width), dtype=np.float32)
         expanded_bbox_gen = expand_bbox_xyxy(
             face_bbox_gen,
             expansion_ratio=mask_expansion_ratio,
             width=width,
             height=height,
         )
-        x0, y0, x1, y1 = [float(v) for v in expanded_bbox_gen]
-        x0i = max(0, min(width, int(round(x0))))
-        x1i = max(0, min(width, int(round(x1))))
-        y0i = max(0, min(height, int(round(y0))))
-        y1i = max(0, min(height, int(round(y1))))
-        if x1i > x0i and y1i > y0i:
-            gen_mask[y0i:y1i, x0i:x1i] = True
+        gen_mask = _bbox_mask_from_original_and_expanded(
+            original_bbox=face_bbox_gen,
+            expanded_bbox=expanded_bbox_gen,
+            height=height,
+            width=width,
+            mask_softness=mask_softness,
+        )
         pipeline._face_bbox_gen_original = list(face_bbox_gen)
         pipeline._face_bbox_gen_expanded = list(expanded_bbox_gen)
         pipeline._face_mask = gen_mask
-        pipeline._face_mask_t = torch.from_numpy(gen_mask.astype(np.uint8))[None, None]
+        pipeline._face_mask_t = torch.from_numpy(gen_mask.astype(np.float32))[None, None]
     elif (not use_dynamic_mask) and use_bbox_mask_gen and face_bbox_gen is None:
         raise RuntimeError(
             "use_bbox_mask_gen=True but no face_bbox_gen provided for generated image;"
@@ -395,6 +475,7 @@ def run_branched_setup(
     use_bbox_mask_ref: bool,
     face_bbox_ref: Optional[List[float]],
     mask_expansion_ratio: float,
+    mask_softness: float,
     import_mask_ref: Optional[str],
     debug_dir: Optional[str],
     use_dynamic_mask: bool,
@@ -424,6 +505,7 @@ def run_branched_setup(
             use_bbox_mask_ref=use_bbox_mask_ref,
             face_bbox_ref=face_bbox_ref,
             mask_expansion_ratio=mask_expansion_ratio,
+            mask_softness=mask_softness,
             import_mask_ref=import_mask_ref,
             debug_dir=debug_dir,
             height=height,
@@ -436,6 +518,7 @@ def run_branched_setup(
         use_bbox_mask_gen=use_bbox_mask_gen,
         face_bbox_gen=face_bbox_gen,
         mask_expansion_ratio=mask_expansion_ratio,
+        mask_softness=mask_softness,
         height=height,
         width=width,
         batch_size=batch_size,

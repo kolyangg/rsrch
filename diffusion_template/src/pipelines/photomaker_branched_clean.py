@@ -585,6 +585,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         face_bbox_ref: Optional[List[float]] = None, # Optional per-sample face boxes (x0,y0,x1,y1) in pixel space
         face_bbox_gen: Optional[List[float]] = None, # Optional per-sample face boxes (x0,y0,x1,y1) in pixel space
         mask_expansion_ratio: float = 1.0,
+        mask_softness: float = 0.0,
         import_mask: Optional[str] = "../compare/testing/ref2_masks/keanu_gen_mask.png",        
         import_mask_ref: Optional[str] = None, # to debug auto_mask_ref
 
@@ -853,6 +854,8 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         
         ##### BRANCHED ATTENTION - BIG BA BLOCK #####
         """Prepare branched runtime state once (reference latents/masks, strategy cache, and ID features)."""
+        self.mask_softness = float(mask_softness)
+        self.force_binary_masks = bool(float(mask_softness) <= 0.0)
         face_bbox_ref_for_setup = face_bbox_ref
         if (
             per_prompt_id_images
@@ -873,6 +876,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             use_bbox_mask_ref=use_bbox_mask_ref,
             face_bbox_ref=face_bbox_ref_for_setup,
             mask_expansion_ratio=mask_expansion_ratio,
+            mask_softness=mask_softness,
             import_mask_ref=import_mask_ref,
             debug_dir=debug_dir,
             use_dynamic_mask=use_dynamic_mask,
@@ -1163,6 +1167,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         use_bbox_mask_ref: bool,
         face_bbox_ref: Optional[List[float]],
         mask_expansion_ratio: float,
+        mask_softness: float,
         import_mask_ref: Optional[str],
         debug_dir: Optional[str],
         height: int,
@@ -1175,6 +1180,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             use_bbox_mask_ref=use_bbox_mask_ref,
             face_bbox_ref=face_bbox_ref,
             mask_expansion_ratio=mask_expansion_ratio,
+            mask_softness=mask_softness,
             import_mask_ref=import_mask_ref,
             debug_dir=debug_dir,
             height=height,
@@ -1188,6 +1194,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         use_bbox_mask_gen: bool,
         face_bbox_gen: Optional[List[float]],
         mask_expansion_ratio: float,
+        mask_softness: float,
         height: int,
         width: int,
     ) -> None:
@@ -1197,6 +1204,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             use_bbox_mask_gen=use_bbox_mask_gen,
             face_bbox_gen=face_bbox_gen,
             mask_expansion_ratio=mask_expansion_ratio,
+            mask_softness=mask_softness,
             height=height,
             width=width,
         )
