@@ -13,7 +13,6 @@ from transformers import CLIPImageProcessor
 
 from src.model.photomaker_branched.branched_runtime import (
     encode_face_prompt,
-    restore_original_processors,
     two_branch_predict,
 )
 from src.model.photomaker_branched.branch_helpers import prepare_mask4
@@ -260,6 +259,34 @@ def prepare_id_features(
             class_tokens_mask=class_tokens_mask,
         )
         pipeline._pm_id_embeds_2048 = pm_feats.to(device=pipeline.device, dtype=pipeline.unet.dtype)
+
+
+def _set_unet_adapters(unet, adapter_names) -> None:
+    if not hasattr(unet, "set_adapter"):
+        return
+    if isinstance(adapter_names, (list, tuple)):
+        if len(adapter_names) == 1:
+            unet.set_adapter(adapter_names[0])
+        else:
+            unet.set_adapter(list(adapter_names))
+    else:
+        unet.set_adapter(adapter_names)
+
+
+def set_validation_unet_mode(pipeline, *, branched_active: bool) -> None:
+    if getattr(pipeline, "_runtime_uses_branched_unet", None) == branched_active:
+        return
+
+    if branched_active:
+        adapters = getattr(pipeline, "_branched_active_adapters", None)
+        if adapters:
+            _set_unet_adapters(pipeline.unet, adapters)
+    else:
+        if hasattr(pipeline, "_original_attn_processors"):
+            pipeline.unet.set_attn_processor(dict(pipeline._original_attn_processors))
+        _set_unet_adapters(pipeline.unet, "default")
+
+    pipeline._runtime_uses_branched_unet = branched_active
 
 
 def run_branched_setup(
@@ -697,6 +724,7 @@ def run_denoising_step(
     noise_face = None
     mask4 = None
     branched_active = use_branched_attention and (mode in ("BRANCHED", "BOTH"))
+    set_validation_unet_mode(pipeline, branched_active=branched_active)
     if branched_active:
         noise_pred, noise_face, mask4 = run_branched_step(
             pipeline,
@@ -743,10 +771,8 @@ def run_denoising_step(
 
 
 def cleanup_branched_runtime(pipeline, *, use_branched_attention: bool) -> None:
-    if not use_branched_attention:
-        return
-
-    restore_original_processors(pipeline)
+    del use_branched_attention
+    set_validation_unet_mode(pipeline, branched_active=False)
     for attr in ["_reference_latents", "_face_prompt_embeds", "_ref_latents_all", "_ref_noise"]:
         if hasattr(pipeline, attr):
             delattr(pipeline, attr)
@@ -821,6 +847,11 @@ def build_pipeline_from_pretrained(
     pipeline.use_id_embeds = bool(use_id_embeds_cfg)
     pipeline.id_alpha = float(id_alpha_cfg)
     pipeline.branched_attn_weight_mode = getattr(unwrapped_model, "branched_attn_weight_mode", "shared")
+    if hasattr(unwrapped_model, "_original_attn_processors"):
+        pipeline._original_attn_processors = dict(unwrapped_model._original_attn_processors)
+    if hasattr(unwrapped_model.unet, "active_adapters"):
+        pipeline._branched_active_adapters = list(unwrapped_model.unet.active_adapters)
+    pipeline._runtime_uses_branched_unet = None
 
     pipeline.tokenizer.add_tokens([pipeline.trigger_word], special_tokens=True)
     pipeline.tokenizer_2.add_tokens([pipeline.trigger_word], special_tokens=True)
