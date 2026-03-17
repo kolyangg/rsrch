@@ -17,6 +17,10 @@ def log_debug_image(message: str) -> None:
         print(message)
 
 
+def _val_debug_enabled(pipeline) -> bool:
+    return bool(getattr(pipeline, "_val_debug", True))
+
+
 __all__ = [
     "DEBUG_LOG_DEBUG_IMAGES",
     "log_debug_image",
@@ -44,7 +48,7 @@ def save_branch_previews(
 ) -> None:
     """Save preview of merged prediction with mask overlay."""
 
-    if mask4 is None or noise_pred is None:
+    if not _val_debug_enabled(pipeline) or mask4 is None or noise_pred is None:
         return
 
     debug_path = Path(debug_dir)  # --- MODIFIED For training integration ---
@@ -108,6 +112,9 @@ def debug_reference_latents_once(
     Replicates the old pipeline.py debug section.
     Executes **only once** per pipeline instance.
     """
+
+    if not _val_debug_enabled(pipeline):
+        return
 
     debug_path = Path(debug_dir)  # --- MODIFIED For training integration ---
     debug_dir_key = str(debug_path)  # --- MODIFIED For training integration ---
@@ -203,6 +210,9 @@ def save_debug_ref_latents(pipeline, debug_dir: str) -> None:
     Decode reference latents back to RGB once and write
     `<debug_dir>/debug_ref_latents.png`.
     """
+    if not _val_debug_enabled(pipeline):
+        return
+
     debug_path = Path(debug_dir)
     debug_dir_key = str(debug_path)
 
@@ -256,6 +266,9 @@ def save_debug_ref_latents(pipeline, debug_dir: str) -> None:
 
 def save_debug_ref_mask_overlay(pipeline, mask4_ref, debug_dir: str) -> None:
     """Decode ref latents and overlay the ref mask (imported or mask4_ref) for alignment check."""
+    if not _val_debug_enabled(pipeline):
+        return
+
     debug_path = Path(debug_dir)
     debug_dir_key = str(debug_path)
 
@@ -390,6 +403,9 @@ def save_debug_images(
    output_dir: str = "debug",
 ):
    """Save debug visualizations."""
+   if not _val_debug_enabled(pipeline):
+       return
+
    os.makedirs(output_dir, exist_ok=True)
    
    # Save mask visualization

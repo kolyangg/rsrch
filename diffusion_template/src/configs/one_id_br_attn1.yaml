@@ -95,10 +95,12 @@ val_datasets_names: ["one_id_val"]
 inference_metrics: ["clip_ts", "id_sim_best"]
 
 validation_debug_timing: false
+val_debug: true
 
 validation_args:
   negative_prompt: "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry"
   debug_dir: hm_debug
+  val_debug: ${val_debug}
   num_images_per_prompt: 5
   num_inference_steps: ${model.num_inference_steps}
   guidance_scale: 5

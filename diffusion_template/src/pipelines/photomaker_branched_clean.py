@@ -593,6 +593,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         
         debug_dir: Optional[str] = None,
         debug_idx: Optional[int] = None,
+        val_debug: bool = True,
         force_par_before_pm: bool = False,
         ##### BRANCHED ATTENTION - ADDITIONAL SWITCHES #####
         
@@ -673,6 +674,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         self._cross_attention_kwargs = cross_attention_kwargs
         self._denoising_end = denoising_end
         self._interrupt = False
+        self._val_debug = bool(val_debug)
 
         #        
         if prompt_embeds is not None and class_tokens_mask is None:

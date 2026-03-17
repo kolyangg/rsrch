@@ -90,6 +90,8 @@ class SDXLTrainer(BaseTrainer):
         validation_kwargs = OmegaConf.to_container(self.config.validation_args, resolve=True)
         if not isinstance(validation_kwargs, dict):
             validation_kwargs = dict(validation_kwargs)
+        val_debug = bool(validation_kwargs.get("val_debug", getattr(self.config, "val_debug", True)))
+        validation_kwargs["val_debug"] = val_debug
         debug_base = validation_kwargs.get("debug_dir", "hm_debug")
         debug_idx = batch.get("debug_idx", 0)
         debug_total = batch.get("debug_total")
@@ -97,7 +99,7 @@ class SDXLTrainer(BaseTrainer):
         validation_kwargs["debug_idx"] = int(debug_idx)
         if debug_total is not None:
             validation_kwargs["debug_total"] = int(debug_total)
-        if DEBUG_LOG_DEBUG_IMAGES:
+        if DEBUG_LOG_DEBUG_IMAGES and val_debug:
             print(f"[DebugImage] validation batch idx={debug_idx} → debug_dir={validation_kwargs['debug_dir']}")
         generated_images = self.pipe(
             prompt=batch['prompt'],
@@ -274,6 +276,7 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             prompts = [prompts]
 
         batch_size = len(prompts)
+        val_debug = bool(self.config.validation_args.get("val_debug", getattr(self.config, "val_debug", True)))
 
         # Optional: generate gen-bboxes on-the-fly via an extra PhotoMaker-only pass.
         # Only makes sense when branched attention is expected to run.
@@ -448,7 +451,7 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             batch_debug_idx * batch_size + idx if batch_size > 1 else batch_debug_idx
             for idx in range(batch_size)
         ]
-        debug_dir = self.config.validation_args.get("debug_dir", None)
+        debug_dir = self.config.validation_args.get("debug_dir", None) if val_debug else None
         sample_mask_images = [None] * batch_size
 
         # Match infer.py: if a filename-keyed bbox map is provided, override face_bbox_gen by exact output name
@@ -521,6 +524,7 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 pm_kwargs["debug_dir"] = None
                 pm_kwargs["debug_idx"] = int(batch_debug_idx)
                 pm_kwargs["debug_total"] = int(batch_debug_total)
+                pm_kwargs["val_debug"] = val_debug
 
                 pm_images = self.pipe(
                     prompt=pm_prompts if len(pm_prompts) > 1 else pm_prompts[0],
@@ -607,6 +611,7 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         val_kwargs = dict(self.config.validation_args)
         val_kwargs["debug_idx"] = int(batch_debug_idx)
         val_kwargs["debug_total"] = int(batch_debug_total)
+        val_kwargs["val_debug"] = val_debug
 
         callback = None
         step_durations = []

@@ -26,6 +26,10 @@ from src.model.photomaker_branched.debug_helpers import (
 from src.model.photomaker_branched.insightface_package import analyze_faces, create_face_analyzer
 
 
+def _val_debug_enabled(pipeline) -> bool:
+    return bool(getattr(pipeline, "_val_debug", True))
+
+
 def ensure_face_analyzer(pipeline) -> None:
     if hasattr(pipeline, "_face_analyzer"):
         return
@@ -501,7 +505,7 @@ def run_branched_step(
     if mask4 is None or mask4_ref is None:
         raise RuntimeError("Branched attention requires both mask4 and mask4_ref.")
 
-    if i == branched_attn_start_step or i % 10 == 0:
+    if _val_debug_enabled(pipeline) and (i == branched_attn_start_step or i % 10 == 0):
         print(
             f"[PL] step={i}  mask_gen>0.5={(mask4 > 0.5).float().mean().item():.4f}  "
             f"mask_ref>0.5={(mask4_ref > 0.5).float().mean().item():.4f}"
@@ -510,8 +514,9 @@ def run_branched_step(
         if md < 0.01:
             print(f"[Warning] Noise and ref masks are nearly identical (diff={md:.4f})")
 
-    debug_reference_latents_once(pipeline, mask4_ref, debug_dir)
-    if i == branched_attn_start_step:
+    if _val_debug_enabled(pipeline) and debug_dir is not None:
+        debug_reference_latents_once(pipeline, mask4_ref, debug_dir)
+    if _val_debug_enabled(pipeline) and i == branched_attn_start_step:
         base_debug_dir = Path(debug_dir) if debug_dir is not None else None
         if base_debug_dir is not None:
             ref_masks = mask4_ref
@@ -589,7 +594,7 @@ def run_branched_step(
         timestep_cond=timestep_cond,
     )
 
-    if i < (branched_attn_start_step + 3):
+    if _val_debug_enabled(pipeline) and i < (branched_attn_start_step + 3):
         print(
             f"[Debug] Step {i}: noise_pred stats - "
             f"mean={noise_pred.mean().item():.4f}, "
@@ -617,6 +622,9 @@ def save_step_previews(
     noise_face: Optional[torch.Tensor],
     extra_step_kwargs: Dict[str, Any],
 ) -> None:
+    if not _val_debug_enabled(pipeline):
+        return
+
     if not (i % 10 == 0 or i == num_inference_steps - 1):
         return
 
