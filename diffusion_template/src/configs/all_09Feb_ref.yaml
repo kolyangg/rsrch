@@ -1,0 +1,5 @@
+defaults:
+  - all_09Feb
+  - _self_
+
+branched_attn_weight_mode: ref_only
