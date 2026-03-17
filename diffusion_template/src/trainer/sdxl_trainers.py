@@ -282,8 +282,15 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         # Only makes sense when branched attention is expected to run.
         automatic_bboxes = bool(getattr(self.config, "automatic_bboxes", False))
         automatic_bboxes_every_val = bool(getattr(self.config, "automatic_bboxes_every_val", True))
+        force_log_first_auto_bbox = bool(getattr(self.config, "force_log_first_auto_bbox", True))
         use_gen_mask = bool(self.config.validation_args.get("use_bbox_mask_gen", False))
         use_branched_attention = bool(self.config.validation_args.get("use_branched_attention", False))
+        mask_expansion_ratio = float(
+            self.config.validation_args.get(
+                "mask_expansion_ratio",
+                getattr(self.config, "mask_expansion_ratio", 1.0),
+            )
+        )
         try:
             sm = int(self.config.validation_args.get("photomaker_start_step", 0))
             bs = int(self.config.validation_args.get("branched_attn_start_step", 0))
@@ -295,6 +302,12 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         # (bs==sm is a valid "start from step 0" configuration.)
         branched_expected = bool(use_branched_attention) and (bs < nsteps)
         auto_bbox_enabled = bool(automatic_bboxes and use_gen_mask and branched_expected)
+        force_cached_auto_bbox_log = bool(
+            auto_bbox_enabled
+            and (not automatic_bboxes_every_val)
+            and force_log_first_auto_bbox
+            and int(getattr(self.writer, "step", 0)) == 0
+        )
         if auto_bbox_enabled and not hasattr(self, "_printed_auto_bbox"):
             print("[AutoBboxGen] enabled: will run PhotoMaker-only pass to detect gen bboxes")
             self._printed_auto_bbox = True
@@ -492,17 +505,25 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                     entry = manual_entry
 
                 should_recompute_entry = bool(automatic_bboxes_every_val)
+                should_log_cached_entry = bool(
+                    force_cached_auto_bbox_log and (not force_manual) and entry is not None
+                )
                 if (
                     (not force_manual)
                     and auto_bbox_enabled
                     and hasattr(self, "_auto_bbox_store")
-                    and (entry is None or should_recompute_entry)
+                    and (entry is None or should_recompute_entry or should_log_cached_entry)
                 ):
                     pending_pm.append(idx)
 
                 entries[idx] = entry
 
             if pending_pm:
+                from src.pipelines.br_pipeline_helpers import (
+                    annotate_original_and_expanded_bbox,
+                    expand_bbox_xyxy,
+                )
+
                 pm_prompts = [prompts[idx] for idx in pending_pm]
                 pm_refs = []
                 for idx in pending_pm:
@@ -553,23 +574,37 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                             "id": str(ids_list[idx]),
                             "seed": int(seeds_list[idx]),
                         },
-                        overlay_path=overlay_path,
-                        force_overlay=bool(overlay_path is not None and should_recompute_entry),
+                        overlay_path=None,
+                        force_overlay=False,
                         force_recompute=should_recompute_entry,
                     )
                     self._gen_bbox_by_name[key] = entry
                     entries[idx] = entry
 
                     try:
-                        from bbox_utils.visualize_bboxes import annotate_pil
                         line_w = int(getattr(self._auto_bbox_store, "line_width", 4))
-                        face_box_new = entry.get("face_crop_new") if isinstance(entry, dict) else None
-                        if face_box_new is not None:
-                            sample_mask_images[idx] = annotate_pil(
+                        face_box_orig = (
+                            entry.get("face_crop_new") or entry.get("face_crop_old")
+                            if isinstance(entry, dict)
+                            else None
+                        )
+                        if face_box_orig is not None:
+                            face_box_expanded = expand_bbox_xyxy(
+                                face_box_orig,
+                                expansion_ratio=mask_expansion_ratio,
+                                width=pm_img.width,
+                                height=pm_img.height,
+                            )
+                            overlay_img = annotate_original_and_expanded_bbox(
                                 pm_img,
-                                {"face_crop_new": face_box_new},
+                                original_bbox=face_box_orig,
+                                expanded_bbox=face_box_expanded,
                                 line_width=line_w,
                             )
+                            sample_mask_images[idx] = overlay_img
+                            if overlay_path is not None:
+                                overlay_path.parent.mkdir(parents=True, exist_ok=True)
+                                overlay_img.save(overlay_path)
                     except Exception:
                         sample_mask_images[idx] = None
 

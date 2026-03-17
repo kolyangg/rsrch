@@ -584,6 +584,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         use_bbox_mask_gen: bool = False, # BBox-driven masking toggles (validation convenience)
         face_bbox_ref: Optional[List[float]] = None, # Optional per-sample face boxes (x0,y0,x1,y1) in pixel space
         face_bbox_gen: Optional[List[float]] = None, # Optional per-sample face boxes (x0,y0,x1,y1) in pixel space
+        mask_expansion_ratio: float = 1.0,
         import_mask: Optional[str] = "../compare/testing/ref2_masks/keanu_gen_mask.png",        
         import_mask_ref: Optional[str] = None, # to debug auto_mask_ref
 
@@ -871,6 +872,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             auto_mask_ref=auto_mask_ref,
             use_bbox_mask_ref=use_bbox_mask_ref,
             face_bbox_ref=face_bbox_ref_for_setup,
+            mask_expansion_ratio=mask_expansion_ratio,
             import_mask_ref=import_mask_ref,
             debug_dir=debug_dir,
             use_dynamic_mask=use_dynamic_mask,
@@ -1160,6 +1162,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         auto_mask_ref: bool,
         use_bbox_mask_ref: bool,
         face_bbox_ref: Optional[List[float]],
+        mask_expansion_ratio: float,
         import_mask_ref: Optional[str],
         debug_dir: Optional[str],
         height: int,
@@ -1171,6 +1174,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             auto_mask_ref=auto_mask_ref,
             use_bbox_mask_ref=use_bbox_mask_ref,
             face_bbox_ref=face_bbox_ref,
+            mask_expansion_ratio=mask_expansion_ratio,
             import_mask_ref=import_mask_ref,
             debug_dir=debug_dir,
             height=height,
@@ -1183,6 +1187,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         use_dynamic_mask: bool,
         use_bbox_mask_gen: bool,
         face_bbox_gen: Optional[List[float]],
+        mask_expansion_ratio: float,
         height: int,
         width: int,
     ) -> None:
@@ -1191,6 +1196,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             use_dynamic_mask=use_dynamic_mask,
             use_bbox_mask_gen=use_bbox_mask_gen,
             face_bbox_gen=face_bbox_gen,
+            mask_expansion_ratio=mask_expansion_ratio,
             height=height,
             width=width,
         )

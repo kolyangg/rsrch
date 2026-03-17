@@ -14,6 +14,8 @@ defaults:
   - _self_
 
 train_on_separate_image: false
+mask_expansion_ratio: 1.0
+force_log_first_auto_bbox: true
 
 # Make validation model match inference base (RealVisXL_V4.0) for parity with
 # photomaker_origv2_infer_one_id.yaml, while keeping the same LoRA setup.
@@ -67,6 +69,7 @@ validation_args:
   photomaker_start_step: ${pipeline.photomaker_start_step}
   merge_start_step: ${pipeline.merge_start_step}
   branched_attn_start_step: ${pipeline.branched_attn_start_step}
+  mask_expansion_ratio: ${mask_expansion_ratio}
   branched_start_mode: ${pipeline.branched_start_mode}
   # Masking controls – match inference
   auto_mask_ref: ${pipeline.auto_mask_ref}

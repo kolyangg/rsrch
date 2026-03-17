@@ -30,6 +30,54 @@ def _val_debug_enabled(pipeline) -> bool:
     return bool(getattr(pipeline, "_val_debug", True))
 
 
+def expand_bbox_xyxy(
+    bbox: Optional[Sequence[float]],
+    *,
+    expansion_ratio: float,
+    width: int,
+    height: int,
+) -> Optional[List[float]]:
+    if bbox is None:
+        return None
+    if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+        return None
+
+    x0, y0, x1, y1 = [float(v) for v in bbox]
+    if x1 <= x0 or y1 <= y0:
+        return [x0, y0, x1, y1]
+
+    grow = float(expansion_ratio) - 1.0
+    dx = (x1 - x0) * grow
+    dy = (y1 - y0) * grow
+
+    return [
+        max(0.0, min(float(width), x0 - dx)),
+        max(0.0, min(float(height), y0 - dy)),
+        max(0.0, min(float(width), x1 + dx)),
+        max(0.0, min(float(height), y1 + dy)),
+    ]
+
+
+def annotate_original_and_expanded_bbox(
+    img: PIL.Image.Image,
+    *,
+    original_bbox: Optional[Sequence[float]],
+    expanded_bbox: Optional[Sequence[float]],
+    line_width: int = 4,
+) -> PIL.Image.Image:
+    from bbox_utils.visualize_bboxes import annotate_pil
+
+    boxes = {}
+    if original_bbox is not None:
+        boxes["orig"] = original_bbox
+    if expanded_bbox is not None:
+        orig_rounded = tuple(int(round(v)) for v in original_bbox) if original_bbox is not None else None
+        exp_rounded = tuple(int(round(v)) for v in expanded_bbox)
+        if exp_rounded != orig_rounded:
+            boxes["expanded"] = expanded_bbox
+    return annotate_pil(img, boxes, line_width=line_width)
+
+
 def ensure_face_analyzer(pipeline) -> None:
     if hasattr(pipeline, "_face_analyzer"):
         return
@@ -146,6 +194,7 @@ def prepare_ref_mask(
     auto_mask_ref: bool,
     use_bbox_mask_ref: bool,
     face_bbox_ref: Optional[List[float]],
+    mask_expansion_ratio: float,
     import_mask_ref: Optional[str],
     debug_dir: Optional[str],
     height: int,
@@ -176,7 +225,13 @@ def prepare_ref_mask(
         pl, _, pt, _ = pipeline._ref_pad
         s = min(width / float(ow), height / float(oh))
         sx, sy = s, s
-        x0, y0, x1, y1 = [float(v) for v in face_bbox_ref]
+        expanded_bbox_ref = expand_bbox_xyxy(
+            face_bbox_ref,
+            expansion_ratio=mask_expansion_ratio,
+            width=ow,
+            height=oh,
+        )
+        x0, y0, x1, y1 = [float(v) for v in expanded_bbox_ref]
         x0s = int(round(x0 * sx + pl))
         x1s = int(round(x1 * sx + pl))
         y0s = int(round(y0 * sy + pt))
@@ -187,6 +242,8 @@ def prepare_ref_mask(
         y1s = max(0, min(height, y1s))
         if x1s > x0s and y1s > y0s:
             ref_mask[y0s:y1s, x0s:x1s] = True
+        pipeline._face_bbox_ref_original = list(face_bbox_ref)
+        pipeline._face_bbox_ref_expanded = list(expanded_bbox_ref)
         pipeline._face_mask_ref = ref_mask
         pipeline._face_mask_t_ref = torch.from_numpy(ref_mask.astype(np.uint8))[None, None]
 
@@ -199,6 +256,7 @@ def prepare_gen_mask(
     use_dynamic_mask: bool,
     use_bbox_mask_gen: bool,
     face_bbox_gen: Optional[List[float]],
+    mask_expansion_ratio: float,
     height: int,
     width: int,
     batch_size: int = 1,
@@ -217,26 +275,44 @@ def prepare_gen_mask(
                     f"use_bbox_mask_gen batch mismatch: got {len(boxes)} bboxes for batch_size={batch_size}"
                 )
             gen_mask = np.zeros((batch_size, height, width), dtype=bool)
+            expanded_boxes = []
             for bi, box in enumerate(boxes):
-                x0, y0, x1, y1 = [float(v) for v in box]
+                expanded_box = expand_bbox_xyxy(
+                    box,
+                    expansion_ratio=mask_expansion_ratio,
+                    width=width,
+                    height=height,
+                )
+                expanded_boxes.append(list(expanded_box))
+                x0, y0, x1, y1 = [float(v) for v in expanded_box]
                 x0i = max(0, min(width, int(round(x0))))
                 x1i = max(0, min(width, int(round(x1))))
                 y0i = max(0, min(height, int(round(y0))))
                 y1i = max(0, min(height, int(round(y1))))
                 if x1i > x0i and y1i > y0i:
                     gen_mask[bi, y0i:y1i, x0i:x1i] = True
+            pipeline._face_bbox_gen_original = [list(box) for box in boxes]
+            pipeline._face_bbox_gen_expanded = expanded_boxes
             pipeline._face_mask = gen_mask
             pipeline._face_mask_t = torch.from_numpy(gen_mask.astype(np.uint8))[:, None]
             return
 
         gen_mask = np.zeros((height, width), dtype=bool)
-        x0, y0, x1, y1 = [float(v) for v in face_bbox_gen]
+        expanded_bbox_gen = expand_bbox_xyxy(
+            face_bbox_gen,
+            expansion_ratio=mask_expansion_ratio,
+            width=width,
+            height=height,
+        )
+        x0, y0, x1, y1 = [float(v) for v in expanded_bbox_gen]
         x0i = max(0, min(width, int(round(x0))))
         x1i = max(0, min(width, int(round(x1))))
         y0i = max(0, min(height, int(round(y0))))
         y1i = max(0, min(height, int(round(y1))))
         if x1i > x0i and y1i > y0i:
             gen_mask[y0i:y1i, x0i:x1i] = True
+        pipeline._face_bbox_gen_original = list(face_bbox_gen)
+        pipeline._face_bbox_gen_expanded = list(expanded_bbox_gen)
         pipeline._face_mask = gen_mask
         pipeline._face_mask_t = torch.from_numpy(gen_mask.astype(np.uint8))[None, None]
     elif (not use_dynamic_mask) and use_bbox_mask_gen and face_bbox_gen is None:
@@ -318,6 +394,7 @@ def run_branched_setup(
     auto_mask_ref: bool,
     use_bbox_mask_ref: bool,
     face_bbox_ref: Optional[List[float]],
+    mask_expansion_ratio: float,
     import_mask_ref: Optional[str],
     debug_dir: Optional[str],
     use_dynamic_mask: bool,
@@ -346,6 +423,7 @@ def run_branched_setup(
             auto_mask_ref=auto_mask_ref,
             use_bbox_mask_ref=use_bbox_mask_ref,
             face_bbox_ref=face_bbox_ref,
+            mask_expansion_ratio=mask_expansion_ratio,
             import_mask_ref=import_mask_ref,
             debug_dir=debug_dir,
             height=height,
@@ -357,6 +435,7 @@ def run_branched_setup(
         use_dynamic_mask=use_dynamic_mask,
         use_bbox_mask_gen=use_bbox_mask_gen,
         face_bbox_gen=face_bbox_gen,
+        mask_expansion_ratio=mask_expansion_ratio,
         height=height,
         width=width,
         batch_size=batch_size,
