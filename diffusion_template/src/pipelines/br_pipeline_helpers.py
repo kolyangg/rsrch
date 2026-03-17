@@ -273,6 +273,17 @@ def _set_unet_adapters(unet, adapter_names) -> None:
         unet.set_adapter(adapter_names)
 
 
+def _get_unet_active_adapters(unet):
+    adapters = getattr(unet, "active_adapters", None)
+    if callable(adapters):
+        adapters = adapters()
+    if adapters is None:
+        return None
+    if isinstance(adapters, str):
+        return [adapters]
+    return list(adapters)
+
+
 def set_validation_unet_mode(pipeline, *, branched_active: bool) -> None:
     if getattr(pipeline, "_runtime_uses_branched_unet", None) == branched_active:
         return
@@ -849,8 +860,9 @@ def build_pipeline_from_pretrained(
     pipeline.branched_attn_weight_mode = getattr(unwrapped_model, "branched_attn_weight_mode", "shared")
     if hasattr(unwrapped_model, "_original_attn_processors"):
         pipeline._original_attn_processors = dict(unwrapped_model._original_attn_processors)
-    if hasattr(unwrapped_model.unet, "active_adapters"):
-        pipeline._branched_active_adapters = list(unwrapped_model.unet.active_adapters)
+    active_adapters = _get_unet_active_adapters(unwrapped_model.unet)
+    if active_adapters:
+        pipeline._branched_active_adapters = active_adapters
     pipeline._runtime_uses_branched_unet = None
 
     pipeline.tokenizer.add_tokens([pipeline.trigger_word], special_tokens=True)
