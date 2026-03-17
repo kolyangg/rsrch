@@ -219,6 +219,9 @@ class BaseTrainer:
 
                 if epoch % self.save_period == 0:
                     self._save_checkpoint(epoch)
+                weights_only_period = int(getattr(self.config, "weights_only_save_period", 0) or 0)
+                if weights_only_period > 0 and epoch % weights_only_period == 0:
+                    self._save_weights_only_checkpoint(epoch)
 
 
     def _train_epoch(self, epoch):
@@ -432,6 +435,9 @@ class BaseTrainer:
                         state = self.accelerator.unwrap_model(self.model).get_state_dict()
                     except Exception:
                         state = self.model.get_state_dict()
+                    if not bool(getattr(self.config, "update_proc_weights_val", False)) and isinstance(state, dict):
+                        state = dict(state)
+                        state.pop("attn_processors", None)
                     if hasattr(_val_model, "load_state_dict_"):
                         _val_model.load_state_dict_(state)
 
@@ -767,6 +773,13 @@ class BaseTrainer:
         if self.accelerator.is_main_process:
             self.logger.info(f"Saving checkpoint: {filename} ...")
 
+        torch.save(state, filename)
+
+    def _save_weights_only_checkpoint(self, epoch):
+        state = self.accelerator.unwrap_model(self.model).get_state_dict()
+        filename = str(self.checkpoint_dir / f"weights-epoch{epoch}.pth")
+        if self.accelerator.is_main_process:
+            self.logger.info(f"Saving weights-only checkpoint: {filename} ...")
         torch.save(state, filename)
 
     def _resume_checkpoint(self, resume_path):

@@ -820,6 +820,7 @@ def build_pipeline_from_pretrained(
     pipeline.face_embed_strategy = face_embed_strategy_cfg
     pipeline.use_id_embeds = bool(use_id_embeds_cfg)
     pipeline.id_alpha = float(id_alpha_cfg)
+    pipeline.branched_attn_weight_mode = getattr(unwrapped_model, "branched_attn_weight_mode", "shared")
 
     pipeline.tokenizer.add_tokens([pipeline.trigger_word], special_tokens=True)
     pipeline.tokenizer_2.add_tokens([pipeline.trigger_word], special_tokens=True)

@@ -12,6 +12,7 @@ from diffusers.utils import (
     convert_state_dict_to_diffusers,
     convert_unet_state_dict_to_peft,
 )
+from src.model.photomaker_path import resolve_photomaker_path
 
 
 
@@ -42,8 +43,9 @@ class PhotomakerLora(SDXL):
         )
         self.unet.add_adapter(photomaker_lora_config)
 
+        photomaker_path = resolve_photomaker_path(photomaker_path, version="v1")
         photomaker_state_dict = torch.load(photomaker_path)
-        self.load_photomaker_state_dict_(photomaker_state_dict)        
+        self.load_photomaker_state_dict_(photomaker_state_dict)
 
     def prepare_for_training(self):
         super().prepare_for_training()
@@ -263,7 +265,3 @@ class PhotomakerLora(SDXL):
         pooled_prompt_embeds = pooled_prompt_embeds.view(bs_embed, -1)
     
         return prompt_embeds, pooled_prompt_embeds, class_tokens_mask
-          
-
-
-        

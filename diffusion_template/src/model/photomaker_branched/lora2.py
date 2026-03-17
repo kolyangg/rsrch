@@ -15,6 +15,7 @@ from diffusers.utils import (
     convert_state_dict_to_diffusers,
     convert_unet_state_dict_to_peft,
 )
+from src.model.photomaker_path import resolve_photomaker_path
 from src.model.sdxl.original import SDXL
 
 ##### BRANCHED ATTENTION - ADDITIONAL IMPORTS #####
@@ -58,6 +59,8 @@ class PhotomakerBranchedLora(SDXL):
         train_ba_only: bool = False,       # 28 Nov: optionally train only branched-attn layers
         ba_weights_split: bool = False,    # optionally enable per-branch BA-specific adapters
         use_attn_v2: bool = True,          # toggle between attn_processor2 (v2) and attn_processor (legacy)
+        branched_attn_weight_mode: str = "shared",
+        train_branched_ca_lora: bool = True,
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
         photomaker_start_step: int = 10,
@@ -153,6 +156,8 @@ class PhotomakerBranchedLora(SDXL):
         ### 29 Nov - Clean separataion of BA-specific parameters ###
         # Select which branched attention processor implementation to use at train time.
         self.use_attn_v2 = bool(use_attn_v2)
+        self.branched_attn_weight_mode = (branched_attn_weight_mode or "shared").lower()
+        self.train_branched_ca_lora = bool(train_branched_ca_lora)
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 
         photomaker_lora_config = LoraConfig(
@@ -163,6 +168,7 @@ class PhotomakerBranchedLora(SDXL):
         )
         self.unet.add_adapter(photomaker_lora_config)
 
+        photomaker_path = resolve_photomaker_path(photomaker_path, version="v2")
         photomaker_state_dict = torch.load(photomaker_path, map_location="cpu")
         self.load_photomaker_state_dict_(photomaker_state_dict)
 
@@ -242,9 +248,18 @@ class PhotomakerBranchedLora(SDXL):
 
     def get_state_dict(self):
         lora_weights = convert_state_dict_to_diffusers(get_peft_model_state_dict(self.unet, adapter_name="lora_adapter"))
-        return {
+        state = {
             'lora_weights': lora_weights,
         }
+        if hasattr(self.unet, "attn_processors"):
+            proc_sd = {}
+            for name, proc in self.unet.attn_processors.items():
+                sd = proc.state_dict()
+                if sd:
+                    proc_sd[name] = sd
+            if proc_sd:
+                state["attn_processors"] = proc_sd
+        return state
 
     def load_state_dict_(self, state_dict):
         lora_state_dict = state_dict["lora_weights"]
@@ -255,6 +270,10 @@ class PhotomakerBranchedLora(SDXL):
             unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
             # In newer peft versions this is an empty list when there are no unexpected keys
             assert not unexpected_keys, unexpected_keys
+        for name, sd in state_dict.get("attn_processors", {}).items():
+            proc = self.unet.attn_processors.get(name)
+            if proc is not None:
+                proc.load_state_dict(sd, strict=False)
 
     def forward(
         self,

@@ -31,12 +31,18 @@ model:
   use_attn_v2: false
   # Toggle ID embedding projection (BranchedAttnProcessor.id_to_hidden); default off for attn1 configs
   use_id_embeds: false
+  branched_attn_weight_mode: ${branched_attn_weight_mode}
+  train_branched_ca_lora: ${train_branched_ca_lora}
 
 ### 28 Nov: train only BA layers ###
 # If true, only branched attention processors (BranchedAttnProcessor / BranchedCrossAttnProcessor)
 # are trainable; LoRA adapters stay frozen. If false, train LoRA + branched processors (current behavior).
 train_ba_only: true
 ### 28 Nov: train only BA layers ###
+
+branched_attn_weight_mode: ref_only   # shared | ref_only | noise_and_ref
+train_branched_ca_lora: false
+weights_only_save_period: 1
 
 
 

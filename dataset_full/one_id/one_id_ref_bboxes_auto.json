@@ -1,15 +1,15 @@
 {
   "Reading pa_51.png": {
     "face_crop_old": [
-      266,
-      94,
+      271,
+      98,
       536,
-      448
+      447
     ],
     "face_crop_new": [
-      285,
-      119,
-      517,
+      290,
+      122,
+      518,
       423
     ],
     "body_crop": [
@@ -27,16 +27,16 @@
   },
   "Rushing ma_51.png": {
     "face_crop_old": [
-      515,
-      195,
+      484,
+      163,
       774,
-      546
+      552
     ],
     "face_crop_new": [
-      533,
-      220,
-      756,
-      522
+      504,
+      190,
+      754,
+      526
     ],
     "body_crop": [
       0,
@@ -53,16 +53,16 @@
   },
   "Skiing man_51.png": {
     "face_crop_old": [
-      380,
-      352,
-      724,
-      822
+      406,
+      283,
+      755,
+      771
     ],
     "face_crop_new": [
-      404,
-      384,
-      700,
-      789
+      430,
+      317,
+      731,
+      738
     ],
     "body_crop": [
       0,
@@ -79,16 +79,16 @@
   },
   "Drumming m_51.png": {
     "face_crop_old": [
-      332,
+      339,
       213,
-      540,
-      497
+      532,
+      503
     ],
     "face_crop_new": [
-      347,
+      353,
       233,
-      525,
-      477
+      519,
+      483
     ],
     "body_crop": [
       0,
@@ -99,6 +99,110 @@
     "_meta": {
       "debug_idx": 3,
       "prompt": "Drumming man img, rock concert in rain, passionate angry face, black t-shirt",
+      "id": "51",
+      "seed": 0
+    }
+  },
+  "Kickboxing_51.png": {
+    "face_crop_old": [
+      354,
+      65,
+      699,
+      546
+    ],
+    "face_crop_new": [
+      378,
+      98,
+      675,
+      513
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "debug_idx": 4,
+      "prompt": "Kickboxing man img, gym ring, fierce roar face, sweatband",
+      "id": "51",
+      "seed": 0
+    }
+  },
+  "Dancing ma_51.png": {
+    "face_crop_old": [
+      452,
+      141,
+      558,
+      318
+    ],
+    "face_crop_new": [
+      460,
+      153,
+      551,
+      306
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "debug_idx": 5,
+      "prompt": "Dancing man img, neon club, euphoric face, silver jumpsuit",
+      "id": "51",
+      "seed": 0
+    }
+  },
+  "Angry man _51.png": {
+    "face_crop_old": [
+      360,
+      108,
+      572,
+      405
+    ],
+    "face_crop_new": [
+      375,
+      128,
+      558,
+      385
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "debug_idx": 6,
+      "prompt": "Angry man img, traffic jam, scowling face, dark suit",
+      "id": "51",
+      "seed": 0
+    }
+  },
+  "Crying man_51.png": {
+    "face_crop_old": [
+      311,
+      326,
+      482,
+      607
+    ],
+    "face_crop_new": [
+      323,
+      346,
+      470,
+      588
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "debug_idx": 7,
+      "prompt": "Crying man img, stormy alley, tearful face, ripped jeans",
       "id": "51",
       "seed": 0
     }

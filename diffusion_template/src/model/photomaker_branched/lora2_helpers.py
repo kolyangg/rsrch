@@ -9,6 +9,32 @@ from .branched_runtime import patch_unet_attention_processors, two_branch_predic
 from .insightface_package import analyze_faces
 
 
+def configure_branched_trainables(model) -> None:
+    if not getattr(model, "train_ba_only", False):
+        return
+
+    mode = (getattr(model, "branched_attn_weight_mode", "shared") or "shared").lower()
+    train_ca = bool(getattr(model, "train_branched_ca_lora", True))
+    if mode not in {"shared", "ref_only", "noise_and_ref"}:
+        raise ValueError(f"Unknown branched_attn_weight_mode: {mode}")
+
+    for _, p in model.unet.named_parameters():
+        p.requires_grad_(False)
+
+    for name, p in model.unet.named_parameters():
+        if mode == "shared":
+            if ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn1." in name:
+                p.requires_grad_(True)
+        else:
+            if ".attn1.processor.ref_to_" in name:
+                p.requires_grad_(True)
+            elif mode == "noise_and_ref" and ".attn1.processor.noise_to_" in name:
+                p.requires_grad_(True)
+
+        if train_ca and ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn2." in name:
+            p.requires_grad_(True)
+
+
 def install_branched_processors_for_training(model) -> None:
     """Install branched attention processors once before optimizer creation."""
     try:
@@ -40,6 +66,8 @@ def install_branched_processors_for_training(model) -> None:
                     )
                     with torch.no_grad():
                         proc.id_to_hidden.weight.mul_(0.1)
+
+        configure_branched_trainables(model)
     except Exception as e:
         print(f"[PhotomakerBranchedLora] exception while installing branched processors: {e}")
 

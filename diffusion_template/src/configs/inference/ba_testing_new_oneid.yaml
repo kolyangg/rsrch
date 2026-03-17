@@ -1,6 +1,9 @@
 defaults:
   - _self_
 
+branched_attn_weight_mode: ref_only   # shared | ref_only | noise_and_ref
+train_branched_ca_lora: false
+
 model:
   _target_: src.model.photomaker_branched.lora2.PhotomakerBranchedLora
   pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
@@ -16,6 +19,8 @@ model:
   ca_mixing_for_face: ${pipeline.ca_mixing_for_face}
   face_embed_strategy: ${pipeline.face_embed_strategy}
   train_branch_mode: ${pipeline.train_branch_mode}
+  branched_attn_weight_mode: ${branched_attn_weight_mode}
+  train_branched_ca_lora: ${train_branched_ca_lora}
 
 pipeline:
   # _target_: src.pipelines.photomaker_branched.PhotomakerBranchedPipeline.from_pretrained

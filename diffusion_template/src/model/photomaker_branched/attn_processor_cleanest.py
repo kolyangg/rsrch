@@ -9,6 +9,25 @@ from typing import Optional
 import math
 
 
+def _clone_effective_linear(attn_linear, adapter_name: str = "default") -> nn.Linear:
+    base = attn_linear.get_base_layer() if hasattr(attn_linear, "get_base_layer") else attn_linear
+    cloned = nn.Linear(
+        base.in_features,
+        base.out_features,
+        bias=base.bias is not None,
+        device=base.weight.device,
+        dtype=base.weight.dtype,
+    )
+    with torch.no_grad():
+        weight = base.weight.detach().clone()
+        if hasattr(attn_linear, "lora_A") and adapter_name in attn_linear.lora_A:
+            weight = weight + attn_linear.get_delta_weight(adapter_name).detach().to(weight.device, weight.dtype)
+        cloned.weight.copy_(weight)
+        if base.bias is not None:
+            cloned.bias.copy_(base.bias.detach())
+    return cloned
+
+
 class BranchedAttnProcessor(nn.Module):
     """
     Self-attention processor with face/background branching.
@@ -20,6 +39,7 @@ class BranchedAttnProcessor(nn.Module):
         hidden_size: int,
         cross_attention_dim: Optional[int] = None,
         scale: float = 1.0,
+        branched_attn_weight_mode: str = "shared",
     ):
         super().__init__()
 
@@ -31,14 +51,56 @@ class BranchedAttnProcessor(nn.Module):
         self.hidden_size = hidden_size
         self.cross_attention_dim = cross_attention_dim or hidden_size
         self.scale = scale
+        self.branched_attn_weight_mode = (branched_attn_weight_mode or "shared").lower()
         
         self.mask = None
         self.mask_ref = None
+        self.ref_to_q = None
+        self.ref_to_k = None
+        self.ref_to_v = None
+        self.noise_to_q = None
+        self.noise_to_k = None
+        self.noise_to_v = None
         
         # If True: keep masks strictly binary after resize (avoids soft boundary blending)
         self.force_binary_masks: bool = True # False
         # Let diffusers know we accept cross_attention_kwargs to silence warnings
         self.has_cross_attention_kwargs = True
+
+    def init_from_attention(self, attn) -> None:
+        mode = self.branched_attn_weight_mode
+        if mode in {"ref_only", "noise_and_ref"}:
+            self.ref_to_q = _clone_effective_linear(attn.to_q)
+            self.ref_to_k = _clone_effective_linear(attn.to_k)
+            self.ref_to_v = _clone_effective_linear(attn.to_v)
+        if mode == "noise_and_ref":
+            self.noise_to_q = _clone_effective_linear(attn.to_q)
+            self.noise_to_k = _clone_effective_linear(attn.to_k)
+            self.noise_to_v = _clone_effective_linear(attn.to_v)
+
+    def _q_noise(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
+        layer = self.noise_to_q if self.noise_to_q is not None else attn.to_q
+        return layer(hidden_states)
+
+    def _k_noise(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
+        layer = self.noise_to_k if self.noise_to_k is not None else attn.to_k
+        return layer(hidden_states)
+
+    def _v_noise(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
+        layer = self.noise_to_v if self.noise_to_v is not None else attn.to_v
+        return layer(hidden_states)
+
+    def _q_ref(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
+        layer = self.ref_to_q if self.ref_to_q is not None else attn.to_q
+        return layer(hidden_states)
+
+    def _k_ref(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
+        layer = self.ref_to_k if self.ref_to_k is not None else attn.to_k
+        return layer(hidden_states)
+
+    def _v_ref(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
+        layer = self.ref_to_v if self.ref_to_v is not None else attn.to_v
+        return layer(hidden_states)
 
     def set_masks(self, mask: Optional[torch.Tensor], mask_ref: Optional[torch.Tensor] = None):
         """Set masks for current denoising step"""
@@ -92,7 +154,7 @@ class BranchedAttnProcessor(nn.Module):
             ref_hidden = attn.group_norm(ref_hidden.transpose(1, 2)).transpose(1, 2)
         
         # Compute queries from noise
-        query = attn.to_q(noise_hidden)
+        query = self._q_noise(attn, noise_hidden)
         
         # Reshape for multi-head attention
         head_dim = attn.heads
@@ -111,8 +173,8 @@ class BranchedAttnProcessor(nn.Module):
 
         # ======================================== BACKGROUND BRANCH ==========================================================
         # Q: background from noise, K/V: full noise
-        key_bg = attn.to_k(noise_hidden)
-        value_bg = attn.to_v(noise_hidden)
+        key_bg = self._k_noise(attn, noise_hidden)
+        value_bg = self._v_noise(attn, noise_hidden)
         key_bg = key_bg.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         value_bg = value_bg.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         
@@ -182,8 +244,8 @@ class BranchedAttnProcessor(nn.Module):
         face_hidden_mixed = (1 - POSE_ADAPT_RATIO) * ref_face_hidden + POSE_ADAPT_RATIO * noise_face_hidden
         
         # Just use the blended face directly (previously had option for CA_MIXING_FOR_FACE but removed for simplicity)
-        key_face = attn.to_k(face_hidden_mixed)
-        value_face = attn.to_v(face_hidden_mixed)
+        key_face = self._k_ref(attn, face_hidden_mixed)
+        value_face = self._v_ref(attn, face_hidden_mixed)
 
 
         key_face = key_face.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
@@ -204,9 +266,9 @@ class BranchedAttnProcessor(nn.Module):
 
         # === NEW BRANCH - SELF-ATTN FOR REFERENCE ===
         # Q: face from reference, K/V: face from as well
-        key_ref = attn.to_k(ref_hidden)
-        value_ref = attn.to_v(ref_hidden)
-        query_ref = attn.to_q(ref_hidden)
+        key_ref = self._k_ref(attn, ref_hidden)
+        value_ref = self._v_ref(attn, ref_hidden)
+        query_ref = self._q_ref(attn, ref_hidden)
         
         # Reshape for multi-head attention
         head_dim = attn.heads

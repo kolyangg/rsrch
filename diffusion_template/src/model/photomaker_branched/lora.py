@@ -15,6 +15,7 @@ from diffusers.utils import (
     convert_state_dict_to_diffusers,
     convert_unet_state_dict_to_peft,
 )
+from src.model.photomaker_path import resolve_photomaker_path
 from src.model.sdxl.original import SDXL
 
 # --- Branched-attention specific import ---
@@ -99,6 +100,7 @@ class PhotomakerBranchedLora(SDXL):
         )
         self.unet.add_adapter(photomaker_lora_config)
 
+        photomaker_path = resolve_photomaker_path(photomaker_path, version="v2")
         photomaker_state_dict = torch.load(photomaker_path, map_location="cpu")
         self.load_photomaker_state_dict_(photomaker_state_dict)
 

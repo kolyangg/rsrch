@@ -50,6 +50,12 @@ def patch_unet_attention_processors(
         for p in current_procs.values()
     )
 
+    def _resolve_attn_module(unet, proc_name):
+        mod = unet
+        for part in proc_name.rsplit(".processor", 1)[0].split("."):
+            mod = mod[int(part)] if part.isdigit() else getattr(mod, part)
+        return mod
+
 
     def _apply_runtime_flags(proc, pipe):
         # propagate key runtime knobs from model/pipeline onto processors
@@ -109,7 +115,10 @@ def patch_unet_attention_processors(
                         hidden_size=hidden_size,
                         cross_attention_dim=hidden_size,
                         scale=scale,
-                    ).to(pipeline.device, dtype=pipeline.unet.dtype)
+                        branched_attn_weight_mode=getattr(pipeline, "branched_attn_weight_mode", "shared"),
+                    )
+                    proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
+                    proc = proc.to(pipeline.device, dtype=pipeline.unet.dtype)
                     proc.set_masks(_mask, _mref)
                     _apply_runtime_flags(proc, pipeline)
 
