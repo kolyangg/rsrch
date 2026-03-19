@@ -38,8 +38,19 @@ def configure_branched_trainables(model) -> None:
             ):
                 p.requires_grad_(True)
 
-        if train_ca and ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn2." in name:
-            p.requires_grad_(True)
+        if train_ca:
+            if mode == "shared":
+                if ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn2." in name:
+                    p.requires_grad_(True)
+            else:
+                if ".attn2.processor.ref_to_" in name and (
+                    new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
+                ):
+                    p.requires_grad_(True)
+                elif mode == "noise_and_ref" and ".attn2.processor.noise_to_" in name and (
+                    new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
+                ):
+                    p.requires_grad_(True)
 
 
 def install_branched_processors_for_training(model) -> None:

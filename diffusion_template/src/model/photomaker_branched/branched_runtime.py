@@ -148,7 +148,13 @@ def patch_unet_attention_processors(
                         cross_attention_dim=cross_attention_dim,
                         scale=scale,
                         num_tokens=num_tokens,
+                        branched_attn_weight_mode=getattr(pipeline, "branched_attn_weight_mode", "shared"),
+                        branched_attn_new_weight_kind=getattr(pipeline, "branched_attn_new_weight_kind", "full"),
+                        branched_attn_lora_rank=int(
+                            getattr(pipeline, "branched_attn_lora_rank", getattr(pipeline, "lora_rank", 16))
+                        ),
                     ).to(pipeline.device, dtype=pipeline.unet.dtype)
+                    proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
                     # enable KV equalizer for face branch
                     setattr(proc, "equalize_face_kv", True)
                     setattr(proc, "equalize_clip", (1/3, 8.0))

@@ -484,6 +484,9 @@ class BranchedCrossAttnProcessor(nn.Module):
         cross_attention_dim: int,
         scale: float = 1.0,
         num_tokens: int = 77,
+        branched_attn_weight_mode: str = "shared",
+        branched_attn_new_weight_kind: str = "full",
+        branched_attn_lora_rank: int = 16,
     ):
         super().__init__()
         
@@ -494,11 +497,79 @@ class BranchedCrossAttnProcessor(nn.Module):
         self.cross_attention_dim = cross_attention_dim
         self.scale = scale
         self.num_tokens = num_tokens
+        self.branched_attn_weight_mode = (branched_attn_weight_mode or "shared").lower()
+        self.branched_attn_new_weight_kind = (branched_attn_new_weight_kind or "full").lower()
+        self.branched_attn_lora_rank = int(branched_attn_lora_rank)
         
         self.mask = None
         self.mask_ref = None
+        self.ref_to_q = None
+        self.ref_to_k = None
+        self.ref_to_v = None
+        self.noise_to_q = None
+        self.noise_to_k = None
+        self.noise_to_v = None
 
         self.has_cross_attention_kwargs = True # Accept cross_attention_kwargs to avoid noisy warnings
+
+    def init_from_attention(self, attn) -> None:
+        mode = self.branched_attn_weight_mode
+        if mode in {"ref_only", "noise_and_ref"}:
+            self.ref_to_q = _clone_effective_linear(
+                attn.to_q,
+                kind=self.branched_attn_new_weight_kind,
+                rank=self.branched_attn_lora_rank,
+            )
+            self.ref_to_k = _clone_effective_linear(
+                attn.to_k,
+                kind=self.branched_attn_new_weight_kind,
+                rank=self.branched_attn_lora_rank,
+            )
+            self.ref_to_v = _clone_effective_linear(
+                attn.to_v,
+                kind=self.branched_attn_new_weight_kind,
+                rank=self.branched_attn_lora_rank,
+            )
+        if mode == "noise_and_ref":
+            self.noise_to_q = _clone_effective_linear(
+                attn.to_q,
+                kind=self.branched_attn_new_weight_kind,
+                rank=self.branched_attn_lora_rank,
+            )
+            self.noise_to_k = _clone_effective_linear(
+                attn.to_k,
+                kind=self.branched_attn_new_weight_kind,
+                rank=self.branched_attn_lora_rank,
+            )
+            self.noise_to_v = _clone_effective_linear(
+                attn.to_v,
+                kind=self.branched_attn_new_weight_kind,
+                rank=self.branched_attn_lora_rank,
+            )
+
+    def _q_noise(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
+        layer = self.noise_to_q if self.noise_to_q is not None else attn.to_q
+        return layer(hidden_states)
+
+    def _k_noise(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
+        layer = self.noise_to_k if self.noise_to_k is not None else attn.to_k
+        return layer(hidden_states)
+
+    def _v_noise(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
+        layer = self.noise_to_v if self.noise_to_v is not None else attn.to_v
+        return layer(hidden_states)
+
+    def _q_ref(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
+        layer = self.ref_to_q if self.ref_to_q is not None else attn.to_q
+        return layer(hidden_states)
+
+    def _k_ref(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
+        layer = self.ref_to_k if self.ref_to_k is not None else attn.to_k
+        return layer(hidden_states)
+
+    def _v_ref(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
+        layer = self.ref_to_v if self.ref_to_v is not None else attn.to_v
+        return layer(hidden_states)
     
     def set_masks(self, mask: torch.Tensor, mask_ref: Optional[torch.Tensor] = None):
         """Set masks for current denoising step"""
@@ -574,7 +645,7 @@ class BranchedCrossAttnProcessor(nn.Module):
         # ========== PROCESS FIRST HALF (NOISE BATCH) WITH BRANCHING ==========
         
         # Compute query from noise
-        query_bg = attn.to_q(noise_hidden)
+        query_bg = self._q_noise(attn, noise_hidden)
         
         # Get attention parameters
         head_dim = attn.heads
@@ -583,7 +654,7 @@ class BranchedCrossAttnProcessor(nn.Module):
         q_bg = query_bg.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         
         # Compute query from ref
-        query_ref = attn.to_q(ref_hidden)
+        query_ref = self._q_ref(attn, ref_hidden)
 
         # Get attention parameters
         head_dim = attn.heads
@@ -593,8 +664,8 @@ class BranchedCrossAttnProcessor(nn.Module):
 
         # === BACKGROUND BRANCH ===
         # Q: background from noise, K/V: generation prompt
-        key_bg = attn.to_k(gen_prompt)
-        value_bg = attn.to_v(gen_prompt)
+        key_bg = self._k_noise(attn, gen_prompt)
+        value_bg = self._v_noise(attn, gen_prompt)
         key_bg = key_bg.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         value_bg = value_bg.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         
@@ -603,8 +674,8 @@ class BranchedCrossAttnProcessor(nn.Module):
         
         # === FACE BRANCH ===
         # Q: face from noise, K/V: face prompt (should be different from gen_prompt!)
-        key_ref = attn.to_k(face_prompt)
-        value_ref = attn.to_v(face_prompt)
+        key_ref = self._k_ref(attn, face_prompt)
+        value_ref = self._v_ref(attn, face_prompt)
         key_ref = key_ref.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         value_ref = value_ref.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
 
