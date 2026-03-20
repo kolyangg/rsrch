@@ -25,6 +25,7 @@ mask_expansion_ratio: 1.0
 mask_softness: 0.0
 loss_kind: masked_alternating   # masked_alternating | blended_masked
 lambda_face: 0.1
+strict_face_routing: false
 force_log_first_auto_bbox: true
 
 model:

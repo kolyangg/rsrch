@@ -126,6 +126,7 @@ def patch_unet_attention_processors(
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
                     proc = proc.to(pipeline.device, dtype=pipeline.unet.dtype)
                     proc.set_masks(_mask, _mref)
+                    setattr(proc, "strict_face_routing", bool(getattr(pipeline, "strict_face_routing", False)))
                     _apply_runtime_flags(proc, pipeline)
 
                     # Wire id_embeds (zeros if missing); whether they are used is controlled by use_id_embeds
@@ -158,6 +159,7 @@ def patch_unet_attention_processors(
                     # enable KV equalizer for face branch
                     setattr(proc, "equalize_face_kv", True)
                     setattr(proc, "equalize_clip", (1/3, 8.0))
+                    setattr(proc, "strict_face_routing", bool(getattr(pipeline, "strict_face_routing", False)))
                     proc.set_masks(_mask, _mref)
                     # Keep CA path consistent too (even if CA doesn’t always consume id_embeds)
                     proc.id_embeds = _idem

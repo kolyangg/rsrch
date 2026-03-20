@@ -252,9 +252,13 @@ class BranchedAttnProcessor(nn.Module):
         
 
         # ======================================== BACKGROUND BRANCH ==========================================================
-        # Q: background from noise, K/V: full noise
-        key_bg = self._k_noise(attn, noise_hidden)
-        value_bg = self._v_noise(attn, noise_hidden)
+        # Q: background from noise, K/V: full noise (or face-suppressed noise in strict mode)
+        strict_face_routing = bool(getattr(self, "strict_face_routing", False))
+        bg_source = noise_hidden
+        if strict_face_routing:
+            bg_source = noise_hidden * (1.0 - mask_gate.squeeze(1).to(dtype=noise_hidden.dtype, device=noise_hidden.device))
+        key_bg = self._k_noise(attn, bg_source)
+        value_bg = self._v_noise(attn, bg_source)
         key_bg = key_bg.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         value_bg = value_bg.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         
@@ -388,7 +392,18 @@ class BranchedAttnProcessor(nn.Module):
 
         # Add residual # TODO check if neeeded / do separately for each branch
         if attn.residual_connection:
-            hidden_states = hidden_states + residual
+            if strict_face_routing:
+                res_noise = residual[:batch_size]
+                res_ref = residual[batch_size:]
+                if input_ndim == 4:
+                    res_mask = mask_flat.transpose(1, 2).reshape(batch_size, 1, height, width)
+                else:
+                    res_mask = mask_flat
+                res_noise = res_noise * (1.0 - res_mask.to(dtype=res_noise.dtype, device=res_noise.device))
+                residual_to_add = torch.cat([res_noise, res_ref], dim=0)
+            else:
+                residual_to_add = residual
+            hidden_states = hidden_states + residual_to_add
         
         hidden_states = hidden_states / attn.rescale_output_factor # TODO check if neeeded / do separately for each branch
         

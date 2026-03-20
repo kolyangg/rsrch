@@ -183,6 +183,8 @@ def main(config):
     disable_ca = bool(getattr(config, "disable_branched_ca", False))
     setattr(model, "disable_branched_sa", disable_sa)
     setattr(model, "disable_branched_ca", disable_ca)
+    strict_face_routing = bool(getattr(config, "strict_face_routing", False))
+    setattr(model, "strict_face_routing", strict_face_routing)
     ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
 
     model.prepare_for_training()
