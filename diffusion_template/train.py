@@ -188,7 +188,25 @@ def main(config):
     model.prepare_for_training()
 
     # get function handles of loss and metrics
-    loss_function = instantiate(config.loss_function).to(device)
+    loss_kind = str(getattr(config, "loss_kind", "masked_alternating")).lower()
+    lambda_face = float(getattr(config, "lambda_face", 0.1))
+    loss_target_by_kind = {
+        "masked_alternating": "src.loss.diffusion_loss.MaskedDiffusionLoss",
+        "blended_masked": "src.loss.diffusion_loss.BlendedMaskedDiffusionLoss",
+    }
+    if loss_kind not in loss_target_by_kind:
+        raise ValueError(
+            f"Unknown loss_kind: {loss_kind}. "
+            f"Expected one of {sorted(loss_target_by_kind)}"
+        )
+
+    loss_cfg = OmegaConf.create(OmegaConf.to_container(config.loss_function, resolve=False))
+    loss_cfg["_target_"] = loss_target_by_kind[loss_kind]
+    if loss_kind == "blended_masked":
+        loss_cfg["lambda_face"] = lambda_face
+    elif "lambda_face" in loss_cfg:
+        del loss_cfg["lambda_face"]
+    loss_function = instantiate(loss_cfg).to(device)
 
     metrics = []
     for metric_name in config.inference_metrics:

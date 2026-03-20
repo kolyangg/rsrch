@@ -23,6 +23,8 @@ defaults:
 train_on_separate_image: false
 mask_expansion_ratio: 1.0
 mask_softness: 0.0
+loss_kind: masked_alternating   # masked_alternating | blended_masked
+lambda_face: 0.1
 force_log_first_auto_bbox: true
 
 model:
