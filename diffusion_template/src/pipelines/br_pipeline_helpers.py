@@ -1029,6 +1029,7 @@ def build_pipeline_from_pretrained(
     pipeline.face_embed_strategy = face_embed_strategy_cfg
     pipeline.use_id_embeds = bool(use_id_embeds_cfg)
     pipeline.id_alpha = float(id_alpha_cfg)
+    pipeline.strict_face_routing = bool(getattr(unwrapped_model, "strict_face_routing", False))
     pipeline.branched_attn_weight_mode = getattr(unwrapped_model, "branched_attn_weight_mode", "shared")
     pipeline.branched_attn_new_weight_kind = getattr(unwrapped_model, "branched_attn_new_weight_kind", "full")
     pipeline.branched_attn_lora_rank = int(

@@ -428,6 +428,7 @@ class BaseTrainer:
                 try:
                     self.config.model.pretrained_model_name_or_path = val_pretrained
                     _val_model = instantiate(self.config.model, device=self.device)
+                    setattr(_val_model, "strict_face_routing", bool(getattr(self.config, "strict_face_routing", False)))
                     # Ensure adapters are initialized before loading LoRA weights
                     if hasattr(_val_model, "prepare_for_training"):
                         _val_model.prepare_for_training()
