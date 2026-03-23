@@ -35,3 +35,5 @@ dataset_full/val_dataset/ref_bbox11e_debug/
 dataset_full/one_id/_old/
 dataset_full/one_id/nm0005092_adj_bbox_check/
 dataset_full/one_id/one_id_ref_bbox_debug/
+
+diffusion_template/comet_data
