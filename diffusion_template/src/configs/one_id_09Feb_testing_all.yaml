@@ -12,7 +12,7 @@ defaults:
   # - pipeline: photomaker_branched2_ref1
   # - pipeline: photomaker_branched # Modified to make attn_processor trainable in branched version
   # - metrics: all_metrics
-  - metrics: all_metrics_oneid
+  - metrics: all_metrics
   # - datasets: all_datasets
   # - datasets: all_datasets_local
   # - dataloaders: all_dataloaders
