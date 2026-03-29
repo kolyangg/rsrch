@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Sequence
 
 import numpy as np
@@ -9,6 +10,32 @@ from .branched_runtime import patch_unet_attention_processors, two_branch_predic
 from .insightface_package import analyze_faces
 
 
+def select_branched_trainable_processor_names(
+    attn_processor_names: Sequence[str],
+    *,
+    train_ca: bool,
+    ba_train_top_k: float,
+) -> list[str]:
+    top_k = float(ba_train_top_k)
+    if not 0.0 <= top_k <= 1.0:
+        raise ValueError(f"ba_train_top_k must be in [0.0, 1.0], got {top_k}")
+
+    candidate_names: list[str] = []
+    for name in attn_processor_names:
+        if name.endswith("attn1.processor"):
+            candidate_names.append(name)
+        elif train_ca and name.endswith("attn2.processor"):
+            candidate_names.append(name)
+
+    if not candidate_names or top_k >= 1.0:
+        return candidate_names
+    if top_k <= 0.0:
+        return []
+
+    keep_count = max(1, math.ceil(len(candidate_names) * top_k))
+    return candidate_names[:keep_count]
+
+
 def configure_branched_trainables(model) -> None:
     if not getattr(model, "train_ba_only", False):
         return
@@ -16,10 +43,21 @@ def configure_branched_trainables(model) -> None:
     mode = (getattr(model, "branched_attn_weight_mode", "shared") or "shared").lower()
     new_weight_kind = (getattr(model, "branched_attn_new_weight_kind", "full") or "full").lower()
     train_ca = bool(getattr(model, "train_branched_ca_lora", True))
+    ba_train_top_k = float(getattr(model, "ba_train_top_k", 1.0))
     if mode not in {"shared", "ref_only", "noise_and_ref"}:
         raise ValueError(f"Unknown branched_attn_weight_mode: {mode}")
     if new_weight_kind not in {"full", "lora"}:
         raise ValueError(f"Unknown branched_attn_new_weight_kind: {new_weight_kind}")
+
+    selected_proc_prefixes: tuple[str, ...] = ()
+    if mode != "shared":
+        selected_proc_names = select_branched_trainable_processor_names(
+            list(model.unet.attn_processors.keys()),
+            train_ca=train_ca,
+            ba_train_top_k=ba_train_top_k,
+        )
+        setattr(model, "_ba_trainable_processor_names", tuple(selected_proc_names))
+        selected_proc_prefixes = tuple(f"{name}." for name in selected_proc_names)
 
     for _, p in model.unet.named_parameters():
         p.requires_grad_(False)
@@ -29,11 +67,12 @@ def configure_branched_trainables(model) -> None:
             if ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn1." in name:
                 p.requires_grad_(True)
         else:
-            if ".attn1.processor.ref_to_" in name and (
+            is_selected_proc = any(name.startswith(prefix) for prefix in selected_proc_prefixes)
+            if is_selected_proc and ".attn1.processor.ref_to_" in name and (
                 new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
             ):
                 p.requires_grad_(True)
-            elif mode == "noise_and_ref" and ".attn1.processor.noise_to_" in name and (
+            elif is_selected_proc and mode == "noise_and_ref" and ".attn1.processor.noise_to_" in name and (
                 new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
             ):
                 p.requires_grad_(True)
@@ -43,11 +82,12 @@ def configure_branched_trainables(model) -> None:
                 if ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn2." in name:
                     p.requires_grad_(True)
             else:
-                if ".attn2.processor.ref_to_" in name and (
+                is_selected_proc = any(name.startswith(prefix) for prefix in selected_proc_prefixes)
+                if is_selected_proc and ".attn2.processor.ref_to_" in name and (
                     new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
                 ):
                     p.requires_grad_(True)
-                elif mode == "noise_and_ref" and ".attn2.processor.noise_to_" in name and (
+                elif is_selected_proc and mode == "noise_and_ref" and ".attn2.processor.noise_to_" in name and (
                     new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
                 ):
                     p.requires_grad_(True)

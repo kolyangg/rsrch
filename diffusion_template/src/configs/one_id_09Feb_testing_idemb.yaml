@@ -39,6 +39,7 @@ model:
 # If true, only branched attention processors (BranchedAttnProcessor / BranchedCrossAttnProcessor)
 # are trainable; LoRA adapters stay frozen. If false, train LoRA + branched processors (current behavior).
 train_ba_only: true
+ba_train_top_k: 1.0   # fraction of earliest branched-attention processor sites to train
 ### 28 Nov: train only BA layers ###
 
 
