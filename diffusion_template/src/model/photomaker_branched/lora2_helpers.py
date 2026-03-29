@@ -17,6 +17,7 @@ def configure_branched_trainables(model) -> None:
     new_weight_kind = (getattr(model, "branched_attn_new_weight_kind", "full") or "full").lower()
     train_ca = bool(getattr(model, "train_branched_ca_lora", True))
     ba_train_top_k = float(getattr(model, "ba_train_top_k", 1.0))
+    non_ba_train = bool(getattr(model, "non_ba_train", False))
     if mode not in {"shared", "ref_only", "noise_and_ref"}:
         raise ValueError(f"Unknown branched_attn_weight_mode: {mode}")
     if new_weight_kind not in {"full", "lora"}:
@@ -34,11 +35,18 @@ def configure_branched_trainables(model) -> None:
     setattr(model, "_ba_trainable_processor_names", tuple(selected_proc_names))
     selected_proc_prefixes = tuple(f"{name}." for name in selected_proc_names)
     selected_attn_prefixes = tuple(f"{name.rsplit('.processor', 1)[0]}." for name in selected_proc_names)
+    patched_proc_name_set = set(patched_proc_names)
+    non_ba_attn_prefixes = tuple(
+        f"{name.rsplit('.processor', 1)[0]}."
+        for name in model.unet.attn_processors.keys()
+        if name.endswith("attn1.processor") and name not in patched_proc_name_set
+    )
 
     for _, p in model.unet.named_parameters():
         p.requires_grad_(False)
 
     for name, p in model.unet.named_parameters():
+        is_non_ba_attn = bool(non_ba_attn_prefixes) and name.startswith(non_ba_attn_prefixes)
         if mode == "shared":
             is_selected_attn = bool(selected_attn_prefixes) and name.startswith(selected_attn_prefixes)
             if is_selected_attn and ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn1." in name:
@@ -53,6 +61,9 @@ def configure_branched_trainables(model) -> None:
                 new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
             ):
                 p.requires_grad_(True)
+
+        if non_ba_train and is_non_ba_attn and ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name:
+            p.requires_grad_(True)
 
         if train_ca:
             if mode == "shared":

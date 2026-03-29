@@ -42,6 +42,7 @@ model:
 train_ba_only: true
 ba_train_top_k: 1.0   # fraction of earliest branched-attention processor sites to train
 ba_patch_top_k: 1.0   # fraction of earliest self-attention processor sites to patch with branched attention
+non_ba_train: false   # if true, train shared LoRA on unpatched self-attention layers
 ### 28 Nov: train only BA layers ###
 
 branched_attn_weight_mode: shared     # shared | ref_only | noise_and_ref
