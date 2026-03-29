@@ -2,13 +2,42 @@
 branched_new.py - Simplified branched attention implementation with cross-attention
 """
 
+import math
 import torch
 import torch.nn.functional as F
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, Sequence
 import os
 from PIL import Image
 
 from .debug_helpers import save_debug_images
+
+
+def select_branched_processor_names(
+    attn_processor_names: Sequence[str],
+    *,
+    include_self_attention: bool,
+    include_cross_attention: bool,
+    top_k: float,
+    param_name: str,
+) -> list[str]:
+    top_k = float(top_k)
+    if not 0.0 <= top_k <= 1.0:
+        raise ValueError(f"{param_name} must be in [0.0, 1.0], got {top_k}")
+
+    candidate_names: list[str] = []
+    for name in attn_processor_names:
+        if include_self_attention and name.endswith("attn1.processor"):
+            candidate_names.append(name)
+        elif include_cross_attention and name.endswith("attn2.processor"):
+            candidate_names.append(name)
+
+    if not candidate_names or top_k >= 1.0:
+        return candidate_names
+    if top_k <= 0.0:
+        return []
+
+    keep_count = max(1, math.ceil(len(candidate_names) * top_k))
+    return candidate_names[:keep_count]
 
 
 def patch_unet_attention_processors(
@@ -84,10 +113,20 @@ def patch_unet_attention_processors(
     # Always provide id_embeds so processor-local weights participate on every rank
     _idem = id_embeds.to(dev, dt) if id_embeds is not None else torch.zeros(B, 2048, device=dev, dtype=dt)   
 
+    ba_patch_top_k = float(getattr(pipeline, "ba_patch_top_k", 1.0))
+    patchable_sa_names = select_branched_processor_names(
+        list(pipeline.unet.attn_processors.keys()),
+        include_self_attention=True,
+        include_cross_attention=False,
+        top_k=ba_patch_top_k,
+        param_name="ba_patch_top_k",
+    )
+    patchable_sa_name_set = set(patchable_sa_names)
 
     if not has_branched:
         # Create new processors
         new_procs = {}
+        patched_proc_names: list[str] = []
         
         # Get cross-attention dimension
         cross_attention_dim = pipeline.unet.config.cross_attention_dim
@@ -108,7 +147,7 @@ def patch_unet_attention_processors(
                 hidden_size = pipeline.unet.config.block_out_channels[0]
             
             if name.endswith("attn1.processor"):
-                if disable_sa:
+                if disable_sa or name not in patchable_sa_name_set:
                     # Keep original self-attn processor; no branching on attn1.
                     new_procs[name] = pipeline._original_attn_processors[name]
                 else:
@@ -133,6 +172,7 @@ def patch_unet_attention_processors(
                     proc.id_embeds = _idem
 
                     new_procs[name] = proc
+                    patched_proc_names.append(name)
                 
             elif name.endswith("attn2.processor"):
                 if disable_ca:
@@ -166,16 +206,20 @@ def patch_unet_attention_processors(
                     proc.class_tokens_mask = class_tokens_mask
 
                     new_procs[name] = proc
+                    patched_proc_names.append(name)
                 
             else:
                 # Keep original for other processors
                 new_procs[name] = pipeline._original_attn_processors[name]
         
         pipeline.unet.set_attn_processor(new_procs)
+        setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
     else:
-                # Update masks on existing processors
+        patched_proc_names: list[str] = []
+        # Update masks on existing processors
         for name, proc in pipeline.unet.attn_processors.items():
             if isinstance(proc, (BranchedAttnProcessor, BranchedCrossAttnProcessor)):
+                patched_proc_names.append(name)
                 # proc.set_masks(mask, mask_ref)
                 proc.set_masks(_mask, _mref)
                 _apply_runtime_flags(proc, pipeline)
@@ -183,6 +227,7 @@ def patch_unet_attention_processors(
                 # (Re)apply id_embeds (zeros if missing); actual usage is gated by use_id_embeds
                 if hasattr(proc, "id_embeds"):
                     proc.id_embeds = _idem
+        setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
 
 def encode_face_prompt(
     pipeline,

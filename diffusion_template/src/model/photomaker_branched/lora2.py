@@ -63,6 +63,7 @@ class PhotomakerBranchedLora(SDXL):
         branched_attn_new_weight_kind: str = "full",
         train_branched_ca_lora: bool = True,
         ba_train_top_k: float = 1.0,
+        ba_patch_top_k: float = 1.0,
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
         photomaker_start_step: int = 10,
@@ -163,6 +164,7 @@ class PhotomakerBranchedLora(SDXL):
         self.branched_attn_new_weight_kind = (branched_attn_new_weight_kind or "full").lower()
         self.train_branched_ca_lora = bool(train_branched_ca_lora)
         self.ba_train_top_k = float(ba_train_top_k)
+        self.ba_patch_top_k = float(ba_patch_top_k)
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 
         photomaker_lora_config = LoraConfig(

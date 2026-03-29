@@ -1,39 +1,12 @@
 from __future__ import annotations
 
-import math
 from typing import Sequence
 
 import numpy as np
 import torch
 
-from .branched_runtime import patch_unet_attention_processors, two_branch_predict
+from .branched_runtime import patch_unet_attention_processors, select_branched_processor_names, two_branch_predict
 from .insightface_package import analyze_faces
-
-
-def select_branched_trainable_processor_names(
-    attn_processor_names: Sequence[str],
-    *,
-    train_ca: bool,
-    ba_train_top_k: float,
-) -> list[str]:
-    top_k = float(ba_train_top_k)
-    if not 0.0 <= top_k <= 1.0:
-        raise ValueError(f"ba_train_top_k must be in [0.0, 1.0], got {top_k}")
-
-    candidate_names: list[str] = []
-    for name in attn_processor_names:
-        if name.endswith("attn1.processor"):
-            candidate_names.append(name)
-        elif train_ca and name.endswith("attn2.processor"):
-            candidate_names.append(name)
-
-    if not candidate_names or top_k >= 1.0:
-        return candidate_names
-    if top_k <= 0.0:
-        return []
-
-    keep_count = max(1, math.ceil(len(candidate_names) * top_k))
-    return candidate_names[:keep_count]
 
 
 def configure_branched_trainables(model) -> None:
@@ -49,25 +22,29 @@ def configure_branched_trainables(model) -> None:
     if new_weight_kind not in {"full", "lora"}:
         raise ValueError(f"Unknown branched_attn_new_weight_kind: {new_weight_kind}")
 
-    selected_proc_prefixes: tuple[str, ...] = ()
-    if mode != "shared":
-        selected_proc_names = select_branched_trainable_processor_names(
-            list(model.unet.attn_processors.keys()),
-            train_ca=train_ca,
-            ba_train_top_k=ba_train_top_k,
-        )
-        setattr(model, "_ba_trainable_processor_names", tuple(selected_proc_names))
-        selected_proc_prefixes = tuple(f"{name}." for name in selected_proc_names)
+    patched_proc_names = tuple(getattr(model, "_ba_patched_processor_names", ()))
+    candidate_proc_names = list(patched_proc_names or model.unet.attn_processors.keys())
+    selected_proc_names = select_branched_processor_names(
+        candidate_proc_names,
+        include_self_attention=True,
+        include_cross_attention=train_ca,
+        top_k=ba_train_top_k,
+        param_name="ba_train_top_k",
+    )
+    setattr(model, "_ba_trainable_processor_names", tuple(selected_proc_names))
+    selected_proc_prefixes = tuple(f"{name}." for name in selected_proc_names)
+    selected_attn_prefixes = tuple(f"{name.rsplit('.processor', 1)[0]}." for name in selected_proc_names)
 
     for _, p in model.unet.named_parameters():
         p.requires_grad_(False)
 
     for name, p in model.unet.named_parameters():
         if mode == "shared":
-            if ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn1." in name:
+            is_selected_attn = bool(selected_attn_prefixes) and name.startswith(selected_attn_prefixes)
+            if is_selected_attn and ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn1." in name:
                 p.requires_grad_(True)
         else:
-            is_selected_proc = any(name.startswith(prefix) for prefix in selected_proc_prefixes)
+            is_selected_proc = bool(selected_proc_prefixes) and name.startswith(selected_proc_prefixes)
             if is_selected_proc and ".attn1.processor.ref_to_" in name and (
                 new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
             ):
@@ -79,10 +56,11 @@ def configure_branched_trainables(model) -> None:
 
         if train_ca:
             if mode == "shared":
-                if ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn2." in name:
+                is_selected_attn = bool(selected_attn_prefixes) and name.startswith(selected_attn_prefixes)
+                if is_selected_attn and ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn2." in name:
                     p.requires_grad_(True)
             else:
-                is_selected_proc = any(name.startswith(prefix) for prefix in selected_proc_prefixes)
+                is_selected_proc = bool(selected_proc_prefixes) and name.startswith(selected_proc_prefixes)
                 if is_selected_proc and ".attn2.processor.ref_to_" in name and (
                     new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
                 ):

@@ -150,6 +150,7 @@ def main(config):
     # Optional flag: when true, restrict training to branched attention processors only.
     train_ba_only = bool(getattr(config, "train_ba_only", False))
     ba_train_top_k = float(getattr(config, "ba_train_top_k", 1.0))
+    ba_patch_top_k = float(getattr(config, "ba_patch_top_k", 1.0))
     # Optional flag: when true, enable clean separation of BA-specific parameters.
     ### 29 Nov - Clean separataion of BA-specific parameters ###
     ba_weights_split = bool(getattr(config, "ba_weights_split", False))
@@ -164,6 +165,7 @@ def main(config):
     ):
         ba_kwargs["train_ba_only"] = train_ba_only
         ba_kwargs["ba_train_top_k"] = ba_train_top_k
+        ba_kwargs["ba_patch_top_k"] = ba_patch_top_k
         ### 29 Nov - Clean separataion of BA-specific parameters ###
         ba_kwargs["ba_weights_split"] = ba_weights_split
         ba_kwargs["use_attn_v2"] = use_attn_v2
