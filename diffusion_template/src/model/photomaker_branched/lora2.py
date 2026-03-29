@@ -260,7 +260,12 @@ class PhotomakerBranchedLora(SDXL):
         }
         if hasattr(self.unet, "attn_processors"):
             proc_sd = {}
+            patched_proc_names = set(getattr(self, "_ba_patched_processor_names", ()))
             for name, proc in self.unet.attn_processors.items():
+                if patched_proc_names and name not in patched_proc_names:
+                    continue
+                if not isinstance(proc, torch.nn.Module):
+                    continue
                 trainable = tuple(n for n, p in proc.named_parameters() if p.requires_grad)
                 if not trainable:
                     continue
@@ -286,7 +291,7 @@ class PhotomakerBranchedLora(SDXL):
             assert not unexpected_keys, unexpected_keys
         for name, sd in state_dict.get("attn_processors", {}).items():
             proc = self.unet.attn_processors.get(name)
-            if proc is not None:
+            if proc is not None and hasattr(proc, "load_state_dict"):
                 proc.load_state_dict(sd, strict=False)
 
     def forward(
