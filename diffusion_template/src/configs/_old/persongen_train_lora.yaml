@@ -27,6 +27,7 @@ val_datasets_names: ["db_liv_small"]
 inference_metrics: ["dino", "clip_ts"]
 
 validation_args:
+  photomaker_use_lora_adapter: false
   negative_prompt: "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry"
   num_images_per_prompt: 5
   num_inference_steps: 50

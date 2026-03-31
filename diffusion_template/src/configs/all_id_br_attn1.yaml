@@ -108,6 +108,7 @@ validation_args:
   use_branched_attention: true
   face_embed_strategy: ${pipeline.face_embed_strategy}
   photomaker_start_step: ${model.photomaker_start_step}
+  photomaker_use_lora_adapter: false
   merge_start_step: ${model.merge_start_step}
   branched_attn_start_step: ${model.branched_attn_start_step}
   mask_expansion_ratio: ${mask_expansion_ratio}

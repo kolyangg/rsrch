@@ -34,6 +34,7 @@ model:
   # Toggle ID embedding projection (BranchedAttnProcessor.id_to_hidden); default off for attn1 configs
   use_id_embeds: false
   photomaker_start_step: 0
+  photomaker_use_lora_adapter: false
   merge_start_step: 0
   branched_attn_start_step: 1
 

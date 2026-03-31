@@ -31,6 +31,7 @@ inference_metrics: ["clip_ts", "id_sim_best"]
 validation_debug_timing: false
 
 validation_args:
+  photomaker_use_lora_adapter: false
   negative_prompt: "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry"
   num_images_per_prompt: 5
   num_inference_steps: 50

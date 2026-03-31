@@ -25,6 +25,7 @@ model:
   # variant: fp16
   # # Match test_steps4_Nov.json: PMS=10, MS=10, BAS=15, MODE=both
   # photomaker_start_step: 10
+  photomaker_use_lora_adapter: false
   # merge_start_step: 10
   # branched_attn_start_step: 15
   # branched_start_mode: both

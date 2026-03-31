@@ -26,6 +26,7 @@ pipeline:
   use_safetensors: True
   variant: fp16
   photomaker_start_step: 10
+  photomaker_use_lora_adapter: false
   merge_start_step: 10
   branched_attn_start_step: 30
   branched_start_mode: both

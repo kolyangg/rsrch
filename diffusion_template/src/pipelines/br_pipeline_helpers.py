@@ -457,7 +457,14 @@ def set_validation_unet_mode(pipeline, *, branched_active: bool) -> None:
     else:
         if hasattr(pipeline, "_original_attn_processors"):
             pipeline.unet.set_attn_processor(dict(pipeline._original_attn_processors))
-        _set_unet_adapters(pipeline.unet, "default")
+        if bool(getattr(pipeline, "photomaker_use_lora_adapter", False)):
+            adapters = getattr(pipeline, "_branched_active_adapters", None)
+            if adapters:
+                _set_unet_adapters(pipeline.unet, adapters)
+            else:
+                _set_unet_adapters(pipeline.unet, "default")
+        else:
+            _set_unet_adapters(pipeline.unet, "default")
 
     pipeline._runtime_uses_branched_unet = branched_active
 
@@ -983,6 +990,9 @@ def build_pipeline_from_pretrained(
     kwargs.pop("merge_start_step", None)
     kwargs.pop("branched_attn_start_step", None)
     kwargs.pop("branched_start_mode", None)
+    photomaker_use_lora_adapter_cfg = bool(
+        kwargs.pop("photomaker_use_lora_adapter", False)
+    )
     pose_adapt_ratio_cfg = kwargs.pop(
         "pose_adapt_ratio",
         getattr(unwrapped_model, "pose_adapt_ratio", 0.25),
@@ -1042,6 +1052,7 @@ def build_pipeline_from_pretrained(
     active_adapters = _get_unet_active_adapters(unwrapped_model.unet)
     if active_adapters:
         pipeline._branched_active_adapters = active_adapters
+    pipeline.photomaker_use_lora_adapter = photomaker_use_lora_adapter_cfg
     pipeline._runtime_uses_branched_unet = None
 
     pipeline.tokenizer.add_tokens([pipeline.trigger_word], special_tokens=True)
