@@ -627,6 +627,9 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
         callback = kwargs.pop("callback", None)
         callback_steps = kwargs.pop("callback_steps", None)
+        photomaker_use_lora_adapter = kwargs.pop("photomaker_use_lora_adapter", None)
+        if photomaker_use_lora_adapter is not None:
+            self.photomaker_use_lora_adapter = bool(photomaker_use_lora_adapter)
         
 
         if callback is not None:
