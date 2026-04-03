@@ -624,8 +624,8 @@ def render_image_pages(
     run_chunks = chunked(selected_runs, max_rows)
     image_chunks = chunked(image_keys, max_columns)
 
-    for run_chunk in run_chunks:
-        for image_chunk in image_chunks:
+    for image_chunk in image_chunks:
+        for run_chunk in run_chunks:
             row_count = len(run_chunk)
             col_count = len(image_chunk)
             fig = plt.figure(figsize=LANDSCAPE_A4)

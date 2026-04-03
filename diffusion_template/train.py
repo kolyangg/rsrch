@@ -152,6 +152,7 @@ def main(config):
     ba_train_top_k = float(getattr(config, "ba_train_top_k", 1.0))
     ba_patch_top_k = float(getattr(config, "ba_patch_top_k", 1.0))
     non_ba_train = bool(getattr(config, "non_ba_train", False))
+    train_ba_all_steps = bool(getattr(config, "train_ba_all_steps", False))
     # Optional flag: when true, enable clean separation of BA-specific parameters.
     ### 29 Nov - Clean separataion of BA-specific parameters ###
     ba_weights_split = bool(getattr(config, "ba_weights_split", False))
@@ -168,6 +169,7 @@ def main(config):
         ba_kwargs["ba_train_top_k"] = ba_train_top_k
         ba_kwargs["ba_patch_top_k"] = ba_patch_top_k
         ba_kwargs["non_ba_train"] = non_ba_train
+        ba_kwargs["train_ba_all_steps"] = train_ba_all_steps
         ### 29 Nov - Clean separataion of BA-specific parameters ###
         ba_kwargs["ba_weights_split"] = ba_weights_split
         ba_kwargs["use_attn_v2"] = use_attn_v2

@@ -65,6 +65,7 @@ class PhotomakerBranchedLora(SDXL):
         ba_train_top_k: float = 1.0,
         ba_patch_top_k: float = 1.0,
         non_ba_train: bool = False,
+        train_ba_all_steps: bool = False,
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
         photomaker_start_step: int = 10,
@@ -167,6 +168,7 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_train_top_k = float(ba_train_top_k)
         self.ba_patch_top_k = float(ba_patch_top_k)
         self.non_ba_train = bool(non_ba_train)
+        self.train_ba_all_steps = bool(train_ba_all_steps)
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 
         photomaker_lora_config = LoraConfig(
@@ -411,7 +413,21 @@ class PhotomakerBranchedLora(SDXL):
         # )[0]
         ### MEMO: INITIAL LORA UNet pass ###
 
-        if denoise_progress < photomaker_start_ratio:
+        if self.train_ba_all_steps:
+            noise_pred = run_branched_forward_pass(
+                self,
+                noisy_latents=noisy_latents,
+                timesteps=timesteps,
+                prompt_embeds=prompt_embeds,
+                added_cond_kwargs=added_cond_kwargs,
+                mask4=mask4,
+                mask4_ref=mask4_ref,
+                reference_latents=reference_latents,
+                face_prompt_embeds=face_prompt_embeds,
+                class_tokens_mask=class_tokens_mask,
+                id_features=id_features,
+            )
+        elif denoise_progress < photomaker_start_ratio:
             text_only_kwargs = {
                 "text_embeds": pooled_prompt_embeds_text_only,
                 "time_ids": add_time_ids.to(device=self.device, dtype=self.unet.dtype),
