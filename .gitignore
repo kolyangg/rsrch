@@ -37,3 +37,5 @@ dataset_full/one_id/nm0005092_adj_bbox_check/
 dataset_full/one_id/one_id_ref_bbox_debug/
 
 diffusion_template/comet_data
+
+dataset_full/cosmic_dataset_images.tar
