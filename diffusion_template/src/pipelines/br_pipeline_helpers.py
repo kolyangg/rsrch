@@ -903,10 +903,16 @@ def run_denoising_step(
     )
 
     if mode != prev_mode:
+        end_part = (
+            f", branched_attn_end_step={int(branched_attn_end_step)}"
+            if branched_attn_end_step is not None
+            else ""
+        )
         print(
             f"[Switch] step {int(i)} → {mode}  "
             f"(photomaker_start_step={int(photomaker_start_step)}, "
-            f"branched_attn_start_step={int(branched_attn_start_step)})"
+            f"branched_attn_start_step={int(branched_attn_start_step)}"
+            f"{end_part})"
         )
         prev_mode = mode
 

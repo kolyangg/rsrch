@@ -7,6 +7,7 @@ from hydra.utils import instantiate
 from tqdm.auto import tqdm
 from omegaconf import OmegaConf
 import numpy as np  # Alligned with PhotoMaker
+from src.metrics.tracker import MetricTracker
 
 
 class _NoAccelerator:
@@ -91,6 +92,13 @@ def main():
         writer = instantiate(cfg.writer, None, project_config, run_id=comet_run_id)
         if hasattr(writer, "set_step"):
             writer.set_step(0, mode="infer")
+
+    metrics = []
+    infer_metrics = MetricTracker()
+    if "inference_metrics" in top_keys and "metrics" in top_keys:
+        for metric_name in cfg.inference_metrics:
+            metric_config = cfg.metrics[metric_name]
+            metrics.append(instantiate(metric_config, name=metric_name, device=device))
 
     # Instantiate model (PhotoMaker v2 + LoRA adapters)
     model = instantiate(cfg.model, device=device)
@@ -266,7 +274,23 @@ def main():
                 if writer is not None:
                     for name, img in _iter_named_images(sample_images, prompt, ref_stem):
                         writer.add_image(name, img)
+                if metrics:
+                    metric_sample = {
+                        "prompt": prompt,
+                        "generated": sample_images,
+                        "id": sample.get("id"),
+                    }
+                    for metric in metrics:
+                        metric_result = metric(**metric_sample)
+                        for k, v in metric_result.items():
+                            infer_metrics.update(k, v)
                 pbar.update(1)
+
+    if writer is not None:
+        for metric_name in infer_metrics.keys():
+            writer.add_scalar(f"infer/{metric_name}", infer_metrics.avg(metric_name))
+    if infer_metrics.keys():
+        print({k: infer_metrics.avg(k) for k in infer_metrics.keys()})
 
 
 

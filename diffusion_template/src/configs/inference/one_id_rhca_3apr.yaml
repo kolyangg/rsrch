@@ -43,6 +43,7 @@ bbox_mask_gen_fallback_path: ../dataset_full/one_id/one_id_ref_bboxes.json
 cometml_id: null
 output_dir: outputs/infer/rhca_1e-4_ml_step2_allsteps_3Apr
 batch_size: 1
+inference_metrics: ["clip_ts", "id_sim_best"]
 
 writer:
   _target_: src.logger.cometml.CometMLWriter
@@ -53,6 +54,15 @@ writer:
   loss_names: ["loss"]
   log_checkpoints: false
   id_length: 32
+
+metrics:
+  clip_ts:
+    _target_: src.metrics.text_sim.TextSimMetric
+    model_name: ViT-L/14@336px
+
+  id_sim_best:
+    _target_: src.metrics.id_sim_metric.IDSimBest
+    id_embeds_pth: ../dataset_full/one_id/id_embeds_one_id.pth
 
 model:
   _target_: src.model.photomaker_branched.lora2.PhotomakerBranchedLora
