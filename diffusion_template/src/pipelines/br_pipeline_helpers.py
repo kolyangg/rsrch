@@ -606,6 +606,7 @@ def select_mode_and_prompts(
     i: int,
     photomaker_start_step: int,
     branched_attn_start_step: int,
+    branched_attn_end_step: Optional[int],
     prompt_embeds_text_only: torch.Tensor,
     pooled_prompt_embeds_text_only: torch.Tensor,
     prompt_embeds: torch.Tensor,
@@ -634,17 +635,28 @@ def select_mode_and_prompts(
             )
             pose_relaxed_logged = True
 
-    sm = photomaker_start_step
-    bs = branched_attn_start_step
-    a = min(sm, bs)
-    b = max(sm, bs)
     bsm = getattr(pipeline, "branched_start_mode", "both").lower()
-    if i < a:
-        mode = "NO_ID"
-    elif sm < bs:
-        mode = "PHOTOMAKER" if i < b else ("BOTH" if bsm == "both" else "BRANCHED")
+    if branched_attn_end_step is None:
+        sm = photomaker_start_step
+        bs = branched_attn_start_step
+        a = min(sm, bs)
+        b = max(sm, bs)
+        if i < a:
+            mode = "NO_ID"
+        elif sm < bs:
+            mode = "PHOTOMAKER" if i < b else ("BOTH" if bsm == "both" else "BRANCHED")
+        else:
+            mode = ("BOTH" if bsm == "both" else "BRANCHED") if i < b else "PHOTOMAKER"
     else:
-        mode = ("BOTH" if bsm == "both" else "BRANCHED") if i < b else "PHOTOMAKER"
+        branched_mode = "BOTH" if bsm == "both" else "BRANCHED"
+        if i < photomaker_start_step:
+            mode = "NO_ID"
+        elif i < branched_attn_start_step:
+            mode = "PHOTOMAKER"
+        elif i < branched_attn_end_step:
+            mode = branched_mode
+        else:
+            mode = "PHOTOMAKER"
 
     if mode in ("PHOTOMAKER", "BOTH"):
         base_prompt = prompt_embeds
@@ -850,6 +862,7 @@ def run_denoising_step(
     prev_mode: Optional[str],
     photomaker_start_step: int,
     branched_attn_start_step: int,
+    branched_attn_end_step: Optional[int],
     prompt_embeds_text_only: torch.Tensor,
     pooled_prompt_embeds_text_only: torch.Tensor,
     prompt_embeds: torch.Tensor,
@@ -879,6 +892,7 @@ def run_denoising_step(
         i=i,
         photomaker_start_step=photomaker_start_step,
         branched_attn_start_step=branched_attn_start_step,
+        branched_attn_end_step=branched_attn_end_step,
         prompt_embeds_text_only=prompt_embeds_text_only,
         pooled_prompt_embeds_text_only=pooled_prompt_embeds_text_only,
         prompt_embeds=prompt_embeds,

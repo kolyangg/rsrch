@@ -132,6 +132,11 @@ class ManualPhotoMakerValDataset(Dataset):
         if self._bbox_gen_json is not None:
             key = f"{idx:02d}.png"
             record = self._bbox_gen_json.get(key)
+            if record is None:
+                prompt = sample.get("prompt")
+                sample_id = sample.get("id")
+                if isinstance(prompt, str) and sample_id is not None:
+                    record = self._bbox_gen_json.get(f"{prompt[:10]}_{sample_id}.png")
             if isinstance(record, dict):
                 face_bbox_gen = record.get("face_crop_new") or record.get("face_crop_old")
         return {
