@@ -4,10 +4,11 @@ set -euo pipefail
 usage() {
     cat <<'EOF'
 Usage:
-  download_cosmic_dataset_archive.sh GOOGLE_DRIVE_FILE_ID [extract_parent]
+  download_cosmic_dataset_archive.sh GOOGLE_DRIVE_FILE_ID_OR_URL [extract_parent]
 
 Arguments:
-  GOOGLE_DRIVE_FILE_ID   Google Drive file ID for cosmic_dataset_images.tar
+  GOOGLE_DRIVE_FILE_ID_OR_URL
+                         Google Drive file ID or sharing URL for cosmic_dataset_images.tar
   extract_parent         Optional directory where dataset_full/ should be created.
                          Defaults to the parent of the repo root.
 
@@ -33,7 +34,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 EXTRACT_PARENT="${2:-$(cd "$REPO_ROOT/.." && pwd)}"
 ARCHIVE_PATH="$EXTRACT_PARENT/cosmic_dataset_images.tar"
-DOWNLOAD_URL="https://drive.google.com/uc?id=${FILE_ID}"
+
+DOWNLOAD_INPUT="$FILE_ID"
+if [[ "$DOWNLOAD_INPUT" =~ ^https?:// ]]; then
+    if [[ "$DOWNLOAD_INPUT" =~ /file/d/([^/?]+) ]]; then
+        FILE_ID="${BASH_REMATCH[1]}"
+        DOWNLOAD_URL="https://drive.google.com/uc?id=${FILE_ID}"
+    elif [[ "$DOWNLOAD_INPUT" =~ [\?\&]id=([^&]+) ]]; then
+        FILE_ID="${BASH_REMATCH[1]}"
+        DOWNLOAD_URL="https://drive.google.com/uc?id=${FILE_ID}"
+    else
+        DOWNLOAD_URL="$DOWNLOAD_INPUT"
+    fi
+else
+    DOWNLOAD_URL="https://drive.google.com/uc?id=${DOWNLOAD_INPUT}"
+fi
 
 mkdir -p "$EXTRACT_PARENT"
 
