@@ -6,7 +6,6 @@ import torch
 from hydra.utils import instantiate
 from tqdm.auto import tqdm
 from omegaconf import OmegaConf
-import numpy as np  # Alligned with PhotoMaker
 from src.metrics.tracker import MetricTracker
 
 
@@ -144,34 +143,56 @@ def main():
     # Dataset (manual_val-like)
     dataset = instantiate(cfg.dataset)
 
-    # Optional: load generation bbox map keyed by final filename
-    gen_bbox_by_name = None
-    try:
-        bbox_gen_path = getattr(cfg, "bbox_mask_gen_path", None)
-        if not bbox_gen_path:
-            bbox_gen_path = getattr(cfg.dataset, "bbox_mask_gen", None)
-        if bbox_gen_path and str(bbox_gen_path).strip():
-            import json as _json
-            with open(str(bbox_gen_path), "r", encoding="utf-8") as _fh:
-                gen_bbox_by_name = _json.load(_fh)
-    except Exception:
-        gen_bbox_by_name = None
-
     out_dir = Path(getattr(cfg, "output_dir", "outputs/infer"))
     _ensure_dir(out_dir)
 
     val_args = _to_plain(cfg.validation_args)
     batch_size = int(getattr(cfg, "batch_size", 1) or 1)
     total = len(dataset)
+    use_gen_mask = bool(val_args.get("use_bbox_mask_gen", False))
+    automatic_bboxes = bool(getattr(cfg, "automatic_bboxes", False))
+    automatic_bboxes_every_val = bool(getattr(cfg, "automatic_bboxes_every_val", False))
 
-
-    # Prepare face analyzer once (Alligned with PhotoMaker)
+    # Optional: load generation bbox maps keyed by final filename.
+    gen_bbox_by_name = None
+    manual_gen_bbox_by_name = None
+    auto_bbox_store = None
+    bbox_gen_path = getattr(cfg, "bbox_mask_gen_path", None)
+    if not bbox_gen_path:
+        bbox_gen_path = getattr(cfg.dataset, "bbox_mask_gen", None)
+    bbox_manual_path = getattr(cfg, "bbox_mask_gen_fallback_path", None)
+    if not bbox_manual_path:
+        bbox_manual_path = getattr(cfg.dataset, "bbox_mask_gen", None)
     try:
-        from src.model.photomaker_branched.insightface_package import FaceAnalysis2, analyze_faces  # Alligned with PhotoMaker
-        _face_an = FaceAnalysis2(providers=['CUDAExecutionProvider'], allowed_modules=['detection', 'recognition'])
-        _face_an.prepare(ctx_id=0, det_size=(640, 640))
+        import json as _json
+
+        if bbox_manual_path and str(bbox_manual_path).strip():
+            with open(str(bbox_manual_path), "r", encoding="utf-8") as _fh:
+                manual_gen_bbox_by_name = _json.load(_fh)
+
+        if automatic_bboxes and use_gen_mask:
+            from src.utils.auto_bbox_gen import AutoGenBboxStore
+
+            if bbox_gen_path and str(bbox_gen_path).strip():
+                auto_bbox_path = Path(str(bbox_gen_path))
+            elif bbox_manual_path and str(bbox_manual_path).strip():
+                manual_path = Path(str(bbox_manual_path))
+                auto_bbox_path = manual_path.with_name(manual_path.stem + "_auto.json")
+            else:
+                auto_bbox_path = Path("bbox_mask_gen_auto.json")
+            auto_bbox_store = AutoGenBboxStore(
+                auto_bbox_path,
+                face_detector=getattr(cfg, "face_detector", "mtcnn"),
+                face_model=getattr(cfg, "face_model", "yolov8n-face.pt"),
+            )
+            gen_bbox_by_name = auto_bbox_store.data
+        elif bbox_gen_path and str(bbox_gen_path).strip():
+            with open(str(bbox_gen_path), "r", encoding="utf-8") as _fh:
+                gen_bbox_by_name = _json.load(_fh)
     except Exception:
-        _face_an = None
+        gen_bbox_by_name = None
+        manual_gen_bbox_by_name = None
+        auto_bbox_store = None
 
     with tqdm(total=total, desc="Inference", dynamic_ncols=True) as pbar:
         for start in range(0, total, batch_size):
@@ -183,55 +204,7 @@ def main():
             face_bbox_ref_batch = [sample.get("face_bbox_ref") for sample in batch_samples]
             face_bbox_gen_batch = [sample.get("face_bbox_gen") for sample in batch_samples]
             ref_stems = []
-
-            # If a filename-keyed bbox map is provided, override face_bbox_gen by exact output name.
-            for rel_idx, sample in enumerate(batch_samples):
-                idx = start + rel_idx
-                ref_path = sample.get("image_path")
-                ref_stem = Path(ref_path).stem if ref_path is not None else sample.get("id", f"idx{idx:04d}")
-                ref_stems.append(ref_stem)
-                if gen_bbox_by_name is not None:
-                    base = f"{prompts[rel_idx][:10]}_{ref_stem}"
-                    key = f"{base}.png"
-                    entry = gen_bbox_by_name.get(key)
-                    if isinstance(entry, dict):
-                        fb = entry.get("face_crop_new")
-                        if fb is None:
-                            fb = entry.get("face_crop_old")
-                        if fb is not None:
-                            face_bbox_gen_batch[rel_idx] = fb
-                    if face_bbox_gen_batch[rel_idx] is None:
-                        raise RuntimeError(
-                            f"No bbox entry in bbox_mask_gen for expected output name '{key}'"
-                        )
-
-            generators = [
-                torch.Generator(device=device.type).manual_seed(seed)
-                for seed in seeds
-            ]
-
-            id_embeds_batch = []
-            has_any_id_embed = False
-            for ref_images in refs_batch:
-                id_embeds_vec = None
-                try:
-                    if _face_an is not None and isinstance(ref_images, (list, tuple)) and len(ref_images) > 0:
-                        _pil = ref_images[0]
-                        _np = np.array(_pil.convert("RGB"))[:, :, ::-1]
-                        _faces = analyze_faces(_face_an, _np)
-                        if _faces:
-                            id_embeds_vec = torch.from_numpy(_faces[0]["embedding"]).float()
-                except Exception:
-                    id_embeds_vec = None
-                if id_embeds_vec is None:
-                    id_embeds_vec = torch.zeros(512, dtype=torch.float32)
-                else:
-                    has_any_id_embed = True
-                id_embeds_batch.append(id_embeds_vec)
-
-            id_embeds_arg = None
-            if has_any_id_embed and id_embeds_batch:
-                id_embeds_arg = torch.stack(id_embeds_batch, dim=0)
+            keys = []
 
             call_args = dict(val_args)
             dbg_base = call_args.get("debug_dir", "hm_debug") or "hm_debug"
@@ -239,13 +212,82 @@ def main():
             call_args["debug_idx"] = start
             call_args["debug_total"] = total
 
+            generators = [
+                torch.Generator(device=device.type).manual_seed(seed)
+                for seed in seeds
+            ]
+
+            pending_pm = []
+            for rel_idx, sample in enumerate(batch_samples):
+                idx = start + rel_idx
+                ref_path = sample.get("image_path")
+                ref_stem = Path(ref_path).stem if ref_path is not None else sample.get("id", f"idx{idx:04d}")
+                ref_stems.append(ref_stem)
+                key = f"{prompts[rel_idx][:10]}_{ref_stem}.png"
+                keys.append(key)
+                manual_entry = None
+                if isinstance(manual_gen_bbox_by_name, dict):
+                    manual_entry = manual_gen_bbox_by_name.get(key)
+                force_manual = bool(isinstance(manual_entry, dict) and manual_entry.get("force_manual", False))
+                entry = manual_entry if force_manual else None
+                if entry is None and isinstance(gen_bbox_by_name, dict):
+                    entry = gen_bbox_by_name.get(key)
+                face_bbox = None
+                if isinstance(entry, dict):
+                    face_bbox = entry.get("face_crop_new") or entry.get("face_crop_old")
+                    if face_bbox is not None:
+                        face_bbox_gen_batch[rel_idx] = face_bbox
+                if (
+                    auto_bbox_store is not None
+                    and use_gen_mask
+                    and (not force_manual)
+                    and (entry is None or face_bbox is None or automatic_bboxes_every_val)
+                ):
+                    pending_pm.append(rel_idx)
+
+            if pending_pm:
+                pm_kwargs = dict(call_args)
+                pm_kwargs["use_branched_attention"] = False
+                pm_kwargs["use_bbox_mask_gen"] = False
+                pm_kwargs["debug_dir"] = None
+                pm_images = pipeline(
+                    prompt=[prompts[i] for i in pending_pm] if len(pending_pm) > 1 else prompts[pending_pm[0]],
+                    input_id_images=[refs_batch[i] for i in pending_pm] if len(pending_pm) > 1 else refs_batch[pending_pm[0]],
+                    generator=[generators[i] for i in pending_pm] if len(pending_pm) > 1 else generators[pending_pm[0]],
+                    face_bbox_ref=[face_bbox_ref_batch[i] for i in pending_pm] if len(pending_pm) > 1 else face_bbox_ref_batch[pending_pm[0]],
+                    face_bbox_gen=None,
+                    **pm_kwargs,
+                ).images
+                if not isinstance(pm_images, list):
+                    pm_images = [pm_images]
+                pm_num_per_prompt = int(pm_kwargs.get("num_images_per_prompt", 1) or 1)
+                for local_idx, rel_idx in enumerate(pending_pm):
+                    entry = auto_bbox_store.ensure(
+                        keys[rel_idx],
+                        photomaker_image=pm_images[local_idx * pm_num_per_prompt],
+                        meta={
+                            "prompt": str(prompts[rel_idx]),
+                            "id": str(batch_samples[rel_idx].get("id")),
+                            "seed": int(seeds[rel_idx]),
+                        },
+                        force_recompute=automatic_bboxes_every_val,
+                    )
+                    gen_bbox_by_name[keys[rel_idx]] = entry
+                    face_bbox_gen_batch[rel_idx] = entry.get("face_crop_new") or entry.get("face_crop_old")
+
+            if use_gen_mask:
+                for rel_idx, face_bbox in enumerate(face_bbox_gen_batch):
+                    if face_bbox is None:
+                        raise RuntimeError(
+                            f"No bbox entry in bbox_mask_gen for expected output name '{keys[rel_idx]}'"
+                        )
+
             images_flat = pipeline(
                 prompt=prompts if len(prompts) > 1 else prompts[0],
                 input_id_images=refs_batch if len(refs_batch) > 1 else refs_batch[0],
                 generator=generators if len(generators) > 1 else generators[0],
                 face_bbox_ref=face_bbox_ref_batch if len(face_bbox_ref_batch) > 1 else face_bbox_ref_batch[0],
                 face_bbox_gen=face_bbox_gen_batch if len(face_bbox_gen_batch) > 1 else face_bbox_gen_batch[0],
-                id_embeds=id_embeds_arg,
                 **call_args,
             ).images
 

@@ -36,9 +36,13 @@ auto_mask_ref: false
 use_dynamic_mask: false
 use_bbox_mask_ref: true
 use_bbox_mask_gen: true
+automatic_bboxes: true
+automatic_bboxes_every_val: false
+face_detector: yolo
+face_model: bbox_utils/yolov8n-face.pt
 
 saved_checkpoint: ${saved_run_dir}/checkpoint-epoch34.pth
-bbox_mask_gen_path: ${saved_run_dir}/one_id_ref_bboxes_auto.json
+bbox_mask_gen_path: ../dataset_full/one_id/one_id_ref_bboxes_auto.json
 bbox_mask_gen_fallback_path: ../dataset_full/one_id/one_id_ref_bboxes.json
 cometml_id: null
 output_dir: outputs/infer/rhca_1e-4_ml_step2_allst_trref_diff
