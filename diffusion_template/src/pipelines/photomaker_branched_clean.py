@@ -860,14 +860,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         """Prepare branched runtime state once (reference latents/masks, strategy cache, and ID features)."""
         self.mask_softness = float(mask_softness)
         self.force_binary_masks = bool(float(mask_softness) <= 0.0)
-        face_bbox_ref_for_setup = face_bbox_ref
-        if (
-            per_prompt_id_images
-            and isinstance(face_bbox_ref, (list, tuple))
-            and len(face_bbox_ref) > 0
-            and isinstance(face_bbox_ref[0], (list, tuple))
-        ):
-            face_bbox_ref_for_setup = face_bbox_ref[0]
+        # ### 05 APR - FIX VALIDATION REF BATCHING ISSUE ###
         run_branched_setup_helper(
             self,
             use_branched_attention=use_branched_attention,
@@ -878,7 +871,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             id_pixel_values=id_pixel_values,
             auto_mask_ref=auto_mask_ref,
             use_bbox_mask_ref=use_bbox_mask_ref,
-            face_bbox_ref=face_bbox_ref_for_setup,
+            face_bbox_ref=face_bbox_ref,
             mask_expansion_ratio=mask_expansion_ratio,
             mask_softness=mask_softness,
             import_mask_ref=import_mask_ref,

@@ -496,28 +496,89 @@ def run_branched_setup(
     id_embeds: Optional[torch.Tensor],
     class_tokens_mask: torch.LongTensor,
 ) -> None:
+    # ### 05 APR - FIX VALIDATION REF BATCHING ISSUE ###
+    def _clone_generator_for_device(cand: Any) -> Optional[torch.Generator]:
+        if not isinstance(cand, torch.Generator):
+            return None
+        if hasattr(cand, "device") and cand.device.type == device.type:
+            return cand
+        try:
+            gen = torch.Generator(device=device)
+            gen.set_state(cand.get_state())
+            return gen
+        except Exception:
+            return None
+
     if use_branched_attention and input_id_images:
-        pil = input_id_images[0] if isinstance(input_id_images, (list, tuple)) else input_id_images
-        pipeline._ref_latents_all = prepare_ref_latents(
-            pipeline,
-            pil=pil,
-            height=height,
-            width=width,
-            latents_dtype=latents.dtype,
+        per_prompt_refs = (
+            batch_size > 1
+            and isinstance(input_id_images, (list, tuple))
+            and len(input_id_images) == batch_size
         )
-        prepare_ref_mask(
-            pipeline,
-            pil=pil,
-            auto_mask_ref=auto_mask_ref,
-            use_bbox_mask_ref=use_bbox_mask_ref,
-            face_bbox_ref=face_bbox_ref,
-            mask_expansion_ratio=mask_expansion_ratio,
-            mask_softness=mask_softness,
-            import_mask_ref=import_mask_ref,
-            debug_dir=debug_dir,
-            height=height,
-            width=width,
-        )
+        if per_prompt_refs:
+            per_prompt_boxes = (
+                isinstance(face_bbox_ref, (list, tuple))
+                and len(face_bbox_ref) == batch_size
+                and all(box is None or isinstance(box, (list, tuple)) for box in face_bbox_ref)
+            )
+            ref_boxes = list(face_bbox_ref) if per_prompt_boxes else [face_bbox_ref] * batch_size
+            ref_latents = []
+            ref_masks = []
+            for ref_idx, pil in enumerate(input_id_images):
+                ref_latents.append(
+                    prepare_ref_latents(
+                        pipeline,
+                        pil=pil,
+                        height=height,
+                        width=width,
+                        latents_dtype=latents.dtype,
+                    )
+                )
+                for mask_attr in ("_face_mask_ref", "_face_mask_t_ref"):
+                    if hasattr(pipeline, mask_attr):
+                        delattr(pipeline, mask_attr)
+                prepare_ref_mask(
+                    pipeline,
+                    pil=pil,
+                    auto_mask_ref=auto_mask_ref,
+                    use_bbox_mask_ref=use_bbox_mask_ref,
+                    face_bbox_ref=ref_boxes[ref_idx],
+                    mask_expansion_ratio=mask_expansion_ratio,
+                    mask_softness=mask_softness,
+                    import_mask_ref=import_mask_ref,
+                    debug_dir=debug_dir,
+                    height=height,
+                    width=width,
+                )
+                if hasattr(pipeline, "_face_mask_ref"):
+                    ref_masks.append(np.array(pipeline._face_mask_ref, copy=True))
+            pipeline._ref_latents_all = torch.cat(ref_latents, dim=0)
+            if len(ref_masks) == batch_size:
+                stacked_masks = np.stack(ref_masks, axis=0)
+                pipeline._face_mask_ref = stacked_masks
+                pipeline._face_mask_t_ref = torch.from_numpy(stacked_masks.astype(np.float32))[:, None]
+        else:
+            pil = input_id_images[0] if isinstance(input_id_images, (list, tuple)) else input_id_images
+            pipeline._ref_latents_all = prepare_ref_latents(
+                pipeline,
+                pil=pil,
+                height=height,
+                width=width,
+                latents_dtype=latents.dtype,
+            )
+            prepare_ref_mask(
+                pipeline,
+                pil=pil,
+                auto_mask_ref=auto_mask_ref,
+                use_bbox_mask_ref=use_bbox_mask_ref,
+                face_bbox_ref=face_bbox_ref,
+                mask_expansion_ratio=mask_expansion_ratio,
+                mask_softness=mask_softness,
+                import_mask_ref=import_mask_ref,
+                debug_dir=debug_dir,
+                height=height,
+                width=width,
+            )
 
     prepare_gen_mask(
         pipeline,
@@ -537,24 +598,30 @@ def run_branched_setup(
     pipeline._ref_img = id_pixel_values[0] if id_pixel_values.dim() == 5 else id_pixel_values
 
     if use_branched_attention and hasattr(pipeline, "_ref_latents_all") and not hasattr(pipeline, "_ref_noise"):
-        gen = None
-        if generator is not None:
-            cand = generator[0] if isinstance(generator, (list, tuple)) and len(generator) > 0 else generator
-            if isinstance(cand, torch.Generator):
-                if hasattr(cand, "device") and cand.device.type == device.type:
-                    gen = cand
-                else:
-                    try:
-                        gen = torch.Generator(device=device)
-                        gen.set_state(cand.get_state())
-                    except Exception:
-                        gen = None
-        pipeline._ref_noise = torch.randn(
-            pipeline._ref_latents_all.shape,
-            generator=gen,
-            device=device,
-            dtype=pipeline._ref_latents_all.dtype,
-        )
+        if isinstance(generator, (list, tuple)) and len(generator) == pipeline._ref_latents_all.shape[0]:
+            pipeline._ref_noise = torch.cat(
+                [
+                    torch.randn(
+                        ref_lat.shape,
+                        generator=_clone_generator_for_device(cand),
+                        device=device,
+                        dtype=ref_lat.dtype,
+                    )[None]
+                    for ref_lat, cand in zip(pipeline._ref_latents_all, generator)
+                ],
+                dim=0,
+            )
+        else:
+            gen = None
+            if generator is not None:
+                cand = generator[0] if isinstance(generator, (list, tuple)) and len(generator) > 0 else generator
+                gen = _clone_generator_for_device(cand)
+            pipeline._ref_noise = torch.randn(
+                pipeline._ref_latents_all.shape,
+                generator=gen,
+                device=device,
+                dtype=pipeline._ref_latents_all.dtype,
+            )
 
     fes = (face_embed_strategy or "face").lower()
     if fes in {"faceanalysis"}:
