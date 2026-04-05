@@ -1,0 +1,73 @@
+{
+  "config_name": "inference/one_id_rhca_diff",
+  "batch_size": 2,
+  "writer.project_name": "rhca_allsteps_infer",
+  "writer.run_name_base": "rhca_allst_diff",
+  "accelerate_config_file": "src/configs/ddp/accelerate.yaml",
+  "num_processes": 1,
+  "infer_script": "infer.py",
+  "extra_overrides": [],
+  "combinations": [
+    {
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 15,
+      "branched_attn_end_step": 50,
+      "name_end": "1015"
+    },
+    {
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 15,
+      "branched_attn_end_step": 30,
+      "name_end": "101530"
+    },
+    {
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 15,
+      "branched_attn_end_step": 40,
+      "name_end": "101540"
+    },
+    {
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 30,
+      "branched_attn_end_step": 50,
+      "name_end": "103050"
+    },
+    {
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 10,
+      "branched_attn_end_step": 30,
+      "name_end": "X1030"
+    },
+    {
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 40,
+      "branched_attn_end_step": 50,
+      "name_end": "104050"
+    },
+    {
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 10,
+      "branched_attn_end_step": 50,
+      "name_end": "X1050"
+    },
+    {
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 10,
+      "branched_attn_end_step": 20,
+      "name_end": "X1020"
+    },
+    {
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 20,
+      "branched_attn_end_step": 30,
+      "name_end": "102030"
+    },
+    {
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 30,
+      "branched_attn_end_step": 40,
+      "name_end": "103040"
+    }
+
+  ]
+}

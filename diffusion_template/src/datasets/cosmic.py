@@ -244,3 +244,143 @@ class OneIDTrain(BaseDataset):
         assert max(instance_data["face_bbox"]) <= 1024
 
         return instance_data
+
+
+class LargeDatasetTrain(BaseDataset):
+    """
+    Multi-ID training dataset for large_dataset_adj.
+
+    Expected JSON format:
+      {
+        "<identity>": {
+          "<image_id>": {
+            "body_crop": [x0, x1, y0, y1],
+            "new_face_crop": [x0, y0, x1, y1],
+            "orig_image_size": [H, W],
+            "text": "..."
+          },
+          ...
+        },
+        ...
+      }
+
+    Expected image layout under images_path:
+      <images_path>/<identity>/<image_id>.jpg
+    """
+
+    def __init__(
+        self,
+        data_json_pth=None,
+        images_path=None,
+        num_refs=1,
+        train_on_separate_image=False,
+        same_id_ref_map_json_pth=None,
+        *args,
+        **kwargs,
+    ):
+        self.images_path = images_path
+        self.num_refs = num_refs
+        self.train_on_separate_image = bool(train_on_separate_image)
+
+        with open(data_json_pth) as f:
+            data_json = json.load(f)
+
+        self.ids = []
+        self.meta_by_path = {}
+        self.identity_by_path = {}
+        self.same_id_ref_map = {}
+
+        index = []
+        for identity, image_records in tqdm(data_json.items()):
+            if not isinstance(image_records, dict):
+                continue
+
+            identity_paths = []
+            for image_id, image_data in image_records.items():
+                path = f"{identity}/{image_id}.jpg"
+                index.append(image_data)
+                self.ids.append(path)
+                self.meta_by_path[path] = image_data
+                self.identity_by_path[path] = identity
+                identity_paths.append(path)
+
+            if identity_paths:
+                self.same_id_ref_map[identity] = identity_paths
+
+        if same_id_ref_map_json_pth is not None:
+            with open(same_id_ref_map_json_pth) as f:
+                loaded_map = json.load(f)
+            normalized_map = {}
+            for key, values in loaded_map.items():
+                if not isinstance(values, list):
+                    continue
+                normalized_map[key] = [str(v) for v in values]
+            self.same_id_ref_map = normalized_map
+
+        super().__init__(index, *args, **kwargs)
+
+    def _load_train_image(self, path, img_data):
+        img = Image.open(f"{self.images_path}/{path}").convert("RGB")
+        if img.size != (1024, 1024):
+            body_crop = img_data["body_crop"]
+            img_arr = np.array(img)[body_crop[2]:body_crop[3], body_crop[0]:body_crop[1]]
+            assert img_arr.shape[0] == 1024, img_arr.shape
+            assert img_arr.shape[1] == 1024, img_arr.shape
+            img = Image.fromarray(img_arr)
+        return img
+
+    def _get_same_id_ref_candidates(self, path):
+        identity = self.identity_by_path.get(path)
+        if identity is not None and identity in self.same_id_ref_map:
+            return [p for p in self.same_id_ref_map[identity] if p != path]
+        return [p for p in self.same_id_ref_map.get(path, []) if p != path]
+
+    def __getitem__(self, ind):
+        img_data = self._index[ind]
+        path = self.ids[ind]
+
+        instance_data = {}
+
+        img = self._load_train_image(path, img_data)
+
+        bbox = deepcopy(img_data["new_face_crop"])
+        if random.random() < 0.5:
+            w, _ = img.size
+            img = ImageOps.mirror(img)
+            x0, y0, x1, y1 = bbox
+            bbox = [w - x1, y0, w - x0, y1]
+
+        instance_data["pixel_values"] = img
+        instance_data["face_bbox"] = bbox
+        if self.train_on_separate_image:
+            ref_candidates = self._get_same_id_ref_candidates(path)
+            if not ref_candidates:
+                raise ValueError(
+                    "train_on_separate_image=True for LargeDatasetTrain requires "
+                    f"at least two images for identity '{self.identity_by_path.get(path, path)}'"
+                )
+            ref_path = random.choice(ref_candidates)
+            ref_data = self.meta_by_path[ref_path]
+            ref_img = self._load_train_image(ref_path, ref_data)
+            ref_images = [ref_img]
+            instance_data["face_bbox_ref"] = deepcopy(ref_data["new_face_crop"])
+        else:
+            instance_data["face_bbox_ref"] = deepcopy(bbox)
+            ref_images = [deepcopy(img)]
+
+        instance_data["ref_images"] = ref_images
+
+        text = img_data.get("text", "")
+        prompt = text if isinstance(text, str) and text else "img person"
+        instance_data["prompts"] = prompt
+        instance_data["prompt"] = prompt
+
+        instance_data["original_sizes"] = (1024, 1024)
+        instance_data["crop_top_lefts"] = (0, 0)
+
+        instance_data = self.preprocess_data(instance_data)
+
+        assert min(instance_data["face_bbox"]) >= 0
+        assert max(instance_data["face_bbox"]) <= 1024
+
+        return instance_data

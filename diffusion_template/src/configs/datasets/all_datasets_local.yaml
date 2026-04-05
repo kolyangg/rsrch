@@ -25,6 +25,15 @@ train:
         num_refs: 1
         train_on_separate_image: ${train_on_separate_image}
         instance_transforms: ${transforms.instance_transforms.train}
+
+    large_dataset:
+        _target_: src.datasets.cosmic.LargeDatasetTrain
+        data_json_pth: ../dataset_full/filtered_ids3_adj.json
+        images_path: ../dataset_full/large_dataset_adj/large_dataset
+        num_refs: 1
+        train_on_separate_image: ${train_on_separate_image}
+        same_id_ref_map_json_pth: null
+        instance_transforms: ${transforms.instance_transforms.train}
     
 
 val:
