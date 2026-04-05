@@ -371,9 +371,22 @@ def two_branch_predict(
             print(f"[2BP]   ref_noised:  {stat(ref_noised)}  Δ(noise,ref)σ={(latent_model_input.std()-ref_noised.std()).item():.4f}")
 
     
-    # Ensure same batch size
-    if ref_noised.shape[0] < batch_size:
-        ref_noised = ref_noised.expand(batch_size, -1, -1, -1)
+    # Ensure same batch size, including CFG doubling and num_images_per_prompt tiling.
+    if ref_noised.shape[0] != batch_size:
+        ref_batch = ref_noised.shape[0]
+        cfg_mult = 2 if pipeline.do_classifier_free_guidance else 1
+
+        if batch_size % (ref_batch * cfg_mult) == 0:
+            num_images_per_prompt = batch_size // (ref_batch * cfg_mult)
+            if num_images_per_prompt > 1:
+                ref_noised = ref_noised.repeat_interleave(num_images_per_prompt, dim=0)
+            if cfg_mult == 2:
+                ref_noised = torch.cat([ref_noised, ref_noised], dim=0)
+        elif batch_size % ref_batch == 0:
+            ref_noised = ref_noised.repeat_interleave(batch_size // ref_batch, dim=0)
+        else:
+            reps = (batch_size + ref_batch - 1) // ref_batch
+            ref_noised = ref_noised.repeat(reps, 1, 1, 1)[:batch_size]
     
     # Create doubled batch: [noise, reference]
     batched_latents = torch.cat([latent_model_input, ref_noised], dim=0)
