@@ -44,6 +44,16 @@ train:
         train_on_separate_image: ${train_on_separate_image}
         same_id_ref_map_json_pth: null
         instance_transforms: ${transforms.instance_transforms.train}
+
+    cosmic_large:
+        _target_: src.datasets.cosmic.CosmicLargeTrain
+        data_json_pth: ../dataset_full/cosmic_large/gathered_data_cosmic_large_filtered.json
+        images_path: /mnt/virtual_ai0001053-01309_SR006-nfs1/bobkov/cosmic_data/LAION-5B-Filtered-Large-Faces/laion1B-nolang
+        path_prefix_to_strip: LAION-5B-Filtered-Large/laion1B-nolang
+        num_refs: 1
+        train_on_separate_image: ${train_on_separate_image}
+        same_id_ref_map_json_pth: null
+        instance_transforms: ${transforms.instance_transforms.train}
         
 
 val:
