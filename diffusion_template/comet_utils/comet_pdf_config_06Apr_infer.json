@@ -1,0 +1,19 @@
+{
+  "export_json": "../comet_data/06Apr_infer/comet_runs_export.json",
+  "output_format": "pdf",
+  "max_columns": 6,
+  "max_rows": 4,
+  "ignore_mask": true,
+  "image_dpi_percent": null,
+  "run_name_max_chars_per_line": 16,
+  "key_metrics": [
+    "one_id_val/id_sim",
+    "one_id_val/text_sim"
+  ],
+  "key_hyperparameters": [
+    "photomaker_start_step",
+    "branched_attn_start_step",
+    "branched_attn_end_step"
+  ],
+  "runs": []
+}

@@ -1,6 +1,9 @@
-import torch
-from src.metrics.base_metric import BaseMetric
 import clip
+import os
+import torch
+
+from src.metrics.base_metric import BaseMetric
+
 
 class TextSimMetric(BaseMetric):
     def __init__(self, model_name, device, *args, **kwargs):
@@ -10,7 +13,12 @@ class TextSimMetric(BaseMetric):
         """
         super().__init__(*args, **kwargs)
         self.device = device
-        self.model, self.preprocess = clip.load(model_name, device=self.device)
+        download_root = os.environ.get("CLIP_CACHE_DIR") or None
+        self.model, self.preprocess = clip.load(
+            model_name,
+            device=self.device,
+            download_root=download_root,
+        )
         self.model.eval()
 
     def to_cpu(self):
@@ -23,12 +31,11 @@ class TextSimMetric(BaseMetric):
         prompt = batch['prompt']
         tokenized_prompt = clip.tokenize([prompt], truncate=True).to(self.device)
         generated = batch['generated']
-        assert type(generated) is list, type(generated) 
+        assert type(generated) is list, type(generated)
         assert type(prompt) is str, type(prompt)
 
-            
         preprecessed = [self.preprocess(img) for img in generated]
-        images = torch.stack(preprecessed).to(self.device) 
+        images = torch.stack(preprecessed).to(self.device)
         _, logits_per_text = self.model(images, tokenized_prompt)
         result = {"text_sim": logits_per_text.mean().item()}
         return result

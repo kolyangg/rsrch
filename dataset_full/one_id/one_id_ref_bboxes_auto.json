@@ -206,5 +206,80 @@
       "id": "51",
       "seed": 0
     }
+  },
+  "Laughing m_51.png": {
+    "face_crop_old": [
+      274,
+      158,
+      528,
+      486
+    ],
+    "face_crop_new": [
+      292,
+      181,
+      510,
+      463
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "prompt": "Laughing man img, carnival wheel, carefree laugh, polka-dot shirt",
+      "id": "51",
+      "seed": 0
+    }
+  },
+  "Jumping ma_51.png": {
+    "face_crop_old": [
+      516,
+      316,
+      632,
+      489
+    ],
+    "face_crop_new": [
+      524,
+      328,
+      624,
+      477
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "prompt": "Jumping man img, beach sunset, ecstatic face, blue tank top",
+      "id": "51",
+      "seed": 0
+    }
+  },
+  "Night-ride_51.png": {
+    "face_crop_old": [
+      483,
+      133,
+      695,
+      455
+    ],
+    "face_crop_new": [
+      497,
+      155,
+      680,
+      433
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "prompt": "Night-ride biker man img, neon city, excited face, reflective vest",
+      "id": "51",
+      "seed": 0
+    }
   }
 }
