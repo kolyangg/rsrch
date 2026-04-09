@@ -134,7 +134,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-TMP_ENV_FILE="$(mktemp)"
+TMP_ENV_FILE="$(mktemp --suffix=.yml)"
 TMP_FILES+=("${TMP_ENV_FILE}")
 awk '
   /^[[:space:]]*name:[[:space:]]*/ { next }
@@ -146,7 +146,10 @@ CONDA_TEMP_PKGS_DIR="$(mktemp -d)"
 export CONDA_PKGS_DIRS="${CONDA_TEMP_PKGS_DIR}"
 
 echo "[conda] Creating env from ${NOBUILDS_FILE}"
-run_conda env create --prefix "${ENV_PREFIX}" -f "${TMP_ENV_FILE}"
+run_conda env create \
+  --environment-spec environment.yml \
+  --prefix "${ENV_PREFIX}" \
+  -f "${TMP_ENV_FILE}"
 
 unset LD_PRELOAD
 if [[ -n "${CONDA_CLEAN_LD_LIBRARY_PATH}" ]]; then
