@@ -14,5 +14,5 @@ job:
     # processes: - # Сколько процессов запускать. По умолчанию запускается по количеству GPU на одном воркере - это подходит для torchrun.
     processes: 1 # Для работы с accelerate нужно запускать 1 процесс на 1 воркер.
     workers: 1   # Сколько запускать воркеров запускать
-  script: 'mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs && bash /home/kolyangg/rsrch/diffusion_template/serv_new_runs/start_ba_comet_large.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/logs_ba_comet_large.txt 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/err_ba_comet_large.txt'
+  script: 'mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs && bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch/diffusion_template/serv_new_runs/start_ba_comet_large.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/logs_ba_comet_large.txt 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/err_ba_comet_large.txt'
   type: binary
