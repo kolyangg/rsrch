@@ -100,6 +100,7 @@ if ACCELERATE_LOG_LEVEL=error \
         validation_args.num_images_per_prompt=1 \
         lr_scheduler.warmup_steps=4000 \
         model.weight_dtype=bf16 \
+        pipeline.variant=null \
         dataloaders.manual_val.batch_size=12 \
         datasets.val.manual_val.limit=96 \
         val_debug=false \
