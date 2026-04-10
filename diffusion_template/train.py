@@ -275,6 +275,10 @@ def main(config):
         model, train_dataloader, optimizer, lr_scheduler
     )
     dataloaders["train"] = train_dataloader
+    for part_name, dataloader in list(dataloaders.items()):
+        if part_name == "train":
+            continue
+        dataloaders[part_name] = accelerator.prepare(dataloader)
 
     pipeline = None
     if accelerator.is_main_process:

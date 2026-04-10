@@ -1,4 +1,5 @@
 from abc import abstractmethod
+from collections import defaultdict
 from pathlib import Path
 
 import torch
@@ -246,11 +247,11 @@ class BaseTrainer:
 
         if epoch == 1:
             self.accelerator.wait_for_everyone()
-            if self.accelerator.is_main_process:
-                for part, dataloader in self.evaluation_dataloaders.items():
-                    val_logs = self._evaluation_epoch(epoch - 1, part, dataloader)
+            for part, dataloader in self.evaluation_dataloaders.items():
+                val_logs = self._evaluation_epoch(epoch - 1, part, dataloader)
+                if self.accelerator.is_main_process:
                     logs.update(**{f"{part}/{name}": value for name, value in val_logs.items()})
-                self.is_train = True
+            self.is_train = True
 
             self.accelerator.wait_for_everyone()
 
@@ -344,9 +345,9 @@ class BaseTrainer:
 
         # Run val/test
         self.accelerator.wait_for_everyone()
-        if self.accelerator.is_main_process:
-            for part, dataloader in self.evaluation_dataloaders.items():
-                val_logs = self._evaluation_epoch(epoch, part, dataloader)
+        for part, dataloader in self.evaluation_dataloaders.items():
+            val_logs = self._evaluation_epoch(epoch, part, dataloader)
+            if self.accelerator.is_main_process:
                 logs.update(**{f"{part}/{name}": value for name, value in val_logs.items()})
                 
         self.accelerator.wait_for_everyone()
@@ -386,7 +387,8 @@ class BaseTrainer:
         for metric in self.metrics:
             metric.to_cuda()
 
-        self.writer.set_step(epoch * self.epoch_len, part)
+        if self.writer is not None:
+            self.writer.set_step(epoch * self.epoch_len, part)
         prev_time = time.time()
         with torch.no_grad():
             # Optionally swap to an alternate base model for validation only
@@ -494,6 +496,20 @@ class BaseTrainer:
                         print(f"[Base Model Switch] Validation start: swapping base '{prev_model_base}' -> '{val_pretrained}'")
                     except Exception:
                         pass
+            if self.pipe is None and not val_pretrained:
+                self.pipe = instantiate(
+                    self.config.pipeline,
+                    model=self.model,
+                    accelerator=self.accelerator,
+                )
+                try:
+                    self.pipe.to(self.device)
+                except Exception:
+                    pass
+                for attr in ("disable_branched_sa", "disable_branched_ca"):
+                    if hasattr(self.model, attr):
+                        setattr(self.pipe, attr, getattr(self.model, attr))
+
             total_images = len(dataloader.dataset) if hasattr(dataloader, "dataset") else len(dataloader)
             if hasattr(self, 'pipe'):
                 for attr in ('_call_debug_counter', '_current_debug_idx', '_current_debug_total'):
@@ -506,13 +522,16 @@ class BaseTrainer:
                 self._val_generation_dir = val_dir
             else:
                 self._val_generation_dir = None
-            print(f"[DebugImage] total validation images: {total_images}")  # always show total
+            if self.accelerator.is_main_process:
+                print(f"[DebugImage] total validation images: {total_images}")  # always show total
             for batch_idx, batch in tqdm(
                 enumerate(dataloader),
-                desc=part,
+                desc=f"{part}_rank{self.accelerator.process_index}",
                 total=len(dataloader),
+                disable=not self.accelerator.is_local_main_process,
             ):
-                print(f"[DebugImage] validation image {batch_idx:02d}/{total_images:02d}")  # always show current id
+                if self.accelerator.is_main_process:
+                    print(f"[DebugImage] validation image {batch_idx:02d}/{total_images:02d}")  # always show current id
                 batch["debug_idx"] = batch_idx  # --- MODIFIED For training integration ---
                 batch["debug_total"] = total_images  # --- MODIFIED For training integration ---
                 fetch_done = time.time()
@@ -525,31 +544,25 @@ class BaseTrainer:
                 process_time = time.time() - process_start
                 prev_time = time.time()
 
-                # Save final generated images in a single, stable sequence
-                if (
-                    self.accelerator.is_main_process
-                    and getattr(self, "_val_generation_dir", None) is not None
-                ):
-                    images = batch.get("generated")
-                    if images is not None:
-                        # flatten possible nested lists
-                        if isinstance(images, list):
-                            flat = []
-                            for item in images:
-                                if isinstance(item, list):
-                                    flat.extend(item)
-                                else:
-                                    flat.append(item)
-                            images = flat
-                        else:
-                            images = [images]
-                        for img in images:
-                            idx = getattr(self, "_val_generation_counter", 0)
-                            filename = f"{idx:02d}.png"
-                            save_path = self._val_generation_dir / filename
-                            if hasattr(img, "save"):
-                                img.save(save_path)
-                            self._val_generation_counter = idx + 1
+                log_batches = [(
+                    int(getattr(self.accelerator, "process_index", 0)),
+                    {
+                        "generated": batch.get("generated"),
+                        "generated_masks": batch.get("generated_masks"),
+                        "prompt": batch.get("prompt"),
+                        "id": batch.get("id"),
+                    },
+                )]
+                if int(getattr(self.accelerator, "num_processes", 1)) > 1:
+                    gathered_batches = [None] * int(self.accelerator.num_processes)
+                    torch.distributed.all_gather_object(gathered_batches, log_batches[0])
+                    if self.accelerator.is_main_process:
+                        log_batches = sorted(
+                            [item for item in gathered_batches if item is not None],
+                            key=lambda item: item[0],
+                        )
+                    else:
+                        log_batches = []
 
                 if self.validation_debug_timing and self.accelerator.is_main_process:
                     msg = (
@@ -560,10 +573,50 @@ class BaseTrainer:
                         self.logger.info(msg)
                     else:
                         print(msg)
-                self._log_batch(
-                    batch_idx, batch, part
-                ) 
-            self._log_scalars(self.evaluation_metrics, part)
+                if self.writer is not None:
+                    for rank_idx, gathered_batch in log_batches:
+                        if getattr(self, "_val_generation_dir", None) is not None:
+                            images = gathered_batch.get("generated")
+                            if images is not None:
+                                if isinstance(images, list):
+                                    flat = []
+                                    for item in images:
+                                        if isinstance(item, list):
+                                            flat.extend(item)
+                                        else:
+                                            flat.append(item)
+                                    images = flat
+                                else:
+                                    images = [images]
+                                for img in images:
+                                    idx = getattr(self, "_val_generation_counter", 0)
+                                    filename = f"{idx:02d}.png"
+                                    save_path = self._val_generation_dir / filename
+                                    if hasattr(img, "save"):
+                                        img.save(save_path)
+                                    self._val_generation_counter = idx + 1
+                        self._log_batch(
+                            batch_idx * int(getattr(self.accelerator, "num_processes", 1)) + rank_idx,
+                            gathered_batch,
+                            part,
+                        )
+
+            metric_result = self.evaluation_metrics.result()
+            if int(getattr(self.accelerator, "num_processes", 1)) > 1:
+                gathered = [None] * int(self.accelerator.num_processes)
+                payload = {k: list(v) for k, v in self.evaluation_metrics._data.items()}
+                torch.distributed.all_gather_object(gathered, payload)
+                merged = defaultdict(list)
+                for shard in gathered:
+                    if not shard:
+                        continue
+                    for key, values in shard.items():
+                        merged[key].extend(values)
+                self.evaluation_metrics._data = merged
+                metric_result = self.evaluation_metrics.result()
+
+            if self.writer is not None:
+                self._log_scalars(self.evaluation_metrics, part)
 
         # Restore original training model and pipeline after validation
         if val_pretrained:
@@ -594,7 +647,7 @@ class BaseTrainer:
             metric.to_cpu()
             
         torch.cuda.empty_cache()
-        return self.evaluation_metrics.result()
+        return metric_result
 
 
     def move_batch_to_device(self, batch):
