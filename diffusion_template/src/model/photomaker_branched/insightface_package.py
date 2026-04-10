@@ -42,9 +42,9 @@ def create_face_analyzer(
             "providers": providers,
             "allowed_modules": allowed_modules,
         }
-        root = root or os.environ.get("INSIGHTFACE_HOME")
-        if root:
-            kwargs["root"] = root
+        root_path = root or os.environ.get("INSIGHTFACE_HOME")
+        if root_path:
+            kwargs["root"] = root_path
         if provider_options is not None:
             kwargs["provider_options"] = provider_options
 
