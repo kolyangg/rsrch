@@ -396,6 +396,7 @@ class CosmicLargeTrain(BaseDataset):
         train_on_separate_image=False,
         same_id_ref_map_json_pth=None,
         path_prefix_to_strip=None,
+        require_nested_identity_subdir=True,
         *args,
         **kwargs,
     ):
@@ -403,6 +404,7 @@ class CosmicLargeTrain(BaseDataset):
         self.num_refs = num_refs
         self.train_on_separate_image = bool(train_on_separate_image)
         self.path_prefix_to_strip = path_prefix_to_strip.strip("/") if path_prefix_to_strip else None
+        self.require_nested_identity_subdir = bool(require_nested_identity_subdir)
 
         with open(data_json_pth) as f:
             data_json = json.load(f)
@@ -422,6 +424,10 @@ class CosmicLargeTrain(BaseDataset):
                 continue
 
             path = str(path)
+            if self.require_nested_identity_subdir:
+                rel_parts = Path(self._get_relative_path(path)).parts
+                if len(rel_parts) != 3:
+                    continue
             identity = str(Path(path).parent)
 
             index.append(image_data)
@@ -443,11 +449,24 @@ class CosmicLargeTrain(BaseDataset):
         super().__init__(index, *args, **kwargs)
 
     def _get_relative_path(self, path):
-        path = str(path).lstrip("/")
+        path = str(path)
+        if self.images_path:
+            images_path = str(self.images_path).rstrip("/")
+            prefix = f"{images_path}/"
+            if path.startswith(prefix):
+                return path[len(prefix):]
+
+        path = path.lstrip("/")
         if self.path_prefix_to_strip:
             prefix = f"{self.path_prefix_to_strip}/"
             if path.startswith(prefix):
                 return path[len(prefix):]
+        if self.images_path:
+            root_name = Path(self.images_path).name
+            marker = f"/{root_name}/"
+            marked_path = f"/{path}"
+            if marker in marked_path:
+                return marked_path.split(marker, 1)[1]
         return path
 
     def _load_train_image(self, path, img_data):
