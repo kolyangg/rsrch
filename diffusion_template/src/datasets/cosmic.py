@@ -423,18 +423,23 @@ class CosmicLargeTrain(BaseDataset):
             if bbox is None or min(bbox) < 0 or max(bbox) > 1024:
                 continue
 
-            path = str(path)
+            paths = [str(path)]
             if self.require_nested_identity_subdir:
-                rel_parts = Path(self._get_relative_path(path)).parts
-                if len(rel_parts) != 3:
-                    continue
-            identity = str(Path(path).parent)
+                face_paths = image_data.get("face_paths")
+                if isinstance(face_paths, list):
+                    paths = [str(face_path) for face_path in face_paths]
 
-            index.append(image_data)
-            self.ids.append(path)
-            self.meta_by_path[path] = image_data
-            self.identity_by_path[path] = identity
-            self.same_id_ref_map.setdefault(identity, []).append(path)
+            for sample_path in paths:
+                rel_path = self._get_relative_path(sample_path)
+                if self.require_nested_identity_subdir and len(Path(rel_path).parts) != 3:
+                    continue
+                identity = str(Path(rel_path).parent)
+
+                index.append(image_data)
+                self.ids.append(sample_path)
+                self.meta_by_path[sample_path] = image_data
+                self.identity_by_path[sample_path] = identity
+                self.same_id_ref_map.setdefault(identity, []).append(sample_path)
 
         if same_id_ref_map_json_pth is not None:
             with open(same_id_ref_map_json_pth) as f:
