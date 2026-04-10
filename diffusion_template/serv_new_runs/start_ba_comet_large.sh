@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
 CONDA_ENV_PATH="/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/conda_env/photomaker_NS"
+export HYDRA_FULL_ERROR=1
 
 log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
@@ -70,6 +71,9 @@ set +a
 [[ -n "${COMET_API_KEY:-}" ]] || fail "COMET_API_KEY is missing in ${ENV_FILE}"
 [[ "${COMET_API_KEY}" != "your_comet_api_key_here" ]] || fail "Replace the placeholder COMET_API_KEY in ${ENV_FILE}"
 log "Loaded COMET_API_KEY from ${ENV_FILE}"
+[[ -n "${PM_PATH:-}" ]] || fail "PM_PATH is missing in ${ENV_FILE}"
+[[ -f "${PM_PATH}" ]] || fail "PhotoMaker checkpoint not found at PM_PATH=${PM_PATH}"
+log "Using PhotoMaker checkpoint: ${PM_PATH}"
 
 cd "${PROJECT_DIR}"
 log "Changed directory to ${PROJECT_DIR}"
@@ -92,6 +96,7 @@ if ACCELERATE_LOG_LEVEL=error \
         dataloaders.train.batch_size=4 \
         dataloaders.train.num_workers=12 \
         model.rank=32 \
+        model.photomaker_path="${PM_PATH}" \
         validation_args.num_images_per_prompt=1 \
         lr_scheduler.warmup_steps=4000 \
         model.weight_dtype=bf16 \
