@@ -107,7 +107,7 @@ class PhotomakerBranchedLora(SDXL):
         ### FIX FOR OOM ERROR ###
         # Pin ONNXRuntime CUDA provider to the per-rank GPU; otherwise multiple ranks may load on GPU:0 and OOM.
         _device_id = int(os.environ.get("LOCAL_RANK", "0")) if torch.cuda.is_available() else 0
-        FACEANALYSIS_CPU = False  # Set to True to force CPU provider (debug / low-VRAM mode)
+        FACEANALYSIS_CPU = os.environ.get("FACEANALYSIS_CPU", "1").lower() not in {"0", "false", "no"}
         
         # Instantiate FaceAnalysis once for extracting 512-D identity embeddings.
         if FACEANALYSIS_CPU:

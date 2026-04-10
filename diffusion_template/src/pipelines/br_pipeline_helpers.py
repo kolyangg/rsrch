@@ -146,9 +146,9 @@ def ensure_face_analyzer(pipeline) -> None:
     if hasattr(pipeline, "_face_analyzer"):
         return
     pipeline._face_analyzer = create_face_analyzer(
-        providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+        providers=["CPUExecutionProvider"],
         allowed_modules=["detection", "recognition"],
-        ctx_id=0,
+        ctx_id=-1,
         det_size=(640, 640),
         fallback_ctx_id=-1,
         quiet=True,

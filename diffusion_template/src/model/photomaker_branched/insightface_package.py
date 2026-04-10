@@ -1,4 +1,5 @@
 import io
+import os
 from contextlib import redirect_stderr, redirect_stdout
 
 import numpy as np
@@ -30,6 +31,7 @@ def create_face_analyzer(
     det_size=(640, 640),
     fallback_ctx_id=-1,
     quiet=True,
+    root=None,
 ):
     """
     Create and prepare FaceAnalysis2 while optionally suppressing upstream insightface stdout/stderr prints.
@@ -40,6 +42,9 @@ def create_face_analyzer(
             "providers": providers,
             "allowed_modules": allowed_modules,
         }
+        root = root or os.environ.get("INSIGHTFACE_HOME")
+        if root:
+            kwargs["root"] = root
         if provider_options is not None:
             kwargs["provider_options"] = provider_options
 
