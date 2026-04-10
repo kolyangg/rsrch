@@ -140,7 +140,7 @@ if ACCELERATE_LOG_LEVEL=error \
         train_on_separate_image=true \
         metrics=all_metrics \
         val_datasets_names='[manual_val]' \
-        writer=cometml writer.run_name="comet_large_10Apr"; then
+        writer=cometml writer.run_name="comet_large_10Apr_2gpu"; then
     log "Training finished successfully"
 else
     status=$?
