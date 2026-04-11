@@ -6,6 +6,9 @@ PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
 CONDA_ENV_PATH="/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/conda_env/photomaker_NS"
 export HYDRA_FULL_ERROR=1
+export CUDA_LAUNCH_BLOCKING="${CUDA_LAUNCH_BLOCKING:-1}"
+export TORCH_SHOW_CPP_STACKTRACES="${TORCH_SHOW_CPP_STACKTRACES:-1}"
+export NCCL_ASYNC_ERROR_HANDLING="${NCCL_ASYNC_ERROR_HANDLING:-1}"
 
 log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
@@ -56,6 +59,9 @@ log "Loaded Conda initialization from ${CONDA_SH}"
 
 conda activate "${CONDA_ENV_PATH}" || fail "Failed to activate Conda env ${CONDA_ENV_PATH}"
 log "Conda environment activated: ${CONDA_ENV_PATH}"
+log "CUDA_LAUNCH_BLOCKING=${CUDA_LAUNCH_BLOCKING}"
+log "TORCH_SHOW_CPP_STACKTRACES=${TORCH_SHOW_CPP_STACKTRACES}"
+log "NCCL_ASYNC_ERROR_HANDLING=${NCCL_ASYNC_ERROR_HANDLING}"
 PYTHON_BIN="$(command -v python || true)"
 ACCELERATE_BIN="$(command -v accelerate || true)"
 [[ -n "${PYTHON_BIN}" ]] || fail "Python is not available after activating ${CONDA_ENV_PATH}"

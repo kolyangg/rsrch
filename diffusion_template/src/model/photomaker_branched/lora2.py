@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Optional, Sequence
 
 import numpy as np
@@ -136,8 +137,12 @@ class PhotomakerBranchedLora(SDXL):
         
         self.trigger_word = trigger_word ### "img" hardcoded by default
         self.num_tokens = self.id_encoder.num_tokens ### 1 hardcoded by default
-        self.tokenizer.add_tokens([self.trigger_word], special_tokens=True)
-        self.tokenizer_2.add_tokens([self.trigger_word], special_tokens=True)
+        added_tokens_1 = self.tokenizer.add_tokens([self.trigger_word], special_tokens=True)
+        added_tokens_2 = self.tokenizer_2.add_tokens([self.trigger_word], special_tokens=True)
+        if added_tokens_1:
+            self.text_encoder.resize_token_embeddings(len(self.tokenizer))
+        if added_tokens_2:
+            self.text_encoder_2.resize_token_embeddings(len(self.tokenizer_2))
 
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
         """NEW PARAMS 3: persist runtime BA knobs on the model so patched processors can read them."""
@@ -384,14 +389,11 @@ class PhotomakerBranchedLora(SDXL):
         branched_start_ratio = float(self.branched_attn_start_step) / float(num_inference_steps)
 
         text_only_prompts = []
-        trigger_word_token = self.tokenizer.convert_tokens_to_ids(self.trigger_word)
+        trigger_word_pattern = re.compile(rf"\b{re.escape(self.trigger_word)}\b", flags=re.IGNORECASE)
         for prompt in prompts:
-            tokens_text_only = self.tokenizer.encode(prompt, add_special_tokens=False)
-            if trigger_word_token in tokens_text_only:
-                tokens_text_only.remove(trigger_word_token)
-            text_only_prompts.append(
-                self.tokenizer.decode(tokens_text_only, add_special_tokens=False)
-            )
+            text_only_prompt = trigger_word_pattern.sub(" ", prompt)
+            text_only_prompt = " ".join(text_only_prompt.split())
+            text_only_prompts.append(text_only_prompt)
 
         prompt_embeds_text_only, pooled_prompt_embeds_text_only = self.encode_prompt(
             prompt=text_only_prompts,
@@ -480,9 +482,6 @@ class PhotomakerBranchedLora(SDXL):
         class_tokens_mask: Optional[torch.LongTensor] = None,
         do_cfg: bool = False,
     ):
-        # Find the token id of the trigger word
-        image_token_id = self.tokenizer_2.convert_tokens_to_ids(self.trigger_word)
-
         # Define tokenizers and text encoders
         tokenizers = [self.tokenizer, self.tokenizer_2] if self.tokenizer is not None else [self.tokenizer_2]
         text_encoders = (
@@ -495,6 +494,7 @@ class PhotomakerBranchedLora(SDXL):
             # textual inversion: process multi-vector tokens if necessary
             prompt_embeds_list = []
             for tokenizer, text_encoder in zip(tokenizers, text_encoders):
+                image_token_id = tokenizer.convert_tokens_to_ids(self.trigger_word)
                 text_inputs = tokenizer(
                     prompt,
                     padding="max_length",
@@ -503,6 +503,12 @@ class PhotomakerBranchedLora(SDXL):
                     return_tensors="pt",
                 )
                 text_input_ids = text_inputs.input_ids
+                self._validate_text_input_ids(
+                    text_input_ids,
+                    text_encoder,
+                    prompt,
+                    f"{text_encoder.__class__.__name__} (trigger path)",
+                )
 
                 if not do_cfg:
                     clean_index = 0

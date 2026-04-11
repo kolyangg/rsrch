@@ -60,6 +60,18 @@ class SDXL(nn.Module):
             self.pretrained_model_name_or_path, 
             subfolder="unet",
         )
+
+    @staticmethod
+    def _validate_text_input_ids(text_input_ids, text_encoder, prompt, encoder_name):
+        vocab_size = text_encoder.get_input_embeddings().weight.shape[0]
+        max_token_id = int(text_input_ids.max().item())
+        min_token_id = int(text_input_ids.min().item())
+        if min_token_id < 0 or max_token_id >= vocab_size:
+            sample_prompt = prompt[0] if isinstance(prompt, (list, tuple)) and prompt else prompt
+            raise ValueError(
+                f"{encoder_name} received token ids in [{min_token_id}, {max_token_id}] "
+                f"but embedding vocab size is {vocab_size}. Sample prompt: {sample_prompt!r}"
+            )
         
     def prepare_for_training(self):
         self.vae.requires_grad_(False)
@@ -167,6 +179,9 @@ class SDXL(nn.Module):
             return_tensors="pt",
         )
         text_input_ids_2 = text_inputs_2.input_ids
+
+        self._validate_text_input_ids(text_input_ids, self.text_encoder, prompt, "text_encoder")
+        self._validate_text_input_ids(text_input_ids_2, self.text_encoder_2, prompt, "text_encoder_2")
 
         prompt_embeds = self.text_encoder(
             text_input_ids.to(self.text_encoder.device), 
