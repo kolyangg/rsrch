@@ -21,6 +21,7 @@ defaults:
   - _self_
 
 train_on_separate_image: false
+train_dataset_upscale_to_1024: true
 train_ba_all_steps: false
 mask_expansion_ratio: 1.0
 mask_softness: 0.0

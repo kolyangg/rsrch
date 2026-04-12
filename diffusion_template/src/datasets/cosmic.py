@@ -397,6 +397,7 @@ class CosmicLargeTrain(BaseDataset):
         same_id_ref_map_json_pth=None,
         path_prefix_to_strip=None,
         require_nested_identity_subdir=True,
+        upscale_to_1024=True,
         *args,
         **kwargs,
     ):
@@ -405,6 +406,8 @@ class CosmicLargeTrain(BaseDataset):
         self.train_on_separate_image = bool(train_on_separate_image)
         self.path_prefix_to_strip = path_prefix_to_strip.strip("/") if path_prefix_to_strip else None
         self.require_nested_identity_subdir = bool(require_nested_identity_subdir)
+        self.upscale_to_1024 = bool(upscale_to_1024)
+        self.train_image_size = 1024 if self.upscale_to_1024 else 256
 
         with open(data_json_pth) as f:
             data_json = json.load(f)
@@ -478,14 +481,15 @@ class CosmicLargeTrain(BaseDataset):
     def _load_train_image(self, path, img_data):
         rel_path = self._get_relative_path(path)
         img = Image.open(f"{self.images_path}/{rel_path}").convert("RGB")
-        if img.size != (1024, 1024):
+        target_size = (self.train_image_size, self.train_image_size)
+        if img.size != target_size:
             body_crop = img_data.get("body_crop")
             if body_crop is not None and len(body_crop) == 4:
                 x0, y0, x1, y1 = body_crop
                 if 0 <= x0 < x1 <= img.size[0] and 0 <= y0 < y1 <= img.size[1]:
                     img = Image.fromarray(np.array(img)[y0:y1, x0:x1])
-            if img.size != (1024, 1024):
-                img = img.resize((1024, 1024), Image.BICUBIC)
+            if img.size != target_size:
+                img = img.resize(target_size, Image.BICUBIC)
         return img
 
     @staticmethod
@@ -535,6 +539,7 @@ class CosmicLargeTrain(BaseDataset):
         rel_path = self._get_relative_path(path)
         raw_img = Image.open(f"{self.images_path}/{rel_path}").convert("RGB")
         raw_size = raw_img.size
+        target_size = (self.train_image_size, self.train_image_size)
         bbox = deepcopy(self.face_bbox_by_path.get(path))
         if bbox is None:
             bbox = self._resolve_sample_bbox(path, rel_path, img_data)
@@ -542,18 +547,20 @@ class CosmicLargeTrain(BaseDataset):
                 raise ValueError(f"Missing valid face bbox for cosmic_large sample: {path}")
 
         img = raw_img
-        if img.size != (1024, 1024):
-            body_crop = img_data.get("body_crop")
-            if body_crop is not None and len(body_crop) == 4:
-                x0, y0, x1, y1 = body_crop
-                if 0 <= x0 < x1 <= img.size[0] and 0 <= y0 < y1 <= img.size[1]:
-                    img = Image.fromarray(np.array(img)[y0:y1, x0:x1])
-
-            if img.size != (1024, 1024):
-                img = img.resize((1024, 1024), Image.BICUBIC)
-
         if self.require_nested_identity_subdir:
+            if img.size != target_size:
+                img = img.resize(target_size, Image.BICUBIC)
             bbox = self._scale_bbox_to_size(bbox, raw_size, img.size)
+        else:
+            if img.size != target_size:
+                body_crop = img_data.get("body_crop")
+                if body_crop is not None and len(body_crop) == 4:
+                    x0, y0, x1, y1 = body_crop
+                    if 0 <= x0 < x1 <= img.size[0] and 0 <= y0 < y1 <= img.size[1]:
+                        img = Image.fromarray(np.array(img)[y0:y1, x0:x1])
+
+                if img.size != target_size:
+                    img = img.resize(target_size, Image.BICUBIC)
 
         return img, bbox
 
@@ -615,14 +622,14 @@ class CosmicLargeTrain(BaseDataset):
         instance_data["prompts"] = prompt
         instance_data["prompt"] = prompt
 
-        instance_data["original_sizes"] = (1024, 1024)
+        instance_data["original_sizes"] = (self.train_image_size, self.train_image_size)
         instance_data["crop_top_lefts"] = (0, 0)
 
         instance_data = self.preprocess_data(instance_data)
 
         assert min(instance_data["face_bbox"]) >= 0
-        assert max(instance_data["face_bbox"]) <= 1024
+        assert max(instance_data["face_bbox"]) <= self.train_image_size
         assert min(instance_data["face_bbox_ref"]) >= 0
-        assert max(instance_data["face_bbox_ref"]) <= 1024
+        assert max(instance_data["face_bbox_ref"]) <= self.train_image_size
 
         return instance_data

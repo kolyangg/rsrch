@@ -3,7 +3,7 @@ import warnings
 import hydra
 import torch
 from hydra.utils import instantiate
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, open_dict
 from accelerate import Accelerator
 from accelerate.utils import InitProcessGroupKwargs, DistributedDataParallelKwargs
 
@@ -14,6 +14,41 @@ import datetime
 
 
 warnings.filterwarnings("ignore", category=UserWarning)
+
+
+def _configure_train_dataset_resolution(config) -> None:
+    train_dataset_name = str(getattr(config, "train_dataset_name", ""))
+    upscale_to_1024 = bool(getattr(config, "train_dataset_upscale_to_1024", True))
+    train_dataset_target_size = 1024
+
+    if train_dataset_name == "cosmic_large" and not upscale_to_1024:
+        train_dataset_target_size = 256
+
+    with open_dict(config):
+        config.train_dataset_upscale_to_1024 = upscale_to_1024
+        config.train_dataset_target_size = train_dataset_target_size
+
+        if "model" in config and "target_size" in config.model:
+            config.model.target_size = train_dataset_target_size
+
+        if (
+            "transforms" in config
+            and "instance_transforms" in config.transforms
+            and "train" in config.transforms.instance_transforms
+            and "pixel_values" in config.transforms.instance_transforms.train
+        ):
+            transforms = config.transforms.instance_transforms.train.pixel_values.transforms
+            if transforms:
+                resize_transform = transforms[0]
+                if "size" in resize_transform:
+                    resize_transform.size = [train_dataset_target_size, train_dataset_target_size]
+
+        if (
+            "datasets" in config
+            and "train" in config.datasets
+            and "cosmic_large" in config.datasets.train
+        ):
+            config.datasets.train.cosmic_large.upscale_to_1024 = upscale_to_1024
 
 def _format_numel(n: int) -> str:
     if n >= 1_000_000_000:
@@ -114,6 +149,7 @@ def main(config):
     Args:
         config (DictConfig): hydra experiment config.
     """
+    _configure_train_dataset_resolution(config)
     set_random_seed(config.trainer.seed)
     # Let Accelerate own distributed init; keep long timeout for validation
     ddp_timeout = int(getattr(config, "ddp_timeout_seconds", 3600))
@@ -135,6 +171,11 @@ def main(config):
     writer = None
     
     if accelerator.is_main_process:
+        print(
+            f"[Train Dataset] name={config.train_dataset_name} "
+            f"upscale_to_1024={config.train_dataset_upscale_to_1024} "
+            f"train_target_size={config.train_dataset_target_size}"
+        )
         logger = setup_saving_and_logging(config)
         # Allow resuming the same CometML experiment by passing experiment_key (run_id)
         comet_run_id = getattr(config, "cometml_id", None)
