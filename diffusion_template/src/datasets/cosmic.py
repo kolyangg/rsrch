@@ -413,14 +413,11 @@ class CosmicLargeTrain(BaseDataset):
         self.meta_by_path = {}
         self.identity_by_path = {}
         self.same_id_ref_map = {}
+        self.face_bbox_by_path = {}
 
         index = []
         for path, image_data in tqdm(data_json.items()):
             if not isinstance(image_data, dict):
-                continue
-
-            bbox = image_data.get("face_crop_new")
-            if bbox is None or min(bbox) < 0 or max(bbox) > 1024:
                 continue
 
             paths = [str(path)]
@@ -433,12 +430,16 @@ class CosmicLargeTrain(BaseDataset):
                 rel_path = self._get_relative_path(sample_path)
                 if self.require_nested_identity_subdir and len(Path(rel_path).parts) != 3:
                     continue
+                bbox = self._resolve_sample_bbox(sample_path, rel_path, image_data)
+                if bbox is None:
+                    continue
                 identity = str(Path(rel_path).parent)
 
                 index.append(image_data)
                 self.ids.append(sample_path)
                 self.meta_by_path[sample_path] = image_data
                 self.identity_by_path[sample_path] = identity
+                self.face_bbox_by_path[sample_path] = bbox
                 self.same_id_ref_map.setdefault(identity, []).append(sample_path)
 
         if same_id_ref_map_json_pth is not None:
@@ -487,6 +488,75 @@ class CosmicLargeTrain(BaseDataset):
                 img = img.resize((1024, 1024), Image.BICUBIC)
         return img
 
+    @staticmethod
+    def _is_valid_bbox(bbox):
+        if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+            return False
+        x0, y0, x1, y1 = bbox
+        return x1 > x0 and y1 > y0 and min(bbox) >= 0
+
+    def _resolve_sample_bbox(self, sample_path, rel_path, img_data):
+        if self.require_nested_identity_subdir:
+            face_bboxes = img_data.get("face_bboxes") or {}
+            candidates = [
+                str(sample_path),
+                str(sample_path).lstrip("/"),
+                rel_path,
+                rel_path.lstrip("/"),
+            ]
+            for candidate in candidates:
+                bbox = face_bboxes.get(candidate)
+                if self._is_valid_bbox(bbox):
+                    return [float(v) for v in bbox]
+
+        bbox = img_data.get("face_crop_new")
+        if self._is_valid_bbox(bbox):
+            return [float(v) for v in bbox]
+        return None
+
+    @staticmethod
+    def _scale_bbox_to_size(bbox, src_size, dst_size):
+        if bbox is None:
+            return None
+        src_w, src_h = src_size
+        dst_w, dst_h = dst_size
+        scale_x = dst_w / max(src_w, 1)
+        scale_y = dst_h / max(src_h, 1)
+        x0, y0, x1, y1 = [float(v) for v in bbox]
+        scaled_bbox = [x0 * scale_x, y0 * scale_y, x1 * scale_x, y1 * scale_y]
+        return [
+            max(0.0, min(float(dst_w), scaled_bbox[0])),
+            max(0.0, min(float(dst_h), scaled_bbox[1])),
+            max(0.0, min(float(dst_w), scaled_bbox[2])),
+            max(0.0, min(float(dst_h), scaled_bbox[3])),
+        ]
+
+    def _load_train_image_and_bbox(self, path, img_data):
+        rel_path = self._get_relative_path(path)
+        raw_img = Image.open(f"{self.images_path}/{rel_path}").convert("RGB")
+        raw_size = raw_img.size
+        bbox = deepcopy(self.face_bbox_by_path.get(path))
+        if bbox is None:
+            bbox = self._resolve_sample_bbox(path, rel_path, img_data)
+            if bbox is None:
+                raise ValueError(f"Missing valid face bbox for cosmic_large sample: {path}")
+
+        img = raw_img
+        if img.size != (1024, 1024):
+            body_crop = img_data.get("body_crop")
+            if body_crop is not None and len(body_crop) == 4:
+                x0, y0, x1, y1 = body_crop
+                if 0 <= x0 < x1 <= img.size[0] and 0 <= y0 < y1 <= img.size[1]:
+                    img = Image.fromarray(np.array(img)[y0:y1, x0:x1])
+
+            if img.size != (1024, 1024):
+                img = img.resize((1024, 1024), Image.BICUBIC)
+
+        if self.require_nested_identity_subdir:
+            bbox = self._scale_bbox_to_size(bbox, raw_size, img.size)
+
+        return img, bbox
+
     def _get_same_id_ref_candidates(self, path):
         identity = self.identity_by_path.get(path)
         if identity is not None and identity in self.same_id_ref_map:
@@ -513,9 +583,8 @@ class CosmicLargeTrain(BaseDataset):
 
         instance_data = {}
 
-        img = self._load_train_image(path, img_data)
+        img, bbox = self._load_train_image_and_bbox(path, img_data)
 
-        bbox = deepcopy(img_data["face_crop_new"])
         if random.random() < 0.5:
             w, _ = img.size
             img = ImageOps.mirror(img)
@@ -533,9 +602,9 @@ class CosmicLargeTrain(BaseDataset):
                 )
             ref_path = random.choice(ref_candidates)
             ref_data = self.meta_by_path[ref_path]
-            ref_img = self._load_train_image(ref_path, ref_data)
+            ref_img, ref_bbox = self._load_train_image_and_bbox(ref_path, ref_data)
             ref_images = [ref_img]
-            instance_data["face_bbox_ref"] = deepcopy(ref_data["face_crop_new"])
+            instance_data["face_bbox_ref"] = deepcopy(ref_bbox)
         else:
             instance_data["face_bbox_ref"] = deepcopy(bbox)
             ref_images = [deepcopy(img)]
@@ -553,5 +622,7 @@ class CosmicLargeTrain(BaseDataset):
 
         assert min(instance_data["face_bbox"]) >= 0
         assert max(instance_data["face_bbox"]) <= 1024
+        assert min(instance_data["face_bbox_ref"]) >= 0
+        assert max(instance_data["face_bbox_ref"]) <= 1024
 
         return instance_data
