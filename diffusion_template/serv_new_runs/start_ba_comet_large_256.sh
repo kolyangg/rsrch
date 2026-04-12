@@ -121,7 +121,7 @@ if ACCELERATE_LOG_LEVEL=error \
         trainer.masked_loss_step=2 \
         train_ba_all_steps=true \
         train_on_separate_image=true \
-        train_dataset_upscale_to_1024=false \ 
+        train_dataset_upscale_to_1024=false \
         metrics=all_metrics \
         val_datasets_names='[manual_val]' \
         writer=cometml writer.run_name="comet_large_256"; then
