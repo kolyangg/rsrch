@@ -118,7 +118,7 @@ if ACCELERATE_LOG_LEVEL=error \
         train_dataset_name=cosmic_large \
         val_datasets_names='[manual_val]' \
         trainer.epoch_len=2000 \
-        dataloaders.train.batch_size=16 \
+        dataloaders.train.batch_size=8 \
         dataloaders.train.num_workers=12 \
         model.rank=32 \
         model.photomaker_path="${PM_PATH}" \
@@ -144,10 +144,11 @@ if ACCELERATE_LOG_LEVEL=error \
         trainer.masked_loss_step=2 \
         train_ba_all_steps=true \
         train_on_separate_image=true \
+        train_dataset_const_ref=true \
         train_dataset_upscale_to_1024=false \
         metrics=all_metrics \
         val_datasets_names='[manual_val]' \
-        writer=cometml writer.run_name="comet_large_256_2gpu"; then
+        writer=cometml writer.run_name="cometL_const_ref_2gpu"; then
     log "Training finished successfully"
 else
     status=$?
