@@ -1,0 +1,19 @@
+
+# 🤝 Пример запуска:
+# mls job submit --config ./binary.yaml
+#
+# 📚 Документация по запуску задач: https://fbdocs.website.yandexcloud.net/pages/mlspace/jobs/quick_start.html
+
+job:
+  description: "ba comet_large #nasilaev"
+  environment:
+    image: cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36
+    
+  resource:
+    instance_type: a100.1gpu.8C.243G 
+    # instance_type: a100plus.2gpu.80vG.24C.488G
+    # processes: - # Сколько процессов запускать. По умолчанию запускается по количеству GPU на одном воркере - это подходит для torchrun.
+    processes: 1 # Для работы с accelerate нужно запускать 1 процесс на 1 воркер.
+    workers: 1   # Сколько запускать воркеров запускать
+  script: 'mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs && bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch/diffusion_template/serv_new_runs/start_ba_comet_large_1024.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/logs_comet_L_const_ref_1024.txt 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/err_comet_L_const_ref_1024.txt'
+  type: binary
