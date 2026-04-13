@@ -398,6 +398,7 @@ class CosmicLargeTrain(BaseDataset):
         path_prefix_to_strip=None,
         require_nested_identity_subdir=True,
         upscale_to_1024=True,
+        const_ref=True,
         *args,
         **kwargs,
     ):
@@ -407,7 +408,10 @@ class CosmicLargeTrain(BaseDataset):
         self.path_prefix_to_strip = path_prefix_to_strip.strip("/") if path_prefix_to_strip else None
         self.require_nested_identity_subdir = bool(require_nested_identity_subdir)
         self.upscale_to_1024 = bool(upscale_to_1024)
+        self.const_ref = bool(const_ref)
         self.train_image_size = 1024 if self.upscale_to_1024 else 256
+        images_root = Path(self.images_path) if self.images_path is not None else None
+        self.dataset_root = images_root.parents[1] if images_root is not None and len(images_root.parents) >= 2 else None
 
         with open(data_json_pth) as f:
             data_json = json.load(f)
@@ -415,6 +419,7 @@ class CosmicLargeTrain(BaseDataset):
         self.ids = []
         self.meta_by_path = {}
         self.identity_by_path = {}
+        self.parent_image_by_path = {}
         self.same_id_ref_map = {}
         self.face_bbox_by_path = {}
 
@@ -442,6 +447,7 @@ class CosmicLargeTrain(BaseDataset):
                 self.ids.append(sample_path)
                 self.meta_by_path[sample_path] = image_data
                 self.identity_by_path[sample_path] = identity
+                self.parent_image_by_path[sample_path] = str(path)
                 self.face_bbox_by_path[sample_path] = bbox
                 self.same_id_ref_map.setdefault(identity, []).append(sample_path)
 
@@ -491,6 +497,14 @@ class CosmicLargeTrain(BaseDataset):
             if img.size != target_size:
                 img = img.resize(target_size, Image.BICUBIC)
         return img
+
+    def _get_parent_image_full_path(self, path):
+        path = Path(str(path))
+        if path.is_absolute():
+            return path
+        if self.dataset_root is not None:
+            return self.dataset_root / str(path).lstrip("/")
+        return path
 
     @staticmethod
     def _is_valid_bbox(bbox):
@@ -564,17 +578,40 @@ class CosmicLargeTrain(BaseDataset):
 
         return img, bbox
 
+    def _load_constant_ref_image_and_bbox(self, path, img_data):
+        full_path = self._get_parent_image_full_path(path)
+        raw_img = Image.open(full_path).convert("RGB")
+        bbox = deepcopy(img_data.get("face_crop_new"))
+        if not self._is_valid_bbox(bbox):
+            raise ValueError(f"Missing valid top-level face_crop_new for cosmic_large ref: {path}")
+
+        img = raw_img
+        body_crop = img_data.get("body_crop")
+        if body_crop is not None and len(body_crop) == 4:
+            x0, y0, x1, y1 = body_crop
+            if 0 <= x0 < x1 <= raw_img.size[0] and 0 <= y0 < y1 <= raw_img.size[1]:
+                img = Image.fromarray(np.array(raw_img)[y0:y1, x0:x1])
+
+        bbox_src_size = img.size
+        target_size = (self.train_image_size, self.train_image_size)
+        if img.size != target_size:
+            img = img.resize(target_size, Image.BICUBIC)
+        bbox = self._scale_bbox_to_size(bbox, bbox_src_size, img.size)
+        return img, bbox
+
     def _get_same_id_ref_candidates(self, path):
         identity = self.identity_by_path.get(path)
         if identity is not None and identity in self.same_id_ref_map:
             return [p for p in self.same_id_ref_map[identity] if p != path]
         return [p for p in self.same_id_ref_map.get(path, []) if p != path]
 
-    @staticmethod
-    def _build_prompt(img_data):
+    def _build_prompt(self, img_data):
         text = img_data.get("text", "")
         if isinstance(text, str) and text:
             return text
+
+        if self.require_nested_identity_subdir:
+            return "img person"
 
         prompt_parts = [
             img_data.get("facial_caption"),
@@ -600,7 +637,14 @@ class CosmicLargeTrain(BaseDataset):
 
         instance_data["pixel_values"] = img
         instance_data["face_bbox"] = bbox
-        if self.train_on_separate_image:
+        if self.const_ref:
+            ref_path = self.parent_image_by_path.get(path)
+            if ref_path is None:
+                raise ValueError(f"Missing parent image path for cosmic_large sample: {path}")
+            ref_img, ref_bbox = self._load_constant_ref_image_and_bbox(ref_path, img_data)
+            ref_images = [ref_img]
+            instance_data["face_bbox_ref"] = deepcopy(ref_bbox)
+        elif self.train_on_separate_image:
             ref_candidates = self._get_same_id_ref_candidates(path)
             if not ref_candidates:
                 raise ValueError(

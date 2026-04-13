@@ -19,6 +19,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 def _configure_train_dataset_resolution(config) -> None:
     train_dataset_name = str(getattr(config, "train_dataset_name", ""))
     upscale_to_1024 = bool(getattr(config, "train_dataset_upscale_to_1024", True))
+    const_ref = bool(getattr(config, "train_dataset_const_ref", True))
     train_dataset_target_size = 1024
 
     if train_dataset_name == "cosmic_large" and not upscale_to_1024:
@@ -26,6 +27,7 @@ def _configure_train_dataset_resolution(config) -> None:
 
     with open_dict(config):
         config.train_dataset_upscale_to_1024 = upscale_to_1024
+        config.train_dataset_const_ref = const_ref
         config.train_dataset_target_size = train_dataset_target_size
 
         if "model" in config and "target_size" in config.model:
@@ -49,6 +51,7 @@ def _configure_train_dataset_resolution(config) -> None:
             and "cosmic_large" in config.datasets.train
         ):
             config.datasets.train.cosmic_large.upscale_to_1024 = upscale_to_1024
+            config.datasets.train.cosmic_large.const_ref = const_ref
 
 def _format_numel(n: int) -> str:
     if n >= 1_000_000_000:
@@ -174,6 +177,7 @@ def main(config):
         print(
             f"[Train Dataset] name={config.train_dataset_name} "
             f"upscale_to_1024={config.train_dataset_upscale_to_1024} "
+            f"const_ref={config.train_dataset_const_ref} "
             f"train_target_size={config.train_dataset_target_size}"
         )
         logger = setup_saving_and_logging(config)
