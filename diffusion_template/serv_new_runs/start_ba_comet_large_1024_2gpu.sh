@@ -148,7 +148,7 @@ if ACCELERATE_LOG_LEVEL=error \
         train_dataset_upscale_to_1024=true \
         metrics=all_metrics \
         val_datasets_names='[manual_val]' \
-        writer=cometml writer.run_name="cometL_const_ref_2gpu"; then
+        writer=cometml writer.run_name="cometL_const_ref_1024_2gpu"; then
     log "Training finished successfully"
 else
     status=$?
