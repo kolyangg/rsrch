@@ -23,6 +23,9 @@ defaults:
 train_on_separate_image: false
 train_dataset_upscale_to_1024: true
 train_dataset_const_ref: true
+train_dataset_crop_ref: false
+train_dataset_crop_nonface_min: 0.2
+train_dataset_crop_nonface_max: 0.4
 train_ba_all_steps: false
 mask_expansion_ratio: 1.0
 mask_softness: 0.0

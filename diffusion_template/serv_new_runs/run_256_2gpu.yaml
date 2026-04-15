@@ -15,5 +15,5 @@ job:
     # processes: - # Сколько процессов запускать. По умолчанию запускается по количеству GPU на одном воркере - это подходит для torchrun.
     processes: 1 # Для работы с accelerate нужно запускать 1 процесс на 1 воркер.
     workers: 1   # Сколько запускать воркеров запускать
-  script: 'mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs && CUDA_LAUNCH_BLOCKING=1 TORCH_SHOW_CPP_STACKTRACES=1 NCCL_ASYNC_ERROR_HANDLING=1 bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch/diffusion_template/serv_new_runs/start_ba_comet_large_256_2gpu.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/logs_ba_comet_L_const_ref_2gpu.txt 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/err_comet_L_const_ref_2gpu.txt'
+  script: 'mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs && CUDA_LAUNCH_BLOCKING=1 TORCH_SHOW_CPP_STACKTRACES=1 NCCL_ASYNC_ERROR_HANDLING=1 bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch/diffusion_template/serv_new_runs/start_ba_comet_large_256_2gpu.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/logs_ba_cometL_256_crop_2gpu.txt 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/err_cometL_256_crop_2gpu.txt'
   type: binary

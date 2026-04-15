@@ -104,7 +104,7 @@ if ACCELERATE_LOG_LEVEL=error \
         model.weight_dtype=bf16 \
         pipeline.variant=null \
         dataloaders.manual_val.batch_size=12 \
-        datasets.val.manual_val.limit=96 \
+        datasets.val.manual_val.limit=12 \
         val_debug=false \
         branched_attn_weight_mode=noise_and_ref \
         branched_attn_new_weight_kind=lora \
@@ -122,10 +122,13 @@ if ACCELERATE_LOG_LEVEL=error \
         train_ba_all_steps=true \
         train_on_separate_image=true \
         train_dataset_const_ref=true \
+        train_dataset_crop_ref=true \
+        train_dataset_crop_nonface_min=0.2 \
+        train_dataset_crop_nonface_max=0.4 \
         train_dataset_upscale_to_1024=false \
         metrics=all_metrics \
         val_datasets_names='[manual_val]' \
-        writer=cometml writer.run_name="cometL_const_ref_2gpu"; then
+        writer=cometml writer.run_name="cometL_256_crop"; then
     log "Training finished successfully"
 else
     status=$?

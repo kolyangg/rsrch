@@ -399,6 +399,9 @@ class CosmicLargeTrain(BaseDataset):
         require_nested_identity_subdir=True,
         upscale_to_1024=True,
         const_ref=True,
+        crop_ref=False,
+        crop_nonface_min=0.2,
+        crop_nonface_max=0.4,
         *args,
         **kwargs,
     ):
@@ -409,6 +412,14 @@ class CosmicLargeTrain(BaseDataset):
         self.require_nested_identity_subdir = bool(require_nested_identity_subdir)
         self.upscale_to_1024 = bool(upscale_to_1024)
         self.const_ref = bool(const_ref)
+        self.crop_ref = bool(crop_ref)
+        self.crop_nonface_min = float(crop_nonface_min)
+        self.crop_nonface_max = float(crop_nonface_max)
+        if self.crop_nonface_min < 0 or self.crop_nonface_max < self.crop_nonface_min:
+            raise ValueError(
+                "CosmicLargeTrain requires 0 <= crop_nonface_min <= crop_nonface_max; "
+                f"got {self.crop_nonface_min} and {self.crop_nonface_max}"
+            )
         self.train_image_size = 1024 if self.upscale_to_1024 else 256
         images_root = Path(self.images_path) if self.images_path is not None else None
         self.dataset_root = images_root.parents[1] if images_root is not None and len(images_root.parents) >= 2 else None
@@ -549,6 +560,58 @@ class CosmicLargeTrain(BaseDataset):
             max(0.0, min(float(dst_h), scaled_bbox[3])),
         ]
 
+    @staticmethod
+    def _crop_square_with_bbox(img, bbox, crop_side):
+        img_w, img_h = img.size
+        crop_side = int(max(1, round(min(float(crop_side), float(img_w), float(img_h)))))
+        x0, y0, x1, y1 = [float(v) for v in bbox]
+        face_cx = 0.5 * (x0 + x1)
+        face_cy = 0.5 * (y0 + y1)
+
+        crop_x0 = int(round(face_cx - 0.5 * crop_side))
+        crop_y0 = int(round(face_cy - 0.5 * crop_side))
+        crop_x0 = min(max(crop_x0, 0), max(img_w - crop_side, 0))
+        crop_y0 = min(max(crop_y0, 0), max(img_h - crop_side, 0))
+        crop_x1 = crop_x0 + crop_side
+        crop_y1 = crop_y0 + crop_side
+
+        cropped_img = img.crop((crop_x0, crop_y0, crop_x1, crop_y1))
+        cropped_bbox = [
+            x0 - crop_x0,
+            y0 - crop_y0,
+            x1 - crop_x0,
+            y1 - crop_y0,
+        ]
+        return cropped_img, cropped_bbox
+
+    def _prepare_constant_ref_crop(self, img, bbox):
+        target_size = (self.train_image_size, self.train_image_size)
+        if (
+            not self.crop_ref
+            or self.train_image_size != 256
+            or (img.size[0] <= 256 and img.size[1] <= 256)
+        ):
+            if img.size != target_size:
+                resized_img = img.resize(target_size, Image.BICUBIC)
+                bbox = self._scale_bbox_to_size(bbox, img.size, resized_img.size)
+                return resized_img, bbox
+            return img, bbox
+
+        face_w = max(float(bbox[2] - bbox[0]), 1.0)
+        face_h = max(float(bbox[3] - bbox[1]), 1.0)
+        context_ratio_w = random.uniform(self.crop_nonface_min, self.crop_nonface_max)
+        context_ratio_h = random.uniform(self.crop_nonface_min, self.crop_nonface_max)
+        desired_w = face_w * (1.0 + context_ratio_w)
+        desired_h = face_h * (1.0 + context_ratio_h)
+        crop_side = max(float(self.train_image_size), desired_w, desired_h)
+
+        cropped_img, cropped_bbox = self._crop_square_with_bbox(img, bbox, crop_side)
+        if cropped_img.size != target_size:
+            resized_img = cropped_img.resize(target_size, Image.BICUBIC)
+            cropped_bbox = self._scale_bbox_to_size(cropped_bbox, cropped_img.size, resized_img.size)
+            return resized_img, cropped_bbox
+        return cropped_img, cropped_bbox
+
     def _load_train_image_and_bbox(self, path, img_data):
         rel_path = self._get_relative_path(path)
         raw_img = Image.open(f"{self.images_path}/{rel_path}").convert("RGB")
@@ -592,12 +655,7 @@ class CosmicLargeTrain(BaseDataset):
             if 0 <= x0 < x1 <= raw_img.size[0] and 0 <= y0 < y1 <= raw_img.size[1]:
                 img = Image.fromarray(np.array(raw_img)[y0:y1, x0:x1])
 
-        bbox_src_size = img.size
-        target_size = (self.train_image_size, self.train_image_size)
-        if img.size != target_size:
-            img = img.resize(target_size, Image.BICUBIC)
-        bbox = self._scale_bbox_to_size(bbox, bbox_src_size, img.size)
-        return img, bbox
+        return self._prepare_constant_ref_crop(img, bbox)
 
     def _get_same_id_ref_candidates(self, path):
         identity = self.identity_by_path.get(path)

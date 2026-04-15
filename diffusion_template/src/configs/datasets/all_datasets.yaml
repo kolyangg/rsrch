@@ -53,6 +53,9 @@ train:
         require_nested_identity_subdir: true
         upscale_to_1024: ${train_dataset_upscale_to_1024}
         const_ref: ${train_dataset_const_ref}
+        crop_ref: ${train_dataset_crop_ref}
+        crop_nonface_min: ${train_dataset_crop_nonface_min}
+        crop_nonface_max: ${train_dataset_crop_nonface_max}
         num_refs: 1
         train_on_separate_image: ${train_on_separate_image}
         same_id_ref_map_json_pth: null
