@@ -125,7 +125,7 @@ if ACCELERATE_LOG_LEVEL=error \
         train_dataset_upscale_to_1024=true \
         metrics=all_metrics \
         val_datasets_names='[manual_val]' \
-        writer=cometml writer.run_name="large_ds" then
+        writer=cometml writer.run_name="large_ds"; then
     log "Training finished successfully"
 else
     status=$?
