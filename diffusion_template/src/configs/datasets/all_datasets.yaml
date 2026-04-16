@@ -44,6 +44,16 @@ train:
         train_on_separate_image: ${train_on_separate_image}
         same_id_ref_map_json_pth: null
         instance_transforms: ${transforms.instance_transforms.train}
+  
+    large_dataset_serv:
+        _target_: src.datasets.cosmic.LargeDatasetTrain
+        data_json_pth: /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/datasets/dataset_full/filtered_ids3_adj.json
+        images_path: /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/datasets/dataset_full/large_dataset_adj/large_dataset
+        num_refs: 1
+        train_on_separate_image: ${train_on_separate_image}
+        same_id_ref_map_json_pth: null
+        instance_transforms: ${transforms.instance_transforms.train}
+  
 
     cosmic_large:
         _target_: src.datasets.cosmic.CosmicLargeTrain

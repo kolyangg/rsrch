@@ -115,10 +115,10 @@ if ACCELERATE_LOG_LEVEL=error \
     accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=2 train.py \
         --config-name=one_id_09Feb_testing \
         datasets=all_datasets \
-        train_dataset_name=cosmic_large \
+        train_dataset_name=large_dataset_serv \
         val_datasets_names='[manual_val]' \
         trainer.epoch_len=2000 \
-        dataloaders.train.batch_size=8 \
+        dataloaders.train.batch_size=4 \
         dataloaders.train.num_workers=12 \
         model.rank=32 \
         model.photomaker_path="${PM_PATH}" \
@@ -144,14 +144,11 @@ if ACCELERATE_LOG_LEVEL=error \
         trainer.masked_loss_step=2 \
         train_ba_all_steps=true \
         train_on_separate_image=true \
-        train_dataset_const_ref=true \
-        train_dataset_crop_ref=true \
-        train_dataset_crop_nonface_min=0.2 \
-        train_dataset_crop_nonface_max=0.4 \
-        train_dataset_upscale_to_1024=false \
+        train_dataset_const_ref=false \
+        train_dataset_upscale_to_1024=true \
         metrics=all_metrics \
         val_datasets_names='[manual_val]' \
-        writer=cometml writer.run_name="cometL_256_crop_2gpu"; then
+        writer=cometml writer.run_name="large_ds_2gpu"; then
     log "Training finished successfully"
 else
     status=$?

@@ -7,8 +7,6 @@ ENV_FILE="${SCRIPT_DIR}/.env"
 CONDA_ENV_PATH="/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/conda_env/photomaker_NS"
 export HYDRA_FULL_ERROR=1
 export CUDA_LAUNCH_BLOCKING="${CUDA_LAUNCH_BLOCKING:-1}"
-export TORCH_SHOW_CPP_STACKTRACES="${TORCH_SHOW_CPP_STACKTRACES:-1}"
-export NCCL_ASYNC_ERROR_HANDLING="${NCCL_ASYNC_ERROR_HANDLING:-1}"
 
 log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
@@ -60,8 +58,6 @@ log "Loaded Conda initialization from ${CONDA_SH}"
 conda activate "${CONDA_ENV_PATH}" || fail "Failed to activate Conda env ${CONDA_ENV_PATH}"
 log "Conda environment activated: ${CONDA_ENV_PATH}"
 log "CUDA_LAUNCH_BLOCKING=${CUDA_LAUNCH_BLOCKING}"
-log "TORCH_SHOW_CPP_STACKTRACES=${TORCH_SHOW_CPP_STACKTRACES}"
-log "NCCL_ASYNC_ERROR_HANDLING=${NCCL_ASYNC_ERROR_HANDLING}"
 PYTHON_BIN="$(command -v python || true)"
 ACCELERATE_BIN="$(command -v accelerate || true)"
 [[ -n "${PYTHON_BIN}" ]] || fail "Python is not available after activating ${CONDA_ENV_PATH}"
@@ -81,25 +77,6 @@ log "Loaded COMET_API_KEY from ${ENV_FILE}"
 [[ -f "${PM_PATH}" ]] || fail "PhotoMaker checkpoint not found at PM_PATH=${PM_PATH}"
 log "Using PhotoMaker checkpoint: ${PM_PATH}"
 
-export INSIGHTFACE_HOME="${INSIGHTFACE_HOME:-/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/checkpoints/insightface}"
-export FACEANALYSIS_CPU="${FACEANALYSIS_CPU:-1}"
-mkdir -p "${INSIGHTFACE_HOME}/models"
-log "Using InsightFace cache: ${INSIGHTFACE_HOME}"
-log "Validating InsightFace buffalo_l cache"
-python - <<'PY'
-import os
-from insightface.app import FaceAnalysis
-
-app = FaceAnalysis(
-    name="buffalo_l",
-    root=os.environ["INSIGHTFACE_HOME"],
-    providers=["CPUExecutionProvider"],
-    allowed_modules=["detection", "recognition"],
-)
-app.prepare(ctx_id=-1, det_size=(640, 640))
-print(f"InsightFace cache OK: {os.environ['INSIGHTFACE_HOME']}")
-PY
-
 cd "${PROJECT_DIR}"
 log "Changed directory to ${PROJECT_DIR}"
 log "Starting training command"
@@ -110,15 +87,15 @@ if ACCELERATE_LOG_LEVEL=error \
     PYTHONWARNINGS="ignore::FutureWarning" \
     COMET_DISABLE_AUTO_LOGGING=1 \
     COMET_LOGGING_CONSOLE=ERROR \
-    CUDA_VISIBLE_DEVICES=0,1 \
+    CUDA_VISIBLE_DEVICES=0 \
     COMET_API_KEY="${COMET_API_KEY}" \
-    accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=2 train.py \
+    accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=1 train.py \
         --config-name=one_id_09Feb_testing \
         datasets=all_datasets \
-        train_dataset_name=cosmic_large \
+        train_dataset_name=large_dataset_serv \
         val_datasets_names='[manual_val]' \
         trainer.epoch_len=2000 \
-        dataloaders.train.batch_size=8 \
+        dataloaders.train.batch_size=4 \
         dataloaders.train.num_workers=12 \
         model.rank=32 \
         model.photomaker_path="${PM_PATH}" \
@@ -127,7 +104,7 @@ if ACCELERATE_LOG_LEVEL=error \
         model.weight_dtype=bf16 \
         pipeline.variant=null \
         dataloaders.manual_val.batch_size=12 \
-        datasets.val.manual_val.limit=96 \
+        datasets.val.manual_val.limit=12 \
         val_debug=false \
         branched_attn_weight_mode=noise_and_ref \
         branched_attn_new_weight_kind=lora \
@@ -144,14 +121,11 @@ if ACCELERATE_LOG_LEVEL=error \
         trainer.masked_loss_step=2 \
         train_ba_all_steps=true \
         train_on_separate_image=true \
-        train_dataset_const_ref=true \
-        train_dataset_crop_ref=true \
-        train_dataset_crop_nonface_min=0.2 \
-        train_dataset_crop_nonface_max=0.4 \
-        train_dataset_upscale_to_1024=false \
+        train_dataset_const_ref=false \
+        train_dataset_upscale_to_1024=true \
         metrics=all_metrics \
         val_datasets_names='[manual_val]' \
-        writer=cometml writer.run_name="cometL_256_crop_2gpu"; then
+        writer=cometml writer.run_name="large_ds" then
     log "Training finished successfully"
 else
     status=$?
