@@ -21,6 +21,7 @@ def _configure_train_dataset_resolution(config) -> None:
     upscale_to_1024 = bool(getattr(config, "train_dataset_upscale_to_1024", True))
     const_ref = bool(getattr(config, "train_dataset_const_ref", True))
     crop_ref = bool(getattr(config, "train_dataset_crop_ref", False))
+    ref_similar = bool(getattr(config, "train_dataset_ref_similar", False))
     crop_nonface_min = float(getattr(config, "train_dataset_crop_nonface_min", 0.2))
     crop_nonface_max = float(getattr(config, "train_dataset_crop_nonface_max", 0.4))
     train_dataset_target_size = 1024
@@ -32,6 +33,7 @@ def _configure_train_dataset_resolution(config) -> None:
         config.train_dataset_upscale_to_1024 = upscale_to_1024
         config.train_dataset_const_ref = const_ref
         config.train_dataset_crop_ref = crop_ref
+        config.train_dataset_ref_similar = ref_similar
         config.train_dataset_crop_nonface_min = crop_nonface_min
         config.train_dataset_crop_nonface_max = crop_nonface_max
         config.train_dataset_target_size = train_dataset_target_size
@@ -59,6 +61,7 @@ def _configure_train_dataset_resolution(config) -> None:
             config.datasets.train.cosmic_large.upscale_to_1024 = upscale_to_1024
             config.datasets.train.cosmic_large.const_ref = const_ref
             config.datasets.train.cosmic_large.crop_ref = crop_ref
+            config.datasets.train.cosmic_large.ref_similar = ref_similar
             config.datasets.train.cosmic_large.crop_nonface_min = crop_nonface_min
             config.datasets.train.cosmic_large.crop_nonface_max = crop_nonface_max
 
@@ -188,6 +191,7 @@ def main(config):
             f"upscale_to_1024={config.train_dataset_upscale_to_1024} "
             f"const_ref={config.train_dataset_const_ref} "
             f"crop_ref={config.train_dataset_crop_ref} "
+            f"ref_similar={config.train_dataset_ref_similar} "
             f"crop_nonface=({config.train_dataset_crop_nonface_min},"
             f"{config.train_dataset_crop_nonface_max}) "
             f"train_target_size={config.train_dataset_target_size}"

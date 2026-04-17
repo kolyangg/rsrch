@@ -64,6 +64,7 @@ train:
         upscale_to_1024: ${train_dataset_upscale_to_1024}
         const_ref: ${train_dataset_const_ref}
         crop_ref: ${train_dataset_crop_ref}
+        ref_similar: ${train_dataset_ref_similar}
         crop_nonface_min: ${train_dataset_crop_nonface_min}
         crop_nonface_max: ${train_dataset_crop_nonface_max}
         num_refs: 1

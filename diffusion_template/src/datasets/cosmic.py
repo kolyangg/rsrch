@@ -400,6 +400,7 @@ class CosmicLargeTrain(BaseDataset):
         upscale_to_1024=True,
         const_ref=True,
         crop_ref=False,
+        ref_similar=False,
         crop_nonface_min=0.2,
         crop_nonface_max=0.4,
         *args,
@@ -413,6 +414,7 @@ class CosmicLargeTrain(BaseDataset):
         self.upscale_to_1024 = bool(upscale_to_1024)
         self.const_ref = bool(const_ref)
         self.crop_ref = bool(crop_ref)
+        self.ref_similar = bool(ref_similar)
         self.crop_nonface_min = float(crop_nonface_min)
         self.crop_nonface_max = float(crop_nonface_max)
         if self.crop_nonface_min < 0 or self.crop_nonface_max < self.crop_nonface_min:
@@ -612,6 +614,59 @@ class CosmicLargeTrain(BaseDataset):
             return resized_img, cropped_bbox
         return cropped_img, cropped_bbox
 
+    @staticmethod
+    def _clip_bbox_to_image(bbox, img_size):
+        if bbox is None:
+            return None
+        img_w, img_h = img_size
+        x0, y0, x1, y1 = [float(v) for v in bbox]
+        clipped_bbox = [
+            max(0.0, min(float(img_w), x0)),
+            max(0.0, min(float(img_h), y0)),
+            max(0.0, min(float(img_w), x1)),
+            max(0.0, min(float(img_h), y1)),
+        ]
+        if clipped_bbox[2] <= clipped_bbox[0] or clipped_bbox[3] <= clipped_bbox[1]:
+            return None
+        return clipped_bbox
+
+    @staticmethod
+    def _get_bigger_crop_with_bbox(img, face_bbox, scale=0.2):
+        crop = [int(round(v)) for v in deepcopy(face_bbox)]
+        if crop[3] - crop[1] < crop[2] - crop[0]:
+            diff = crop[2] - crop[0] - (crop[3] - crop[1])
+            if diff % 2 != 0:
+                crop[0] -= 1
+                diff += 1
+            crop[3] += diff // 2
+            crop[1] -= diff // 2
+        elif crop[2] - crop[0] < crop[3] - crop[1]:
+            diff = crop[3] - crop[1] - (crop[2] - crop[0])
+            if diff % 2 != 0:
+                crop[1] -= 1
+                diff += 1
+            crop[2] += diff // 2
+            crop[0] -= diff // 2
+
+        assert crop[3] - crop[1] == crop[2] - crop[0], crop
+
+        to_add = int((crop[3] - crop[1]) * scale)
+        img_w, img_h = img.size
+        crop = [
+            max(0, crop[0] - to_add),
+            max(0, crop[1] - to_add),
+            min(img_w, crop[2] + to_add),
+            min(img_h, crop[3] + to_add),
+        ]
+        cropped_img = img.crop((crop[0], crop[1], crop[2], crop[3]))
+        cropped_bbox = [
+            face_bbox[0] - crop[0],
+            face_bbox[1] - crop[1],
+            face_bbox[2] - crop[0],
+            face_bbox[3] - crop[1],
+        ]
+        return cropped_img, CosmicLargeTrain._clip_bbox_to_image(cropped_bbox, cropped_img.size)
+
     def _load_train_image_and_bbox(self, path, img_data):
         rel_path = self._get_relative_path(path)
         raw_img = Image.open(f"{self.images_path}/{rel_path}").convert("RGB")
@@ -657,6 +712,45 @@ class CosmicLargeTrain(BaseDataset):
 
         return self._prepare_constant_ref_crop(img, bbox)
 
+    def _load_similar_ref_images_and_bbox(self, img_data, target_path=None):
+        face_paths = [str(p) for p in img_data.get("face_paths") or []]
+        if self.train_on_separate_image and target_path is not None:
+            ref_candidates = [p for p in face_paths if p != str(target_path)]
+            if not ref_candidates:
+                raise ValueError(
+                    "train_on_separate_image=True with ref_similar=True for CosmicLargeTrain "
+                    f"requires at least two face_paths for target '{target_path}'"
+                )
+        else:
+            ref_candidates = face_paths
+
+        if not ref_candidates:
+            raise ValueError("CosmicLargeTrain ref_similar=True requires non-empty face_paths")
+
+        replace = len(ref_candidates) < self.num_refs
+        chosen_paths = np.random.choice(ref_candidates, size=self.num_refs, replace=replace).tolist()
+
+        ref_images = []
+        ref_bboxes = []
+        for face_path in chosen_paths:
+            rel_path = self._get_relative_path(face_path)
+            ref_img = Image.open(f"{self.images_path}/{rel_path}").convert("RGB")
+            face_bbox = self._resolve_sample_bbox(face_path, rel_path, img_data)
+            if face_bbox is None:
+                raise ValueError(f"Missing valid face bbox for ref_similar sample: {face_path}")
+            ref_face, ref_bbox = self._get_bigger_crop_with_bbox(ref_img, face_bbox, scale=0.2)
+            if ref_bbox is None:
+                raise ValueError(f"Invalid ref_similar crop bbox for sample: {face_path}")
+            if random.random() < 0.5:
+                w, _ = ref_face.size
+                ref_face = ImageOps.mirror(ref_face)
+                x0, y0, x1, y1 = ref_bbox
+                ref_bbox = [w - x1, y0, w - x0, y1]
+            ref_images.append(ref_face)
+            ref_bboxes.append(ref_bbox)
+
+        return ref_images, deepcopy(ref_bboxes[0])
+
     def _get_same_id_ref_candidates(self, path):
         identity = self.identity_by_path.get(path)
         if identity is not None and identity in self.same_id_ref_map:
@@ -683,6 +777,17 @@ class CosmicLargeTrain(BaseDataset):
         img_data = self._index[ind]
         path = self.ids[ind]
 
+        if (self.const_ref or self.ref_similar) and self.train_on_separate_image:
+            identity = self.identity_by_path.get(path)
+            target_candidates = self.same_id_ref_map.get(identity)
+            if not target_candidates:
+                raise ValueError(
+                    "train_on_separate_image=True for CosmicLargeTrain requires "
+                    f"at least one target candidate for identity '{identity}'"
+                )
+            path = random.choice(target_candidates)
+            img_data = self.meta_by_path[path]
+
         instance_data = {}
 
         img, bbox = self._load_train_image_and_bbox(path, img_data)
@@ -695,7 +800,10 @@ class CosmicLargeTrain(BaseDataset):
 
         instance_data["pixel_values"] = img
         instance_data["face_bbox"] = bbox
-        if self.const_ref:
+        if self.ref_similar:
+            ref_images, ref_bbox = self._load_similar_ref_images_and_bbox(img_data, target_path=path)
+            instance_data["face_bbox_ref"] = deepcopy(ref_bbox)
+        elif self.const_ref:
             ref_path = self.parent_image_by_path.get(path)
             if ref_path is None:
                 raise ValueError(f"Missing parent image path for cosmic_large sample: {path}")
