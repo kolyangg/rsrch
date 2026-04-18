@@ -71,7 +71,23 @@ train:
         train_on_separate_image: ${train_on_separate_image}
         same_id_ref_map_json_pth: null
         instance_transforms: ${transforms.instance_transforms.train}
-        
+
+    cosmic_large_vast:
+        _target_: src.datasets.cosmic.CosmicLargeTrain
+        data_json_pth: /workspace/datasets/gathered_data_cosmic_large_filtered.json
+        images_path: /workspace/datasets/LAION-5B-Filtered-Large-Faces/laion1B-nolang
+        path_prefix_to_strip: LAION-5B-Filtered-Large/laion1B-nolang
+        require_nested_identity_subdir: true
+        upscale_to_1024: ${train_dataset_upscale_to_1024}
+        const_ref: ${train_dataset_const_ref}
+        crop_ref: ${train_dataset_crop_ref}
+        ref_similar: ${train_dataset_ref_similar}
+        crop_nonface_min: ${train_dataset_crop_nonface_min}
+        crop_nonface_max: ${train_dataset_crop_nonface_max}
+        num_refs: 1
+        train_on_separate_image: ${train_on_separate_image}
+        same_id_ref_map_json_pth: null
+        instance_transforms: ${transforms.instance_transforms.train}
 
 val:
     db_liv_small:
