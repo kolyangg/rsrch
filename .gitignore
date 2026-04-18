@@ -50,3 +50,4 @@ diffusion_template/serv_new_runs/.env
 
 dataset_full/cosmic_large_analysis.ipynb
 dataset_full/gathered_data_cosmic_large_filtered.jsondataset_full/gathered_data_cosmic_large_filtered.json
+dataset_full/gathered_data_cosmic_large_filtered.json
