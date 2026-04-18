@@ -18,6 +18,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 def _configure_train_dataset_resolution(config) -> None:
     train_dataset_name = str(getattr(config, "train_dataset_name", ""))
+    is_cosmic_large_family = train_dataset_name.startswith("cosmic_large")
     upscale_to_1024 = bool(getattr(config, "train_dataset_upscale_to_1024", True))
     const_ref = bool(getattr(config, "train_dataset_const_ref", True))
     crop_ref = bool(getattr(config, "train_dataset_crop_ref", False))
@@ -26,7 +27,7 @@ def _configure_train_dataset_resolution(config) -> None:
     crop_nonface_max = float(getattr(config, "train_dataset_crop_nonface_max", 0.4))
     train_dataset_target_size = 1024
 
-    if train_dataset_name == "cosmic_large" and not upscale_to_1024:
+    if is_cosmic_large_family and not upscale_to_1024:
         train_dataset_target_size = 256
 
     with open_dict(config):
@@ -56,14 +57,16 @@ def _configure_train_dataset_resolution(config) -> None:
         if (
             "datasets" in config
             and "train" in config.datasets
-            and "cosmic_large" in config.datasets.train
         ):
-            config.datasets.train.cosmic_large.upscale_to_1024 = upscale_to_1024
-            config.datasets.train.cosmic_large.const_ref = const_ref
-            config.datasets.train.cosmic_large.crop_ref = crop_ref
-            config.datasets.train.cosmic_large.ref_similar = ref_similar
-            config.datasets.train.cosmic_large.crop_nonface_min = crop_nonface_min
-            config.datasets.train.cosmic_large.crop_nonface_max = crop_nonface_max
+            for dataset_name, dataset_cfg in config.datasets.train.items():
+                if not str(dataset_name).startswith("cosmic_large"):
+                    continue
+                dataset_cfg.upscale_to_1024 = upscale_to_1024
+                dataset_cfg.const_ref = const_ref
+                dataset_cfg.crop_ref = crop_ref
+                dataset_cfg.ref_similar = ref_similar
+                dataset_cfg.crop_nonface_min = crop_nonface_min
+                dataset_cfg.crop_nonface_max = crop_nonface_max
 
 def _format_numel(n: int) -> str:
     if n >= 1_000_000_000:
