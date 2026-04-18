@@ -48,4 +48,5 @@ dataset_full/LAION-5B-Filtered-Large-Faces/
 
 diffusion_template/serv_new_runs/.env
 
-ataset_full/cosmic_large_analysis.ipynb
+dataset_full/cosmic_large_analysis.ipynb
+dataset_full/gathered_data_cosmic_large_filtered.jsondataset_full/gathered_data_cosmic_large_filtered.json
