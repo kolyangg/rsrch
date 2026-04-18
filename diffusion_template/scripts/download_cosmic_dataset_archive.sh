@@ -2,9 +2,9 @@
 set -euo pipefail
 
 usage() {
-    cat <<'EOF'
+    cat <<'USAGE_EOF'
 Usage:
-  download_cosmic_dataset_archive.sh [--dataset_full_adj] GOOGLE_DRIVE_FILE_ID_OR_URL [extract_parent]
+  download_cosmic_dataset_archive.sh [--dataset_full_adj] [--archive-name NAME] GOOGLE_DRIVE_FILE_ID_OR_URL [extract_parent]
 
 Arguments:
   GOOGLE_DRIVE_FILE_ID_OR_URL
@@ -17,21 +17,34 @@ Flags:
                          large_dataset_adj/... and extract it into
                          <extract_parent>/dataset_full/ so the final path is:
                          <extract_parent>/dataset_full/large_dataset_adj
+  --archive-name NAME    Custom filename to save the downloaded archive as.
+                         Useful for archives like *.tar.gz. Defaults to:
+                         cosmic_dataset_images.tar or large_dataset_adj.tar
 
 This script:
   1. downloads the archive with gdown
   2. extracts the archive into the correct location for training
   3. removes the downloaded archive
-EOF
+USAGE_EOF
 }
 
 DATASET_FULL_ADJ_MODE=0
+CUSTOM_ARCHIVE_NAME=""
 POSITIONAL_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dataset_full_adj|--dataset-full-adj)
             DATASET_FULL_ADJ_MODE=1
             shift
+            ;;
+        --archive-name)
+            if [[ $# -lt 2 ]]; then
+                echo "--archive-name requires a value" >&2
+                usage >&2
+                exit 1
+            fi
+            CUSTOM_ARCHIVE_NAME="$2"
+            shift 2
             ;;
         -h|--help)
             usage
@@ -60,7 +73,9 @@ FILE_ID="$1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 EXTRACT_PARENT="${2:-$(cd "$REPO_ROOT/.." && pwd)}"
-if [[ "$DATASET_FULL_ADJ_MODE" -eq 1 ]]; then
+if [[ -n "$CUSTOM_ARCHIVE_NAME" ]]; then
+    ARCHIVE_BASENAME="$CUSTOM_ARCHIVE_NAME"
+elif [[ "$DATASET_FULL_ADJ_MODE" -eq 1 ]]; then
     ARCHIVE_BASENAME="large_dataset_adj.tar"
 else
     ARCHIVE_BASENAME="cosmic_dataset_images.tar"
@@ -87,15 +102,22 @@ mkdir -p "$EXTRACT_PARENT"
 echo "Downloading archive to: $ARCHIVE_PATH"
 gdown "$DOWNLOAD_URL" -O "$ARCHIVE_PATH"
 
+TAR_EXTRACT_ARGS=(-xf)
+case "$ARCHIVE_BASENAME" in
+    *.tar.gz|*.tgz)
+        TAR_EXTRACT_ARGS=(-xzf)
+        ;;
+esac
+
 if [[ "$DATASET_FULL_ADJ_MODE" -eq 1 ]]; then
     TARGET_DIR="$EXTRACT_PARENT/dataset_full"
     mkdir -p "$TARGET_DIR"
     echo "Extracting large_dataset_adj archive into: $TARGET_DIR"
-    tar -xf "$ARCHIVE_PATH" -C "$TARGET_DIR"
+    tar "${TAR_EXTRACT_ARGS[@]}" "$ARCHIVE_PATH" -C "$TARGET_DIR"
 else
     TARGET_DIR="$EXTRACT_PARENT"
     echo "Extracting archive into: $TARGET_DIR"
-    tar -xf "$ARCHIVE_PATH" -C "$TARGET_DIR"
+    tar "${TAR_EXTRACT_ARGS[@]}" "$ARCHIVE_PATH" -C "$TARGET_DIR"
 fi
 
 echo "Removing archive: $ARCHIVE_PATH"
@@ -105,5 +127,5 @@ echo "Done."
 if [[ "$DATASET_FULL_ADJ_MODE" -eq 1 ]]; then
     echo "Expected dataset root: $EXTRACT_PARENT/dataset_full/large_dataset_adj"
 else
-    echo "Expected dataset root: $EXTRACT_PARENT/dataset_full"
+    echo "Archive extracted into: $TARGET_DIR"
 fi
