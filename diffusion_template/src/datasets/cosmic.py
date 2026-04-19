@@ -1,5 +1,6 @@
 from copy import deepcopy
 import json
+import logging
 from pathlib import Path
 import random
 
@@ -9,6 +10,8 @@ from tqdm import tqdm
 
 from src.datasets.base_dataset import BaseDataset
 from src.datasets.data_utils import get_bigger_crop, get_crop_values
+
+logger = logging.getLogger(__name__)
 
 
 class CosmicDoubledTrain(BaseDataset):
@@ -537,8 +540,18 @@ class CosmicLargeTrain(BaseDataset):
             ]
             for candidate in candidates:
                 bbox = face_bboxes.get(candidate)
-                if self._is_valid_bbox(bbox):
-                    return [float(v) for v in bbox]
+                if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+                    raw_bbox = [float(v) for v in bbox]
+                    clipped_bbox = self._clip_bbox_to_image(raw_bbox, (256, 256))
+                    if clipped_bbox is not None:
+                        if clipped_bbox != raw_bbox:
+                            logger.warning(
+                                "Clipped cosmic_large face bbox for %s: raw=%s clipped=%s",
+                                candidate,
+                                raw_bbox,
+                                clipped_bbox,
+                            )
+                        return clipped_bbox
 
         bbox = img_data.get("face_crop_new")
         if self._is_valid_bbox(bbox):
