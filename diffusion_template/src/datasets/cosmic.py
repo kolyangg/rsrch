@@ -3,6 +3,7 @@ import json
 import logging
 from pathlib import Path
 import random
+import re
 
 import numpy as np
 from PIL import Image, ImageOps
@@ -12,6 +13,8 @@ from src.datasets.base_dataset import BaseDataset
 from src.datasets.data_utils import get_bigger_crop, get_crop_values
 
 logger = logging.getLogger(__name__)
+
+PROMPT_CLASS_RE = re.compile(r"\b(woman|man|girl|boy|child|person)\b", re.IGNORECASE)
 
 
 class CosmicDoubledTrain(BaseDataset):
@@ -775,16 +778,23 @@ class CosmicLargeTrain(BaseDataset):
         if isinstance(text, str) and text:
             return text
 
+        facial_caption = img_data.get("facial_caption", "")
+        prompt_class = "person"
+        if isinstance(facial_caption, str) and facial_caption:
+            match = PROMPT_CLASS_RE.search(facial_caption)
+            if match is not None:
+                prompt_class = match.group(1).lower()
+
         if self.require_nested_identity_subdir:
-            return "img person"
+            return f"A {prompt_class} img"
 
         prompt_parts = [
-            img_data.get("facial_caption"),
+            facial_caption,
             img_data.get("pose_caption"),
             img_data.get("background_caption"),
         ]
         prompt = ", ".join(part for part in prompt_parts if isinstance(part, str) and part)
-        return prompt or "img person"
+        return prompt or f"A {prompt_class} img"
 
     def __getitem__(self, ind):
         img_data = self._index[ind]
