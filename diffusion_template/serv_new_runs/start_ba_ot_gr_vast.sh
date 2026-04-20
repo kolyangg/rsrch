@@ -11,8 +11,8 @@ PYTHONWARNINGS="ignore::FutureWarning" \
 COMET_DISABLE_AUTO_LOGGING=1 \
 COMET_LOGGING_CONSOLE=ERROR \
 CUDA_VISIBLE_DEVICES=0 \
-COMET_API_KEY="${COMET_API_KEY}" \
-accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=1 train.py \
+    COMET_API_KEY=wSzl6h2PsRcopvISb2TJvtkzH \
+    accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=1 train.py \
     --config-name=one_id_09Feb_testing \
     datasets=all_datasets \
     train_dataset_name=cosmic_large \
