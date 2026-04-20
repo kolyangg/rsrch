@@ -24,6 +24,62 @@ EXPLICIT_FILE="${SNAPSHOT_DIR}/conda_explicit.txt"
 NOBUILDS_FILE="${SNAPSHOT_DIR}/environment_nobuilds.yml"
 PIP_FILE="${SNAPSHOT_DIR}/pip_freeze.txt"
 
+snapshot_pip_version() {
+  local file="${1:-}"
+  local package_name="${2:-}"
+  if [[ -z "${file}" || -z "${package_name}" || ! -f "${file}" ]]; then
+    return 0
+  fi
+
+  awk -F'==' -v pkg="${package_name}" '
+    BEGIN {
+      want = tolower(pkg)
+    }
+    tolower($1) == want {
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
+      print $2
+      exit
+    }
+  ' "${file}" | xargs || true
+}
+
+detect_snapshot_torch_cuda_version() {
+  local file="${1:-}"
+  local runtime_version=""
+  local major=""
+  local minor=""
+
+  runtime_version="$(snapshot_pip_version "${file}" "nvidia-cuda-runtime-cu12")"
+  if [[ -z "${runtime_version}" ]]; then
+    runtime_version="$(snapshot_pip_version "${file}" "nvidia-cuda-runtime-cu11")"
+  fi
+  if [[ -z "${runtime_version}" ]]; then
+    return 0
+  fi
+
+  IFS='.' read -r major minor _ <<< "${runtime_version}"
+  if [[ -n "${major}" && -n "${minor}" ]]; then
+    printf '%s.%s' "${major}" "${minor}"
+  fi
+}
+
+detect_snapshot_torch_index_url() {
+  local file="${1:-}"
+  local cuda_version=""
+  local major=""
+  local minor=""
+
+  cuda_version="$(detect_snapshot_torch_cuda_version "${file}")"
+  if [[ -z "${cuda_version}" ]]; then
+    return 0
+  fi
+
+  IFS='.' read -r major minor <<< "${cuda_version}"
+  if [[ -n "${major}" && -n "${minor}" ]]; then
+    printf 'https://download.pytorch.org/whl/cu%s%s' "${major}" "${minor}"
+  fi
+}
+
 if [[ -n "${2:-}" ]]; then
   TARGET_ENV="$2"
 else
@@ -172,6 +228,70 @@ if [[ -f "${PIP_FILE}" ]]; then
   fi
 else
   echo "[3/8] pip_freeze.txt not found; skipping pip install."
+fi
+
+TORCH_VERSION=""
+TORCHVISION_VERSION=""
+TORCHAUDIO_VERSION=""
+SNAPSHOT_TORCH_CUDA_VERSION=""
+TORCH_INDEX_URL="${TORCH_INDEX_URL:-}"
+if [[ -f "${PIP_FILE}" ]]; then
+  TORCH_VERSION="$(snapshot_pip_version "${PIP_FILE}" "torch")"
+  TORCHVISION_VERSION="$(snapshot_pip_version "${PIP_FILE}" "torchvision")"
+  TORCHAUDIO_VERSION="$(snapshot_pip_version "${PIP_FILE}" "torchaudio")"
+  SNAPSHOT_TORCH_CUDA_VERSION="$(detect_snapshot_torch_cuda_version "${PIP_FILE}")"
+  if [[ -z "${TORCH_INDEX_URL}" ]]; then
+    TORCH_INDEX_URL="$(detect_snapshot_torch_index_url "${PIP_FILE}")"
+  fi
+fi
+
+if [[ -n "${TORCH_VERSION}" && -n "${TORCH_INDEX_URL}" ]]; then
+  echo "[torch] Reinstalling torch stack from ${TORCH_INDEX_URL} to preserve snapshot CUDA flavor"
+  PY_BIN="$(command -v python)"
+  if ! command -v uv >/dev/null 2>&1; then
+    python -m pip install --upgrade uv
+  fi
+
+  TORCH_PKGS=("torch==${TORCH_VERSION}")
+  if [[ -n "${TORCHVISION_VERSION}" ]]; then
+    TORCH_PKGS+=("torchvision==${TORCHVISION_VERSION}")
+  fi
+  if [[ -n "${TORCHAUDIO_VERSION}" ]]; then
+    TORCH_PKGS+=("torchaudio==${TORCHAUDIO_VERSION}")
+  fi
+
+  uv pip install --python "${PY_BIN}" --index-url "${TORCH_INDEX_URL}" --force-reinstall "${TORCH_PKGS[@]}"
+elif [[ -n "${TORCH_VERSION}" ]]; then
+  echo "[torch] No snapshot CUDA runtime pin detected; skipping torch index normalization."
+fi
+
+if [[ -n "${TORCH_VERSION}" ]]; then
+  PY_BIN="$(command -v python)"
+  SNAPSHOT_TORCH_CUDA_VERSION="${SNAPSHOT_TORCH_CUDA_VERSION}" "${PY_BIN}" - <<'PY'
+import json
+import os
+from importlib import metadata
+
+payload = {}
+for package in ("torch", "torchvision", "torchaudio", "triton"):
+    try:
+        payload[package] = metadata.version(package)
+    except metadata.PackageNotFoundError:
+        continue
+
+try:
+    import torch
+except Exception as exc:
+    payload["torch_import_error"] = str(exc)
+else:
+    payload["torch_cuda"] = torch.version.cuda
+
+expected_cuda = os.environ.get("SNAPSHOT_TORCH_CUDA_VERSION", "").strip()
+if expected_cuda:
+    payload["expected_torch_cuda"] = expected_cuda
+
+print(json.dumps(payload, sort_keys=True))
+PY
 fi
 
 # Pin huggingface-hub for consistent model loading behavior across machines.
@@ -634,12 +754,13 @@ elif [[ "${ENFORCE_TORCH_GUARD}" == "1" && -f "${PIP_FILE}" ]]; then
   TORCH_GUARD_FILE="$(mktemp)"
   awk '/^(torch|torchvision|torchaudio|triton)==/ {print}' "${PIP_FILE}" | sort -u > "${TORCH_GUARD_FILE}"
   if [[ -s "${TORCH_GUARD_FILE}" ]]; then
-    TORCH_GUARD_FILE="${TORCH_GUARD_FILE}" "${PY_BIN}" - <<'PY'
+    TORCH_EXPECTED_CUDA_VERSION="${SNAPSHOT_TORCH_CUDA_VERSION}" TORCH_GUARD_FILE="${TORCH_GUARD_FILE}" "${PY_BIN}" - <<'PY'
 import os
 import sys
 from importlib import metadata
 
 req_file = os.environ["TORCH_GUARD_FILE"]
+expected_cuda = os.environ.get("TORCH_EXPECTED_CUDA_VERSION", "").strip()
 required = {}
 with open(req_file, "r", encoding="utf-8") as handle:
     for raw in handle:
@@ -651,6 +772,7 @@ with open(req_file, "r", encoding="utf-8") as handle:
 
 missing = []
 mismatch = []
+cuda_mismatch = None
 for package, expected in required.items():
     try:
         installed = metadata.version(package)
@@ -660,12 +782,27 @@ for package, expected in required.items():
     if installed != expected:
         mismatch.append((package, expected, installed))
 
-if missing or mismatch:
+if expected_cuda:
+    try:
+        import torch
+    except Exception as exc:
+        print("ERROR: Torch stack guard failed. torch import failed.")
+        print(f"  IMPORT_ERROR {exc}")
+        raise SystemExit(1)
+
+    actual_cuda = (torch.version.cuda or "").strip()
+    if actual_cuda != expected_cuda:
+        cuda_mismatch = (expected_cuda, actual_cuda or "<none>")
+
+if missing or mismatch or cuda_mismatch:
     print("ERROR: Torch stack guard failed. Installed versions differ from snapshot.")
     for package, expected in missing:
         print(f"  MISSING  {package}=={expected}")
     for package, expected, installed in mismatch:
         print(f"  MISMATCH {package}: expected {expected}, got {installed}")
+    if cuda_mismatch:
+        expected, actual = cuda_mismatch
+        print(f"  MISMATCH torch CUDA flavor: expected {expected}, got {actual}")
     print("Set ENFORCE_TORCH_GUARD=0 to bypass (not recommended).")
     raise SystemExit(1)
 

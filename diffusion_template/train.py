@@ -23,11 +23,12 @@ def _configure_train_dataset_resolution(config) -> None:
     const_ref = bool(getattr(config, "train_dataset_const_ref", True))
     crop_ref = bool(getattr(config, "train_dataset_crop_ref", False))
     ref_similar = bool(getattr(config, "train_dataset_ref_similar", False))
+    origtarget_genref = bool(getattr(config, "train_dataset_origtarget_genref", True))
     crop_nonface_min = float(getattr(config, "train_dataset_crop_nonface_min", 0.2))
     crop_nonface_max = float(getattr(config, "train_dataset_crop_nonface_max", 0.4))
     train_dataset_target_size = 1024
 
-    if is_cosmic_large_family and not upscale_to_1024:
+    if is_cosmic_large_family and not origtarget_genref and not upscale_to_1024:
         train_dataset_target_size = 256
 
     with open_dict(config):
@@ -35,6 +36,7 @@ def _configure_train_dataset_resolution(config) -> None:
         config.train_dataset_const_ref = const_ref
         config.train_dataset_crop_ref = crop_ref
         config.train_dataset_ref_similar = ref_similar
+        config.train_dataset_origtarget_genref = origtarget_genref
         config.train_dataset_crop_nonface_min = crop_nonface_min
         config.train_dataset_crop_nonface_max = crop_nonface_max
         config.train_dataset_target_size = train_dataset_target_size
@@ -65,6 +67,7 @@ def _configure_train_dataset_resolution(config) -> None:
                 dataset_cfg.const_ref = const_ref
                 dataset_cfg.crop_ref = crop_ref
                 dataset_cfg.ref_similar = ref_similar
+                dataset_cfg.origtarget_genref = origtarget_genref
                 dataset_cfg.crop_nonface_min = crop_nonface_min
                 dataset_cfg.crop_nonface_max = crop_nonface_max
 
@@ -195,6 +198,7 @@ def main(config):
             f"const_ref={config.train_dataset_const_ref} "
             f"crop_ref={config.train_dataset_crop_ref} "
             f"ref_similar={config.train_dataset_ref_similar} "
+            f"origtarget_genref={config.train_dataset_origtarget_genref} "
             f"crop_nonface=({config.train_dataset_crop_nonface_min},"
             f"{config.train_dataset_crop_nonface_max}) "
             f"train_target_size={config.train_dataset_target_size}"

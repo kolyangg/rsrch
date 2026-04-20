@@ -407,6 +407,7 @@ class CosmicLargeTrain(BaseDataset):
         const_ref=True,
         crop_ref=False,
         ref_similar=False,
+        origtarget_genref=True,
         crop_nonface_min=0.2,
         crop_nonface_max=0.4,
         *args,
@@ -421,6 +422,7 @@ class CosmicLargeTrain(BaseDataset):
         self.const_ref = bool(const_ref)
         self.crop_ref = bool(crop_ref)
         self.ref_similar = bool(ref_similar)
+        self.origtarget_genref = bool(origtarget_genref)
         self.crop_nonface_min = float(crop_nonface_min)
         self.crop_nonface_max = float(crop_nonface_max)
         if self.crop_nonface_min < 0 or self.crop_nonface_max < self.crop_nonface_min:
@@ -428,7 +430,7 @@ class CosmicLargeTrain(BaseDataset):
                 "CosmicLargeTrain requires 0 <= crop_nonface_min <= crop_nonface_max; "
                 f"got {self.crop_nonface_min} and {self.crop_nonface_max}"
             )
-        self.train_image_size = 1024 if self.upscale_to_1024 else 256
+        self.train_image_size = 1024 if (self.origtarget_genref or self.upscale_to_1024) else 256
         images_root = Path(self.images_path) if self.images_path is not None else None
         self.dataset_root = images_root.parents[1] if images_root is not None and len(images_root.parents) >= 2 else None
 
@@ -448,19 +450,19 @@ class CosmicLargeTrain(BaseDataset):
                 continue
 
             paths = [str(path)]
-            if self.require_nested_identity_subdir:
+            if self.require_nested_identity_subdir and not self.origtarget_genref:
                 face_paths = image_data.get("face_paths")
                 if isinstance(face_paths, list):
                     paths = [str(face_path) for face_path in face_paths]
 
             for sample_path in paths:
                 rel_path = self._get_relative_path(sample_path)
-                if self.require_nested_identity_subdir and len(Path(rel_path).parts) != 3:
+                if self.require_nested_identity_subdir and not self.origtarget_genref and len(Path(rel_path).parts) != 3:
                     continue
                 bbox = self._resolve_sample_bbox(sample_path, rel_path, image_data)
                 if bbox is None:
                     continue
-                identity = str(Path(rel_path).parent)
+                identity = str(path) if self.origtarget_genref else str(Path(rel_path).parent)
 
                 index.append(image_data)
                 self.ids.append(sample_path)
@@ -683,7 +685,35 @@ class CosmicLargeTrain(BaseDataset):
         ]
         return cropped_img, CosmicLargeTrain._clip_bbox_to_image(cropped_bbox, cropped_img.size)
 
+    def _load_origref_target_image_and_bbox(self, path, img_data):
+        full_path = self._get_parent_image_full_path(path)
+        raw_img = Image.open(full_path).convert("RGB")
+        bbox = deepcopy(img_data.get("face_crop_new"))
+        if not self._is_valid_bbox(bbox):
+            raise ValueError(f"Missing valid top-level face_crop_new for cosmic_large target: {path}")
+
+        img = raw_img
+        body_crop = img_data.get("body_crop")
+        if body_crop is not None and len(body_crop) == 4:
+            x0, y0, x1, y1 = body_crop
+            if 0 <= x0 < x1 <= raw_img.size[0] and 0 <= y0 < y1 <= raw_img.size[1]:
+                img = raw_img.crop((x0, y0, x1, y1))
+                bbox = [bbox[0] - x0, bbox[1] - y0, bbox[2] - x0, bbox[3] - y0]
+                bbox = self._clip_bbox_to_image(bbox, img.size)
+                if bbox is None:
+                    raise ValueError(f"Invalid cropped face bbox for cosmic_large target: {path}")
+
+        target_size = (self.train_image_size, self.train_image_size)
+        if img.size != target_size:
+            bbox = self._scale_bbox_to_size(bbox, img.size, target_size)
+            img = img.resize(target_size, Image.BICUBIC)
+
+        return img, bbox
+
     def _load_train_image_and_bbox(self, path, img_data):
+        if self.origtarget_genref:
+            return self._load_origref_target_image_and_bbox(path, img_data)
+
         rel_path = self._get_relative_path(path)
         raw_img = Image.open(f"{self.images_path}/{rel_path}").convert("RGB")
         raw_size = raw_img.size
@@ -774,6 +804,14 @@ class CosmicLargeTrain(BaseDataset):
         return [p for p in self.same_id_ref_map.get(path, []) if p != path]
 
     def _build_prompt(self, img_data):
+        if self.origtarget_genref:
+            facial_caption = img_data.get("facial_caption", "")
+            if isinstance(facial_caption, str):
+                facial_caption = facial_caption.strip()
+                if facial_caption and re.search(r"\bimg\b", facial_caption, re.IGNORECASE):
+                    return facial_caption
+            return "A person img"
+
         text = img_data.get("text", "")
         if isinstance(text, str) and text:
             return text
@@ -800,7 +838,7 @@ class CosmicLargeTrain(BaseDataset):
         img_data = self._index[ind]
         path = self.ids[ind]
 
-        if (self.const_ref or self.ref_similar) and self.train_on_separate_image:
+        if (not self.origtarget_genref) and (self.const_ref or self.ref_similar) and self.train_on_separate_image:
             identity = self.identity_by_path.get(path)
             target_candidates = self.same_id_ref_map.get(identity)
             if not target_candidates:
@@ -823,7 +861,10 @@ class CosmicLargeTrain(BaseDataset):
 
         instance_data["pixel_values"] = img
         instance_data["face_bbox"] = bbox
-        if self.ref_similar:
+        if self.origtarget_genref:
+            ref_images, ref_bbox = self._load_similar_ref_images_and_bbox(img_data, target_path=None)
+            instance_data["face_bbox_ref"] = deepcopy(ref_bbox)
+        elif self.ref_similar:
             ref_images, ref_bbox = self._load_similar_ref_images_and_bbox(img_data, target_path=path)
             instance_data["face_bbox_ref"] = deepcopy(ref_bbox)
         elif self.const_ref:
