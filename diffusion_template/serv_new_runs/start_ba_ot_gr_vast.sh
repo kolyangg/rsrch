@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export HYDRA_FULL_ERROR=1
+export CUDA_LAUNCH_BLOCKING="${CUDA_LAUNCH_BLOCKING:-1}"
+
+ACCELERATE_LOG_LEVEL=error \
+TRANSFORMERS_VERBOSITY=error \
+DIFFUSERS_VERBOSITY=error \
+PYTHONWARNINGS="ignore::FutureWarning" \
+COMET_DISABLE_AUTO_LOGGING=1 \
+COMET_LOGGING_CONSOLE=ERROR \
+CUDA_VISIBLE_DEVICES=0 \
+COMET_API_KEY="${COMET_API_KEY}" \
+accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=1 train.py \
+    --config-name=one_id_09Feb_testing \
+    datasets=all_datasets \
+    train_dataset_name=cosmic_large \
+    val_datasets_names='[manual_val]' \
+    trainer.epoch_len=2000 \
+    dataloaders.train.batch_size=4 \
+    dataloaders.train.num_workers=12 \
+    model.rank=32 \
+    model.photomaker_path="${PM_PATH}" \
+    validation_args.num_images_per_prompt=1 \
+    lr_scheduler.warmup_steps=2000 \
+    model.weight_dtype=bf16 \
+    pipeline.variant=null \
+    dataloaders.manual_val.batch_size=6 \
+    datasets.val.manual_val.limit=12 \
+    val_debug=false \
+    branched_attn_weight_mode=noise_and_ref \
+    branched_attn_new_weight_kind=lora \
+    lr_for_lora=1e-4 \
+    automatic_bboxes=true \
+    automatic_bboxes_every_val=false \
+    force_log_first_auto_bbox=true \
+    train_branched_ca_lora=true \
+    ba_patch_top_k=1.0 \
+    ba_train_top_k=1.0 \
+    non_ba_train=false \
+    train_ba_only=true \
+    loss_kind=masked_alternating \
+    trainer.masked_loss_step=2 \
+    train_ba_all_steps=true \
+    train_on_separate_image=true \
+    train_dataset_const_ref=false \
+    train_dataset_crop_ref=false \
+    train_dataset_ref_similar=true \
+    train_dataset_origtarget_genref=true \
+    train_dataset_crop_nonface_min=0.2 \
+    train_dataset_crop_nonface_max=0.4 \
+    train_dataset_upscale_to_1024=false \
+    metrics=all_metrics \
+    val_datasets_names='[manual_val]' \
+    writer=cometml writer.run_name="ot_gr_vast"
