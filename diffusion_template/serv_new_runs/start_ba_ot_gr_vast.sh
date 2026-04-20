@@ -15,7 +15,7 @@ CUDA_VISIBLE_DEVICES=0 \
     accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=1 train.py \
     --config-name=one_id_09Feb_testing \
     datasets=all_datasets \
-    train_dataset_name=cosmic_large \
+    train_dataset_name=cosmic_large_vast \
     val_datasets_names='[manual_val]' \
     trainer.epoch_len=2000 \
     dataloaders.train.batch_size=4 \
