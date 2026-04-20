@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --nodes=1                    # Количество используемых узлов
-#SBATCH --job-name=br_face            # Заместо aboba напишите ваше незвание эксперимента
-#SBATCH --error=runs/pm_branched-%j.err    # Файл для вывода ошибок
-#SBATCH --output=runs/pm_branched-%j.log   # Файл для вывода результатов
+#SBATCH --job-name=br_cm_L            # Заместо aboba напишите ваше незвание эксперимента
+#SBATCH --error=runs/cometL-%j.err    # Файл для вывода ошибок
+#SBATCH --output=runs/cometL-%j.log   # Файл для вывода результатов
 #SBATCH --gpus=1                     # Количество запрашиваемых гпу
 #SBATCH --cpus-per-task=8            # Выполнение расчёта на 8 ядрах CPU
 #SBATCH --time=60:00:00               # Максимальное время выполнения (чч:мм:сс), после его окончания програмаа просто сбрасывается
@@ -108,4 +108,4 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=
     train_dataset_upscale_to_1024=false \
     metrics=all_metrics \
     val_datasets_names='[manual_val]' \
-    writer=cometml writer.run_name="cometL_256_new_clust"; then
+    writer=cometml writer.run_name="cometL_256_new_clust"
