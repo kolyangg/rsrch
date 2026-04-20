@@ -3,6 +3,28 @@ set -euo pipefail
 
 export HYDRA_FULL_ERROR=1
 export CUDA_LAUNCH_BLOCKING="${CUDA_LAUNCH_BLOCKING:-1}"
+export TORCH_SHOW_CPP_STACKTRACES="${TORCH_SHOW_CPP_STACKTRACES:-1}"
+export NCCL_ASYNC_ERROR_HANDLING="${NCCL_ASYNC_ERROR_HANDLING:-1}"
+export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
+export TORCH_DISTRIBUTED_DEBUG="${TORCH_DISTRIBUTED_DEBUG:-DETAIL}"
+export INSIGHTFACE_HOME="${INSIGHTFACE_HOME:-/workspace/.cache/insightface}"
+export FACEANALYSIS_CPU="${FACEANALYSIS_CPU:-1}"
+
+mkdir -p "${INSIGHTFACE_HOME}/models"
+
+python - <<'PY2'
+import os
+from insightface.app import FaceAnalysis
+
+app = FaceAnalysis(
+    name="buffalo_l",
+    root=os.environ["INSIGHTFACE_HOME"],
+    providers=["CPUExecutionProvider"],
+    allowed_modules=["detection", "recognition"],
+)
+app.prepare(ctx_id=-1, det_size=(640, 640))
+print(f"InsightFace cache OK: {os.environ['INSIGHTFACE_HOME']}")
+PY2
 
 ACCELERATE_LOG_LEVEL=error \
 TRANSFORMERS_VERBOSITY=error \
@@ -12,7 +34,7 @@ COMET_DISABLE_AUTO_LOGGING=1 \
 COMET_LOGGING_CONSOLE=ERROR \
 CUDA_VISIBLE_DEVICES=0,1 \
     COMET_API_KEY=wSzl6h2PsRcopvISb2TJvtkzH \
-    accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=2 train.py \
+    accelerate launch --config_file=src/configs/ddp/accelerate.yaml --main_process_port=29511 --num_processes=2 train.py \
         --config-name=one_id_09Feb_testing \
         datasets=all_datasets \
         train_dataset_name=cosmic_large_vast \
