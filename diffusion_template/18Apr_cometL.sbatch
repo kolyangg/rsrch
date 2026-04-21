@@ -74,7 +74,7 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=
     train_dataset_name=cosmic_large_clust \
     val_datasets_names='[manual_val]' \
     trainer.epoch_len=2000 \
-    dataloaders.train.batch_size=8 \
+    dataloaders.train.batch_size=4 \
     dataloaders.train.num_workers=12 \
     model.rank=32 \
     model.photomaker_path="${PM_PATH}" \
@@ -103,9 +103,10 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=
     train_dataset_const_ref=false \
     train_dataset_crop_ref=false \
     train_dataset_ref_similar=true \
+    train_dataset_origtarget_genref=true \
     train_dataset_crop_nonface_min=0.2 \
     train_dataset_crop_nonface_max=0.4 \
     train_dataset_upscale_to_1024=false \
     metrics=all_metrics \
     val_datasets_names='[manual_val]' \
-    writer=cometml writer.run_name="cometL_256_new_clust"
+    writer=cometml writer.run_name="ot_gr_clust"
