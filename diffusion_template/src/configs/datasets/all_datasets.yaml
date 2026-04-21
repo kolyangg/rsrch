@@ -95,6 +95,7 @@ train:
         _target_: src.datasets.cosmic.CosmicLargeTrain
         data_json_pth: ../../datasets/gathered_data_cosmic_large_filtered.json
         images_path: ../../datasets/LAION-5B-Filtered-Large-Faces/laion1B-nolang
+        target_images_path: /home/aalanov/Bobkov_Denis/datasets/CosmicManHQ-1.0/LAION-5B-Filtered-Large/laion1B-nolang
         path_prefix_to_strip: LAION-5B-Filtered-Large/laion1B-nolang
         require_nested_identity_subdir: true
         upscale_to_1024: ${train_dataset_upscale_to_1024}

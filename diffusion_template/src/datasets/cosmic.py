@@ -398,6 +398,7 @@ class CosmicLargeTrain(BaseDataset):
         self,
         data_json_pth=None,
         images_path=None,
+        target_images_path=None,
         num_refs=1,
         train_on_separate_image=False,
         same_id_ref_map_json_pth=None,
@@ -414,6 +415,7 @@ class CosmicLargeTrain(BaseDataset):
         **kwargs,
     ):
         self.images_path = images_path
+        self.target_images_path = target_images_path
         self.num_refs = num_refs
         self.train_on_separate_image = bool(train_on_separate_image)
         self.path_prefix_to_strip = path_prefix_to_strip.strip("/") if path_prefix_to_strip else None
@@ -433,6 +435,7 @@ class CosmicLargeTrain(BaseDataset):
         self.train_image_size = 1024 if (self.origtarget_genref or self.upscale_to_1024) else 256
         images_root = Path(self.images_path) if self.images_path is not None else None
         self.dataset_root = images_root.parents[1] if images_root is not None and len(images_root.parents) >= 2 else None
+        self.target_images_root = Path(self.target_images_path) if self.target_images_path is not None else None
 
         with open(data_json_pth) as f:
             data_json = json.load(f)
@@ -523,6 +526,8 @@ class CosmicLargeTrain(BaseDataset):
         path = Path(str(path))
         if path.is_absolute():
             return path
+        if self.target_images_root is not None:
+            return self.target_images_root / self._get_relative_path(path)
         if self.dataset_root is not None:
             return self.dataset_root / str(path).lstrip("/")
         return path
