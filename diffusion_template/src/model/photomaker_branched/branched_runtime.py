@@ -339,7 +339,14 @@ def two_branch_predict(
     dtype = latent_model_input.dtype
     batch_size = latent_model_input.shape[0]
 
-    def _match_batch(tensor: Optional[torch.Tensor], target_batch: int, name: str) -> Optional[torch.Tensor]:
+    def _repeat_batch(tensor: torch.Tensor, repeats: int) -> torch.Tensor:
+        return tensor.repeat((int(repeats),) + (1,) * (tensor.ndim - 1))
+
+    def _match_generation_batch(
+        tensor: Optional[torch.Tensor],
+        target_batch: int,
+        name: str,
+    ) -> Optional[torch.Tensor]:
         if tensor is None:
             return None
         cur_batch = int(tensor.shape[0])
@@ -349,11 +356,41 @@ def two_branch_predict(
             raise RuntimeError(
                 f"{name} batch={cur_batch} is incompatible with generation batch={target_batch}"
             )
-        return tensor.repeat_interleave(target_batch // cur_batch, dim=0)
+        return _repeat_batch(tensor, target_batch // cur_batch)
+
+    def _match_reference_batch(
+        tensor: Optional[torch.Tensor],
+        *,
+        expected_batch: int,
+        generation_batch: int,
+        base_generation_batch: int,
+        refs_per_sample: int,
+        name: str,
+    ) -> Optional[torch.Tensor]:
+        if tensor is None:
+            return None
+        cur_batch = int(tensor.shape[0])
+        if cur_batch == expected_batch:
+            return tensor
+        if cur_batch == generation_batch:
+            return tensor.repeat_interleave(refs_per_sample, dim=0)
+        if base_generation_batch > 0 and generation_batch % base_generation_batch == 0:
+            cfg_repeats = generation_batch // base_generation_batch
+            if cur_batch == base_generation_batch:
+                return _repeat_batch(tensor, cfg_repeats).repeat_interleave(refs_per_sample, dim=0)
+            if cur_batch == base_generation_batch * refs_per_sample:
+                return _repeat_batch(tensor, cfg_repeats)
+        raise RuntimeError(
+            f"{name} batch={cur_batch} is incompatible with reference batch={expected_batch} "
+            f"(generation={generation_batch}, base_generation={base_generation_batch}, "
+            f"refs_per_sample={refs_per_sample})"
+        )
 
     # CFG doubles latent_model_input ([uncond, cond]) while masks are prepared
-    # once per output image. Keep masks aligned with the actual UNet batch.
-    mask4 = _match_batch(mask4, batch_size, "mask4")
+    # once per output image. Keep masks aligned with the actual UNet batch
+    # without changing CFG order: [uncond batch, cond batch].
+    base_generation_batch = int(mask4.shape[0]) if mask4 is not None else batch_size
+    mask4 = _match_generation_batch(mask4, batch_size, "mask4")
     ### 24 APR - FIX MULTIPLE REF CASE ###
     refs_per_sample = max(1, int(refs_per_sample))
     expected_ref_batch = batch_size * refs_per_sample
@@ -362,18 +399,33 @@ def two_branch_predict(
         if ref_batch % batch_size == 0:
             refs_per_sample = ref_batch // batch_size
             expected_ref_batch = ref_batch
+        elif (
+            base_generation_batch > 0
+            and batch_size % base_generation_batch == 0
+            and ref_batch % base_generation_batch == 0
+        ):
+            refs_per_sample = ref_batch // base_generation_batch
+            reference_latents = _repeat_batch(reference_latents, batch_size // base_generation_batch)
+            expected_ref_batch = batch_size * refs_per_sample
         elif batch_size % ref_batch == 0 and refs_per_sample == 1:
             reps = batch_size // ref_batch
-            reference_latents = reference_latents.repeat_interleave(reps, dim=0)
+            reference_latents = _repeat_batch(reference_latents, reps)
             if mask4_ref is not None and mask4_ref.shape[0] == ref_batch:
-                mask4_ref = mask4_ref.repeat_interleave(reps, dim=0)
+                mask4_ref = _repeat_batch(mask4_ref, reps)
             expected_ref_batch = batch_size
         else:
             raise RuntimeError(
                 f"reference_latents batch={ref_batch} is incompatible with "
                 f"generation batch={batch_size} and refs_per_sample={refs_per_sample}"
             )
-    mask4_ref = _match_batch(mask4_ref, expected_ref_batch, "mask4_ref")
+    mask4_ref = _match_reference_batch(
+        mask4_ref,
+        expected_batch=expected_ref_batch,
+        generation_batch=batch_size,
+        base_generation_batch=base_generation_batch,
+        refs_per_sample=refs_per_sample,
+        name="mask4_ref",
+    )
     ### 24 APR - FIX MULTIPLE REF CASE ###
     
     
