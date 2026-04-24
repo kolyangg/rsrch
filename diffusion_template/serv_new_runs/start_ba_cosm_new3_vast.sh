@@ -4,6 +4,10 @@ set -euo pipefail
 export HYDRA_FULL_ERROR=1
 export CUDA_LAUNCH_BLOCKING="${CUDA_LAUNCH_BLOCKING:-1}"
 
+log() {
+    printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
+}
+
 if ACCELERATE_LOG_LEVEL=error \
     TRANSFORMERS_VERBOSITY=error \
     DIFFUSERS_VERBOSITY=error \
@@ -16,7 +20,7 @@ if ACCELERATE_LOG_LEVEL=error \
         --config-name=one_id_09Feb_testing \
         datasets=all_datasets \
         train_dataset_name=cosmic_large_vast \
-        datasets.train.cosmic_large_local.num_refs=3 \
+        datasets.train.cosmic_large_vast.num_refs=3 \
         val_datasets_names='[manual_val]' \
         trainer.epoch_len=2000 \
         dataloaders.train.batch_size=2 \

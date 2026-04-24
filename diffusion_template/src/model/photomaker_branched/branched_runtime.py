@@ -338,6 +338,22 @@ def two_branch_predict(
     device = latent_model_input.device
     dtype = latent_model_input.dtype
     batch_size = latent_model_input.shape[0]
+
+    def _match_batch(tensor: Optional[torch.Tensor], target_batch: int, name: str) -> Optional[torch.Tensor]:
+        if tensor is None:
+            return None
+        cur_batch = int(tensor.shape[0])
+        if cur_batch == target_batch:
+            return tensor
+        if cur_batch <= 0 or target_batch % cur_batch != 0:
+            raise RuntimeError(
+                f"{name} batch={cur_batch} is incompatible with generation batch={target_batch}"
+            )
+        return tensor.repeat_interleave(target_batch // cur_batch, dim=0)
+
+    # CFG doubles latent_model_input ([uncond, cond]) while masks are prepared
+    # once per output image. Keep masks aligned with the actual UNet batch.
+    mask4 = _match_batch(mask4, batch_size, "mask4")
     ### 24 APR - FIX MULTIPLE REF CASE ###
     refs_per_sample = max(1, int(refs_per_sample))
     expected_ref_batch = batch_size * refs_per_sample
@@ -357,6 +373,7 @@ def two_branch_predict(
                 f"reference_latents batch={ref_batch} is incompatible with "
                 f"generation batch={batch_size} and refs_per_sample={refs_per_sample}"
             )
+    mask4_ref = _match_batch(mask4_ref, expected_ref_batch, "mask4_ref")
     ### 24 APR - FIX MULTIPLE REF CASE ###
     
     
