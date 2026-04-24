@@ -73,6 +73,15 @@ train:
         same_id_ref_map_json_pth: null
         instance_transforms: ${transforms.instance_transforms.train}
 
+    cosmic_large_local:
+        _target_: src.datasets.cosmic.CosmicLargeTrain
+        data_json_pth: /home/kolyangg/rsrch/dataset_full/cosmic_large/gathered_data_cosmic_large_filtered_sample_two.json
+        images_path: /home/kolyangg/rsrch/dataset_full/cosmic_large/LAION-5B-Filtered-Large-Faces
+        target_images_path: /home/kolyangg/rsrch/dataset_full/LAION-5B-Filtered-Large
+        path_prefix_to_strip: LAION-5B-Filtered-Large
+        num_refs: 1
+        instance_transforms: ${transforms.instance_transforms.train}
+
     cosmic_large_vast:
         _target_: src.datasets.cosmic.CosmicLargeTrain
         data_json_pth: /workspace/datasets/gathered_data_cosmic_large_filtered.json

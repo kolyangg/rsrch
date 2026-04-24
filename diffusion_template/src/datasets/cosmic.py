@@ -158,7 +158,6 @@ class CosmicDoubledTrain(BaseDataset):
 
         return instance_data
 
-
 class OneIDTrain(BaseDataset):
     """
     Small single-ID training dataset that reuses the CosmicDoubledTrain
@@ -393,7 +392,7 @@ class LargeDatasetTrain(BaseDataset):
         return instance_data
 
 
-class CosmicLargeTrain(BaseDataset):
+class CosmicLargeTrain_old(BaseDataset):
     def __init__(
         self,
         data_json_pth=None,
@@ -688,7 +687,7 @@ class CosmicLargeTrain(BaseDataset):
             face_bbox[2] - crop[0],
             face_bbox[3] - crop[1],
         ]
-        return cropped_img, CosmicLargeTrain._clip_bbox_to_image(cropped_bbox, cropped_img.size)
+        return cropped_img, CosmicLargeTrain_old._clip_bbox_to_image(cropped_bbox, cropped_img.size)
 
     def _load_origref_target_image_and_bbox(self, path, img_data):
         full_path = self._get_parent_image_full_path(path)
@@ -912,3 +911,346 @@ class CosmicLargeTrain(BaseDataset):
         assert max(instance_data["face_bbox_ref"]) <= self.train_image_size
 
         return instance_data
+
+
+### MODIFIED ###
+import torch
+### MODIFIED ###
+
+
+### MODIFIED ###
+class CosmicLargeTrain(BaseDataset):
+    def __init__(
+        self,
+        data_json_pth=None,
+        data_json_path=None,
+        images_path=None,
+        target_images_path=None,
+        num_refs=1,
+        min_face_res=64,
+        embeds_path=None,
+        use_embeds=False,
+        only_complex_background=False,
+        path_prefix_to_strip=None,
+        require_nested_identity_subdir=True,
+        upscale_to_1024=False,
+        const_ref=False,
+        crop_ref=False,
+        ref_similar=True,
+        origtarget_genref=True,
+        crop_nonface_min=0.2,
+        crop_nonface_max=0.4,
+        train_on_separate_image=False,
+        same_id_ref_map_json_pth=None,
+        *args,
+        **kwargs,
+    ):
+        del (
+            require_nested_identity_subdir,
+            upscale_to_1024,
+            const_ref,
+            crop_ref,
+            ref_similar,
+            origtarget_genref,
+            crop_nonface_min,
+            crop_nonface_max,
+            train_on_separate_image,
+            same_id_ref_map_json_pth,
+        )
+
+        data_json_path = data_json_path or data_json_pth
+        if data_json_path is None:
+            raise ValueError("CosmicLargeTrain requires data_json_pth or data_json_path")
+
+        self.num_refs = num_refs
+        self.images_path = images_path
+        self.target_images_path = target_images_path
+        self.path_prefix_to_strip = path_prefix_to_strip.strip("/") if path_prefix_to_strip else None
+        self.use_embeds = use_embeds
+        self.embeds = torch.load(embeds_path, weights_only=False) if embeds_path is not None else None
+
+        images_root = Path(self.images_path) if self.images_path is not None else None
+        self.dataset_root = images_root.parents[1] if images_root is not None and len(images_root.parents) >= 2 else images_root
+        self.target_images_root = Path(self.target_images_path) if self.target_images_path is not None else None
+
+        with open(data_json_path) as f:
+            data = json.load(f)
+
+        index = []
+        for img_path in list(data.keys()):
+            img_data = data[img_path]
+            bbox = img_data["face_crop_new"]
+            if (min(bbox[2] - bbox[0], bbox[3] - bbox[1])) < min_face_res:
+                continue
+            if only_complex_background and (
+                img_data.get("has_simple_back", False) or img_data.get("is_simp", False)
+            ):
+                continue
+            if len(img_data.get("face_paths") or []) < num_refs:
+                continue
+            if self.embeds is not None and img_path not in self.embeds:
+                continue
+
+            img_data["image_path"] = img_path
+            index.append(img_data)
+
+        super().__init__(index, *args, **kwargs)
+
+    def _get_relative_path(self, path):
+        path = str(path)
+        if self.images_path:
+            images_path = str(self.images_path).rstrip("/")
+            prefix = f"{images_path}/"
+            if path.startswith(prefix):
+                return path[len(prefix):]
+
+        path = path.lstrip("/")
+        if self.path_prefix_to_strip:
+            prefix = f"{self.path_prefix_to_strip}/"
+            if path.startswith(prefix):
+                return path[len(prefix):]
+        if self.images_path:
+            root_name = Path(self.images_path).name
+            marker = f"/{root_name}/"
+            marked_path = f"/{path}"
+            if marker in marked_path:
+                return marked_path.split(marker, 1)[1]
+        return path
+
+    @staticmethod
+    def _first_existing_path(candidates):
+        for candidate in candidates:
+            if candidate is not None and candidate.exists():
+                return candidate
+        return next(candidate for candidate in candidates if candidate is not None)
+
+    def _target_full_path(self, path):
+        path_obj = Path(str(path))
+        if path_obj.is_absolute():
+            return path_obj
+
+        candidates = []
+        if self.target_images_root is not None:
+            candidates.append(self.target_images_root / self._get_relative_path(path))
+        if self.dataset_root is not None:
+            candidates.append(self.dataset_root / str(path).lstrip("/"))
+        if self.images_path is not None:
+            candidates.append(Path(self.images_path) / self._get_relative_path(path))
+        return self._first_existing_path(candidates)
+
+    def _face_full_path(self, path):
+        path_obj = Path(str(path))
+        if path_obj.is_absolute():
+            return path_obj
+
+        candidates = []
+        if self.images_path is not None:
+            candidates.append(Path(self.images_path) / self._get_relative_path(path))
+            candidates.append(Path(self.images_path) / str(path).lstrip("/"))
+        if self.dataset_root is not None:
+            candidates.append(self.dataset_root / str(path).lstrip("/"))
+        return self._first_existing_path(candidates)
+
+    def _mask_full_path(self, path):
+        path_obj = Path(str(path))
+        if path_obj.is_absolute():
+            return path_obj
+
+        candidates = []
+        if self.dataset_root is not None:
+            candidates.append(self.dataset_root / str(path).lstrip("/"))
+        if self.images_path is not None:
+            candidates.append(Path(self.images_path) / self._get_relative_path(path))
+            candidates.append(Path(self.images_path) / str(path).lstrip("/"))
+        return self._first_existing_path(candidates)
+
+    def _load_train_image(self, path, img_data):
+        img = Image.open(self._target_full_path(path)).convert("RGB")
+        if img.size != (1024, 1024):
+            body_crop = img_data["body_crop"]
+            img_arr = np.array(img)[body_crop[1]:body_crop[3], body_crop[0]:body_crop[2]]
+            assert img_arr.shape[0] == 1024, img_arr
+            assert img_arr.shape[1] == 1024, img_arr
+            img = Image.fromarray(img_arr)
+        assert img.size == (1024, 1024)
+        return img
+
+    def _load_body_mask(self, img_data):
+        if "body_mask_path" not in img_data:
+            return None
+        body_mask_pth = self._mask_full_path(img_data["body_mask_path"])
+        if not body_mask_pth.exists():
+            return None
+        body_mask = Image.open(body_mask_pth).convert("1").resize((32, 32))
+        body_mask = torch.from_numpy(np.array(body_mask)).bool()
+        assert body_mask.long().sum() > 0, body_mask_pth
+        return body_mask
+
+    @staticmethod
+    def _clip_bbox_to_image(bbox, img_size):
+        img_w, img_h = img_size
+        x0, y0, x1, y1 = [float(v) for v in bbox]
+        clipped_bbox = [
+            max(0.0, min(float(img_w), x0)),
+            max(0.0, min(float(img_h), y0)),
+            max(0.0, min(float(img_w), x1)),
+            max(0.0, min(float(img_h), y1)),
+        ]
+        if clipped_bbox[2] <= clipped_bbox[0] or clipped_bbox[3] <= clipped_bbox[1]:
+            return None
+        return clipped_bbox
+
+    @staticmethod
+    def _get_bigger_crop_with_bbox(img, face_bbox, scale=0.2):
+        crop = [int(round(v)) for v in deepcopy(face_bbox)]
+        if crop[3] - crop[1] < crop[2] - crop[0]:
+            diff = crop[2] - crop[0] - (crop[3] - crop[1])
+            if diff % 2 != 0:
+                crop[0] -= 1
+                diff += 1
+            crop[3] += diff // 2
+            crop[1] -= diff // 2
+        elif crop[2] - crop[0] < crop[3] - crop[1]:
+            diff = crop[3] - crop[1] - (crop[2] - crop[0])
+            if diff % 2 != 0:
+                crop[1] -= 1
+                diff += 1
+            crop[2] += diff // 2
+            crop[0] -= diff // 2
+
+        assert crop[3] - crop[1] == crop[2] - crop[0], crop
+
+        to_add = int((crop[3] - crop[1]) * scale)
+        img_w, img_h = img.size
+        crop = [
+            max(0, crop[0] - to_add),
+            max(0, crop[1] - to_add),
+            min(img_w, crop[2] + to_add),
+            min(img_h, crop[3] + to_add),
+        ]
+        cropped_img = img.crop((crop[0], crop[1], crop[2], crop[3]))
+        cropped_bbox = [
+            face_bbox[0] - crop[0],
+            face_bbox[1] - crop[1],
+            face_bbox[2] - crop[0],
+            face_bbox[3] - crop[1],
+        ]
+        return cropped_img, CosmicLargeTrain._clip_bbox_to_image(cropped_bbox, cropped_img.size)
+
+    def _get_face_bbox(self, img_data, face_path):
+        face_bboxes = img_data["face_bboxes"]
+        candidates = [
+            str(face_path),
+            str(face_path).lstrip("/"),
+            self._get_relative_path(face_path),
+            self._get_relative_path(face_path).lstrip("/"),
+        ]
+        for candidate in candidates:
+            if candidate in face_bboxes:
+                return face_bboxes[candidate]
+        raise KeyError(f"Missing face bbox for reference image: {face_path}")
+
+    def get_ref_images(self, img_data):
+        ref_images = []
+        ref_bboxes = []
+        ref_images_paths = np.random.choice(img_data["face_paths"], size=self.num_refs, replace=False)
+        for face_path in ref_images_paths:
+            if self.use_embeds:
+                ref_images.append(self.embeds[str(face_path)])
+                ref_bboxes.append(self._get_face_bbox(img_data, face_path))
+            else:
+                ref_img = Image.open(self._face_full_path(face_path)).convert("RGB")
+                face_bbox = self._get_face_bbox(img_data, face_path)
+                ref_face, ref_bbox = self._get_bigger_crop_with_bbox(ref_img, face_bbox)
+                if ref_bbox is None:
+                    raise ValueError(f"Invalid reference face bbox after crop: {face_path}")
+                if random.random() < 0.5:
+                    w, _ = ref_face.size
+                    ref_face = ImageOps.mirror(ref_face)
+                    x0, y0, x1, y1 = ref_bbox
+                    ref_bbox = [w - x1, y0, w - x0, y1]
+                ref_images.append(ref_face)
+                ref_bboxes.append(ref_bbox)
+        return ref_images, ref_bboxes
+
+    def get_face_mask_from_bbox(self, bbox):
+        scaled_box = [int(bbox[0] // 32), int(bbox[1] // 32), int(bbox[2] // 32), int(bbox[3] // 32)]
+
+        hor = scaled_box[3] - scaled_box[1]
+        add = int(hor * 0.25)
+        scaled_box[1] = scaled_box[1] - add
+        scaled_box[3] = scaled_box[3] + add
+
+        vert = scaled_box[2] - scaled_box[0]
+        add = int(vert * 0.3)
+        scaled_box[0] = scaled_box[0] - add
+        scaled_box[2] = scaled_box[2] + add
+
+        scaled_box = np.clip(scaled_box, 0, 32)
+
+        mask = torch.zeros(32, 32, dtype=torch.bool)
+        mask[scaled_box[1]:scaled_box[3], scaled_box[0]:scaled_box[2]] = True
+        return mask
+
+    @staticmethod
+    def _build_prompt(img_data):
+        return ", ".join(
+            [
+                img_data["facial_caption"],
+                img_data["pose_caption"],
+                img_data["background_caption"],
+            ]
+        )
+
+    def __getitem__(self, ind):
+        img_data = self._index[ind]
+        path = img_data["image_path"]
+
+        instance_data = {}
+
+        img = self._load_train_image(path, img_data)
+        body_mask = self._load_body_mask(img_data)
+
+        if body_mask is not None:
+            instance_data["body_mask"] = body_mask
+        instance_data["pixel_values"] = deepcopy(img)
+        instance_data["facial_caption"] = img_data["facial_caption"]
+        instance_data["pose_caption"] = img_data["pose_caption"]
+        instance_data["background_caption"] = img_data["background_caption"]
+
+        prompt = self._build_prompt(img_data)
+        instance_data["prompts"] = prompt
+        instance_data["prompt"] = prompt
+
+        bbox = deepcopy(img_data["face_crop_new"])
+        instance_data["bbox"] = bbox
+        instance_data["face_bbox"] = deepcopy(bbox)
+
+        ref_images, ref_bboxes = self.get_ref_images(img_data)
+        instance_data["ref_images"] = ref_images
+        instance_data["face_bbox_ref"] = deepcopy(ref_bboxes[0])
+
+        if "orig_size" in img_data:
+            orig_size = img_data["orig_size"]
+            instance_data["original_sizes"] = (orig_size[1], orig_size[0])
+            instance_data["crop_top_lefts"] = get_crop_values(img_data)
+        else:
+            instance_data["original_sizes"] = (1024, 1024)
+            instance_data["crop_top_lefts"] = (0, 0)
+
+        face_mask = self.get_face_mask_from_bbox(instance_data["bbox"])
+        instance_data["face_mask"] = face_mask
+        assert face_mask.any(), path
+
+        instance_data["target_sizes"] = (1024, 1024)
+
+        instance_data = self.preprocess_data(instance_data)
+
+        assert min(instance_data["bbox"]) >= 0
+        assert max(instance_data["bbox"]) <= 1024
+        assert min(instance_data["face_bbox"]) >= 0
+        assert max(instance_data["face_bbox"]) <= 1024
+        assert min(instance_data["face_bbox_ref"]) >= 0
+
+        return instance_data
+### MODIFIED ###
