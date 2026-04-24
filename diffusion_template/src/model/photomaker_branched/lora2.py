@@ -312,6 +312,9 @@ class PhotomakerBranchedLora(SDXL):
         crop_top_lefts: Sequence[Sequence[int]],
         face_bbox: Sequence[Sequence[float]],
         face_bbox_ref: Sequence[Sequence[float]] | None = None,
+        ### 24 APR - FIX MULTIPLE REF CASE ###
+        face_bboxes_ref: Sequence[Sequence[Sequence[float]]] | None = None,
+        ### 24 APR - FIX MULTIPLE REF CASE ###
         do_cfg: bool = False,
         *args,
         **kwargs,
@@ -359,6 +362,9 @@ class PhotomakerBranchedLora(SDXL):
             id_features,
             mask4,
             mask4_ref,
+            ### 24 APR - FIX MULTIPLE REF CASE ###
+            refs_per_sample,
+            ### 24 APR - FIX MULTIPLE REF CASE ###
             reference_latents,
         ) = prepare_branched_training_inputs(
             self,
@@ -366,6 +372,9 @@ class PhotomakerBranchedLora(SDXL):
             ref_images=ref_images,
             face_bbox=face_bbox,
             face_bbox_ref=face_bbox_ref,
+            ### 24 APR - FIX MULTIPLE REF CASE ###
+            face_bboxes_ref=face_bboxes_ref,
+            ### 24 APR - FIX MULTIPLE REF CASE ###
             pixel_values=pixel_values,
             noisy_latents=noisy_latents,
         )
@@ -425,6 +434,9 @@ class PhotomakerBranchedLora(SDXL):
                 mask4=mask4,
                 mask4_ref=mask4_ref,
                 reference_latents=reference_latents,
+                ### 24 APR - FIX MULTIPLE REF CASE ###
+                refs_per_sample=refs_per_sample,
+                ### 24 APR - FIX MULTIPLE REF CASE ###
                 face_prompt_embeds=face_prompt_embeds,
                 class_tokens_mask=class_tokens_mask,
                 id_features=id_features,
@@ -461,6 +473,9 @@ class PhotomakerBranchedLora(SDXL):
                 mask4=mask4,
                 mask4_ref=mask4_ref,
                 reference_latents=reference_latents,
+                ### 24 APR - FIX MULTIPLE REF CASE ###
+                refs_per_sample=refs_per_sample,
+                ### 24 APR - FIX MULTIPLE REF CASE ###
                 face_prompt_embeds=face_prompt_embeds,
                 class_tokens_mask=class_tokens_mask,
                 id_features=id_features,

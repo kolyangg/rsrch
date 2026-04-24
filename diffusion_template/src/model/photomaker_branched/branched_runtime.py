@@ -47,6 +47,9 @@ def patch_unet_attention_processors(
     scale: float = 1.0,
     id_embeds: Optional[torch.Tensor] = None,
     class_tokens_mask: Optional[torch.Tensor] = None,
+    ### 24 APR - FIX MULTIPLE REF CASE ###
+    refs_per_sample: int = 1,
+    ### 24 APR - FIX MULTIPLE REF CASE ###
 )-> None:
     """
     Patch UNet with branched attention processors for both self and cross attention.
@@ -107,6 +110,9 @@ def patch_unet_attention_processors(
     # Build safe, consistent context (batch, id_embeds)
     # Ensure masks are non-None to avoid runtime errors
     B = (mask.shape[0] if mask is not None else mask_ref.shape[0])
+    ### 24 APR - FIX MULTIPLE REF CASE ###
+    refs_per_sample = max(1, int(refs_per_sample))
+    ### 24 APR - FIX MULTIPLE REF CASE ###
     dev, dt = pipeline.device, pipeline.unet.dtype
     _mask  = mask     if mask     is not None else torch.zeros(B, 1,  mask_ref.shape[-2], mask_ref.shape[-1], device=dev, dtype=dt)
     _mref  = mask_ref if mask_ref is not None else _mask
@@ -165,6 +171,9 @@ def patch_unet_attention_processors(
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
                     proc = proc.to(pipeline.device, dtype=pipeline.unet.dtype)
                     proc.set_masks(_mask, _mref)
+                    ### 24 APR - FIX MULTIPLE REF CASE ###
+                    proc.refs_per_sample = refs_per_sample
+                    ### 24 APR - FIX MULTIPLE REF CASE ###
                     setattr(proc, "strict_face_routing", bool(getattr(pipeline, "strict_face_routing", False)))
                     _apply_runtime_flags(proc, pipeline)
 
@@ -201,6 +210,9 @@ def patch_unet_attention_processors(
                     setattr(proc, "equalize_clip", (1/3, 8.0))
                     setattr(proc, "strict_face_routing", bool(getattr(pipeline, "strict_face_routing", False)))
                     proc.set_masks(_mask, _mref)
+                    ### 24 APR - FIX MULTIPLE REF CASE ###
+                    proc.refs_per_sample = refs_per_sample
+                    ### 24 APR - FIX MULTIPLE REF CASE ###
                     # Keep CA path consistent too (even if CA doesn’t always consume id_embeds)
                     proc.id_embeds = _idem
                     proc.class_tokens_mask = class_tokens_mask
@@ -222,11 +234,16 @@ def patch_unet_attention_processors(
                 patched_proc_names.append(name)
                 # proc.set_masks(mask, mask_ref)
                 proc.set_masks(_mask, _mref)
+                ### 24 APR - FIX MULTIPLE REF CASE ###
+                proc.refs_per_sample = refs_per_sample
+                ### 24 APR - FIX MULTIPLE REF CASE ###
                 _apply_runtime_flags(proc, pipeline)
 
                 # (Re)apply id_embeds (zeros if missing); actual usage is gated by use_id_embeds
                 if hasattr(proc, "id_embeds"):
                     proc.id_embeds = _idem
+                if hasattr(proc, "class_tokens_mask"):
+                    proc.class_tokens_mask = class_tokens_mask
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
 
 def encode_face_prompt(
@@ -280,6 +297,9 @@ def two_branch_predict(
     mask4: torch.Tensor,
     mask4_ref: torch.Tensor,
     reference_latents: torch.Tensor,
+    ### 24 APR - FIX MULTIPLE REF CASE ###
+    refs_per_sample: int = 1,
+    ### 24 APR - FIX MULTIPLE REF CASE ###
     face_prompt_embeds: Optional[torch.Tensor] = None,
     class_tokens_mask: Optional[torch.Tensor] = None,
     face_embed_strategy: str = "face",
@@ -318,10 +338,32 @@ def two_branch_predict(
     device = latent_model_input.device
     dtype = latent_model_input.dtype
     batch_size = latent_model_input.shape[0]
+    ### 24 APR - FIX MULTIPLE REF CASE ###
+    refs_per_sample = max(1, int(refs_per_sample))
+    expected_ref_batch = batch_size * refs_per_sample
+    if reference_latents.shape[0] != expected_ref_batch:
+        ref_batch = int(reference_latents.shape[0])
+        if ref_batch % batch_size == 0:
+            refs_per_sample = ref_batch // batch_size
+            expected_ref_batch = ref_batch
+        elif batch_size % ref_batch == 0 and refs_per_sample == 1:
+            reps = batch_size // ref_batch
+            reference_latents = reference_latents.repeat_interleave(reps, dim=0)
+            if mask4_ref is not None and mask4_ref.shape[0] == ref_batch:
+                mask4_ref = mask4_ref.repeat_interleave(reps, dim=0)
+            expected_ref_batch = batch_size
+        else:
+            raise RuntimeError(
+                f"reference_latents batch={ref_batch} is incompatible with "
+                f"generation batch={batch_size} and refs_per_sample={refs_per_sample}"
+            )
+    ### 24 APR - FIX MULTIPLE REF CASE ###
     
     
     REF_NOISE_ONCE = True  # keep same ref noise across steps within one generation
-    if not hasattr(pipeline, "_ref_noise"):
+    ### 24 APR - FIX MULTIPLE REF CASE ###
+    if not hasattr(pipeline, "_ref_noise") or tuple(pipeline._ref_noise.shape) != tuple(reference_latents.shape):
+    ### 24 APR - FIX MULTIPLE REF CASE ###
         gen = getattr(pipeline, "generator", None)
         if isinstance(gen, (list, tuple)):
             gen = gen[0] if gen else None
@@ -348,14 +390,15 @@ def two_branch_predict(
 
 
     
-    t_ref = t if torch.is_tensor(t) else torch.tensor([t], device=device, dtype=torch.long)
-    if t_ref.ndim == 0:
-        t_ref = t_ref.unsqueeze(0)
-    expected_ref = reference_latents.shape[0]
-    current_ref = t_ref.shape[0]
-    if current_ref != expected_ref:
-        reps = (expected_ref + current_ref - 1) // current_ref
-        t_ref = t_ref.repeat(reps)[:expected_ref]
+    ### 24 APR - FIX MULTIPLE REF CASE ###
+    t_gen = t if torch.is_tensor(t) else torch.tensor([t], device=device, dtype=torch.long)
+    if t_gen.ndim == 0:
+        t_gen = t_gen.unsqueeze(0)
+    if t_gen.shape[0] != batch_size:
+        reps = (batch_size + t_gen.shape[0] - 1) // t_gen.shape[0]
+        t_gen = t_gen.repeat(reps)[:batch_size]
+    t_ref = t_gen.repeat_interleave(refs_per_sample)
+    ### 24 APR - FIX MULTIPLE REF CASE ###
     
     ref_noised = pipeline.scheduler.add_noise(
         reference_latents,
@@ -371,31 +414,19 @@ def two_branch_predict(
             print(f"[2BP]   ref_noised:  {stat(ref_noised)}  Δ(noise,ref)σ={(latent_model_input.std()-ref_noised.std()).item():.4f}")
 
     
-    # Ensure same batch size, including CFG doubling and num_images_per_prompt tiling.
-    if ref_noised.shape[0] != batch_size:
-        ref_batch = ref_noised.shape[0]
-        cfg_mult = 2 if pipeline.do_classifier_free_guidance else 1
-
-        if batch_size % (ref_batch * cfg_mult) == 0:
-            num_images_per_prompt = batch_size // (ref_batch * cfg_mult)
-            if num_images_per_prompt > 1:
-                ref_noised = ref_noised.repeat_interleave(num_images_per_prompt, dim=0)
-            if cfg_mult == 2:
-                ref_noised = torch.cat([ref_noised, ref_noised], dim=0)
-        elif batch_size % ref_batch == 0:
-            ref_noised = ref_noised.repeat_interleave(batch_size // ref_batch, dim=0)
-        else:
-            reps = (batch_size + ref_batch - 1) // ref_batch
-            ref_noised = ref_noised.repeat(reps, 1, 1, 1)[:batch_size]
-    
-    # Create doubled batch: [noise, reference]
+    ### 24 APR - FIX MULTIPLE REF CASE ###
+    # Create branched batch: [generation B, references B * refs_per_sample].
+    ### 24 APR - FIX MULTIPLE REF CASE ###
     batched_latents = torch.cat([latent_model_input, ref_noised], dim=0)
     
     # Patch processors with masks
     patch_unet_attention_processors(
         pipeline, mask4, mask4_ref, scale,
         id_embeds=id_embeds if face_embed_strategy == "id_embeds" else None,
-        class_tokens_mask=class_tokens_mask
+        class_tokens_mask=class_tokens_mask,
+        ### 24 APR - FIX MULTIPLE REF CASE ###
+        refs_per_sample=refs_per_sample,
+        ### 24 APR - FIX MULTIPLE REF CASE ###
     )
 
     # --- quick patch check
@@ -410,14 +441,9 @@ def two_branch_predict(
 
         
     # Prepare timesteps for doubled batch
-    t_batched = t if torch.is_tensor(t) else torch.tensor([t], device=device)
-    if t_batched.ndim == 0:
-        t_batched = t_batched.unsqueeze(0)
-    expected = batched_latents.shape[0]
-    current = t_batched.shape[0]
-    if current != expected:
-        reps = (expected + current - 1) // current
-        t_batched = t_batched.repeat(reps)[:expected]
+    ### 24 APR - FIX MULTIPLE REF CASE ###
+    t_batched = torch.cat([t_gen, t_ref], dim=0)
+    ### 24 APR - FIX MULTIPLE REF CASE ###
     
     # Prepare face prompt if not provided
     if face_prompt_embeds is None:
@@ -500,10 +526,12 @@ def two_branch_predict(
         
     face_prompt_embeds = face_prompt_embeds.to(prompt_embeds.device, prompt_embeds.dtype)
 
-    # Double-stack encoder states for branched CA:
-    #   first half → generation prompt
-    #   second half → face prompt
-    encoder_hidden_states = torch.cat([prompt_embeds, face_prompt_embeds], dim=0)
+    ### 24 APR - FIX MULTIPLE REF CASE ###
+    encoder_hidden_states = torch.cat(
+        [prompt_embeds, face_prompt_embeds.repeat_interleave(refs_per_sample, dim=0)],
+        dim=0,
+    )
+    ### 24 APR - FIX MULTIPLE REF CASE ###
 
     if full_debug:
         # quick sanity – these should *not* be identical
@@ -512,18 +540,26 @@ def two_branch_predict(
             print(f"[2BP]   encoder_hidden_states Δ(gen,face)μ={diff_mu:.4f}")
 
 
-    # Double added_cond_kwargs
     doubled_kwargs = {}
     for k, v in added_cond_kwargs.items():
         if torch.is_tensor(v):
-            # Double the tensor
-            doubled_kwargs[k] = torch.cat([v, v], dim=0)
+            ### 24 APR - FIX MULTIPLE REF CASE ###
+            if v.shape[0] == batch_size:
+                doubled_kwargs[k] = torch.cat([v, v.repeat_interleave(refs_per_sample, dim=0)], dim=0)
+            else:
+                doubled_kwargs[k] = v
+            ### 24 APR - FIX MULTIPLE REF CASE ###
         else:
             doubled_kwargs[k] = v
     
     # Double timestep_cond if present
     if timestep_cond is not None:
-        timestep_cond_doubled = torch.cat([timestep_cond, timestep_cond], dim=0)
+        ### 24 APR - FIX MULTIPLE REF CASE ###
+        timestep_cond_doubled = torch.cat(
+            [timestep_cond, timestep_cond.repeat_interleave(refs_per_sample, dim=0)],
+            dim=0,
+        )
+        ### 24 APR - FIX MULTIPLE REF CASE ###
     else:
         timestep_cond_doubled = None
 
@@ -555,8 +591,10 @@ def two_branch_predict(
 
     # --- quick check of cosine sim between halves
     # Split UNet output into halves (noise/merged vs face-pure)
-    B2 = noise_pred.shape[0] // 2
+    ### 24 APR - FIX MULTIPLE REF CASE ###
+    B2 = batch_size
     first, second = noise_pred[:B2].float(), noise_pred[B2:].float()
+    ### 24 APR - FIX MULTIPLE REF CASE ###
 
     if full_debug:
         # If CFG is on, each half is [uncond, cond]
@@ -568,8 +606,11 @@ def two_branch_predict(
         else:
             print(f"[2BP]   out halves: first σ={first.std().item():.4f}  second σ={second.std().item():.4f}")
 
-        # Mean cosine sim between halves → should NOT be ~1.0
-        cos = torch.nn.functional.cosine_similarity(first.flatten(1), second.flatten(1), dim=1).mean().item()
+        # Mean cosine sim between branches → should NOT be ~1.0
+        ### 24 APR - FIX MULTIPLE REF CASE ###
+        second_for_debug = second[: first.shape[0]]
+        cos = torch.nn.functional.cosine_similarity(first.flatten(1), second_for_debug.flatten(1), dim=1).mean().item()
+        ### 24 APR - FIX MULTIPLE REF CASE ###
         print(f"[2BP]   cos(first,second)={cos:.3f}")
     # --- end of quick check
 

@@ -1228,6 +1228,9 @@ class CosmicLargeTrain(BaseDataset):
 
         ref_images, ref_bboxes = self.get_ref_images(img_data)
         instance_data["ref_images"] = ref_images
+        ### 24 APR - FIX MULTIPLE REF CASE ###
+        instance_data["face_bboxes_ref"] = deepcopy(ref_bboxes)
+        ### 24 APR - FIX MULTIPLE REF CASE ###
         instance_data["face_bbox_ref"] = deepcopy(ref_bboxes[0])
 
         if "orig_size" in img_data:
