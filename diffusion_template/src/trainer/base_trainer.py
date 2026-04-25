@@ -100,6 +100,32 @@ class BaseTrainer:
             self.train_dataloader = inf_loop(self.train_dataloader)
             self.epoch_len = epoch_len
 
+        ### 25 APR - ADD GRAD ACCUM ###
+        train_loader_config = self.config.dataloaders.train
+        micro_batch_size = int(train_loader_config.get("batch_size", 1))
+        batch_size_eff = train_loader_config.get("batch_size_eff", None)
+        batch_size_eff = micro_batch_size if batch_size_eff is None else int(batch_size_eff)
+        self.grad_accum_enabled = bool(train_loader_config.get("grad_accum_enabled", False))
+        self.grad_accum_steps = 1
+        if self.grad_accum_enabled:
+            if batch_size_eff < micro_batch_size:
+                raise ValueError(
+                    f"dataloaders.train.batch_size_eff={batch_size_eff} must be >= "
+                    f"dataloaders.train.batch_size={micro_batch_size}"
+                )
+            if batch_size_eff % micro_batch_size != 0:
+                raise ValueError(
+                    f"dataloaders.train.batch_size_eff={batch_size_eff} must be divisible by "
+                    f"dataloaders.train.batch_size={micro_batch_size}"
+                )
+            self.grad_accum_steps = max(1, batch_size_eff // micro_batch_size)
+            if self.epoch_len % self.grad_accum_steps != 0:
+                raise ValueError(
+                    f"trainer.epoch_len={self.epoch_len} must be divisible by "
+                    f"grad_accum_steps={self.grad_accum_steps}"
+                )
+        ### 25 APR - ADD GRAD ACCUM ###
+
         self.evaluation_dataloaders = {
             k: v for k, v in dataloaders.items() if k != "train"
         }

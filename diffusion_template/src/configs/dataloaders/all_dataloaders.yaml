@@ -1,6 +1,10 @@
 train:
     _target_: torch.utils.data.DataLoader
     batch_size: 2
+    ### 25 APR - ADD GRAD ACCUM ###
+    grad_accum_enabled: false
+    batch_size_eff: null
+    ### 25 APR - ADD GRAD ACCUM ###
     num_workers: 1
     pin_memory: False
 

@@ -241,7 +241,13 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         self.masked_loss_step = masked_loss_step
         
     def process_batch(self, batch, train_metrics: MetricTracker):
-        self.optimizer.zero_grad()
+        ### 25 APR - ADD GRAD ACCUM ###
+        accum_steps = int(getattr(self, "grad_accum_steps", 1))
+        is_accum_start = batch["batch_idx"] % accum_steps == 0
+        is_accum_end = (batch["batch_idx"] + 1) % accum_steps == 0
+        if self.is_train and is_accum_start:
+            self.optimizer.zero_grad()
+        ### 25 APR - ADD GRAD ACCUM ###
             
         do_cfg = (batch["batch_idx"] % self.cfg_step == 0)
         output = self.model(**batch, do_cfg=do_cfg)
@@ -256,11 +262,14 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         
         if self.is_train:
             assert torch.isfinite(batch["loss"]) # sum of all losses is always called loss
-            self.accelerator.backward(batch["loss"]) 
-            self._clip_grad_norm()
-            self.optimizer.step()
-            if self.lr_scheduler is not None:
-                self.lr_scheduler.step()
+            ### 25 APR - ADD GRAD ACCUM ###
+            self.accelerator.backward(batch["loss"] / accum_steps)
+            if is_accum_end:
+                self._clip_grad_norm()
+                self.optimizer.step()
+                if self.lr_scheduler is not None:
+                    self.lr_scheduler.step()
+            ### 25 APR - ADD GRAD ACCUM ###
 
         # update metrics for each loss (in case of multiple losses)
         for loss_name in self.config.writer.loss_names:

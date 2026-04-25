@@ -8,6 +8,13 @@ log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
 
+# ### 25 APR - ADD GRAD ACCUM ###
+GRAD_ACCUM_OVERRIDES=(
+    dataloaders.train.grad_accum_enabled=true
+    dataloaders.train.batch_size_eff=4
+)
+# ### 25 APR - ADD GRAD ACCUM ###
+
 if ACCELERATE_LOG_LEVEL=error \
     TRANSFORMERS_VERBOSITY=error \
     DIFFUSERS_VERBOSITY=error \
@@ -24,6 +31,7 @@ if ACCELERATE_LOG_LEVEL=error \
         val_datasets_names='[manual_val_two]' \
         trainer.epoch_len=2000 \
         dataloaders.train.batch_size=1 \
+        "${GRAD_ACCUM_OVERRIDES[@]}" \
         dataloaders.train.num_workers=12 \
         model.rank=32 \
         model.photomaker_path="${PM_PATH}" \

@@ -3,6 +3,9 @@ from itertools import repeat
 from PIL import Image
 
 from hydra.utils import instantiate
+### 25 APR - ADD GRAD ACCUM ###
+from omegaconf import OmegaConf
+### 25 APR - ADD GRAD ACCUM ###
 
 from src.datasets.collate import collate_fn, collate_fn_val
 from src.utils.init_utils import set_worker_seed
@@ -83,8 +86,15 @@ def get_dataloaders(config, device, logger):
         f"The train batch size ({config.dataloaders['train'].batch_size}) cannot "
         f"be larger than the train dataset length ({len(train_dataset)})"
     )
+    ### 25 APR - ADD GRAD ACCUM ###
+    train_loader_config = OmegaConf.create(OmegaConf.to_container(config.dataloaders["train"], resolve=True))
+    train_loader_config.pop("grad_accum_enabled", None)
+    train_loader_config.pop("batch_size_eff", None)
+    ### 25 APR - ADD GRAD ACCUM ###
     dataloaders["train"] = instantiate(
-        config.dataloaders["train"],
+        ### 25 APR - ADD GRAD ACCUM ###
+        train_loader_config,
+        ### 25 APR - ADD GRAD ACCUM ###
         dataset=train_dataset,
         collate_fn=collate_fn,
         drop_last=True,
