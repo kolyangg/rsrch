@@ -17,6 +17,8 @@ log() {
 
         # "${GRAD_ACCUM_OVERRIDES[@]}" \
 
+        # val_datasets_names='[manual_val_two]' \
+
 if ACCELERATE_LOG_LEVEL=error \
     TRANSFORMERS_VERBOSITY=error \
     DIFFUSERS_VERBOSITY=error \
@@ -30,7 +32,7 @@ if ACCELERATE_LOG_LEVEL=error \
         datasets=all_datasets \
         train_dataset_name=cosmic_large_vast \
         datasets.train.cosmic_large_vast.num_refs=1 \
-        val_datasets_names='[manual_val_two]' \
+        val_datasets_names='' \
         trainer.epoch_len=2000 \
         dataloaders.train.batch_size=2 \
         dataloaders.train.num_workers=12 \
