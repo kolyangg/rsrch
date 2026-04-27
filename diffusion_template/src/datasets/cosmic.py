@@ -969,6 +969,7 @@ class CosmicLargeTrain(BaseDataset):
         self.use_embeds = use_embeds
         self.embeds = torch.load(embeds_path, weights_only=False) if embeds_path is not None else None
         self.target_crop_256 = bool(target_crop_256)
+        self.train_image_size = 256 if self.target_crop_256 else 1024
         self.crop_nonface_min = float(crop_nonface_min)
         self.crop_nonface_max = float(crop_nonface_max)
         if (
@@ -1006,7 +1007,42 @@ class CosmicLargeTrain(BaseDataset):
             img_data["image_path"] = img_path
             index.append(img_data)
 
+        if self.target_crop_256:
+            kwargs = dict(kwargs)
+            kwargs["instance_transforms"] = self._remove_pixel_resize_from_instance_transforms(
+                kwargs.get("instance_transforms")
+            )
+
         super().__init__(index, *args, **kwargs)
+
+    @staticmethod
+    def _remove_resize_from_transform(transform):
+        if transform is None or not hasattr(transform, "transforms"):
+            return transform
+
+        kept_transforms = []
+        removed_resize = False
+        for item in transform.transforms:
+            if item.__class__.__name__ == "Resize":
+                removed_resize = True
+                continue
+            kept_transforms.append(item)
+
+        if not removed_resize:
+            return transform
+        logger.info("CosmicLargeTrain target_crop_256=True: removed pixel_values Resize transform")
+        return transform.__class__(kept_transforms)
+
+    @classmethod
+    def _remove_pixel_resize_from_instance_transforms(cls, instance_transforms):
+        if instance_transforms is None:
+            return None
+        instance_transforms = dict(instance_transforms)
+        if "pixel_values" in instance_transforms:
+            instance_transforms["pixel_values"] = cls._remove_resize_from_transform(
+                instance_transforms["pixel_values"]
+            )
+        return instance_transforms
 
     def _get_relative_path(self, path):
         path = str(path)
@@ -1130,7 +1166,7 @@ class CosmicLargeTrain(BaseDataset):
         return int(max(min_value, min(max_value, value)))
 
     def _crop_target_256_around_bbox(self, img, face_bbox):
-        target_side = 256
+        target_side = self.train_image_size
         face_bbox = self._clip_bbox_to_image(face_bbox, img.size)
         if face_bbox is None:
             raise ValueError("Invalid target face bbox before 256 crop")
@@ -1203,11 +1239,7 @@ class CosmicLargeTrain(BaseDataset):
         if cropped_bbox is None:
             raise ValueError("Invalid target face bbox after 256 crop")
 
-        train_bbox = self._scale_bbox_to_size(cropped_bbox, cropped_img.size, (1024, 1024))
-        train_bbox = self._clip_bbox_to_image(train_bbox, (1024, 1024))
-        if train_bbox is None:
-            raise ValueError("Invalid target face bbox after scaling 256 crop to 1024")
-        return cropped_img, train_bbox
+        return cropped_img, cropped_bbox
 
     @staticmethod
     def _get_bigger_crop_with_bbox(img, face_bbox, scale=0.2):
@@ -1283,7 +1315,13 @@ class CosmicLargeTrain(BaseDataset):
         return ref_images, ref_bboxes
 
     def get_face_mask_from_bbox(self, bbox):
-        scaled_box = [int(bbox[0] // 32), int(bbox[1] // 32), int(bbox[2] // 32), int(bbox[3] // 32)]
+        scale = max(float(self.train_image_size) / 32.0, 1.0)
+        scaled_box = [
+            int(bbox[0] // scale),
+            int(bbox[1] // scale),
+            int(bbox[2] // scale),
+            int(bbox[3] // scale),
+        ]
 
         hor = scaled_box[3] - scaled_box[1]
         add = int(hor * 0.25)
@@ -1347,7 +1385,7 @@ class CosmicLargeTrain(BaseDataset):
         instance_data["face_bbox_ref"] = deepcopy(ref_bboxes[0])
 
         if self.target_crop_256:
-            instance_data["original_sizes"] = (1024, 1024)
+            instance_data["original_sizes"] = (self.train_image_size, self.train_image_size)
             instance_data["crop_top_lefts"] = (0, 0)
         elif "orig_size" in img_data:
             orig_size = img_data["orig_size"]
@@ -1361,14 +1399,14 @@ class CosmicLargeTrain(BaseDataset):
         instance_data["face_mask"] = face_mask
         assert face_mask.any(), path
 
-        instance_data["target_sizes"] = (1024, 1024)
+        instance_data["target_sizes"] = (self.train_image_size, self.train_image_size)
 
         instance_data = self.preprocess_data(instance_data)
 
         assert min(instance_data["bbox"]) >= 0
-        assert max(instance_data["bbox"]) <= 1024
+        assert max(instance_data["bbox"]) <= self.train_image_size
         assert min(instance_data["face_bbox"]) >= 0
-        assert max(instance_data["face_bbox"]) <= 1024
+        assert max(instance_data["face_bbox"]) <= self.train_image_size
         assert min(instance_data["face_bbox_ref"]) >= 0
 
         return instance_data

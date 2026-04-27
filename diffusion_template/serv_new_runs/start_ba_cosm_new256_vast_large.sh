@@ -33,6 +33,7 @@ if ACCELERATE_LOG_LEVEL=error \
         trainer.epoch_len=2000 \
         dataloaders.train.batch_size=16 \
         dataloaders.train.num_workers=12 \
+        model.target_size=256 \
         model.rank=32 \
         model.photomaker_path="${PM_PATH}" \
         validation_args.num_images_per_prompt=1 \
