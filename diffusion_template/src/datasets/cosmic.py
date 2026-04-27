@@ -929,6 +929,7 @@ class CosmicLargeTrain(BaseDataset):
         num_refs=1,
         # min_face_res=64,
         min_face_res=192,
+        target_crop_256=False,
         embeds_path=None,
         use_embeds=False,
         only_complex_background=False,
@@ -953,8 +954,6 @@ class CosmicLargeTrain(BaseDataset):
             crop_ref,
             ref_similar,
             origtarget_genref,
-            crop_nonface_min,
-            crop_nonface_max,
             train_on_separate_image,
             same_id_ref_map_json_pth,
         )
@@ -969,6 +968,18 @@ class CosmicLargeTrain(BaseDataset):
         self.path_prefix_to_strip = path_prefix_to_strip.strip("/") if path_prefix_to_strip else None
         self.use_embeds = use_embeds
         self.embeds = torch.load(embeds_path, weights_only=False) if embeds_path is not None else None
+        self.target_crop_256 = bool(target_crop_256)
+        self.crop_nonface_min = float(crop_nonface_min)
+        self.crop_nonface_max = float(crop_nonface_max)
+        if (
+            self.crop_nonface_min < 0
+            or self.crop_nonface_max < self.crop_nonface_min
+            or self.crop_nonface_max >= 1
+        ):
+            raise ValueError(
+                "CosmicLargeTrain requires 0 <= crop_nonface_min <= crop_nonface_max < 1; "
+                f"got {self.crop_nonface_min} and {self.crop_nonface_max}"
+            )
 
         images_root = Path(self.images_path) if self.images_path is not None else None
         self.dataset_root = images_root.parents[1] if images_root is not None and len(images_root.parents) >= 2 else images_root
@@ -1102,6 +1113,103 @@ class CosmicLargeTrain(BaseDataset):
         return clipped_bbox
 
     @staticmethod
+    def _scale_bbox_to_size(bbox, src_size, dst_size):
+        src_w, src_h = src_size
+        dst_w, dst_h = dst_size
+        scale_x = dst_w / max(float(src_w), 1.0)
+        scale_y = dst_h / max(float(src_h), 1.0)
+        return [
+            bbox[0] * scale_x,
+            bbox[1] * scale_y,
+            bbox[2] * scale_x,
+            bbox[3] * scale_y,
+        ]
+
+    @staticmethod
+    def _clamp_int(value, min_value, max_value):
+        return int(max(min_value, min(max_value, value)))
+
+    def _crop_target_256_around_bbox(self, img, face_bbox):
+        target_side = 256
+        face_bbox = self._clip_bbox_to_image(face_bbox, img.size)
+        if face_bbox is None:
+            raise ValueError("Invalid target face bbox before 256 crop")
+
+        x0, y0, x1, y1 = face_bbox
+        face_w = max(x1 - x0, 1.0)
+        face_h = max(y1 - y0, 1.0)
+        context_ratio_w = random.uniform(self.crop_nonface_min, self.crop_nonface_max)
+        context_ratio_h = random.uniform(self.crop_nonface_min, self.crop_nonface_max)
+        resize_scale = min(
+            1.0,
+            target_side / (face_w * (1.0 + context_ratio_w)),
+            target_side / (face_h * (1.0 + context_ratio_h)),
+        )
+        if resize_scale < 1.0:
+            resized_size = (
+                max(1, int(round(img.size[0] * resize_scale))),
+                max(1, int(round(img.size[1] * resize_scale))),
+            )
+            img = img.resize(resized_size, Image.BICUBIC)
+            face_bbox = [coord * resize_scale for coord in face_bbox]
+
+        img_w, img_h = img.size
+        if img_w < target_side or img_h < target_side:
+            canvas_size = (max(target_side, img_w), max(target_side, img_h))
+            pad_left = (canvas_size[0] - img_w) // 2
+            pad_top = (canvas_size[1] - img_h) // 2
+            canvas = Image.new("RGB", canvas_size)
+            canvas.paste(img, (pad_left, pad_top))
+            img = canvas
+            face_bbox = [
+                face_bbox[0] + pad_left,
+                face_bbox[1] + pad_top,
+                face_bbox[2] + pad_left,
+                face_bbox[3] + pad_top,
+            ]
+            img_w, img_h = img.size
+
+        x0, y0, x1, y1 = face_bbox
+        left_min = max(0, int(np.ceil(x1 - target_side)))
+        left_max = min(img_w - target_side, int(np.floor(x0)))
+        top_min = max(0, int(np.ceil(y1 - target_side)))
+        top_max = min(img_h - target_side, int(np.floor(y0)))
+
+        if left_min <= left_max:
+            crop_left = random.randint(left_min, left_max)
+        else:
+            crop_left = self._clamp_int(
+                round(0.5 * (x0 + x1) - 0.5 * target_side),
+                0,
+                img_w - target_side,
+            )
+        if top_min <= top_max:
+            crop_top = random.randint(top_min, top_max)
+        else:
+            crop_top = self._clamp_int(
+                round(0.5 * (y0 + y1) - 0.5 * target_side),
+                0,
+                img_h - target_side,
+            )
+
+        cropped_img = img.crop((crop_left, crop_top, crop_left + target_side, crop_top + target_side))
+        cropped_bbox = [
+            x0 - crop_left,
+            y0 - crop_top,
+            x1 - crop_left,
+            y1 - crop_top,
+        ]
+        cropped_bbox = self._clip_bbox_to_image(cropped_bbox, cropped_img.size)
+        if cropped_bbox is None:
+            raise ValueError("Invalid target face bbox after 256 crop")
+
+        train_bbox = self._scale_bbox_to_size(cropped_bbox, cropped_img.size, (1024, 1024))
+        train_bbox = self._clip_bbox_to_image(train_bbox, (1024, 1024))
+        if train_bbox is None:
+            raise ValueError("Invalid target face bbox after scaling 256 crop to 1024")
+        return cropped_img, train_bbox
+
+    @staticmethod
     def _get_bigger_crop_with_bbox(img, face_bbox, scale=0.2):
         crop = [int(round(v)) for v in deepcopy(face_bbox)]
         if crop[3] - crop[1] < crop[2] - crop[0]:
@@ -1210,7 +1318,12 @@ class CosmicLargeTrain(BaseDataset):
         instance_data = {}
 
         img = self._load_train_image(path, img_data)
-        body_mask = self._load_body_mask(img_data)
+        bbox = deepcopy(img_data["face_crop_new"])
+        if self.target_crop_256:
+            img, bbox = self._crop_target_256_around_bbox(img, bbox)
+            body_mask = None
+        else:
+            body_mask = self._load_body_mask(img_data)
 
         if body_mask is not None:
             instance_data["body_mask"] = body_mask
@@ -1223,7 +1336,6 @@ class CosmicLargeTrain(BaseDataset):
         instance_data["prompts"] = prompt
         instance_data["prompt"] = prompt
 
-        bbox = deepcopy(img_data["face_crop_new"])
         instance_data["bbox"] = bbox
         instance_data["face_bbox"] = deepcopy(bbox)
 
@@ -1234,7 +1346,10 @@ class CosmicLargeTrain(BaseDataset):
         ### 24 APR - FIX MULTIPLE REF CASE ###
         instance_data["face_bbox_ref"] = deepcopy(ref_bboxes[0])
 
-        if "orig_size" in img_data:
+        if self.target_crop_256:
+            instance_data["original_sizes"] = (1024, 1024)
+            instance_data["crop_top_lefts"] = (0, 0)
+        elif "orig_size" in img_data:
             orig_size = img_data["orig_size"]
             instance_data["original_sizes"] = (orig_size[1], orig_size[0])
             instance_data["crop_top_lefts"] = get_crop_values(img_data)

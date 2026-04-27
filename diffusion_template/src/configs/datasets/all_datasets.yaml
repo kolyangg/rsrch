@@ -69,6 +69,8 @@ train:
         crop_nonface_min: ${train_dataset_crop_nonface_min}
         crop_nonface_max: ${train_dataset_crop_nonface_max}
         num_refs: 1
+        min_face_res: 192
+        target_crop_256: false
         train_on_separate_image: ${train_on_separate_image}
         same_id_ref_map_json_pth: null
         instance_transforms: ${transforms.instance_transforms.train}
@@ -80,6 +82,10 @@ train:
         target_images_path: /home/kolyangg/rsrch/dataset_full/LAION-5B-Filtered-Large
         path_prefix_to_strip: LAION-5B-Filtered-Large
         num_refs: 1
+        min_face_res: 192
+        target_crop_256: false
+        crop_nonface_min: ${train_dataset_crop_nonface_min}
+        crop_nonface_max: ${train_dataset_crop_nonface_max}
         instance_transforms: ${transforms.instance_transforms.train}
 
     cosmic_large_vast:
@@ -96,6 +102,8 @@ train:
         crop_nonface_min: ${train_dataset_crop_nonface_min}
         crop_nonface_max: ${train_dataset_crop_nonface_max}
         num_refs: 1
+        min_face_res: 192
+        target_crop_256: false
         train_on_separate_image: ${train_on_separate_image}
         same_id_ref_map_json_pth: null
         instance_transforms: ${transforms.instance_transforms.train}
@@ -115,6 +123,8 @@ train:
         crop_nonface_min: ${train_dataset_crop_nonface_min}
         crop_nonface_max: ${train_dataset_crop_nonface_max}
         num_refs: 1
+        min_face_res: 192
+        target_crop_256: false
         train_on_separate_image: ${train_on_separate_image}
         same_id_ref_map_json_pth: null
         instance_transforms: ${transforms.instance_transforms.train}
