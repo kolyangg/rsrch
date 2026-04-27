@@ -28,7 +28,6 @@ if ACCELERATE_LOG_LEVEL=error \
         datasets=all_datasets \
         train_dataset_name=cosmic_large_vast \
         datasets.train.cosmic_large_vast.num_refs=1 \
-        datasets.train.cosmic_large_vast.min_face_res=192 \
         val_datasets_names='[manual_val_two]' \
         trainer.epoch_len=2000 \
         dataloaders.train.batch_size=4 \
