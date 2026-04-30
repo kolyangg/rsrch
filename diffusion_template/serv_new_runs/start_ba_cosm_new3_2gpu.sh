@@ -77,6 +77,12 @@ log "Loaded COMET_API_KEY from ${ENV_FILE}"
 [[ -f "${PM_PATH}" ]] || fail "PhotoMaker checkpoint not found at PM_PATH=${PM_PATH}"
 log "Using PhotoMaker checkpoint: ${PM_PATH}"
 
+
+export INSIGHTFACE_HOME="${INSIGHTFACE_HOME:-/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/checkpoints/insightface}"
+export FACEANALYSIS_CPU="${FACEANALYSIS_CPU:-1}"
+log "Using InsightFace cache: ${INSIGHTFACE_HOME}"
+
+
 cd "${PROJECT_DIR}"
 log "Changed directory to ${PROJECT_DIR}"
 log "Starting training command"
