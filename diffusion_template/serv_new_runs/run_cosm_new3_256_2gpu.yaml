@@ -5,7 +5,7 @@
 # 📚 Документация по запуску задач: https://fbdocs.website.yandexcloud.net/pages/mlspace/jobs/quick_start.html
 
 job:
-  description: "ba cosm_new3 #nasilaev"
+  description: "ba cosm_new3 256 #nasilaev"
   environment:
     image: cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36
 
