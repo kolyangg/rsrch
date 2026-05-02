@@ -80,7 +80,10 @@ log "Using PhotoMaker checkpoint: ${PM_PATH}"
 
 export INSIGHTFACE_HOME="${INSIGHTFACE_HOME:-/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/checkpoints/insightface}"
 export FACEANALYSIS_CPU="${FACEANALYSIS_CPU:-1}"
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+export TORCH_DISABLE_ADDR2LINE="${TORCH_DISABLE_ADDR2LINE:-1}"
 log "Using InsightFace cache: ${INSIGHTFACE_HOME}"
+log "PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF}"
 
 
 cd "${PROJECT_DIR}"

@@ -1,5 +1,6 @@
 from abc import abstractmethod
 from collections import defaultdict
+import gc
 from pathlib import Path
 
 import torch
@@ -176,6 +177,40 @@ class BaseTrainer:
             self._save_checkpoint(self._last_epoch)
             raise e
 
+    def _cleanup_cuda_state(self):
+        objs = []
+        if getattr(self, "pipe", None) is not None:
+            objs.append(self.pipe)
+        try:
+            objs.append(self.accelerator.unwrap_model(self.model))
+        except Exception:
+            objs.append(self.model)
+
+        for obj in objs:
+            for attr in (
+                "_reference_latents",
+                "_face_prompt_embeds",
+                "_ref_latents_all",
+                "_ref_noise",
+                "_face_mask",
+                "_face_mask_ref",
+                "_face_mask_t",
+                "_face_mask_t_ref",
+            ):
+                if hasattr(obj, attr):
+                    try:
+                        delattr(obj, attr)
+                    except Exception:
+                        pass
+
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            try:
+                torch.cuda.ipc_collect()
+            except Exception:
+                pass
+
     def _sync_start_epoch(self):
         """Force a single start_epoch value across all distributed ranks."""
         if int(getattr(self.accelerator, "num_processes", 1)) <= 1:
@@ -305,6 +340,8 @@ class BaseTrainer:
                 batch,
                 train_metrics=self.train_metrics,
             )
+            if batch.get("skip_batch", False):
+                continue
 
             ### Modified to fix accelerate error after adding training of attn processors ###
             # --- DDP safety: make branched-attn params "participate" every step (adds zero to loss) ---
@@ -671,8 +708,8 @@ class BaseTrainer:
 
         for metric in self.metrics:
             metric.to_cpu()
-            
-        torch.cuda.empty_cache()
+
+        self._cleanup_cuda_state()
         return metric_result
 
 

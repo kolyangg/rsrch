@@ -250,7 +250,41 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         ### 25 APR - ADD GRAD ACCUM ###
             
         do_cfg = (batch["batch_idx"] % self.cfg_step == 0)
-        output = self.model(**batch, do_cfg=do_cfg)
+        oom_flag = torch.zeros(1, device=self.device)
+        local_oom = False
+        output = None
+        try:
+            output = self.model(**batch, do_cfg=do_cfg)
+        except RuntimeError as exc:
+            if "out of memory" not in str(exc).lower():
+                raise
+            local_oom = True
+            oom_flag.fill_(1)
+            self.optimizer.zero_grad(set_to_none=True)
+            self._cleanup_cuda_state()
+
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            torch.distributed.all_reduce(oom_flag, op=torch.distributed.ReduceOp.MAX)
+
+        if bool(oom_flag.item()):
+            if output is not None:
+                del output
+            self.optimizer.zero_grad(set_to_none=True)
+            self._cleanup_cuda_state()
+            rank = int(getattr(self.accelerator, "process_index", 0))
+            msg = (
+                f"[OOM_SKIP] time={time.strftime('%Y-%m-%d %H:%M:%S')} "
+                f"rank={rank} batch_idx={batch.get('batch_idx')} "
+                f"local_oom={local_oom}"
+            )
+            if self.logger is not None:
+                self.logger.warning(msg)
+            else:
+                print(msg, flush=True)
+            batch["skip_batch"] = True
+            batch["loss"] = torch.zeros((), device=self.device)
+            return batch
+
         batch.update(output)
 
         batch["is_masked_loss"] = (
