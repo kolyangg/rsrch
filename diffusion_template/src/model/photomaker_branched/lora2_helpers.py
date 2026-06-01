@@ -8,6 +8,8 @@ import torch
 from .branched_runtime import patch_unet_attention_processors, select_branched_processor_names, two_branch_predict
 from .insightface_package import analyze_faces
 
+from copy import deepcopy
+
 
 def configure_branched_trainables(model) -> None:
     if not getattr(model, "train_ba_only", False):
@@ -176,7 +178,8 @@ def prepare_branched_training_inputs(
         )
 
         with torch.no_grad():
-            id_pixel_values = model.id_image_processor(refs, return_tensors="pt").pixel_values.unsqueeze(0) # TODO deepcopy of refs vs refs here
+            # id_pixel_values = model.id_image_processor(refs, return_tensors="pt").pixel_values.unsqueeze(0)
+            id_pixel_values = model.id_image_processor(deepcopy(refs), return_tensors="pt").pixel_values.unsqueeze(0) # DONE 01 JUN replaced refs with deepcopy of refs to avoid potential issues
             id_pixel_values = id_pixel_values.to(model.device, dtype=model.id_encoder.dtype)
 
             prompt_for_id = prompt_embeds.to(dtype=model.id_encoder.dtype)
