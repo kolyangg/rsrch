@@ -1382,7 +1382,7 @@ class CosmicLargeTrain(BaseDataset):
         ### 24 APR - FIX MULTIPLE REF CASE ###
         instance_data["face_bboxes_ref"] = deepcopy(ref_bboxes)
         ### 24 APR - FIX MULTIPLE REF CASE ###
-        instance_data["face_bbox_ref"] = deepcopy(ref_bboxes[0])
+        instance_data["face_bbox_ref"] = deepcopy(ref_bboxes[0]) # TODO get a random vs zero
 
         if self.target_crop_256:
             instance_data["original_sizes"] = (self.train_image_size, self.train_image_size)

@@ -176,7 +176,7 @@ def prepare_branched_training_inputs(
         )
 
         with torch.no_grad():
-            id_pixel_values = model.id_image_processor(refs, return_tensors="pt").pixel_values.unsqueeze(0)
+            id_pixel_values = model.id_image_processor(refs, return_tensors="pt").pixel_values.unsqueeze(0) # TODO deepcopy of refs vs refs here
             id_pixel_values = id_pixel_values.to(model.device, dtype=model.id_encoder.dtype)
 
             prompt_for_id = prompt_embeds.to(dtype=model.id_encoder.dtype)
