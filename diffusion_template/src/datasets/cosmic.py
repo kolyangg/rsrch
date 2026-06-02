@@ -999,7 +999,7 @@ class CosmicLargeTrain(BaseDataset):
                 img_data.get("has_simple_back", False) or img_data.get("is_simp", False)
             ):
                 continue
-            if len(img_data.get("face_paths") or []) < num_refs:
+            if len(img_data.get("face_paths") or []) < 1:
                 continue
             if self.embeds is not None and img_path not in self.embeds:
                 continue
@@ -1291,28 +1291,22 @@ class CosmicLargeTrain(BaseDataset):
                 return face_bboxes[candidate]
         raise KeyError(f"Missing face bbox for reference image: {face_path}")
 
-    def get_ref_images(self, img_data):
-        ref_images = []
-        ref_bboxes = []
-        ref_images_paths = np.random.choice(img_data["face_paths"], size=self.num_refs, replace=False)
-        for face_path in ref_images_paths:
-            if self.use_embeds:
-                ref_images.append(self.embeds[str(face_path)])
-                ref_bboxes.append(self._get_face_bbox(img_data, face_path))
-            else:
-                ref_img = Image.open(self._face_full_path(face_path)).convert("RGB")
-                face_bbox = self._get_face_bbox(img_data, face_path)
-                ref_face, ref_bbox = self._get_bigger_crop_with_bbox(ref_img, face_bbox)
-                if ref_bbox is None:
-                    raise ValueError(f"Invalid reference face bbox after crop: {face_path}")
-                if random.random() < 0.5:
-                    w, _ = ref_face.size
-                    ref_face = ImageOps.mirror(ref_face)
-                    x0, y0, x1, y1 = ref_bbox
-                    ref_bbox = [w - x1, y0, w - x0, y1]
-                ref_images.append(ref_face)
-                ref_bboxes.append(ref_bbox)
-        return ref_images, ref_bboxes
+    def get_ref_image(self, img_data):
+        face_path = np.random.choice(img_data["face_paths"])
+        if self.use_embeds:
+            return self.embeds[str(face_path)], self._get_face_bbox(img_data, face_path)
+
+        ref_img = Image.open(self._face_full_path(face_path)).convert("RGB")
+        face_bbox = self._get_face_bbox(img_data, face_path)
+        ref_face, ref_bbox = self._get_bigger_crop_with_bbox(ref_img, face_bbox)
+        if ref_bbox is None:
+            raise ValueError(f"Invalid reference face bbox after crop: {face_path}")
+        if random.random() < 0.5:
+            w, _ = ref_face.size
+            ref_face = ImageOps.mirror(ref_face)
+            x0, y0, x1, y1 = ref_bbox
+            ref_bbox = [w - x1, y0, w - x0, y1]
+        return ref_face, ref_bbox
 
     def get_face_mask_from_bbox(self, bbox):
         scale = max(float(self.train_image_size) / 32.0, 1.0)
@@ -1377,13 +1371,9 @@ class CosmicLargeTrain(BaseDataset):
         instance_data["bbox"] = bbox
         instance_data["face_bbox"] = deepcopy(bbox)
 
-        ref_images, ref_bboxes = self.get_ref_images(img_data)
-        instance_data["ref_images"] = ref_images
-        ### 24 APR - FIX MULTIPLE REF CASE ###
-        instance_data["face_bboxes_ref"] = deepcopy(ref_bboxes)
-        ### 24 APR - FIX MULTIPLE REF CASE ###
-        # instance_data["face_bbox_ref"] = deepcopy(ref_bboxes[0])
-        instance_data["face_bbox_ref"] = deepcopy(random.choice(ref_bboxes)) # DONE 01 JUN replaced zero with a random index
+        ref_image, ref_bbox = self.get_ref_image(img_data)
+        instance_data["ref_images"] = [ref_image]
+        instance_data["face_bbox_ref"] = deepcopy(ref_bbox)
 
 
         if self.target_crop_256:

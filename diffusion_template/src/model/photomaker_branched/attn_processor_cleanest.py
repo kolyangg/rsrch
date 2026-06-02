@@ -80,23 +80,20 @@ def _clone_effective_linear(
     return cloned
 
 
-### 24 APR - FIX MULTIPLE REF CASE ###
-def _branch_batch_sizes(mask, total_batch, refs_per_sample):
-    refs_per_sample = max(1, int(refs_per_sample))
+def _branch_batch_sizes(mask, total_batch):
     if mask is None:
-        if total_batch % (refs_per_sample + 1) != 0:
-            raise RuntimeError(f"Cannot infer branch sizes from total_batch={total_batch}, refs={refs_per_sample}")
-        gen_batch = total_batch // (refs_per_sample + 1)
+        if total_batch % 2 != 0:
+            raise RuntimeError(f"Cannot infer branch sizes from total_batch={total_batch}")
+        gen_batch = total_batch // 2
     else:
         gen_batch = int(mask.shape[0])
     ref_batch = total_batch - gen_batch
-    if ref_batch != gen_batch * refs_per_sample:
+    if ref_batch != gen_batch:
         raise RuntimeError(
             f"Invalid branched batch: total={total_batch}, generation={gen_batch}, "
-            f"reference={ref_batch}, refs_per_sample={refs_per_sample}"
+            f"reference={ref_batch}; expected one reference per sample"
         )
-    return gen_batch, ref_batch, refs_per_sample
-### 24 APR - FIX MULTIPLE REF CASE ###
+    return gen_batch, ref_batch
 
 
 class BranchedAttnProcessor(nn.Module):
@@ -238,16 +235,10 @@ class BranchedAttnProcessor(nn.Module):
             hidden_states = hidden_states.view(batch_size, channel, height * width).transpose(1, 2)
         
         
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         total_batch = hidden_states.shape[0]
-        batch_size, ref_batch_size, refs_per_sample = _branch_batch_sizes(
-            self.mask,
-            total_batch,
-            getattr(self, "refs_per_sample", 1),
-        )
+        batch_size, ref_batch_size = _branch_batch_sizes(self.mask, total_batch)
         noise_hidden = hidden_states[:batch_size]
         ref_hidden = hidden_states[batch_size:]
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         seq_len = noise_hidden.shape[1]
         
         # Handle group norm
@@ -336,26 +327,18 @@ class BranchedAttnProcessor(nn.Module):
         if self.mask_ref is None:
             raise ValueError("Branched attention requires a mask for the reference branch")
 
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         ref_mask = self._prepare_mask(self.mask_ref, seq_len, ref_batch_size)
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         ref_mask = ref_mask.to(dtype=ref_hidden.dtype, device=ref_hidden.device)
         ref_mask_flat = ref_mask.squeeze(1)  # [B, L, 1]
 
 
         # Extract face regions from both noise and reference
         noise_face_hidden = noise_hidden * mask_flat  # Face from current noise
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         ref_face_hidden = ref_hidden * ref_mask_flat
-        noise_face_for_refs = noise_face_hidden.repeat_interleave(refs_per_sample, dim=0)
-        ### 24 APR - FIX MULTIPLE REF CASE ###
 
         # Blend them to allow pose adaptation while preserving identity
         # Higher POSE_ADAPT_RATIO = more pose flexibility, less identity preservation
-        ### 24 APR - FIX MULTIPLE REF CASE ###
-        face_hidden_mixed = (1 - POSE_ADAPT_RATIO) * ref_face_hidden + POSE_ADAPT_RATIO * noise_face_for_refs
-        face_hidden_mixed = face_hidden_mixed.reshape(batch_size, refs_per_sample * seq_len, -1)
-        ### 24 APR - FIX MULTIPLE REF CASE ###
+        face_hidden_mixed = (1 - POSE_ADAPT_RATIO) * ref_face_hidden + POSE_ADAPT_RATIO * noise_face_hidden
         
         # Just use the blended face directly (previously had option for CA_MIXING_FOR_FACE but removed for simplicity)
         key_face = self._k_ref(attn, face_hidden_mixed)
@@ -387,18 +370,14 @@ class BranchedAttnProcessor(nn.Module):
         # Reshape for multi-head attention
         head_dim = attn.heads
         dim_per_head = noise_hidden.shape[-1] // head_dim
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         query_ref = query_ref.view(ref_batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
 
         key_ref = key_ref.view(ref_batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         value_ref = value_ref.view(ref_batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
-        ### 24 APR - FIX MULTIPLE REF CASE ###
 
         # hidden_ref needs to be without any masks
         hidden_ref = F.scaled_dot_product_attention(query_ref, key_ref, value_ref, dropout_p=0.0, is_causal=False)
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         hidden_ref = hidden_ref.transpose(1, 2).reshape(ref_batch_size, -1, noise_hidden.shape[-1])
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         # === NEW BRANCH - SELF-ATTN FOR REFERENCE ===
 
 
@@ -656,24 +635,16 @@ class BranchedCrossAttnProcessor(nn.Module):
             batch_size, channel, height, width = hidden_states.shape
             hidden_states = hidden_states.view(batch_size, channel, height * width).transpose(1, 2)
         
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         total_batch = hidden_states.shape[0]
-        batch_size, ref_batch_size, refs_per_sample = _branch_batch_sizes(
-            self.mask,
-            total_batch,
-            getattr(self, "refs_per_sample", 1),
-        )
+        batch_size, ref_batch_size = _branch_batch_sizes(self.mask, total_batch)
         noise_hidden = hidden_states[:batch_size]
         ref_hidden = hidden_states[batch_size:]
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         
         if encoder_hidden_states is None:
             raise ValueError ("Branched cross-attention requires encoder_hidden_states")
         
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         gen_prompt = encoder_hidden_states[:batch_size]
         face_prompt = encoder_hidden_states[batch_size:]
-        ### 24 APR - FIX MULTIPLE REF CASE ###
             
     
 
@@ -683,11 +654,9 @@ class BranchedCrossAttnProcessor(nn.Module):
             # tile or repeat to match, then trim
             rep = (batch_size + gen_prompt.shape[0] - 1) // gen_prompt.shape[0]
             gen_prompt = gen_prompt.repeat(rep, 1, 1)[:batch_size].contiguous()
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         if face_prompt.shape[0] != ref_batch_size:
             rep = (ref_batch_size + face_prompt.shape[0] - 1) // face_prompt.shape[0]
             face_prompt = face_prompt.repeat(rep, 1, 1)[:ref_batch_size].contiguous()
-        ### 24 APR - FIX MULTIPLE REF CASE ###
 
         # Defensive: recompute from tensors actually used below
         batch_size = noise_hidden.shape[0]
@@ -716,9 +685,7 @@ class BranchedCrossAttnProcessor(nn.Module):
         head_dim = attn.heads
         dim_per_head = noise_hidden.shape[-1] // head_dim
 
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         q_ref = query_ref.view(ref_batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
-        ### 24 APR - FIX MULTIPLE REF CASE ###
 
         # === BACKGROUND BRANCH ===
         # Q: background from noise, K/V: generation prompt
@@ -734,15 +701,11 @@ class BranchedCrossAttnProcessor(nn.Module):
         # Q: face from noise, K/V: face prompt (should be different from gen_prompt!)
         key_ref = self._k_ref(attn, face_prompt)
         value_ref = self._v_ref(attn, face_prompt)
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         key_ref = key_ref.view(ref_batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         value_ref = value_ref.view(ref_batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
-        ### 24 APR - FIX MULTIPLE REF CASE ###
 
         hidden_ref = F.scaled_dot_product_attention(q_ref, key_ref, value_ref, dropout_p=0.0, is_causal=False)
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         hidden_ref = hidden_ref.transpose(1, 2).reshape(ref_batch_size, -1, noise_hidden.shape[-1])
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         
         
         

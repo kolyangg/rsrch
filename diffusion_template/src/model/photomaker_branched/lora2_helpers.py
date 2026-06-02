@@ -128,9 +128,6 @@ def prepare_branched_training_inputs(
     ref_images: Sequence[Sequence],
     face_bbox: Sequence[Sequence[float]],
     face_bbox_ref: Sequence[Sequence[float]] | None = None,
-    ### 24 APR - FIX MULTIPLE REF CASE ###
-    face_bboxes_ref: Sequence[Sequence[Sequence[float]]] | None = None,
-    ### 24 APR - FIX MULTIPLE REF CASE ###
     pixel_values: torch.Tensor,
     noisy_latents: torch.Tensor,
 ):
@@ -146,34 +143,21 @@ def prepare_branched_training_inputs(
     ref_mask_list = []
     ref_latents_list = []
     pm_feature_list = []
-    ### 24 APR - FIX MULTIPLE REF CASE ###
-    refs_per_sample = None
-    ### 24 APR - FIX MULTIPLE REF CASE ###
 
     image_h, image_w = pixel_values.shape[-2:]
     latent_h, latent_w = noisy_latents.shape[-2:]
 
     for i, (prompt, refs, bbox) in enumerate(zip(prompts, ref_images, face_bbox)):
         refs = refs if isinstance(refs, (list, tuple)) else [refs]
-        ### 24 APR - FIX MULTIPLE REF CASE ###
-        if refs_per_sample is None:
-            refs_per_sample = len(refs)
-        elif refs_per_sample != len(refs):
-            raise ValueError("All samples in one batch must have the same number of references")
-
-        ref_bboxes = None if face_bboxes_ref is None else face_bboxes_ref[i]
-        if ref_bboxes is None:
-            ref_bbox = None if face_bbox_ref is None else face_bbox_ref[i]
-            if ref_bbox is None:
-                raise ValueError("Training batch is missing reference bboxes")
-            ref_bboxes = [ref_bbox] * len(refs)
-        if len(ref_bboxes) != len(refs):
-            raise ValueError(f"Got {len(ref_bboxes)} ref bboxes for {len(refs)} refs")
-        ### 24 APR - FIX MULTIPLE REF CASE ###
+        if len(refs) != 1:
+            raise ValueError("Training batch must contain exactly one reference image per sample")
+        if face_bbox_ref is None:
+            raise ValueError("Training batch is missing reference bboxes")
+        ref_bbox = face_bbox_ref[i]
 
         prompt_embeds, pooled_prompt_embeds, class_tokens_mask = model.encode_prompt_with_trigger_word(
             prompt=prompt,
-            num_id_images=len(refs),
+            num_id_images=1,
             do_cfg=False,
         )
 
@@ -203,23 +187,17 @@ def prepare_branched_training_inputs(
                 id_embeds,
             )
 
-            ### 24 APR - FIX MULTIPLE REF CASE ###
-            reference_latents_i = []
-            ref_masks_i = []
-            for ref, ref_bbox in zip(refs, ref_bboxes):
-                reference_latents_i.append(model._encode_reference_latent(ref, target_shape=(latent_h, latent_w)))
-                if isinstance(ref, torch.Tensor):
-                    ref_h, ref_w = ref.shape[-2:]
-                else:
-                    ref_w, ref_h = ref.size
-                ref_masks_i.append(
-                    model._bbox_to_ref_mask(
-                        ref_bbox,
-                        latent_shape=(latent_h, latent_w),
-                        image_shape=(ref_h, ref_w),
-                    )
-                )
-            ### 24 APR - FIX MULTIPLE REF CASE ###
+            ref = refs[0]
+            reference_latent = model._encode_reference_latent(ref, target_shape=(latent_h, latent_w))
+            if isinstance(ref, torch.Tensor):
+                ref_h, ref_w = ref.shape[-2:]
+            else:
+                ref_w, ref_h = ref.size
+            ref_mask = model._bbox_to_ref_mask(
+                ref_bbox,
+                latent_shape=(latent_h, latent_w),
+                image_shape=(ref_h, ref_w),
+            )
 
             if model.face_embed_strategy == "id_embeds":
                 pm_features = model.id_encoder.extract_id_features(
@@ -230,10 +208,8 @@ def prepare_branched_training_inputs(
                 pm_feature_list.append(pm_features.to(device=model.device, dtype=model.unet.dtype))
 
         class_tokens_mask_list.append(class_tokens_mask)
-        ### 24 APR - FIX MULTIPLE REF CASE ###
-        ref_latents_list.append(torch.cat(reference_latents_i, dim=0))
-        ref_mask_list.append(torch.cat(ref_masks_i, dim=0))
-        ### 24 APR - FIX MULTIPLE REF CASE ###
+        ref_latents_list.append(reference_latent)
+        ref_mask_list.append(ref_mask)
         mask_list.append(
             model._bbox_to_mask(
                 bbox,
@@ -266,9 +242,6 @@ def prepare_branched_training_inputs(
     mask4 = torch.cat(mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
     mask4_ref = torch.cat(ref_mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
     reference_latents = torch.cat(ref_latents_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
-    ### 24 APR - FIX MULTIPLE REF CASE ###
-    refs_per_sample = int(refs_per_sample or 1)
-    ### 24 APR - FIX MULTIPLE REF CASE ###
 
     model._ref_latents_all = reference_latents
     model._face_prompt_embeds = prompt_embeds
@@ -284,9 +257,6 @@ def prepare_branched_training_inputs(
         id_features,
         mask4,
         mask4_ref,
-        ### 24 APR - FIX MULTIPLE REF CASE ###
-        refs_per_sample,
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         reference_latents,
     )
 
@@ -301,9 +271,6 @@ def run_branched_forward_pass(
     mask4: torch.Tensor,
     mask4_ref: torch.Tensor,
     reference_latents: torch.Tensor,
-    ### 24 APR - FIX MULTIPLE REF CASE ###
-    refs_per_sample: int = 1,
-    ### 24 APR - FIX MULTIPLE REF CASE ###
     face_prompt_embeds: torch.Tensor,
     class_tokens_mask: torch.Tensor,
     id_features: torch.Tensor | None,
@@ -318,9 +285,6 @@ def run_branched_forward_pass(
         mask4=mask4,
         mask4_ref=mask4_ref,
         reference_latents=reference_latents,
-        ### 24 APR - FIX MULTIPLE REF CASE ###
-        refs_per_sample=refs_per_sample,
-        ### 24 APR - FIX MULTIPLE REF CASE ###
         face_prompt_embeds=face_prompt_embeds,
         class_tokens_mask=class_tokens_mask,
         face_embed_strategy=model.face_embed_strategy,
