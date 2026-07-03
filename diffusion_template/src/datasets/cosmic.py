@@ -942,6 +942,9 @@ class CosmicLargeTrain(BaseDataset):
         origtarget_genref=True,
         crop_nonface_min=0.2,
         crop_nonface_max=0.4,
+        ref_crop_margin_min=0.2,
+        ref_crop_margin_max=None,
+        ref_downscale_jitter=0.0,
         train_on_separate_image=False,
         same_id_ref_map_json_pth=None,
         *args,
@@ -980,6 +983,22 @@ class CosmicLargeTrain(BaseDataset):
             raise ValueError(
                 "CosmicLargeTrain requires 0 <= crop_nonface_min <= crop_nonface_max < 1; "
                 f"got {self.crop_nonface_min} and {self.crop_nonface_max}"
+            )
+
+        # Reference-crop augmentation (defaults keep the legacy fixed +20% margin crop).
+        self.ref_crop_margin_min = float(ref_crop_margin_min)
+        self.ref_crop_margin_max = float(
+            ref_crop_margin_max if ref_crop_margin_max is not None else ref_crop_margin_min
+        )
+        if self.ref_crop_margin_max < self.ref_crop_margin_min or self.ref_crop_margin_min < 0:
+            raise ValueError(
+                "CosmicLargeTrain requires 0 <= ref_crop_margin_min <= ref_crop_margin_max; "
+                f"got {self.ref_crop_margin_min} and {self.ref_crop_margin_max}"
+            )
+        self.ref_downscale_jitter = float(ref_downscale_jitter)
+        if not 0.0 <= self.ref_downscale_jitter <= 1.0:
+            raise ValueError(
+                f"ref_downscale_jitter must be in [0, 1], got {self.ref_downscale_jitter}"
             )
 
         images_root = Path(self.images_path) if self.images_path is not None else None
@@ -1298,9 +1317,20 @@ class CosmicLargeTrain(BaseDataset):
 
         ref_img = Image.open(self._face_full_path(face_path)).convert("RGB")
         face_bbox = self._get_face_bbox(img_data, face_path)
-        ref_face, ref_bbox = self._get_bigger_crop_with_bbox(ref_img, face_bbox)
+        ref_margin = random.uniform(self.ref_crop_margin_min, self.ref_crop_margin_max)
+        ref_face, ref_bbox = self._get_bigger_crop_with_bbox(ref_img, face_bbox, scale=ref_margin)
         if ref_bbox is None:
             raise ValueError(f"Invalid reference face bbox after crop: {face_path}")
+        # Sharpness jitter: occasional downscale + re-upscale so the branches see a
+        # range of ref sharpness instead of a single crop/blur style. Bboxes are
+        # unaffected (final size unchanged).
+        if self.ref_downscale_jitter > 0 and random.random() < self.ref_downscale_jitter:
+            w0, h0 = ref_face.size
+            factor = random.uniform(0.5, 0.9)
+            small = ref_face.resize(
+                (max(8, int(w0 * factor)), max(8, int(h0 * factor))), Image.BILINEAR
+            )
+            ref_face = small.resize((w0, h0), Image.BILINEAR)
         if random.random() < 0.5:
             w, _ = ref_face.size
             ref_face = ImageOps.mirror(ref_face)

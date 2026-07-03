@@ -101,9 +101,11 @@ def main():
 
     # Instantiate model (PhotoMaker v2 + LoRA adapters)
     model = instantiate(cfg.model, device=device)
-    for attr in ("disable_branched_sa", "disable_branched_ca", "strict_face_routing"):
+    for attr in ("disable_branched_sa", "disable_branched_ca", "strict_face_routing", "ba_uncond_face_fix"):
         if attr in top_keys:
             setattr(model, attr, bool(getattr(cfg, attr)))
+    if "ba_face_prompt_mode" in top_keys:
+        setattr(model, "ba_face_prompt_mode", str(getattr(cfg, "ba_face_prompt_mode")).lower())
     # Ensure LoRA adapter slot "lora_adapter" exists before loading checkpoints
     if hasattr(model, "prepare_for_training"):
         try:
@@ -125,9 +127,14 @@ def main():
     accel = _NoAccelerator()
     pipeline = instantiate(cfg.pipeline, model=model, accelerator=accel, _recursive_=False)
     pipeline.to(device)
-    for attr in ("disable_branched_sa", "disable_branched_ca", "strict_face_routing", "ba_patch_top_k"):
+    for attr in ("disable_branched_sa", "disable_branched_ca", "strict_face_routing", "ba_patch_top_k", "ba_uncond_face_fix"):
         if attr in top_keys:
             setattr(pipeline, attr, getattr(cfg, attr))
+    if "ba_face_prompt_mode" in top_keys:
+        setattr(pipeline, "ba_face_prompt_mode", str(getattr(cfg, "ba_face_prompt_mode")).lower())
+    # Optional VRAM relief for small GPUs (e.g. 16GB laptop cards)
+    if bool(getattr(cfg, "enable_vae_tiling", False)) and hasattr(pipeline, "enable_vae_tiling"):
+        pipeline.enable_vae_tiling()
     # Ensure custom components attached to the pipeline (e.g., id_encoder) are on device
     if hasattr(pipeline, "id_encoder"):
         try:

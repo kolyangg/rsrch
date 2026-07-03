@@ -69,6 +69,8 @@ class PhotomakerBranchedLora(SDXL):
         train_ba_all_steps: bool = False,
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
+        ba_uncond_face_fix: bool = False,  # F1: keep plain negative prompt for the uncond face branch under CFG
+        ba_face_prompt_mode: str = "id_only",  # B1: face-branch prompt: id_only (legacy) | full_boosted
         photomaker_start_step: int = 10,
         merge_start_step: int = 10,
         branched_attn_start_step: int = 15,
@@ -160,6 +162,10 @@ class PhotomakerBranchedLora(SDXL):
         self.id_alpha = float(id_alpha)
         # Global on/off switch for BranchedAttnProcessor.id_to_hidden usage
         self.use_id_embeds = bool(use_id_embeds)
+        # F1: uncond face prompt handling under CFG (see branched_runtime.two_branch_predict)
+        self.ba_uncond_face_fix = bool(ba_uncond_face_fix)
+        # B1: face-branch prompt construction mode (see branched_runtime.two_branch_predict)
+        self.ba_face_prompt_mode = str(ba_face_prompt_mode or "id_only").lower()
         self.train_ba_only = bool(train_ba_only)
         ### 28 Nov: train only BA layers ###
         ### 29 Nov - Clean separataion of BA-specific parameters ###

@@ -1,0 +1,118 @@
+# A/B debug config for the branched-attention validation artifacts.
+# Mirrors the training run serv_new_runs/start_ba_cosm_new1_vast.sh
+# (one_id_09Feb_testing + CLI overrides) as closely as infer.py allows.
+#
+# NOTE: infer.py loads this with OmegaConf.load (NO hydra defaults resolution),
+# so the file must stay flat and self-contained.
+#
+# Baseline = validation behavior: RealVisXL trunk, guidance 5, branched attention
+# from step 15, auto gen-bboxes via YOLO, bbox ref masks from ref_bboxes.json.
+# See debug_planning_03Jul/ba_debug_plan_v1.md for the full T0-T7 matrix.
+
+model:
+  _target_: src.model.photomaker_branched.lora2.PhotomakerBranchedLora
+  pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
+  photomaker_path: null   # resolution order: this value -> $PM_PATH -> HF cache glob
+  weight_dtype: bf16      # infer.py overrides based on GPU support
+  target_size: 1024
+  rank: 32                # must match checkpoint lora_A shapes (training used model.rank=32)
+  photomaker_lora_rank: 64
+  lora_modules: [to_q, to_k, to_v, to_out.0]
+  init_lora_weights: gaussian
+  trigger_word: img
+  pose_adapt_ratio: ${pipeline.pose_adapt_ratio}
+  ca_mixing_for_face: ${pipeline.ca_mixing_for_face}
+  face_embed_strategy: ${pipeline.face_embed_strategy}
+  train_branch_mode: ${pipeline.train_branch_mode}
+  use_attn_v2: false
+  use_id_embeds: false
+  id_alpha: 0.3
+  branched_attn_weight_mode: noise_and_ref
+  branched_attn_new_weight_kind: lora
+  train_branched_ca_lora: true
+  train_ba_only: true
+  ba_train_top_k: 1.0
+  ba_patch_top_k: 1.0
+  non_ba_train: false
+  train_ba_all_steps: true
+  photomaker_start_step: 10
+  merge_start_step: 10
+  branched_attn_start_step: 15
+  num_inference_steps: 50
+
+pipeline:
+  _target_: src.pipelines.photomaker_branched_clean.PhotomakerBranchedPipeline.from_pretrained
+  pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
+  torch_dtype: bfloat16
+  use_safetensors: true
+  variant: null           # training run used pipeline.variant=null
+  photomaker_start_step: 10
+  merge_start_step: 10
+  branched_attn_start_step: 15
+  branched_start_mode: both
+  train_branch_mode: both
+  pose_adapt_ratio: 0
+  ca_mixing_for_face: false
+  face_embed_strategy: id
+  use_id_embeds: false
+  id_alpha: 0.3
+  photomaker_use_lora_adapter: false
+  auto_mask_ref: false
+  use_dynamic_mask: false
+  use_bbox_mask_ref: true
+  use_bbox_mask_gen: true
+
+validation_args:
+  negative_prompt: "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry"
+  debug_dir: hm_debug_ba2k
+  val_debug: false
+  num_images_per_prompt: 1
+  num_inference_steps: 50
+  guidance_scale: 5
+  height: 1024
+  width: 1024
+  target_size: [1024, 1024]
+  original_size: [1024, 1024]
+  crops_coords_top_left: [0, 0]
+  use_branched_attention: true
+  face_embed_strategy: id
+  photomaker_start_step: 10
+  photomaker_use_lora_adapter: false
+  merge_start_step: 10
+  branched_attn_start_step: 15
+  mask_expansion_ratio: 1.0
+  mask_softness: 0.0
+  branched_start_mode: both
+  auto_mask_ref: false
+  use_dynamic_mask: false
+  use_bbox_mask_ref: true
+  use_bbox_mask_gen: true
+
+# Toggles read by infer.py and the branched runtime (override per test)
+disable_branched_sa: false
+disable_branched_ca: false
+strict_face_routing: false
+ba_patch_top_k: 1.0
+ba_uncond_face_fix: false
+
+# Auto gen-bbox settings (shared store so every test uses identical gen masks;
+# override bbox_mask_gen_path when the PhotoMaker pass itself changes, e.g. T2)
+automatic_bboxes: true
+automatic_bboxes_every_val: false
+face_detector: yolo
+face_model: bbox_utils/yolov8n-face.pt
+bbox_mask_gen_path: outputs/ba_debug/bbox_gen_auto_realvis.json
+
+saved_checkpoint: saved/03Jul_start_ba_cosm_new1_vast/weights-epoch1.pth
+output_dir: outputs/ba_debug/T0
+batch_size: 1
+
+dataset:
+  _target_: src.datasets.manual_val.ManualPhotoMakerValDataset
+  images_dir: ../dataset_full/val_dataset/references_two
+  prompts_path: debug_planning_03Jul/prompts_debug4.txt
+  classes_json_path: ../dataset_full/val_dataset/classes_ref.json
+  bbox_mask_ref: ../dataset_full/val_dataset/ref_bboxes.json
+  bbox_mask_gen: null
+  seeds: [0]
+  limit: null

@@ -1127,6 +1127,8 @@ def build_pipeline_from_pretrained(
     pipeline.use_id_embeds = bool(use_id_embeds_cfg)
     pipeline.id_alpha = float(id_alpha_cfg)
     pipeline.strict_face_routing = bool(getattr(unwrapped_model, "strict_face_routing", False))
+    pipeline.ba_uncond_face_fix = bool(getattr(unwrapped_model, "ba_uncond_face_fix", False))
+    pipeline.ba_face_prompt_mode = str(getattr(unwrapped_model, "ba_face_prompt_mode", "id_only") or "id_only").lower()
     pipeline.branched_attn_weight_mode = getattr(unwrapped_model, "branched_attn_weight_mode", "shared")
     pipeline.branched_attn_new_weight_kind = getattr(unwrapped_model, "branched_attn_new_weight_kind", "full")
     pipeline.branched_attn_lora_rank = int(

@@ -473,11 +473,43 @@ def two_branch_predict(
             one = torch.tensor(1.0, device=dev, dtype=d)
             id_scale = torch.tensor(getattr(pipeline, "id_token_scale", 2.5),
                                    device=dev, dtype=d)
-            # face_prompt_embeds = face_prompt_embeds * (one - m) + face_prompt_embeds * m * id_scale
-            
-            # Use only ID tokens for the face branch (no leakage from other words)
-            face_prompt_embeds = face_prompt_embeds * m * id_scale
-           
+            ##### BRANCHED ATTENTION - FACE PROMPT MODE (B1) #####
+            # "id_only" (legacy, default): zero every token except the ID tokens.
+            #   Side effect: ~75/77 zero K/V tokens act as attention sinks in the
+            #   ref branch cross-attention.
+            # "full_boosted": keep the full fused prompt and boost the ID tokens
+            #   (the pre-Feb-18 known-good variant).
+            face_prompt_mode = str(getattr(pipeline, "ba_face_prompt_mode", "id_only") or "id_only").lower()
+            if face_prompt_mode == "full_boosted":
+                masked_face_prompt_embeds = (
+                    face_prompt_embeds * (one - m) + face_prompt_embeds * m * id_scale
+                )
+            else:
+                # Use only ID tokens for the face branch (no leakage from other words)
+                masked_face_prompt_embeds = face_prompt_embeds * m * id_scale
+            ##### BRANCHED ATTENTION - FACE PROMPT MODE (B1) #####
+
+            ##### BRANCHED ATTENTION - UNCOND FACE PROMPT FIX (F1) #####
+            # Legacy behavior also masks the NEGATIVE-prompt half with the
+            # POSITIVE prompt's ID-token positions, which feeds garbage uncond
+            # conditioning into the face branch; CFG then extrapolates
+            # uncond + gs*(cond-uncond) in the face region. Training never sees
+            # this pathway (no CFG at training). With ba_uncond_face_fix=True
+            # the uncond half keeps the plain negative-prompt embeds and only
+            # the cond half gets the ID-token masking.
+            uncond_fix = bool(getattr(pipeline, "ba_uncond_face_fix", False))
+            do_cfg = bool(getattr(pipeline, "do_classifier_free_guidance", False))
+            fp_batch = int(face_prompt_embeds.shape[0])
+            if uncond_fix and do_cfg and fp_batch % 2 == 0:
+                half = fp_batch // 2
+                face_prompt_embeds = torch.cat(
+                    [face_prompt_embeds[:half], masked_face_prompt_embeds[half:]],
+                    dim=0,
+                )
+            else:
+                face_prompt_embeds = masked_face_prompt_embeds
+            ##### BRANCHED ATTENTION - UNCOND FACE PROMPT FIX (F1) #####
+
         else:
          print(f"[2BP]   WARNING: class_tokens_mask is None, falling back to face text")
          # Fallback to face text encoding

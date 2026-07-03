@@ -105,6 +105,12 @@ def install_branched_processors_for_training(model) -> None:
                 for p in proc.parameters():
                     p.requires_grad_(True)
 
+        # Keep a handle on the freshly installed branched processors so that
+        # ensure_branched_after_eval() can re-attach these exact instances
+        # (with their trained weights, still referenced by the optimizer)
+        # instead of rebuilding new ones from the base attention weights.
+        model._branched_attn_processors_train = dict(model.unet.attn_processors)
+
         if model.face_embed_strategy == "id_embeds" and not model.use_attn_v2:
             for name, proc in model.unet.attn_processors.items():
                 if not name.endswith("attn1.processor"):
@@ -302,6 +308,17 @@ def ensure_branched_after_eval(model) -> None:
     if not hasattr(model, "device"):
         model.device = dev
     dt = model.unet.dtype
+
+    # If validation swapped the shared UNet back to the original processors
+    # (set_validation_unet_mode(branched_active=False)), re-attach the SAME
+    # trained processor instances. Rebuilding via patch_unet_attention_processors
+    # would create fresh clones (zero LoRA deltas) and silently detach training:
+    # the optimizer would keep updating orphaned modules.
+    trained_procs = getattr(model, "_branched_attn_processors_train", None)
+    if trained_procs:
+        current = model.unet.attn_processors
+        if any(current.get(name) is not proc for name, proc in trained_procs.items()):
+            model.unet.set_attn_processor(dict(trained_procs))
 
     z = torch.zeros(1, 1, 1, 1, device=dev, dtype=dt)
     idem = torch.zeros(1, 2048, device=dev, dtype=dt)

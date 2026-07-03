@@ -239,6 +239,39 @@ class PhotomakerLoraTrainer(SDXLTrainer):
     def __init__(self, masked_loss_step, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.masked_loss_step = masked_loss_step
+
+    def _update_ba_weight_norms(self, train_metrics):
+        """Drift canary: L2 norm of branched-processor lora_B weights per group.
+
+        lora_B starts at zero, so these norms are a clean monotone signal of how
+        far each branch group has moved. The cosm_new1 failure showed doubling
+        per 2k steps (worst in ca_noise); healthy runs should grow sublinearly.
+        Groups log 0 when a branch has no LoRA params (e.g. ref_only mode -> *_noise).
+        """
+        try:
+            unwrapped = self.accelerator.unwrap_model(self.model)
+        except Exception:
+            unwrapped = self.model
+        sums = {"sa_ref": 0.0, "sa_noise": 0.0, "ca_ref": 0.0, "ca_noise": 0.0}
+        with torch.no_grad():
+            for name, p in unwrapped.named_parameters():
+                if ".processor." not in name or "lora_B" not in name:
+                    continue
+                if ".attn1.processor." in name:
+                    kind = "sa"
+                elif ".attn2.processor." in name:
+                    kind = "ca"
+                else:
+                    continue
+                if ".ref_to_" in name:
+                    branch = "ref"
+                elif ".noise_to_" in name:
+                    branch = "noise"
+                else:
+                    continue
+                sums[f"{kind}_{branch}"] += float(p.detach().float().pow(2).sum().item())
+        for group, sq_sum in sums.items():
+            train_metrics.update(f"ba_norm/{group}", sq_sum ** 0.5)
         
     def process_batch(self, batch, train_metrics: MetricTracker):
         ### 25 APR - ADD GRAD ACCUM ###
@@ -304,6 +337,11 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 if self.lr_scheduler is not None:
                     self.lr_scheduler.step()
             ### 25 APR - ADD GRAD ACCUM ###
+
+            # Branched-attention drift canary, logged on the same cadence as
+            # the scalar logs (base_trainer flushes train_metrics every log_step).
+            if batch["batch_idx"] % self.log_step == 0:
+                self._update_ba_weight_norms(train_metrics)
 
         # update metrics for each loss (in case of multiple losses)
         for loss_name in self.config.writer.loss_names:
