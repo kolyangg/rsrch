@@ -16,19 +16,24 @@ set -euo pipefail
 #   lr 5e-5 + grad clip 1.0 + wd 1e-2      drift hygiene
 #   pretrained_model_for_validation_name_or_path=null  validate on the training base
 #                                          (safe after the ensure_branched_after_eval fix)
-#   val refs = training-style face crops   run scripts/crop_refs_to_face.py once (below)
+#   val dataset = manual_val_two (default)  SAME dataset as start_ba_cosm_new1_vast.sh
+#                                          (../dataset_full/val_dataset/references_two)
 #   train ref-crop jitter                  margin U(0.2,0.6) + sharpness jitter p=0.5
+#                                          (runtime augmentation on the same cosmic_large_vast set)
 #   ba_norm/* Comet curves                 drift canary (sa/ca x ref/noise), every 50 steps
 #
-# One-time prep on this machine (safe to re-run):
-#   python scripts/crop_refs_to_face.py \
-#     --images-dir ../dataset_full/val_dataset/references_two \
-#     --bbox-json  ../dataset_full/val_dataset/ref_bboxes.json \
-#     --out-dir    ../dataset_full/val_dataset/references_two_cropped \
-#     --out-json   ../dataset_full/val_dataset/ref_bboxes_two_cropped.json
+# Self-contained: COMET_API_KEY and PM_PATH are baked in below (same values as
+# start_ba_cosm_new1_vast.sh / serv_new_runs/.env), so this runs with a single command
+# and needs no exported variables. Override by exporting COMET_API_KEY / PM_PATH first.
 
 export HYDRA_FULL_ERROR=1
 export CUDA_LAUNCH_BLOCKING="${CUDA_LAUNCH_BLOCKING:-1}"
+
+# Baked-in secrets/paths so the run needs no exported variables (single command).
+# Both fall back to these defaults but can be overridden by exporting them first.
+PM_PATH="${PM_PATH:-/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/checkpoints/PhotoMaker-V2/photomaker-v2.bin}"
+COMET_API_KEY="${COMET_API_KEY:-wSzl6h2PsRcopvISb2TJvtkzH}"
+export PM_PATH COMET_API_KEY
 
 log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
@@ -41,7 +46,7 @@ if ACCELERATE_LOG_LEVEL=error \
     COMET_DISABLE_AUTO_LOGGING=1 \
     COMET_LOGGING_CONSOLE=ERROR \
     CUDA_VISIBLE_DEVICES=0 \
-    COMET_API_KEY="${COMET_API_KEY:?export COMET_API_KEY first}" \
+    COMET_API_KEY="${COMET_API_KEY}" \
     accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=1 train.py \
         --config-name=one_id_09Feb_testing \
         datasets=all_datasets \
@@ -51,8 +56,6 @@ if ACCELERATE_LOG_LEVEL=error \
         +datasets.train.cosmic_large_vast.ref_crop_margin_max=0.6 \
         +datasets.train.cosmic_large_vast.ref_downscale_jitter=0.5 \
         val_datasets_names='[manual_val_two]' \
-        datasets.val.manual_val_two.images_dir=../dataset_full/val_dataset/references_two_cropped \
-        datasets.val.manual_val_two.bbox_mask_ref=../dataset_full/val_dataset/ref_bboxes_two_cropped.json \
         trainer.epoch_len=2000 \
         dataloaders.train.batch_size=2 \
         dataloaders.train.num_workers=12 \

@@ -153,3 +153,33 @@ Implementation log (this session):
   scripts, configs, N1/Rx launch scripts, planning docs, and the cropped val-ref sets
   (dataset_full/val_dataset/references{,_two}_cropped + jsons, <1MB) so N1 is self-contained
   after `git pull` on vast. Excluded transient local caches (pm96_bboxes_new_auto.json*).
+
+### Post-commit: made N1 a true single-command run + matched the original's dataset
+User asked to copy the env handling from `start_ba_cosm_new1_vast.sh` into
+`start_ba_ref_only_vast_N1.sh` so it runs with one command (no exported vars), and to
+double-check it uses the same dataset as the original.
+- **Self-contained secrets.** The original hardcodes `COMET_API_KEY` inline but still needs
+  `${PM_PATH}` exported; `serv_new_runs/.env` (which holds both) is **gitignored**, so it
+  won't arrive via `git pull`. Baked both into N1 near the top as override-friendly defaults:
+  `PM_PATH="${PM_PATH:-/mnt/.../photomaker-v2.bin}"`,
+  `COMET_API_KEY="${COMET_API_KEY:-wSzl6h2PsRcopvISb2TJvtkzH}"` (values from `.env`), then
+  `export`. Safe under `set -u`. Changed the env-prefix `COMET_API_KEY="${COMET_API_KEY:?...}"`
+  → `"${COMET_API_KEY}"`. Now `bash serv_new_runs/start_ba_ref_only_vast_N1.sh` is the whole run.
+- **Dataset now matches the original.** Removed the val override
+  `datasets.val.manual_val_two.images_dir=...references_two_cropped` +
+  `bbox_mask_ref=...ref_bboxes_two_cropped.json`. N1 now uses the default `manual_val_two`
+  (`references_two` + `ref_bboxes.json`, limit 24) — identical to
+  `start_ba_cosm_new1_vast.sh`. Verified by `grep` diff of dataset hydra args: training
+  (`cosmic_large_vast`, num_refs=1) and val (`manual_val_two`, limit=24) match; the only
+  training-side delta is the 3 ref-crop/downscale jitter knobs, which are runtime
+  augmentation on the *same* `cosmic_large_vast` files.
+- **Correction to a prior worklog claim.** The cropped val refs *are* tracked in git — at
+  **repo-root** `dataset_full/val_dataset/references{,_two}_cropped` (the config's
+  `../dataset_full/...` from `diffusion_template/` resolves there). My first `git ls-files`
+  check ran from `diffusion_template/` with a repo-root-relative pathspec and wrongly reported
+  0 tracked; corrected after checking from the repo root. So reverting to the default val set
+  is a deliberate comparability choice (same val inputs as the failing run), not a
+  missing-file workaround. Both `references_two` and `references_two_cropped` hold the same 2
+  identities (jensen, keanu) — original vs face-tight framing.
+- `bash -n` clean; no stale `cropped`/`crop_refs`/`:?export` strings remain in the script.
+  Runbook v3 "Run it (vast)" + val-set notes updated to the one-command flow.

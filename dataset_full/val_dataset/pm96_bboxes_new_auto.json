@@ -1,0 +1,28 @@
+{
+  "Reading pa_jensen.png": {
+    "face_crop_old": [
+      623,
+      0,
+      940,
+      285
+    ],
+    "face_crop_new": [
+      645,
+      0,
+      918,
+      264
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "debug_idx": 0,
+      "prompt": "Reading paper man img, park bench, calm face, grey overcoat",
+      "id": "jensen",
+      "seed": 0
+    }
+  }
+}

@@ -17,28 +17,35 @@ Branched attention stays fully trainable — but only where the mechanism needs 
 - Blended masked loss (λ=0.2), lr 5e-5, grad clip 1.0, wd 1e-2, warmup 2000.
 - Validation on the training base (`pretrained_model_for_validation_name_or_path=null`) —
   safe after the F9 `ensure_branched_after_eval` fix.
-- Train ref-crop jitter: margin ∼U(0.2, 0.6) + sharpness jitter (p=0.5); val refs = cropped
-  training-style set.
+- Train ref-crop jitter: margin ∼U(0.2, 0.6) + sharpness jitter (p=0.5). Val set = the
+  default `manual_val_two` (references_two) — same as the failing run, so N1 vs cosm_new1 is
+  a clean A/B on identical val inputs. (Domain-aligned cropped val refs — same 2 identities,
+  face-tight, committed — were dropped for comparability; revisit if val-domain mismatch
+  looks material.)
 - Live drift canary in Comet: `ba_norm/{sa_ref, sa_noise, ca_ref, ca_noise}` every 50 steps
   (L2 of processor `lora_B`; starts at 0; noise groups stay 0 in ref_only mode by design).
 
 ## Run it (vast)
 
+Single command — `COMET_API_KEY` and `PM_PATH` are baked into the script, and the val set
+is the default `manual_val_two` (identical to `start_ba_cosm_new1_vast.sh`), so there is no
+prep step and nothing to export:
+
 ```bash
 cd /workspace/rsrch/diffusion_template && git pull        # or rsync
-export COMET_API_KEY=...  PM_PATH=/path/to/photomaker-v2.bin
-
-# one-time: build the cropped val refs (safe to re-run)
-python scripts/crop_refs_to_face.py \
-  --images-dir ../dataset_full/val_dataset/references_two \
-  --bbox-json  ../dataset_full/val_dataset/ref_bboxes.json \
-  --out-dir    ../dataset_full/val_dataset/references_two_cropped \
-  --out-json   ../dataset_full/val_dataset/ref_bboxes_two_cropped.json
-
 bash serv_new_runs/start_ba_ref_only_vast_N1.sh
 ```
 
+Override the baked-in secrets by exporting `COMET_API_KEY` / `PM_PATH` first if desired.
 Extra hydra overrides can be appended to the script invocation (they pass through `"$@"`).
+
+> Update (03 Jul, post-plan): the earlier cropped-val-refs override was **removed** at the
+> user's request ("use the same dataset as start_ba_cosm_new1_vast.sh"). N1 now validates on
+> the exact same default `manual_val_two` = `references_two` set (jensen, keanu) as
+> cosm_new1_vast — a clean A/B on identical val inputs. (The `references_two_cropped` set is
+> the same two identities face-tight and *is* committed to git, so this was a deliberate
+> comparability choice, not a missing-file workaround.) Training still uses the same
+> `cosmic_large_vast` set; the ref-crop/sharpness jitter is runtime augmentation on that data.
 
 ## What to watch (success criteria)
 
