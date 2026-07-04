@@ -183,3 +183,18 @@ double-check it uses the same dataset as the original.
   identities (jensen, keanu) — original vs face-tight framing.
 - `bash -n` clean; no stale `cropped`/`crop_refs`/`:?export` strings remain in the script.
   Runbook v3 "Run it (vast)" + val-set notes updated to the one-command flow.
+
+### 04 Jul: N1 first-validation crash — fixed (see ba_val_crash_fix_04Jul.md)
+`ba_refonly_N1` crashed at the first val step 0 with
+`RuntimeError: Invalid branched batch: total=8, generation=2, reference=6`
+(`attn_processor_cleanest._branch_batch_sizes`). Root cause: `set_validation_unet_mode`
+trusted the cached `_runtime_uses_branched_unet` flag, which desyncs from the actual UNet
+processors when validating on the training base (shared UNet, reused pipe) + F9's
+`ensure_branched_after_eval` re-attaching branched processors post-val. The stale flag skipped
+the swap-to-original, so branched processors (stale batch-2 training mask) ran on the normal
+batch-8 val input. `cosm_new1` avoided it by validating on a separate base (fresh pipe each
+time). Fix: `set_validation_unet_mode` now decides from the actually-attached processor types
+(self-healing) + `base_trainer` resets the flag to None at each validation start. Verified via
+`scratchpad/test_val_unet_mode_fix.py` (4/4, incl. exact bug repro). The
+`_branch_batch_sizes` assertion is kept (it caught the bug). Touches only
+`src/pipelines/br_pipeline_helpers.py` and `src/trainer/base_trainer.py`.

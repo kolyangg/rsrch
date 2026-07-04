@@ -578,6 +578,14 @@ class BaseTrainer:
                 for attr in ('_call_debug_counter', '_current_debug_idx', '_current_debug_total'):
                     if hasattr(self.pipe, attr):
                         setattr(self.pipe, attr, 0)
+                # Force branched/original processor selection to be recomputed on the
+                # first denoising step of this validation. When validating on the
+                # training base, ensure_branched_after_eval() re-attaches branched
+                # processors to the shared UNet after the previous validation without
+                # updating this cache; a stale value would skip the swap-to-original
+                # and run branched attention on a normal (undoubled) batch.
+                if self.pipe is not None:
+                    self.pipe._runtime_uses_branched_unet = None
             self._val_generation_counter = 0
             if self.accelerator.is_main_process:
                 val_dir = Path("hm_debug") / "val_generation"

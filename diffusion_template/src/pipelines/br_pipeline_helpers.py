@@ -445,7 +445,29 @@ def _get_unet_active_adapters(unet):
 
 
 def set_validation_unet_mode(pipeline, *, branched_active: bool) -> None:
-    if getattr(pipeline, "_runtime_uses_branched_unet", None) == branched_active:
+    # Decide whether a processor swap is needed from the *actual* processors
+    # attached to the UNet, not just the cached _runtime_uses_branched_unet flag.
+    # Other code paths (notably ensure_branched_after_eval, which re-attaches the
+    # trained branched processors to the shared training UNet after each
+    # validation when validating on the training base) can change the attached
+    # processors without updating that flag. Trusting a stale flag could leave
+    # branched processors attached for a non-branched denoising step, whose normal
+    # (undoubled) batch then fails the doubled-batch split in
+    # attn_processor_cleanest._branch_batch_sizes ("Invalid branched batch ...").
+    try:
+        from src.model.photomaker_branched.attn_processor_cleanest import (
+            BranchedAttnProcessor,
+            BranchedCrossAttnProcessor,
+        )
+        currently_branched = any(
+            isinstance(p, (BranchedAttnProcessor, BranchedCrossAttnProcessor))
+            for p in pipeline.unet.attn_processors.values()
+        )
+    except Exception:
+        currently_branched = getattr(pipeline, "_runtime_uses_branched_unet", None)
+
+    if currently_branched == branched_active:
+        pipeline._runtime_uses_branched_unet = branched_active
         return
 
     if branched_active:
