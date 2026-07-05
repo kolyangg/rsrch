@@ -1,0 +1,113 @@
+# Run the INITIAL model (03Jul_start_ba_cosm_new1_vast, noise_and_ref, weights-epoch14) through
+# the SAME corrected inference as the new model (RealVisXL base + id_only + ba_uncond_face_fix),
+# on the SAME 24-panel + SAME gen-bbox cache. Only the weights / branched_attn_weight_mode differ
+# vs ba_n1_realvis.yaml, so this isolates noise_and_ref (both pathways) vs ref_only.
+# See debug_04Jul/04Jul_findings.md.
+
+model:
+  _target_: src.model.photomaker_branched.lora2.PhotomakerBranchedLora
+  pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
+  photomaker_path: null
+  weight_dtype: bf16
+  target_size: 1024
+  rank: 32
+  photomaker_lora_rank: 64
+  lora_modules: [to_q, to_k, to_v, to_out.0]
+  init_lora_weights: gaussian
+  trigger_word: img
+  pose_adapt_ratio: ${pipeline.pose_adapt_ratio}
+  ca_mixing_for_face: ${pipeline.ca_mixing_for_face}
+  face_embed_strategy: ${pipeline.face_embed_strategy}
+  train_branch_mode: ${pipeline.train_branch_mode}
+  use_attn_v2: false
+  use_id_embeds: false
+  id_alpha: 0.3
+  branched_attn_weight_mode: noise_and_ref     # <-- initial model trains BOTH ref + noise
+  branched_attn_new_weight_kind: lora
+  train_branched_ca_lora: true
+  train_ba_only: true
+  ba_train_top_k: 1.0
+  ba_patch_top_k: 1.0
+  non_ba_train: false
+  train_ba_all_steps: true
+  photomaker_start_step: 10
+  merge_start_step: 10
+  branched_attn_start_step: 15
+  num_inference_steps: 50
+
+pipeline:
+  _target_: src.pipelines.photomaker_branched_clean.PhotomakerBranchedPipeline.from_pretrained
+  pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
+  torch_dtype: bfloat16
+  use_safetensors: true
+  variant: null
+  photomaker_start_step: 10
+  merge_start_step: 10
+  branched_attn_start_step: 15
+  branched_start_mode: both
+  train_branch_mode: both
+  pose_adapt_ratio: 0
+  ca_mixing_for_face: false
+  face_embed_strategy: id
+  use_id_embeds: false
+  id_alpha: 0.3
+  photomaker_use_lora_adapter: false
+  auto_mask_ref: false
+  use_dynamic_mask: false
+  use_bbox_mask_ref: true
+  use_bbox_mask_gen: true
+
+validation_args:
+  negative_prompt: "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry"
+  debug_dir: hm_debug_old_noiseref
+  val_debug: false
+  num_images_per_prompt: 1
+  num_inference_steps: 50
+  guidance_scale: 5
+  height: 1024
+  width: 1024
+  target_size: [1024, 1024]
+  original_size: [1024, 1024]
+  crops_coords_top_left: [0, 0]
+  use_branched_attention: true
+  face_embed_strategy: id
+  photomaker_start_step: 10
+  photomaker_use_lora_adapter: false
+  merge_start_step: 10
+  branched_attn_start_step: 15
+  mask_expansion_ratio: 1.0
+  mask_softness: 0.0
+  branched_start_mode: both
+  auto_mask_ref: false
+  use_dynamic_mask: false
+  use_bbox_mask_ref: true
+  use_bbox_mask_gen: true
+  gen_bbox_retrack: false
+
+disable_branched_sa: false
+disable_branched_ca: false
+strict_face_routing: false
+ba_patch_top_k: 1.0
+ba_uncond_face_fix: true          # corrected inference (F1) — same as the new model
+ba_face_prompt_mode: id_only      # corrected inference — same as the new model
+enable_vae_tiling: true
+
+automatic_bboxes: true
+automatic_bboxes_every_val: false
+face_detector: yolo
+face_model: bbox_utils/yolov8n-face.pt
+bbox_mask_gen_path: outputs/ba_debug/bbox_gen_auto_n1_realvis.json   # REUSE the new run's cache -> identical gen masks
+
+saved_checkpoint: saved/03Jul_start_ba_cosm_new1_vast/weights-epoch14.pth
+output_dir: outputs/ba_debug/OLD_noiseref_realvis
+batch_size: 1
+
+dataset:
+  _target_: src.datasets.manual_val.ManualPhotoMakerValDataset
+  images_dir: ../dataset_full/val_dataset/references_two
+  prompts_path: ../dataset_full/val_dataset/prompts_10.txt
+  classes_json_path: ../dataset_full/val_dataset/classes_ref.json
+  bbox_mask_ref: ../dataset_full/val_dataset/ref_bboxes.json
+  bbox_mask_gen: null
+  seeds: [0]
+  limit: null

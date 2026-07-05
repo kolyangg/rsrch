@@ -593,7 +593,21 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                
         auto_mask_ref: bool = True,
         use_dynamic_mask: bool = True, # generation mask
-        
+
+        # C6 gen-bbox re-tracking: instead of freezing the generation face box from the
+        # pre-branch PhotoMaker preview, re-detect it on the *branched* trajectory (decode the
+        # in-loop latents, run the face detector, rebuild the gen mask) so the mask follows the
+        # face the branched pass actually produces. OFF by default => byte-identical behaviour.
+        # See debug_planning_03Jul/ba_gen_bbox_retrack_04Jul.md.
+        gen_bbox_retrack: bool = False,
+        gen_bbox_retrack_every: int = 6,        # re-detect every N steps inside the branched window
+        gen_bbox_retrack_min_frac: float = 0.5, # only start once >= this fraction of steps (clean enough to detect)
+        gen_bbox_retrack_detector: str = "yolo",
+        gen_bbox_retrack_model: str = "bbox_utils/yolov8n-face.pt",
+        gen_bbox_retrack_conf: float = 0.3,
+        gen_bbox_retrack_padding: float = 0.08,
+        gen_bbox_retrack_debug_dir: Optional[str] = None,
+
         debug_dir: Optional[str] = None,
         debug_idx: Optional[int] = None,
         val_debug: bool = True,
@@ -1041,11 +1055,41 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
 
                 # compute the previous noisy sample x_t -> x_t-1
                 latents_dtype = latents.dtype
-                latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
+                _sched_out = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=True)
+                latents = _sched_out.prev_sample
                 if latents.dtype != latents_dtype:
                     if torch.backends.mps.is_available():
                         # some platforms (eg. apple mps) misbehave due to a pytorch bug: https://github.com/pytorch/pytorch/pull/99272
                         latents = latents.to(latents_dtype)
+
+                # C6: re-track the generation face bbox on the branched trajectory (toggle).
+                if (
+                    use_branched_attention
+                    and gen_bbox_retrack
+                    and use_bbox_mask_gen
+                    and (not use_dynamic_mask)
+                    and gen_bbox_retrack_every > 0
+                    and i >= branched_attn_start_step
+                    and i >= int(gen_bbox_retrack_min_frac * len(timesteps))
+                    and (i % gen_bbox_retrack_every == 0)
+                    and i < len(timesteps) - 1
+                ):
+                    # Detect on the model's x0 estimate (recognizable mid-diffusion), not the
+                    # still-noisy running latent; fall back to the latent if unavailable.
+                    _x0 = getattr(_sched_out, "pred_original_sample", None)
+                    self._retrack_gen_bbox(
+                        latents=(_x0 if _x0 is not None else latents),
+                        step=i,
+                        mask_expansion_ratio=mask_expansion_ratio,
+                        mask_softness=mask_softness,
+                        height=height,
+                        width=width,
+                        detector_backend=gen_bbox_retrack_detector,
+                        detector_model=gen_bbox_retrack_model,
+                        conf=gen_bbox_retrack_conf,
+                        padding=gen_bbox_retrack_padding,
+                        debug_dir=gen_bbox_retrack_debug_dir,
+                    )
 
                 if callback_on_step_end is not None:
                     callback_kwargs = {}
@@ -1206,6 +1250,112 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             height=height,
             width=width,
         )
+
+    @torch.no_grad()
+    def _decode_latents_to_pil(self, latents: torch.Tensor) -> List[PIL.Image.Image]:
+        """Decode in-loop latents to PIL WITHOUT disturbing the denoising state (clone).
+        Mirrors the final VAE-decode block; used only by C6 gen-bbox re-tracking."""
+        vae = self.vae
+        lat = latents.detach().clone()
+        needs_upcasting = vae.dtype == torch.float16 and vae.config.force_upcast
+        if needs_upcasting:
+            self.upcast_vae()
+        lat = lat.to(next(iter(vae.post_quant_conv.parameters())).dtype)
+        has_mean = hasattr(vae.config, "latents_mean") and vae.config.latents_mean is not None
+        has_std = hasattr(vae.config, "latents_std") and vae.config.latents_std is not None
+        if has_mean and has_std:
+            lm = torch.tensor(vae.config.latents_mean).view(1, 4, 1, 1).to(lat.device, lat.dtype)
+            ls = torch.tensor(vae.config.latents_std).view(1, 4, 1, 1).to(lat.device, lat.dtype)
+            lat = lat * ls / vae.config.scaling_factor + lm
+        else:
+            lat = lat / vae.config.scaling_factor
+        image = vae.decode(lat, return_dict=False)[0]
+        if needs_upcasting:
+            vae.to(dtype=torch.float16)
+        pil = self.image_processor.postprocess(image, output_type="pil")
+        if not isinstance(pil, list):
+            pil = [pil]
+        return pil
+
+    @torch.no_grad()
+    def _retrack_gen_bbox(
+        self,
+        *,
+        latents: torch.Tensor,
+        step: int,
+        mask_expansion_ratio: float,
+        mask_softness: float,
+        height: int,
+        width: int,
+        detector_backend: str = "yolo",
+        detector_model: str = "bbox_utils/yolov8n-face.pt",
+        conf: float = 0.3,
+        padding: float = 0.08,
+        debug_dir: Optional[str] = None,
+    ) -> None:
+        """C6: decode the current branched latents, re-detect the face box(es), and rebuild the
+        generation mask in place so the merge follows the branched face (not the frozen preview)."""
+        from bbox_utils.generate_bboxes import detect_face_box, clamp_bbox
+
+        # Lazy-init the detector on CPU to avoid extra VRAM during the branched pass.
+        if getattr(self, "_retrack_detector", None) is None:
+            from bbox_utils.generate_bboxes import load_face_detector
+            self._retrack_detector, self._retrack_backend = load_face_detector(
+                backend=detector_backend, model_name=detector_model, device="cpu"
+            )
+
+        pil_list = self._decode_latents_to_pil(latents)
+        B = len(pil_list)
+
+        # Per-sample fallback boxes (keep the old box where detection fails).
+        cur = getattr(self, "_face_bbox_gen_original", None)
+        if cur is None:
+            base_boxes = [None] * B
+        elif isinstance(cur, (list, tuple)) and len(cur) > 0 and isinstance(cur[0], (list, tuple)):
+            base_boxes = [list(b) for b in cur]
+            if len(base_boxes) < B:
+                base_boxes += [base_boxes[-1]] * (B - len(base_boxes))
+        else:
+            base_boxes = [list(cur) for _ in range(B)]
+
+        new_boxes, n_hit = [], 0
+        for bi, pil in enumerate(pil_list):
+            box = detect_face_box(self._retrack_detector, self._retrack_backend, None, pil, conf, "cpu")
+            if box is not None:
+                box = [float(x) for x in clamp_bbox(box, pil.size[0], pil.size[1])]
+                new_boxes.append(box)
+                n_hit += 1
+            else:
+                new_boxes.append(base_boxes[bi])
+            if debug_dir and new_boxes[bi] is not None:
+                try:
+                    from pathlib import Path as _P
+                    from bbox_utils.visualize_bboxes import save_annotated_pil
+                    _P(debug_dir).mkdir(parents=True, exist_ok=True)
+                    save_annotated_pil(
+                        pil, {"face_crop_new": new_boxes[bi]},
+                        _P(debug_dir) / f"retrack_s{step:02d}_b{bi}.png", line_width=4,
+                    )
+                except Exception:
+                    pass
+
+        if n_hit == 0 or any(b is None for b in new_boxes):
+            return  # nothing reliable to update -> keep the existing mask
+
+        prepare_gen_mask_helper(
+            self,
+            use_dynamic_mask=False,
+            use_bbox_mask_gen=True,
+            face_bbox_gen=(new_boxes if B > 1 else new_boxes[0]),
+            mask_expansion_ratio=mask_expansion_ratio,
+            mask_softness=mask_softness,
+            height=height,
+            width=width,
+            batch_size=B,
+        )
+        if not getattr(self, "_ba_retrack_logged", False):
+            print(f"[C6 retrack] step {step}: updated {n_hit}/{B} gen bbox(es) -> {new_boxes[0]}")
+            self._ba_retrack_logged = True
 
     def _prepare_id_features(
         self,

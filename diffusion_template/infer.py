@@ -289,6 +289,15 @@ def main():
                             f"No bbox entry in bbox_mask_gen for expected output name '{keys[rel_idx]}'"
                         )
 
+            # The PhotoMaker preview pass above (when it runs to auto-detect the gen-bbox)
+            # consumes these generators, so re-seed them here to guarantee the branched pass
+            # starts from the SAME initial latents the gen-bbox was detected on. Otherwise the
+            # bbox is for a different image than the branched pass generates -> misaligned
+            # face / ghost. (The training-time validation path already uses separate
+            # freshly-seeded generators for each pass; this matches that behaviour.)
+            for _g, _s in zip(generators, seeds):
+                _g.manual_seed(int(_s))
+
             images_flat = pipeline(
                 prompt=prompts if len(prompts) > 1 else prompts[0],
                 input_id_images=refs_batch if len(refs_batch) > 1 else refs_batch[0],

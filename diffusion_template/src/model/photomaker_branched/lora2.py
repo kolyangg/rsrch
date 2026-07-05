@@ -234,39 +234,46 @@ class PhotomakerBranchedLora(SDXL):
     def get_trainable_params(self, config):
 
         ##### BRANCHED ATTENTION - NEW BLOCK 2 #####
-        """NEW BLOCK 2: optional custom optimizer grouping for branched processor parameters and BA-related LoRA params."""
-        # ### TRAIN_BA_ONLY - CHECK ###
-        # if getattr(self, "train_ba_only", False):
-        #     # Train branched attention processors + LoRA weights on attention projections.
-        #     proc_params = []
-        #     lora_params = []
-        #     for name, p in self.unet.named_parameters():
-        #         if not p.requires_grad:
-        #             continue
-        #         if ".attn1.processor." in name or ".attn2.processor." in name:
-        #             proc_params.append(p)
-        #         elif "lora_A" in name or "lora_B" in name:
-        #             lora_params.append(p)
+        """NEW BLOCK 2: optional per-branch optimizer grouping (ref vs noise processor groups).
 
-        #     param_groups = []
-        #     if proc_params:
-        #         param_groups.append(
-        #             {"params": proc_params, "lr": config.lr_for_lora, "name": "branched_processors"}
-        #         )
-        #     if lora_params:
-        #         param_groups.append(
-        #             {"params": lora_params, "lr": config.lr_for_lora, "name": "branched_lora"}
-        #         )
-        #     return param_groups
-        # ### TRAIN_BA_ONLY - CHECK ###
-        ##### BRANCHED ATTENTION - NEW BLOCK 2 #####
+        ba_noise_lr_scale < 1.0 slows the noise_to_* processor clones relative to everything
+        else — the anti-drift damper from debug_04Jul/04Jul_findings.md §4.2/§5: the face loss
+        reaches the noise CA group with no background anchor, so its LR is bounded separately
+        while both pathways stay trainable (noise_and_ref). ba_noise_weight_decay optionally
+        overrides the optimizer's weight_decay for that group only (lora_B → 0 = base weights,
+        so wd on the noise group is a pull toward base behaviour).
+        Defaults (1.0 / unset) reproduce the previous single-group behaviour exactly.
+        """
+        noise_lr_scale = float(config.get("ba_noise_lr_scale", 1.0))
+        noise_wd = config.get("ba_noise_weight_decay", None)
 
-        # Default behavior: train all UNet parameters with requires_grad=True (LoRA + processors).
-        lora_params = filter(lambda p: p.requires_grad, self.unet.parameters())
-        trainable_params = [
-            {"params": lora_params, "lr": config.lr_for_lora, "name": "lora_params"},
+        named = [(n, p) for n, p in self.unet.named_parameters() if p.requires_grad]
+
+        def _is_noise_clone(name: str) -> bool:
+            return ".processor." in name and ".noise_to_" in name
+
+        if (noise_lr_scale == 1.0 and noise_wd is None) or not any(
+            _is_noise_clone(n) for n, _ in named
+        ):
+            # Single group — bit-identical to the previous behaviour.
+            return [
+                {"params": [p for _, p in named], "lr": config.lr_for_lora, "name": "lora_params"},
+            ]
+
+        main_params = [p for n, p in named if not _is_noise_clone(n)]
+        noise_params = [p for n, p in named if _is_noise_clone(n)]
+        noise_group = {
+            "params": noise_params,
+            "lr": config.lr_for_lora * noise_lr_scale,
+            "name": "ba_noise_params",
+        }
+        if noise_wd is not None:
+            noise_group["weight_decay"] = float(noise_wd)
+        return [
+            {"params": main_params, "lr": config.lr_for_lora, "name": "lora_params"},
+            noise_group,
         ]
-        return trainable_params
+        ##### BRANCHED ATTENTION - NEW BLOCK 2 #####
 
     def get_state_dict(self):
         lora_weights = convert_state_dict_to_diffusers(get_peft_model_state_dict(self.unet, adapter_name="lora_adapter"))
