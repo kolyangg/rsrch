@@ -1,5 +1,11 @@
 # 04 Jul findings — Branched Attention over PhotoMaker
 
+> **⚠️ 06 Jul UPDATE — read §9 first.** The N3a run (masked_alternating + hygiene + noise damper,
+> 8k steps) landed. Decisive result: **the untrained branched path (step 0) is the best face for
+> BOTH runs (~0.40 id-sim); ANY training degrades it** and N3a is a regression vs even the initial
+> run (0.21 vs 0.32 at 8k). This reframes the problem — the MSE objective doesn't reward identity —
+> and changes the recommendation below. Details + next config in §9.
+
 Scope constraints (from the user, binding on any proposal):
 - **Keep the BA high-level logic identical** to the initial model (suspect *implementation*, not
   architecture).
@@ -282,7 +288,11 @@ group at `lr_for_lora × scale`; defaults reproduce the old single-group behavio
 (also when a ref_only checkpoint has no noise clones). Verified: 4-case unit test of the grouping
 + AdamW instantiation, `bash -n` on both scripts, and full hydra compose of both override lists.
 
-**Schedule / gates (from §4.2 drift-timing + saved-run cadence ~45 min per 2k-step epoch):**
+**Schedule / gates** (cadence from the initial run's `info.log`: real start 12:38:14 → epoch-1
+done 13:28:14 = **~50 min per 2k-step epoch incl. validation, on the vast A100-class GPU**. NB:
+the checkpoint *file mtimes* are download timestamps — `Zone.Identifier` present — not train times.
+On a ~half-throughput 45 GB card expect ~2× this, i.e. ~100 min/epoch — hardware, not config; see
+the memory note below and the session Q&A.):
 1. **Canary gate @ 4k steps (2 epochs, ~1.5–2 h):** Comet `ba_norm/ca_noise` flat/sublinear vs
    the initial run's near-doubling per 2k; step-4k panels free of orange cast/seams. Fail → stop,
    lower `ba_noise_lr_scale` (0.1) or raise `ba_noise_weight_decay`, restart.
@@ -311,3 +321,82 @@ grad-accum 2 (pattern in `start_ba_cosm_new1_vast.sh`), and/or
    drift territory; resuming would anchor on a warped solution and muddy the canary read-out.
 4. Loss function stays a two-run A/B per the user: `masked_alternating` (original, N3a) first,
    then `blended_masked` (N3b) — §8.
+
+---
+
+## 9. N3a RESULT (06 Jul) — training degrades identity; step-0 is best. STOP N3a.
+
+Ran `start_ba_nr_alt_vast_N3a.sh` (masked_alternating + hygiene + `ba_noise_lr_scale=0.25`) to
+**8k steps / epoch 4** on a 45 GB card. Saved: `saved/ba_nr_alt_N3a/{config.yaml, info.log,
+val_images/step_{0,2000,4000,6000,8000}, weights/checkpoint-epoch4}`. Optimizer split confirmed
+live in `info.log`: `lora_params` 840 @ 5e-5 / `ba_noise_params` 840 @ 1.25e-5, wd 0.01 both.
+
+**Per-step mean id-sim (InsightFace cosine vs ref, 24 panels; sheets:
+`debug_04Jul/n3a_progression_{jensen,keanu}.png`):**
+
+| step | N3a | initial cosm_new1 |
+|---|---|---|
+| **0** (untrained clones) | **0.412** | **0.402** |
+| 2000 | 0.188 | 0.193 |
+| 4000 | 0.197 | 0.296 |
+| 6000 | 0.228 | 0.301 |
+| 8000 | 0.211 | 0.321 |
+| 20000 / 28000 | — | 0.310 / 0.317 |
+
+**Three hard conclusions:**
+1. **Step 0 is the best face — for BOTH runs (~0.40).** At step 0 the branch clones equal base
+   weights (LoRA `lora_B`=0), so the face branch is just frozen-PhotoMaker identity through the
+   branch plumbing. It works. This is the old **T0b** observation, now quantified at panel scale.
+2. **Training degrades identity and does not recover.** Both runs crash to ~0.19 by 2k. The
+   initial run claws back to ~0.30–0.32 and **plateaus there through 28k — never re-reaching the
+   0.40 step-0 baseline.** N3a plateaus even lower (~0.21) and flat 2k→8k. So **more steps will
+   not help**: the curve is crash-then-flat, and the ceiling (initial @28k = 0.32) is below the
+   untrained floor (0.40). → **Stop N3a.**
+3. **N3a is a regression vs the initial recipe** (0.21 vs 0.32 at 8k) — the user's eyeball was
+   right. The hygiene package made identity *worse*, not better. Likely causes (see below).
+
+**Why training hurts (root-cause reframe):** the objective is denoising **MSE** (masked to the
+face on alternating steps) — it rewards reconstructing the *training image's* noise, **not**
+similarity to the reference identity. The frozen PhotoMaker path already injects identity well at
+step 0, so gradient descent mostly moves the branch weights *away* from that good solution toward
+a dataset-average face, while the residual noise-CA drift (§4.2) adds the orange/melt cast
+(visible progressively on Skiing/Kickboxing/Crying → several go to "no-face" = face corrupted
+past detection). The damper (0.25×) slowed the drift but the net effect is still degradation.
+
+**Why N3a < initial specifically** (two fixable regressions, both introduced in N3a):
+- **Ref-crop jitter** (`ref_crop_margin 0.2–0.6`, `ref_downscale_jitter 0.5`) feeds the face branch
+  *blurrier, variable* reference crops → a weaker identity signal than the initial run's clean
+  fixed crop. Prime suspect. **Revert it.**
+- **Over-low LR** (5e-5, noise 1.25e-5) stalled recovery in a worse basin: initial recovered by 4k
+  at 1e-4; N3a hadn't by 8k. Lower LR ≠ better here.
+
+### 9.1 Recommended next run — N4 (keep alternating loss, noise_and_ref, RealVis val)
+
+Primary goal is now **diagnostic**: (a) find whether *any* checkpoint beats the step-0 baseline
+(0.40), and (b) test whether hard-damping the noise pathway lets the ref pathway climb without the
+orange/melt damage. Changes:
+
+| knob | initial | N3a | **N4** | why |
+|---|---|---|---|---|
+| ref-crop jitter | off | on | **off** | restore clean reference identity signal (§9) |
+| `lr_for_lora` | 1e-4 | 5e-5 | **1e-4** | un-stall; initial recovered at 1e-4 |
+| `ba_noise_lr_scale` | 1.0 | 0.25 | **0.1** | hard-damp the drift/damage pathway (the orange/melt vector) while ref learns |
+| `optimizer.weight_decay` | 0 | 1e-2 | **1e-3** | light pull toward base (=good step-0), not so strong it adds noise |
+| `trainer.max_grad_norm` | none | 1.0 | **1.0** | keep (cheap) |
+| `ba_uncond_face_fix` / `ba_face_prompt_mode` | off / id_only | on / id_only | **on / id_only** | keep known-good |
+| **`trainer.epoch_len`** (val cadence) | 2000 | 2000 | **500** | **the key diagnostic**: the crash happens inside 0–2000 with zero visibility. Val at 500/1000/1500/2000 to locate the peak — the best trained checkpoint may be at a few hundred steps |
+| run length | 28k | 8k | **~3000 steps** | crash+plateau is fully visible by 3k; no need for more |
+
+Decision rule after N4:
+- If N4's best (likely early) checkpoint **> 0.40** → real improvement; extend + lock config.
+- If N4 still **< 0.40** at every step → training-with-MSE cannot beat untrained. Two escalations:
+  (i) **near-freeze** (`ba_noise_lr_scale≈0`, `lr_for_lora`≤2e-5, ~500 steps) to confirm the
+  minimal-training product, and (ii) the principled fix — **add an identity loss** (InsightFace/
+  ArcFace cosine between the generated face crop and the reference) so the objective actually
+  rewards identity; this is a real (but contained) code change and would need approval.
+
+**Tension to flag for the user:** constraint #2 says train both pathways because `ref_only` broke
+face↔body consistency — yet noise_and_ref training is what warps the face. N4's `ba_noise_lr_scale=0.1`
+is the compromise: both pathways stay *trainable* (constraint respected) but the noise/drift
+pathway barely moves from base. If N4 shows the noise pathway must move even less, we should
+revisit constraint #2 explicitly with the user rather than silently violate it.
