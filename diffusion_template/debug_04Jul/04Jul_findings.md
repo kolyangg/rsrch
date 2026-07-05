@@ -372,6 +372,10 @@ past detection). The damper (0.25×) slowed the drift but the net effect is stil
 
 ### 9.1 Recommended next run — N4 (keep alternating loss, noise_and_ref, RealVis val)
 
+**Script ready:** `serv_new_runs/start_ba_nr_alt_vast_N4.sh` (config-only, no code change; hydra
+compose + `bash -n` verified). Diff vs N3a = jitter removed + the 6 knobs in the table below +
+async CUDA (`CUDA_LAUNCH_BLOCKING=0`, was 1) for speed. Stop after ~3000 steps (6 epochs).
+
 Primary goal is now **diagnostic**: (a) find whether *any* checkpoint beats the step-0 baseline
 (0.40), and (b) test whether hard-damping the noise pathway lets the ref pathway climb without the
 orange/melt damage. Changes:
