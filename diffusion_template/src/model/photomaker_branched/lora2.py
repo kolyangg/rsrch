@@ -71,6 +71,10 @@ class PhotomakerBranchedLora(SDXL):
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
         ba_uncond_face_fix: bool = False,  # F1: keep plain negative prompt for the uncond face branch under CFG
         ba_face_prompt_mode: str = "id_only",  # B1: face-branch prompt: id_only (legacy) | full_boosted
+        use_id_loss: bool = False,         # ID loss: cosine-distance identity loss on the decoded face (off by default)
+        id_loss_weight: float = 0.5,       # weight of the ID loss added to the diffusion loss
+        id_loss_max_timestep: int = 500,   # only apply ID loss when the sampled timestep <= this (x0 is meaningful)
+        id_loss_face_size: int = 160,      # face crop size fed to the recognizer
         photomaker_start_step: int = 10,
         merge_start_step: int = 10,
         branched_attn_start_step: int = 15,
@@ -180,6 +184,12 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_patch_top_k = float(ba_patch_top_k)
         self.non_ba_train = bool(non_ba_train)
         self.train_ba_all_steps = bool(train_ba_all_steps)
+        # ID loss (identity-supervised training). Off by default -> zero overhead / behaviour change.
+        self.use_id_loss = bool(use_id_loss)
+        self.id_loss_weight = float(id_loss_weight)
+        self.id_loss_max_timestep = int(id_loss_max_timestep)
+        self.id_loss_face_size = int(id_loss_face_size)
+        self._id_loss_net = None  # lazily built on first use
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 
         photomaker_lora_config = LoraConfig(
@@ -480,10 +490,50 @@ class PhotomakerBranchedLora(SDXL):
             )
             ##### BRANCHED ATTENTION - FORWARD PASS #####
 
-        return {
+        out = {
             'model_pred': noise_pred,
             'target': noise,
         }
+
+        # ID loss (identity-supervised): only when enabled AND the sampled timestep is low enough
+        # that the predicted x0 is meaningful. t is shared across the batch (see t_scalar above),
+        # so this gates the whole step -> no VAE decode on high-noise steps.
+        if self.use_id_loss and int(t_scalar.item()) <= self.id_loss_max_timestep:
+            out['id_loss'] = self._compute_id_loss(
+                noise_pred=noise_pred,
+                noisy_latents=noisy_latents,
+                timesteps=timesteps,
+                pixel_values=pixel_values,
+                face_bbox=face_bbox,
+            )
+        return out
+
+    def _compute_id_loss(self, noise_pred, noisy_latents, timesteps, pixel_values, face_bbox):
+        """Cosine-distance identity loss between the generated face (decoded from the predicted
+        x0) and the ground-truth face (from pixel_values), both cropped at face_bbox.
+        Differentiable through the VAE decode + recognizer, so it trains the BA weights."""
+        if self._id_loss_net is None:
+            from src.loss.id_loss import IdentityLoss
+            self._id_loss_net = IdentityLoss(face_size=self.id_loss_face_size, device=self.device)
+
+        # x0 from epsilon-prediction: x0 = (x_t - sqrt(1-abar_t) * eps) / sqrt(abar_t)
+        abar = self.noise_scheduler.alphas_cumprod.to(noise_pred.device)[timesteps].float()
+        abar = abar.view(-1, 1, 1, 1)
+        x0 = (noisy_latents.float() - (1.0 - abar).sqrt() * noise_pred.float()) / abar.sqrt().clamp_min(1e-4)
+
+        # Decode to pixels in [-1, 1] (differentiable; VAE is frozen but the graph flows to x0).
+        gen_images = self.vae.decode(
+            (x0 / self.vae.config.scaling_factor).to(self.vae.dtype)
+        ).sample
+        gt_images = pixel_values.to(device=gen_images.device, dtype=gen_images.dtype)
+
+        # Normalize bbox to a per-sample list in pixel coords.
+        bboxes = face_bbox if isinstance(face_bbox, (list, tuple)) else [face_bbox]
+
+        # FaceNet runs in fp32 outside autocast for numerical stability.
+        with torch.autocast(device_type=self.device.type if hasattr(self.device, "type") else "cuda", enabled=False):
+            id_loss = self._id_loss_net(gen_images.float(), gt_images.float(), bboxes)
+        return id_loss
 
     def encode_prompt_with_trigger_word(
         self,

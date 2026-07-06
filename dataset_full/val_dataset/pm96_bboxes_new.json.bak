@@ -1593,7 +1593,7 @@
       881,
       1023
     ],
-    "force_manual": true
+    "force_manual": false
   },
   "Reading pa_jisoo.png": {
     "face_crop_old": [

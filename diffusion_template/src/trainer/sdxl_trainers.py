@@ -240,6 +240,18 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         super().__init__(*args, **kwargs)
         self.masked_loss_step = masked_loss_step
 
+    def _id_loss_weight_value(self) -> float:
+        """Weight for the ID loss, read once from the (unwrapped) model's id_loss_weight."""
+        w = getattr(self, "_id_loss_weight_cached", None)
+        if w is None:
+            try:
+                m = self.accelerator.unwrap_model(self.model)
+            except Exception:
+                m = self.model
+            w = float(getattr(m, "id_loss_weight", 0.0))
+            self._id_loss_weight_cached = w
+        return w
+
     def _update_ba_weight_norms(self, train_metrics):
         """Drift canary: L2 norm of branched-processor lora_B weights per group.
 
@@ -326,7 +338,21 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         )
         all_losses = self.criterion(**batch)
         batch.update(all_losses)
-        
+
+        # ID loss (identity-supervised training). The model returns 'id_loss' only on gated steps
+        # (use_id_loss + low-noise timestep). Add it weighted to the total before backward and log
+        # it. When disabled it is absent -> no-op.
+        id_loss = batch.get("id_loss", None)
+        if id_loss is not None and torch.is_tensor(id_loss):
+            if torch.isfinite(id_loss):
+                w = self._id_loss_weight_value()
+                if w != 0.0:
+                    batch["loss"] = batch["loss"] + w * id_loss
+                train_metrics.update("id_loss", float(id_loss.detach().item()))
+            else:
+                msg = f"[ID_LOSS] non-finite id_loss at batch_idx={batch.get('batch_idx')}, skipped"
+                (self.logger.warning(msg) if self.logger is not None else print(msg))
+
         if self.is_train:
             assert torch.isfinite(batch["loss"]) # sum of all losses is always called loss
             ### 25 APR - ADD GRAD ACCUM ###
