@@ -20,7 +20,15 @@ import torch.nn.functional as F
 class IdentityLoss(nn.Module):
     def __init__(self, face_size: int = 160, device=None):
         super().__init__()
-        from facenet_pytorch import InceptionResnetV1
+        try:
+            from facenet_pytorch import InceptionResnetV1
+        except ImportError as e:  # pragma: no cover
+            raise ImportError(
+                "id_loss needs facenet-pytorch. Install it WITHOUT its deps so it does NOT "
+                "downgrade torch/torchvision (its metadata pins torch<2.3, which will uninstall a "
+                "newer torch):\n    pip install --no-deps facenet-pytorch\n"
+                "Only InceptionResnetV1 (standard layers) is used, so any modern torch works."
+            ) from e
 
         self.face_size = int(face_size)
         net = InceptionResnetV1(pretrained="vggface2").eval()

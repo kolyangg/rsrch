@@ -522,9 +522,25 @@ class PhotomakerBranchedLora(SDXL):
         x0 = (noisy_latents.float() - (1.0 - abar).sqrt() * noise_pred.float()) / abar.sqrt().clamp_min(1e-4)
 
         # Decode to pixels in [-1, 1] (differentiable; VAE is frozen but the graph flows to x0).
-        gen_images = self.vae.decode(
-            (x0 / self.vae.config.scaling_factor).to(self.vae.dtype)
-        ).sample
+        # Decode under VAE tiling+slicing, scoped to this call, so a full-res decode does not spike
+        # VRAM (branched training already runs near the card limit). Tiling processes the image in
+        # spatial tiles and slicing one batch item at a time -> much lower peak activation memory.
+        # Restored afterwards so the training-forward vae.encode is unaffected.
+        _tile = hasattr(self.vae, "enable_tiling") and hasattr(self.vae, "disable_tiling")
+        _slice = hasattr(self.vae, "enable_slicing") and hasattr(self.vae, "disable_slicing")
+        if _tile:
+            self.vae.enable_tiling()
+        if _slice:
+            self.vae.enable_slicing()
+        try:
+            gen_images = self.vae.decode(
+                (x0 / self.vae.config.scaling_factor).to(self.vae.dtype)
+            ).sample
+        finally:
+            if _tile:
+                self.vae.disable_tiling()
+            if _slice:
+                self.vae.disable_slicing()
         gt_images = pixel_values.to(device=gen_images.device, dtype=gen_images.dtype)
 
         # Normalize bbox to a per-sample list in pixel coords.

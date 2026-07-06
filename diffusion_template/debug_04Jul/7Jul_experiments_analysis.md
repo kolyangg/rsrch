@@ -161,7 +161,10 @@ BA weights toward matching identity — the thing MSE never rewards.
 Scripts: `serv_new_runs/start_ba_{idloss_N13, coadapt_N10, saonly_N11, idembeds_N12}_vast.sh`;
 master `serv_new_runs/run_overnight_N13_N10_N11_N12.sh` (self-stop 3000 steps each; continue-on-fail;
 ~12.5–14.5 h total — comment out the tail if the night is short). N13 needs `facenet-pytorch` on the
-box (`pip install facenet-pytorch`; ~107 MB weights download once). Benchmarks: step-0 **0.40**
+box — install it with **`pip install --no-deps facenet-pytorch`** (a plain install pins torch<2.3 and
+will uninstall a newer torch; to recover the cu130-nightly stack:
+`pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu130`,
+the same command the env recreate script's arch-compat step uses). ~107 MB FaceNet weights download once. Benchmarks: step-0 **0.40**
 (target), N6 **0.297** (best trained). For N13 also watch `train/id_loss` trending DOWN.
 
 ## 8. Results (fill after the run)

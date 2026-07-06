@@ -31,12 +31,22 @@ set -euo pipefail
 # NB the ID loss adds a VAE decode on gated steps -> somewhat slower than N10-12; watch train/id_loss
 # in Comet (should trend DOWN).
 #
+# MEMORY: batch_size is 1 here (N10-N12 use 2). Branched training at bs=2 already sits at ~47/47.6 GB
+# on this card, so the ID-loss VAE decode has no headroom and OOMs intermittently on low-noise steps.
+# bs=1 halves the base activation memory, leaving plenty of room. The decode itself also now runs
+# under VAE tiling+slicing (lora2._compute_id_loss) to keep its peak small. If you still see
+# [OOM_SKIP] lines, add grad accumulation instead of raising bs, or lower id_loss_max_timestep.
+#
 # Self-contained: COMET_API_KEY and PM_PATH baked in (override by exporting them first).
 
-# DEPENDENCY: needs `facenet-pytorch` (imported lazily only when use_id_loss=true). If missing on
-# this box: `pip install facenet-pytorch`. The FaceNet weights (~107 MB) download on first use, so
-# the box needs network access once. If it is absent, N13 fails fast at startup and the master
-# continues to N10-N12 (which do not need it).
+# DEPENDENCY: needs `facenet-pytorch` (imported lazily only when use_id_loss=true).
+#   INSTALL WITH:  pip install --no-deps facenet-pytorch
+#   The --no-deps is REQUIRED: facenet-pytorch's metadata pins torch<2.3, so a plain install
+#   uninstalls a newer torch (it clobbered the cu130 nightly once). --no-deps installs only the
+#   package; its runtime deps (numpy/pillow/requests/tqdm) are already present. Only the standard
+#   InceptionResnetV1 layers are used, so any modern torch works. FaceNet weights (~107 MB) download
+#   on first use (needs network once). If absent, N13 fails fast at startup and the master continues
+#   to N10-N12 (which do not need it).
 export HYDRA_FULL_ERROR=1
 export CUDA_LAUNCH_BLOCKING="${CUDA_LAUNCH_BLOCKING:-0}"
 
@@ -64,7 +74,7 @@ if ACCELERATE_LOG_LEVEL=error \
         val_datasets_names='[manual_val_two]' \
         trainer.epoch_len=1000 \
         trainer.n_epochs=3 \
-        dataloaders.train.batch_size=2 \
+        dataloaders.train.batch_size=1 \
         dataloaders.train.num_workers=12 \
         model.rank=32 \
         model.photomaker_path="${PM_PATH}" \
