@@ -20,8 +20,9 @@
 #   tmux new -s fullval           # long job; survives disconnects
 #   bash serv_new_runs/run_full_validation.sh
 #
-# Speed: 96 images x ~50 steps per run. ~11 runs -> this is a LONG job (roughly 12-16 h at
-# batch_size=1). To go faster, raise BATCH_SIZE below (e.g. 2) — inference has no grad so it fits.
+# Speed: 96 images x 50 steps per run x ~11 runs. With BATCH_SIZE=4 and deterministic pm96 gen
+# boxes (no per-image YOLO/PM preview) this is much faster than bs=1 auto-bbox. Raise/lower
+# BATCH_SIZE via env (bs=4 ~= 35/46GB; try 6 if you want more utilization).
 
 set -uo pipefail
 
@@ -31,11 +32,11 @@ cd "${REPO}"
 
 # ---- config ----
 RESULTS_DIR="${REPO}/full_validation_results"
-SHARED_BBOX="${RESULTS_DIR}/_gen_bboxes_shared.json"   # one gen-bbox cache shared by all runs
 METRICS_JSON="${RESULTS_DIR}/metrics.json"
-REFS_DIR="../dataset_full/val_dataset/references"       # full 8-identity set (relative to REPO)
-EXPECTED_IMAGES=96                                      # 8 ids x 12 prompts
-BATCH_SIZE="${BATCH_SIZE:-1}"
+REFS_DIR="../dataset_full/val_dataset/references"       # ref images (dataset restricts to pm96 ids)
+EXPECTED_IMAGES=96                                      # 8 pm96 ids x 12 prompts
+# Inference has no gradients; bs=1 used only ~17/46GB. bs=4 ~= 35GB. Raise/lower via env.
+BATCH_SIZE="${BATCH_SIZE:-4}"
 
 # PhotoMaker weights (same default as the training scripts; override by exporting PM_PATH).
 PM_PATH="${PM_PATH:-/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/checkpoints/PhotoMaker-V2/photomaker-v2.bin}"
@@ -56,7 +57,7 @@ log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "${LOG}"
 hms() { local s=$1; printf '%dh%02dm' $((s/3600)) $(((s%3600)/60)); }
 
 log "full validation start | repo=${REPO} | batch_size=${BATCH_SIZE} | runs=${#RUNS[@]}"
-log "results -> ${RESULTS_DIR} | metrics -> ${METRICS_JSON} | shared bbox cache -> ${SHARED_BBOX}"
+log "results -> ${RESULTS_DIR} | metrics -> ${METRICS_JSON} | gen bboxes = pm96 (deterministic, 96 imgs)"
 
 total=${#RUNS[@]}
 done_count=0
@@ -119,7 +120,6 @@ for i in "${!RUNS[@]}"; do
   python infer.py --config-name inference/full_val \
       saved_checkpoint="saved/${run}/$(basename "${ckpt}")" \
       output_dir="${out_dir}" \
-      bbox_mask_gen_path="${SHARED_BBOX}" \
       batch_size="${BATCH_SIZE}" \
       "${extra[@]}" >>"${LOG}" 2>&1
   rc=$?
