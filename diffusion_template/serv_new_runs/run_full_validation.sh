@@ -12,8 +12,8 @@
 # Progress, per-run timing and an ETA are printed to the terminal AND logged to
 # full_validation_results/run_full_validation_<timestamp>.log.
 #
-# Resumable: a run whose output dir already has >= EXPECTED_IMAGES images AND an entry in
-# metrics.json is skipped, so re-running continues where it left off.
+# Resumable: a run whose output dir already has all EXPECTED_IMAGES is skipped entirely (no
+# re-inference); its metrics are computed on the spot if not already in metrics.json.
 #
 # USAGE (from repo root, photomaker_NS venv active):
 #   cd /workspace/rsrch/diffusion_template
@@ -42,11 +42,21 @@ BATCH_SIZE="${BATCH_SIZE:-4}"
 PM_PATH="${PM_PATH:-/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/checkpoints/PhotoMaker-V2/photomaker-v2.bin}"
 export PM_PATH
 
-# Runs to validate, in order. Edit to add/remove.
+# Runs to validate, ordered MOST -> LEAST promising (subsample id-sim; see
+# debug_04Jul/7Jul_N14_N15_N16_longrun.md). Front-loaded so that if time runs out the winners +
+# the baseline reference are done first.
 RUNS=(
-  ba_nr_alt_N3a ba_nr_alt_N4 ba_nr_alt_N5 ba_nr_blend_N6
-  ba_coadapt_N10 ba_saonly_N11 ba_idembeds_N12 ba_idloss_N13
-  ba_combo_N14 ba_saonly6k_N15 ba_idloss6k_N16
+  ba_combo_N14        # combo (SA-only + ID loss), 6k, still rising  -- best
+  ba_saonly6k_N15     # SA-only, 6k                                   -- strong
+  ba_saonly_N11       # SA-only, 3k                                   -- winner
+  ba_idloss_N13       # ID loss, 3k                                   -- winner
+  ba_nr_blend_N6      # blended baseline (~0.30 ceiling)              -- reference point
+  ba_idloss6k_N16     # ID loss alone, 6k (CA trained, unstable)      -- longer data point
+  ba_idembeds_N12     # id_embeds conditioning                        -- failed lever
+  ba_coadapt_N10      # co-adaptation                                 -- failed lever
+  ba_nr_alt_N4        # masked_alternating loss
+  ba_nr_alt_N5        # frozen-noise ablation
+  ba_nr_alt_N3a       # first hygiene run (worst)
 )
 
 mkdir -p "${RESULTS_DIR}"
@@ -90,10 +100,17 @@ for i in "${!RUNS[@]}"; do
   epoch_len="${epoch_len:-1000}"
   step=$((epoch * epoch_len))
 
-  # resume: skip if already complete
+  # resume: if the target folder already has all required images, skip the whole run (no
+  # re-inference). Compute its metrics first if they aren't recorded yet, so metrics.json stays
+  # complete without redoing the expensive generation.
   have_imgs="$(ls -1 "${out_dir}"/*.png 2>/dev/null | grep -vc '^.*/_' || true)"
-  if [[ "${have_imgs}" -ge "${EXPECTED_IMAGES}" ]] && grep -q "\"${run}\"" "${METRICS_JSON}" 2>/dev/null; then
-    log "[${idx}/${total}] SKIP ${run}: already done (${have_imgs} imgs + metrics present)"
+  if [[ "${have_imgs}" -ge "${EXPECTED_IMAGES}" ]]; then
+    log "[${idx}/${total}] SKIP ${run}: ${have_imgs}/${EXPECTED_IMAGES} images already present — not re-running"
+    if ! grep -q "\"${run}\"" "${METRICS_JSON}" 2>/dev/null; then
+      python scripts/full_val_metrics.py --out-dir "${out_dir}" --refs-dir "${REFS_DIR}" \
+        --run "${run}" --epoch "${epoch}" --step "${step}" --json "${METRICS_JSON}" \
+        --checkpoint "saved/${run}/$(basename "${ckpt}")" >>"${LOG}" 2>&1 || true
+    fi
     done_count=$((done_count + 1))
     continue
   fi
