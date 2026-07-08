@@ -1,5 +1,5 @@
-# Config for infer_tools/pdf_full_val.py — builds a multi-page PDF of the 96-image full-validation
-# results with metrics. Paths are relative to the repo root (run from diffusion_template/).
+# Config for infer_tools/pdf_full_val.py — multi-page PDF of the 96-image full-validation results
+# with metrics. Paths relative to the repo root (run from diffusion_template/).
 
 results_dir: full_validation_results
 metrics_json: full_validation_results/metrics.json
@@ -8,29 +8,35 @@ prompts: ../dataset_full/val_dataset/prompts_10.txt
 classes: ../dataset_full/val_dataset/classes_ref.json
 out_pdf: full_validation_results/full_val_report.pdf
 
-# Optional: explicit run order (best -> worst). If omitted, all runs in metrics.json are used,
-# auto-ordered by overall mean id-sim (best first). List only a subset to compare fewer runs.
+# All 11 runs, ordered best -> worst by 96-image mean id-sim. (Omit this list to auto-detect every
+# run in metrics.json, auto-ordered by mean.)
 runs:
   - ba_combo_N14
   - ba_idloss_N13
   - ba_saonly6k_N15
   - ba_idloss6k_N16
   - ba_saonly_N11
+  - ba_idembeds_N12
+  - ba_nr_alt_N4
   - ba_nr_blend_N6
+  - ba_coadapt_N10
+  - ba_nr_alt_N5
   - ba_nr_alt_N3a
 
-# Optional short column labels (else the folder name minus "ba_" is used).
 labels:
   ba_combo_N14:    "N14 combo 6k"
   ba_idloss_N13:   "N13 idloss 3k"
   ba_saonly6k_N15: "N15 SA-only 6k"
   ba_idloss6k_N16: "N16 idloss 6k (CA on)"
   ba_saonly_N11:   "N11 SA-only 3k"
+  ba_idembeds_N12: "N12 id_embeds 3k"
+  ba_nr_alt_N4:    "N4 alt-loss 3k"
   ba_nr_blend_N6:  "N6 blended base"
-  ba_nr_alt_N3a:   "N3a"
+  ba_coadapt_N10:  "N10 co-adapt 3k"
+  ba_nr_alt_N5:    "N5 frozen-noise 3k"
+  ba_nr_alt_N3a:   "N3a 10k"
 
-# Layout knobs
-cell_px: 240        # thumbnail size (px) for each generated image
+cell_px: 200        # thumbnail size (px); 11 runs -> keep modest so pages aren't huge
 label_px: 210       # width of the left prompt-label column (px)
-dpi: 150            # PDF resolution
-font_scale: 1.0     # scale all text
+dpi: 150
+font_scale: 1.0
