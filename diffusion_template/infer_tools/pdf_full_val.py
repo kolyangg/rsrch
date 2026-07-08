@@ -245,8 +245,12 @@ def config_value(path: str, run_cfg: dict, run_metrics: dict):
 
 def build_config_table_page(cfg, runs, labels, metrics, run_label, fs):
     saved_dir = Path(cfg.get("saved_dir", "saved"))
+    config_aliases = cfg.get("config_aliases", {})
     criteria = cfg.get("config_criteria") or DEFAULT_CONFIG_CRITERIA
-    run_configs = {run: load_run_config(saved_dir, run) for run in runs}
+    run_configs = {
+        run: load_run_config(saved_dir, config_aliases.get(run, run))
+        for run in runs
+    }
 
     n_runs = len(runs)
     row_h = int(cfg.get("config_row_px", 58))
