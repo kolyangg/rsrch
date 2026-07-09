@@ -2,24 +2,27 @@
 set -euo pipefail
 
 # ============================================================================================
-# N20 = N17 recipe with LOWER ID-loss pressure, 16000 steps, checkpoint every 1000.
+# N21 = N17/N14 core recipe, but reduce cumulative ID-loss pressure by gating timesteps.
 #
-# Why this after N17:
-#   Full-val over N17 intermediate checkpoints shows the same frozen-CA combo peaks around 12k
-#   by 96-image mean (12k=0.3500, final 26k=0.3482) but several visual failures worsen late:
-#   over-canonical face placement, long-neck/pasted-face artifacts, and prop/occlusion collisions.
-#   The likely culprit is too much cumulative ID pressure inside the fixed face box.
+# Why after N20:
+#   N20 lowered ID-loss weight from 0.1 -> 0.075 and reached only 0.3238 at 10k full-val,
+#   below N17@10k (0.3431), N17@12k (0.3500), and N14@6k (0.3324). It did reduce some late
+#   N17 collapses, but the identity signal became too weak on Jisoo/Keanu/Lex/Eddie.
 #
 # Change vs N17:
-#   +model.id_loss_weight: 0.1 -> 0.075
+#   keep +model.id_loss_weight=0.1, but gate ID loss more tightly:
+#   +model.id_loss_max_timestep: 500 -> 400
+#
+# Rationale:
+#   Preserve per-step ID-loss strength when x0 is cleanest, while reducing total gated steps
+#   and avoiding the broad under-strength seen in N20.
 #
 # Keep:
 #   train_branched_ca_lora=false (freeze CA), blended λ0.15, noise_and_ref, ba_noise_lr_scale=0.1,
 #   lr 1e-4, wd 1e-3, grad clip 1.0, warmup 200, id_only, uncond_face_fix, RealVis val, bs=1.
 #
 # Length:
-#   16000 steps = trainer.n_epochs=16 x epoch_len=1000.
-#   Validate/save every 1000 so the best checkpoint can be selected by full-val + visual review.
+#   14000 steps = trainer.n_epochs=14 x epoch_len=1000, checkpoint every 1000.
 # ============================================================================================
 
 export HYDRA_FULL_ERROR=1
@@ -48,21 +51,21 @@ if ACCELERATE_LOG_LEVEL=error \
         datasets.train.cosmic_large_vast.num_refs=1 \
         val_datasets_names='[manual_val_two]' \
         trainer.epoch_len=1000 \
-        trainer.n_epochs=16 \
-        dataloaders.train.batch_size=2 \
+        trainer.n_epochs=14 \
+        dataloaders.train.batch_size=1 \
         dataloaders.train.num_workers=12 \
         model.rank=32 \
         model.photomaker_path="${PM_PATH}" \
         +model.ba_uncond_face_fix=true \
         +model.ba_face_prompt_mode=id_only \
         +model.use_id_loss=true \
-        +model.id_loss_weight=0.075 \
-        +model.id_loss_max_timestep=500 \
+        +model.id_loss_weight=0.1 \
+        +model.id_loss_max_timestep=400 \
         validation_args.num_images_per_prompt=1 \
         lr_scheduler.warmup_steps=200 \
         model.weight_dtype=bf16 \
         pipeline.variant=null \
-        dataloaders.manual_val_two.batch_size=8 \
+        dataloaders.manual_val_two.batch_size=4 \
         datasets.val.manual_val_two.limit=24 \
         val_debug=false \
         branched_attn_weight_mode=noise_and_ref \
@@ -85,7 +88,7 @@ if ACCELERATE_LOG_LEVEL=error \
         train_ba_all_steps=true \
         pretrained_model_for_validation_name_or_path=SG161222/RealVisXL_V4.0 \
         metrics=all_metrics \
-        writer=cometml writer.run_name="ba_combo_id075_16k_N20" \
+        writer=cometml writer.run_name="ba_combo_idloss_t400_14k_N21" \
         "$@"; then
     log "Training finished successfully"
 else

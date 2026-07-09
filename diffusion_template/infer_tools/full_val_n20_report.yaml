@@ -1,0 +1,52 @@
+# N20 10k full-validation comparison report.
+# Run from repo root:
+#   python3 infer_tools/pdf_full_val.py --config infer_tools/full_val_n20_report.yaml
+
+results_dir: full_validation_results/ba_combo_id075_16k_N20/report_inputs
+metrics_json: full_validation_results/ba_combo_id075_16k_N20/metrics_n20_vs_key.json
+refs_dir: ../dataset_full/val_dataset/references
+prompts: ../dataset_full/val_dataset/prompts_10.txt
+classes: ../dataset_full/val_dataset/classes_ref.json
+out_pdf: full_validation_results/ba_combo_id075_16k_N20/full_val_report_N20_vs_key.pdf
+saved_dir: saved
+
+runs:
+  - ba_combo_id075_16k_N20
+  - ba_longrun_N17_step10000
+  - ba_longrun_N17_step12000
+  - ba_longrun_N17
+  - ba_combo_N14
+  - ba_saonly6k_N15
+  - ba_idloss_N13
+
+labels:
+  ba_combo_id075_16k_N20: "N20 10k id075"
+  ba_longrun_N17_step10000: "N17 10k"
+  ba_longrun_N17_step12000: "N17 12k"
+  ba_longrun_N17: "N17 26k"
+  ba_combo_N14: "N14 combo 6k"
+  ba_saonly6k_N15: "N15 SA-only 6k"
+  ba_idloss_N13: "N13 idloss 3k"
+
+config_aliases:
+  ba_longrun_N17_step10000: ba_longrun_N17
+  ba_longrun_N17_step12000: ba_longrun_N17
+
+cell_px: 220
+label_px: 220
+dpi: 150
+font_scale: 1.0
+
+config_criteria:
+  - {label: "96-val mean id-sim", path: "metric.mean_id_sim"}
+  - {label: "scored checkpoint step", path: "metric.step"}
+  - {label: "checkpoint", path: "metric.checkpoint"}
+  - {label: "train schedule", path: "computed.train_schedule"}
+  - {label: "train BA cross-attn", path: "computed.train_ba_ca"}
+  - {label: "ID loss", path: "computed.id_loss"}
+  - {label: "loss kind", path: "loss_kind"}
+  - {label: "face loss lambda", path: "lambda_face"}
+  - {label: "BA noise LR scale", path: "ba_noise_lr_scale"}
+  - {label: "LoRA LR", path: "lr_for_lora"}
+  - {label: "weight decay", path: "optimizer.weight_decay"}
+  - {label: "grad clip", path: "trainer.max_grad_norm"}
