@@ -91,7 +91,7 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=
     automatic_bboxes=true \
     automatic_bboxes_every_val=false \
     force_log_first_auto_bbox=true \
-    train_branched_ca_lora=true \
+    train_branched_lora=true \
     ba_patch_top_k=1.0 \
     ba_train_top_k=1.0 \
     non_ba_train=false \

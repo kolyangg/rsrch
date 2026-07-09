@@ -18,12 +18,16 @@ def configure_branched_trainables(model) -> None:
     mode = (getattr(model, "branched_attn_weight_mode", "shared") or "shared").lower()
     new_weight_kind = (getattr(model, "branched_attn_new_weight_kind", "full") or "full").lower()
     train_ca = bool(getattr(model, "train_branched_ca_lora", True))
+    ca_train_mode = str(getattr(model, "ba_ca_train_mode", "all") or "all").lower()
     ba_train_top_k = float(getattr(model, "ba_train_top_k", 1.0))
     non_ba_train = bool(getattr(model, "non_ba_train", False))
+    train_sa_id_embed_proj = bool(getattr(model, "ba_train_sa_id_embed_proj", False))
     if mode not in {"shared", "ref_only", "noise_and_ref"}:
         raise ValueError(f"Unknown branched_attn_weight_mode: {mode}")
     if new_weight_kind not in {"full", "lora"}:
         raise ValueError(f"Unknown branched_attn_new_weight_kind: {new_weight_kind}")
+    if ca_train_mode not in {"all", "ref_only", "noise_only"}:
+        raise ValueError(f"Unknown ba_ca_train_mode: {ca_train_mode}")
 
     patched_proc_names = tuple(getattr(model, "_ba_patched_processor_names", ()))
     candidate_proc_names = list(patched_proc_names or model.unet.attn_processors.keys())
@@ -63,6 +67,8 @@ def configure_branched_trainables(model) -> None:
                 new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
             ):
                 p.requires_grad_(True)
+            elif is_selected_proc and train_sa_id_embed_proj and ".attn1.processor.id_to_hidden." in name:
+                p.requires_grad_(True)
 
         if non_ba_train and is_non_ba_attn and ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name:
             p.requires_grad_(True)
@@ -74,11 +80,11 @@ def configure_branched_trainables(model) -> None:
                     p.requires_grad_(True)
             else:
                 is_selected_proc = bool(selected_proc_prefixes) and name.startswith(selected_proc_prefixes)
-                if is_selected_proc and ".attn2.processor.ref_to_" in name and (
+                if is_selected_proc and ca_train_mode in {"all", "ref_only"} and ".attn2.processor.ref_to_" in name and (
                     new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
                 ):
                     p.requires_grad_(True)
-                elif is_selected_proc and mode == "noise_and_ref" and ".attn2.processor.noise_to_" in name and (
+                elif is_selected_proc and ca_train_mode in {"all", "noise_only"} and mode == "noise_and_ref" and ".attn2.processor.noise_to_" in name and (
                     new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
                 ):
                     p.requires_grad_(True)

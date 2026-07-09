@@ -87,13 +87,16 @@ def patch_unet_attention_processors(
 
 
     def _apply_runtime_flags(proc, pipe):
-        # propagate key runtime knobs from model/pipeline onto processors
-        # for k in ("pose_adapt_ratio", "ca_mixing_for_face", "train_branch_mode", "id_alpha", "use_id_embeds"):
-        #     if hasattr(pipe, k):
-        #         setattr(proc, k, getattr(pipe, k))
-        
-        # Keep only static toggles on processor instances.
-        # Per-step runtime knobs are passed via UNet cross_attention_kwargs
+        # Keep old behavior unless ba_enable_runtime_sa_knobs is explicitly enabled.
+        for k in (
+            "ba_enable_runtime_sa_knobs",
+            "pose_adapt_ratio",
+            "ca_mixing_for_face",
+            "id_alpha",
+            "use_id_embeds",
+        ):
+            if hasattr(pipe, k):
+                setattr(proc, k, getattr(pipe, k))
 
         # Optional toggle for per-branch BA-specific adapters.
         if hasattr(pipe, "ba_weights_split"):

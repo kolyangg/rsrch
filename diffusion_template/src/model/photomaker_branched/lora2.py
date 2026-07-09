@@ -63,10 +63,13 @@ class PhotomakerBranchedLora(SDXL):
         branched_attn_weight_mode: str = "shared",
         branched_attn_new_weight_kind: str = "full",
         train_branched_ca_lora: bool = True,
+        ba_ca_train_mode: str = "all",
         ba_train_top_k: float = 1.0,
         ba_patch_top_k: float = 1.0,
         non_ba_train: bool = False,
         train_ba_all_steps: bool = False,
+        ba_enable_runtime_sa_knobs: bool = False,
+        ba_train_sa_id_embed_proj: bool = False,
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
         ba_uncond_face_fix: bool = False,  # F1: keep plain negative prompt for the uncond face branch under CFG
@@ -180,10 +183,13 @@ class PhotomakerBranchedLora(SDXL):
         self.branched_attn_weight_mode = (branched_attn_weight_mode or "shared").lower()
         self.branched_attn_new_weight_kind = (branched_attn_new_weight_kind or "full").lower()
         self.train_branched_ca_lora = bool(train_branched_ca_lora)
+        self.ba_ca_train_mode = str(ba_ca_train_mode or "all").lower()
         self.ba_train_top_k = float(ba_train_top_k)
         self.ba_patch_top_k = float(ba_patch_top_k)
         self.non_ba_train = bool(non_ba_train)
         self.train_ba_all_steps = bool(train_ba_all_steps)
+        self.ba_enable_runtime_sa_knobs = bool(ba_enable_runtime_sa_knobs)
+        self.ba_train_sa_id_embed_proj = bool(ba_train_sa_id_embed_proj)
         # ID loss (identity-supervised training). Off by default -> zero overhead / behaviour change.
         self.use_id_loss = bool(use_id_loss)
         self.id_loss_weight = float(id_loss_weight)
@@ -255,6 +261,7 @@ class PhotomakerBranchedLora(SDXL):
         Defaults (1.0 / unset) reproduce the previous single-group behaviour exactly.
         """
         noise_lr_scale = float(config.get("ba_noise_lr_scale", 1.0))
+        ca_lr_scale = float(config.get("ba_ca_lr_scale", 1.0))
         noise_wd = config.get("ba_noise_weight_decay", None)
 
         named = [(n, p) for n, p in self.unet.named_parameters() if p.requires_grad]
@@ -262,27 +269,42 @@ class PhotomakerBranchedLora(SDXL):
         def _is_noise_clone(name: str) -> bool:
             return ".processor." in name and ".noise_to_" in name
 
-        if (noise_lr_scale == 1.0 and noise_wd is None) or not any(
-            _is_noise_clone(n) for n, _ in named
-        ):
+        def _is_ca_processor(name: str) -> bool:
+            return ".attn2.processor." in name
+
+        if (
+            noise_lr_scale == 1.0
+            and ca_lr_scale == 1.0
+            and noise_wd is None
+        ) or not any(_is_noise_clone(n) or _is_ca_processor(n) for n, _ in named):
             # Single group — bit-identical to the previous behaviour.
             return [
                 {"params": [p for _, p in named], "lr": config.lr_for_lora, "name": "lora_params"},
             ]
 
-        main_params = [p for n, p in named if not _is_noise_clone(n)]
-        noise_params = [p for n, p in named if _is_noise_clone(n)]
-        noise_group = {
-            "params": noise_params,
-            "lr": config.lr_for_lora * noise_lr_scale,
-            "name": "ba_noise_params",
-        }
-        if noise_wd is not None:
-            noise_group["weight_decay"] = float(noise_wd)
-        return [
-            {"params": main_params, "lr": config.lr_for_lora, "name": "lora_params"},
-            noise_group,
-        ]
+        groups = {}
+        for name, param in named:
+            is_noise = _is_noise_clone(name)
+            is_ca = _is_ca_processor(name)
+            if is_ca and is_noise:
+                group_name = "ba_ca_noise_params"
+            elif is_ca:
+                group_name = "ba_ca_params"
+            elif is_noise:
+                group_name = "ba_noise_params"
+            else:
+                group_name = "lora_params"
+            lr = float(config.lr_for_lora)
+            if is_noise:
+                lr *= noise_lr_scale
+            if is_ca:
+                lr *= ca_lr_scale
+            if group_name not in groups:
+                groups[group_name] = {"params": [], "lr": lr, "name": group_name}
+                if is_noise and noise_wd is not None:
+                    groups[group_name]["weight_decay"] = float(noise_wd)
+            groups[group_name]["params"].append(param)
+        return [group for group in groups.values() if group["params"]]
         ##### BRANCHED ATTENTION - NEW BLOCK 2 #####
 
     def get_state_dict(self):

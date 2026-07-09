@@ -96,6 +96,27 @@ def _branch_batch_sizes(mask, total_batch):
     return gen_batch, ref_batch
 
 
+def _infer_spatial_hw(target_len: int, mask: Optional[torch.Tensor] = None) -> tuple[int, int]:
+    """Infer the 2-D attention grid, preserving mask aspect ratio when possible."""
+    if mask is not None and mask.ndim == 4 and mask.shape[-2] > 0 and mask.shape[-1] > 0:
+        src_h, src_w = int(mask.shape[-2]), int(mask.shape[-1])
+        ratio = src_h / max(float(src_w), 1.0)
+        h0 = max(1, int(round(math.sqrt(target_len * ratio))))
+        candidates = []
+        for h in range(max(1, h0 - 4), h0 + 5):
+            if target_len % h == 0:
+                w = target_len // h
+                candidates.append((abs((h / max(float(w), 1.0)) - ratio), h, w))
+        if candidates:
+            _, h, w = min(candidates, key=lambda item: item[0])
+            return h, w
+
+    h = int(math.isqrt(target_len))
+    if h * h == target_len:
+        return h, h
+    raise AssertionError(f"seq_len {target_len} is not square and no 2-D mask aspect was available")
+
+
 class BranchedAttnProcessor(nn.Module):
     """
     Self-attention processor with face/background branching.
@@ -133,6 +154,13 @@ class BranchedAttnProcessor(nn.Module):
         self.noise_to_q = None
         self.noise_to_k = None
         self.noise_to_v = None
+        self.ba_enable_runtime_sa_knobs: bool = False
+        self.pose_adapt_ratio: float = 0.0
+        self.ca_mixing_for_face: bool = False
+        self.use_id_embeds: bool = False
+        self.id_alpha: float = 0.3
+        self.id_embeds = None
+        self.id_to_hidden = None
         
         # If True: keep masks strictly binary after resize (avoids soft boundary blending)
         self.force_binary_masks: bool = True # False
@@ -303,10 +331,16 @@ class BranchedAttnProcessor(nn.Module):
         # POSE_ADAPT_RATIO   = getattr(self, "pose_adapt_ratio", 0.25)
         # CA_MIXING_FOR_FACE = getattr(self, "ca_mixing_for_face", True)
         
-        # Runtime values are passed via UNet cross_attention_kwargs
-        runtime = cross_attention_kwargs if isinstance(cross_attention_kwargs, dict) else {}
-        POSE_ADAPT_RATIO = 0.0 # hardcoded to 0.0 for simplicity
-        CA_MIXING_FOR_FACE = False # hardcoded to False for simplicity
+        # Preserve current behavior by default. New runtime SA controls are opt-in
+        # through ba_enable_runtime_sa_knobs to keep old checkpoints/configs stable.
+        use_runtime_sa_knobs = bool(getattr(self, "ba_enable_runtime_sa_knobs", False))
+        POSE_ADAPT_RATIO = float(getattr(self, "pose_adapt_ratio", 0.0)) if use_runtime_sa_knobs else 0.0
+        CA_MIXING_FOR_FACE = bool(getattr(self, "ca_mixing_for_face", False)) if use_runtime_sa_knobs else False
+        USE_ID_EMBEDS = bool(
+            use_runtime_sa_knobs
+            and getattr(self, "use_id_embeds", False)
+            and self.id_embeds is not None
+        )
 
 
         # #### Check if we're in pre-PhotoMaker state (and override POSE_ADAPT_RATIO) ####
@@ -339,10 +373,33 @@ class BranchedAttnProcessor(nn.Module):
         # Blend them to allow pose adaptation while preserving identity
         # Higher POSE_ADAPT_RATIO = more pose flexibility, less identity preservation
         face_hidden_mixed = (1 - POSE_ADAPT_RATIO) * ref_face_hidden + POSE_ADAPT_RATIO * noise_face_hidden
-        
-        # Just use the blended face directly (previously had option for CA_MIXING_FOR_FACE but removed for simplicity)
-        key_face = self._k_ref(attn, face_hidden_mixed)
-        value_face = self._v_ref(attn, face_hidden_mixed)
+
+        if USE_ID_EMBEDS:
+            if self.id_to_hidden is None:
+                self.id_to_hidden = nn.Linear(
+                    int(self.id_embeds.shape[-1]),
+                    int(face_hidden_mixed.shape[-1]),
+                    bias=False,
+                ).to(face_hidden_mixed.device, face_hidden_mixed.dtype)
+                with torch.no_grad():
+                    self.id_to_hidden.weight.mul_(0.1)
+            id_embeds = self.id_embeds.to(device=face_hidden_mixed.device, dtype=face_hidden_mixed.dtype)
+            if id_embeds.shape[0] != batch_size:
+                reps = (batch_size + id_embeds.shape[0] - 1) // id_embeds.shape[0]
+                id_embeds = id_embeds.repeat((reps,) + (1,) * (id_embeds.ndim - 1))[:batch_size]
+            id_features = self.id_to_hidden(id_embeds)
+            if id_features.dim() == 2:
+                id_features = id_features.unsqueeze(1).expand(-1, face_hidden_mixed.shape[1], -1)
+            id_alpha = float(getattr(self, "id_alpha", 0.3))
+            face_hidden_mixed = face_hidden_mixed * (1.0 - id_alpha) + id_features * id_alpha
+
+        if CA_MIXING_FOR_FACE:
+            face_kv_hidden = torch.cat([face_hidden_mixed, noise_face_hidden], dim=1)
+        else:
+            face_kv_hidden = face_hidden_mixed
+
+        key_face = self._k_ref(attn, face_kv_hidden)
+        value_face = self._v_ref(attn, face_kv_hidden)
 
 
         key_face = key_face.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
@@ -425,9 +482,7 @@ class BranchedAttnProcessor(nn.Module):
     
     def _prepare_mask(self, mask: torch.Tensor, target_len: int, batch_size: int) -> torch.Tensor:
         """Prepare mask for attention ops — always resize in 2-D (no 1-D raster)."""
-        H = int(math.sqrt(target_len))
-        W = H
-        assert H * W == target_len, f"seq_len {target_len} is not square"
+        H, W = _infer_spatial_hw(target_len, mask)
         
         B = mask.shape[0]
         if mask.ndim == 4:  # [B, C, H0, W0]
@@ -698,7 +753,7 @@ class BranchedCrossAttnProcessor(nn.Module):
         hidden_bg = hidden_bg.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
         
         # === FACE BRANCH ===
-        # Q: face from noise, K/V: face prompt (should be different from gen_prompt!)
+        # Q: reference hidden, K/V: face prompt (should be different from gen_prompt!)
         key_ref = self._k_ref(attn, face_prompt)
         value_ref = self._v_ref(attn, face_prompt)
         key_ref = key_ref.view(ref_batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
@@ -732,9 +787,7 @@ class BranchedCrossAttnProcessor(nn.Module):
     
     def _prepare_mask(self, mask: torch.Tensor, target_len: int, batch_size: int) -> torch.Tensor:
         """Prepare mask for attention ops."""
-        H = int(math.sqrt(target_len))
-        W = H
-        assert H * W == target_len, f"seq_len {target_len} is not square"
+        H, W = _infer_spatial_hw(target_len, mask)
         
         if mask.ndim == 4:  # [B, C, H0, W0]
             m2d = F.interpolate(mask[:, :1].float(), size=(H, W), mode="bilinear", align_corners=False)

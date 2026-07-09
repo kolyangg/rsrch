@@ -1122,6 +1122,10 @@ def build_pipeline_from_pretrained(
         "id_alpha",
         getattr(unwrapped_model, "id_alpha", 0.3),
     )
+    ba_enable_runtime_sa_knobs_cfg = kwargs.pop(
+        "ba_enable_runtime_sa_knobs",
+        getattr(unwrapped_model, "ba_enable_runtime_sa_knobs", False),
+    )
 
     pipeline = pipeline_cls.from_pretrained(
         scheduler=scheduler,
@@ -1148,6 +1152,7 @@ def build_pipeline_from_pretrained(
     pipeline.face_embed_strategy = face_embed_strategy_cfg
     pipeline.use_id_embeds = bool(use_id_embeds_cfg)
     pipeline.id_alpha = float(id_alpha_cfg)
+    pipeline.ba_enable_runtime_sa_knobs = bool(ba_enable_runtime_sa_knobs_cfg)
     pipeline.strict_face_routing = bool(getattr(unwrapped_model, "strict_face_routing", False))
     pipeline.ba_uncond_face_fix = bool(getattr(unwrapped_model, "ba_uncond_face_fix", False))
     pipeline.ba_face_prompt_mode = str(getattr(unwrapped_model, "ba_face_prompt_mode", "id_only") or "id_only").lower()

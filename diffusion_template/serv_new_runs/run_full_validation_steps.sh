@@ -7,6 +7,10 @@
 # Example:
 #   BATCH_SIZE=4 bash serv_new_runs/run_full_validation_steps.sh ba_longrun_N17 8000 10000 12000 14000 16000
 #
+# Optional per-run infer.py dotlist overrides:
+#   EXTRA_INFER_OVERRIDES='pipeline.face_embed_strategy=id_embeds model.use_id_embeds=true' \
+#     bash serv_new_runs/run_full_validation_steps.sh ba_idembeds_N12 3000
+#
 # For saved/<run_name>/config.yaml with trainer.epoch_len=2000, step 16000 maps to
 # saved/<run_name>/weights-epoch8.pth. Images are saved to:
 #   full_validation_results/<run_name>_step<step>/
@@ -38,6 +42,11 @@ PYTHON_BIN="${PYTHON_BIN:-python}"
 if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   PYTHON_BIN="python3"
 fi
+EXTRA_INFER_OVERRIDES="${EXTRA_INFER_OVERRIDES:-}"
+EXTRA_OVERRIDES=()
+if [[ -n "${EXTRA_INFER_OVERRIDES}" ]]; then
+  read -r -a EXTRA_OVERRIDES <<< "${EXTRA_INFER_OVERRIDES}"
+fi
 
 PM_PATH="${PM_PATH:-/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/checkpoints/PhotoMaker-V2/photomaker-v2.bin}"
 export PM_PATH
@@ -62,6 +71,9 @@ epoch_len="${epoch_len:-1000}"
 
 log "intermediate full-val start | run=${RUN} | epoch_len=${epoch_len} | steps=${STEPS[*]}"
 log "results -> ${RESULTS_DIR}/<run>_step<step> | metrics -> ${METRICS_JSON} | batch_size=${BATCH_SIZE}"
+if [[ ${#EXTRA_OVERRIDES[@]} -gt 0 ]]; then
+  log "infer overrides -> ${EXTRA_OVERRIDES[*]}"
+fi
 
 overall=0
 for step in "${STEPS[@]}"; do
@@ -99,7 +111,8 @@ for step in "${STEPS[@]}"; do
     "${PYTHON_BIN}" infer.py --config-name inference/full_val \
         saved_checkpoint="saved/${RUN}/$(basename "${ckpt}")" \
         output_dir="${out_dir}" \
-        batch_size="${BATCH_SIZE}" >>"${LOG}" 2>&1
+        batch_size="${BATCH_SIZE}" \
+        "${EXTRA_OVERRIDES[@]}" >>"${LOG}" 2>&1
     rc=$?
     if [[ ${rc} -ne 0 ]]; then
       log "FAIL ${run_key}: infer.py rc=${rc} (see ${LOG})"
