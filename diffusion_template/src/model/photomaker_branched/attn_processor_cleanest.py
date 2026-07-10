@@ -161,6 +161,11 @@ class BranchedAttnProcessor(nn.Module):
         self.id_alpha: float = 0.3
         self.id_embeds = None
         self.id_to_hidden = None
+        self.ba_face_fusion_mode: str = "legacy"
+        self.ba_face_fusion_gate_init: float = 0.25
+        self.ba_face_fusion_gate_max: float = 1.0
+        self.face_fusion_logit = None
+        self.num_heads = None
         
         # If True: keep masks strictly binary after resize (avoids soft boundary blending)
         self.force_binary_masks: bool = True # False
@@ -168,6 +173,7 @@ class BranchedAttnProcessor(nn.Module):
         self.has_cross_attention_kwargs = True
 
     def init_from_attention(self, attn) -> None:
+        self.num_heads = int(attn.heads)
         mode = self.branched_attn_weight_mode
         if mode in {"ref_only", "noise_and_ref"}:
             self.ref_to_q = _clone_effective_linear(
@@ -201,6 +207,35 @@ class BranchedAttnProcessor(nn.Module):
                 kind=self.branched_attn_new_weight_kind,
                 rank=self.branched_attn_lora_rank,
             )
+
+    def configure_face_fusion(self) -> None:
+        mode = str(getattr(self, "ba_face_fusion_mode", "legacy") or "legacy").lower()
+        if mode not in {"legacy", "dual_attention_gate"}:
+            raise ValueError(f"Unknown ba_face_fusion_mode: {mode}")
+        if mode != "dual_attention_gate" or self.face_fusion_logit is not None:
+            return
+        if not self.num_heads:
+            raise RuntimeError("init_from_attention must run before configuring face fusion")
+
+        gate_max = float(getattr(self, "ba_face_fusion_gate_max", 1.0))
+        if not 0.0 < gate_max <= 1.0:
+            raise ValueError(f"ba_face_fusion_gate_max must be in (0, 1], got {gate_max}")
+        gate_init = float(getattr(self, "ba_face_fusion_gate_init", 0.25))
+        if not 0.0 <= gate_init <= gate_max:
+            raise ValueError(
+                f"ba_face_fusion_gate_init must be in [0, {gate_max}], got {gate_init}"
+            )
+        relative_init = min(max(gate_init / gate_max, 1e-4), 1.0 - 1e-4)
+        logit = math.log(relative_init / (1.0 - relative_init))
+        template = next(self.parameters())
+        self.face_fusion_logit = nn.Parameter(
+            torch.full(
+                (self.num_heads,),
+                logit,
+                device=template.device,
+                dtype=template.dtype,
+            )
+        )
 
     def _q_noise(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
         layer = self.noise_to_q if self.noise_to_q is not None else attn.to_q
@@ -370,9 +405,13 @@ class BranchedAttnProcessor(nn.Module):
         noise_face_hidden = noise_hidden * mask_flat  # Face from current noise
         ref_face_hidden = ref_hidden * ref_mask_flat
 
-        # Blend them to allow pose adaptation while preserving identity
-        # Higher POSE_ADAPT_RATIO = more pose flexibility, less identity preservation
-        face_hidden_mixed = (1 - POSE_ADAPT_RATIO) * ref_face_hidden + POSE_ADAPT_RATIO * noise_face_hidden
+        fusion_mode = str(getattr(self, "ba_face_fusion_mode", "legacy") or "legacy").lower()
+
+        # Dual attention keeps the two spatial grids separate; legacy directly mixes same-index tokens.
+        if fusion_mode == "dual_attention_gate":
+            face_hidden_mixed = ref_face_hidden
+        else:
+            face_hidden_mixed = (1 - POSE_ADAPT_RATIO) * ref_face_hidden + POSE_ADAPT_RATIO * noise_face_hidden
 
         if USE_ID_EMBEDS:
             if self.id_to_hidden is None:
@@ -393,24 +432,43 @@ class BranchedAttnProcessor(nn.Module):
             id_alpha = float(getattr(self, "id_alpha", 0.3))
             face_hidden_mixed = face_hidden_mixed * (1.0 - id_alpha) + id_features * id_alpha
 
-        if CA_MIXING_FOR_FACE:
-            face_kv_hidden = torch.cat([face_hidden_mixed, noise_face_hidden], dim=1)
-        else:
-            face_kv_hidden = face_hidden_mixed
-
-        key_face = self._k_ref(attn, face_kv_hidden)
-        value_face = self._v_ref(attn, face_kv_hidden)
-
-
-        key_face = key_face.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
-        value_face = value_face.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
-        
         if mask_gate is  None:
             raise ValueError("Branched attention requires a mask for the face branch")
         
         q_face = q * mask_gate # face area of noise_hidden
-            
-        hidden_face = F.scaled_dot_product_attention(q_face, key_face, value_face, dropout_p=0.0, is_causal=False)
+
+        if fusion_mode == "dual_attention_gate":
+            if self.face_fusion_logit is None:
+                raise RuntimeError("dual_attention_gate requires configure_face_fusion() before forward")
+            key_face_ref = self._k_ref(attn, face_hidden_mixed)
+            value_face_ref = self._v_ref(attn, face_hidden_mixed)
+            key_face_noise = self._k_ref(attn, noise_face_hidden)
+            value_face_noise = self._v_ref(attn, noise_face_hidden)
+            key_face_ref = key_face_ref.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
+            value_face_ref = value_face_ref.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
+            key_face_noise = key_face_noise.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
+            value_face_noise = value_face_noise.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
+            hidden_face_ref = F.scaled_dot_product_attention(
+                q_face, key_face_ref, value_face_ref, dropout_p=0.0, is_causal=False
+            )
+            hidden_face_noise = F.scaled_dot_product_attention(
+                q_face, key_face_noise, value_face_noise, dropout_p=0.0, is_causal=False
+            )
+            gate = torch.sigmoid(self.face_fusion_logit.float()).to(q_face.dtype)
+            gate = gate.view(1, -1, 1, 1) * float(self.ba_face_fusion_gate_max)
+            hidden_face = hidden_face_ref * (1.0 - gate) + hidden_face_noise * gate
+        else:
+            if CA_MIXING_FOR_FACE:
+                face_kv_hidden = torch.cat([face_hidden_mixed, noise_face_hidden], dim=1)
+            else:
+                face_kv_hidden = face_hidden_mixed
+            key_face = self._k_ref(attn, face_kv_hidden)
+            value_face = self._v_ref(attn, face_kv_hidden)
+            key_face = key_face.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
+            value_face = value_face.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
+            hidden_face = F.scaled_dot_product_attention(
+                q_face, key_face, value_face, dropout_p=0.0, is_causal=False
+            )
         hidden_face = hidden_face.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
 
 

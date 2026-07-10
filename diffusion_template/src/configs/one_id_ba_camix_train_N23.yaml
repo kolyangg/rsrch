@@ -1,0 +1,26 @@
+defaults:
+  - one_id_09Feb_testing
+  - _self_
+
+# N23: isolate whether training under the successful CAMIX inference path improves integration.
+loss_kind: blended_masked
+lambda_face: 0.15
+train_ba_all_steps: true
+train_branched_ca_lora: false
+branched_attn_weight_mode: noise_and_ref
+branched_attn_new_weight_kind: lora
+ba_noise_lr_scale: 0.1
+
+pipeline:
+  ba_enable_runtime_sa_knobs: true
+  pose_adapt_ratio: 0
+  ca_mixing_for_face: true
+  ba_face_fusion_mode: legacy
+
+model:
+  ba_enable_runtime_sa_knobs: true
+  ba_face_fusion_mode: legacy
+  use_id_embeds: false
+  use_id_loss: true
+  id_loss_weight: 0.1
+  id_loss_max_timestep: 500

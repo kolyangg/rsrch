@@ -16,12 +16,18 @@ Layout:
 
 Config YAML (see infer_tools/full_val_report.yaml):
   results_dir, metrics_json, refs_dir, prompts, classes, out_pdf
+  metrics_sources: optional {run: {path: metrics.json, key: key_in_json}} mapping. This is useful
+          when comparison runs and their metrics live in different/nested result directories.
   runs:   optional ordered list of subfolder names; if omitted, auto-detected and ordered by
           overall mean id-sim (best first).
   labels: optional {run_dir: "short label"} overrides.
   saved_dir: optional directory containing saved/<run>/config.yaml for the config table.
   config_criteria: optional list of {label, path, default} rows for the config table. Paths use
           dot notation into config.yaml, plus metric.* and a few computed.* fields.
+  run_config_overrides: optional {run: {...}} values merged over saved config for inference-only
+          ablations. This keeps runtime differences visible when all columns share one checkpoint.
+  require_complete_grid: fail instead of silently writing missing cells when any run cannot match
+          every prompt/identity pair.
   cell_px, label_px, header_px, dpi, font_scale: layout knobs.
 
 Usage:
@@ -53,6 +59,9 @@ DEFAULT_CONFIG_CRITERIA = [
     {"label": "ID loss", "path": "computed.id_loss"},
     {"label": "ID embedding conditioning", "path": "model.use_id_embeds", "default": False},
     {"label": "face embed strategy", "path": "computed.face_embed_strategy"},
+    {"label": "runtime SA knobs enabled", "path": "pipeline.ba_enable_runtime_sa_knobs", "default": False},
+    {"label": "pose adapt ratio", "path": "pipeline.pose_adapt_ratio", "default": 0},
+    {"label": "face K/V mixing", "path": "pipeline.ca_mixing_for_face", "default": False},
     {"label": "LoRA rank", "path": "model.rank"},
     {"label": "LoRA LR", "path": "lr_for_lora"},
     {"label": "BA noise LR scale", "path": "ba_noise_lr_scale"},
@@ -191,12 +200,84 @@ def fmt_value(value):
     return replacements.get(text, text)
 
 
-def load_run_config(saved_dir: Path, run: str):
+def deep_merge(base: dict, override: dict) -> dict:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_run_config(saved_dir: Path, run: str, override: dict | None = None):
     config_path = saved_dir / run / "config.yaml"
-    if not config_path.exists():
-        return {}
-    loaded = yaml.safe_load(config_path.read_text()) or {}
-    return loaded if isinstance(loaded, dict) else {}
+    loaded = yaml.safe_load(config_path.read_text()) or {} if config_path.exists() else {}
+    loaded = loaded if isinstance(loaded, dict) else {}
+    return deep_merge(loaded, override or {})
+
+
+def load_metrics(cfg: dict) -> dict:
+    sources = cfg.get("metrics_sources")
+    if not sources:
+        return json.loads(Path(cfg["metrics_json"]).read_text())
+
+    metrics = {}
+    for run, source in sources.items():
+        if isinstance(source, str):
+            path, key = source, run
+        else:
+            path = source["path"]
+            key = source.get("key", run)
+        source_metrics = json.loads(Path(path).read_text())
+        if key not in source_metrics:
+            raise KeyError(f"Metric key {key!r} for run {run!r} not found in {path}")
+        metrics[run] = source_metrics[key]
+    return metrics
+
+
+def output_filename_candidates(prompt: str, cls: str | None, ident: str, trigger_word: str):
+    replacements = []
+    if cls:
+        if trigger_word:
+            replacements.append(f"{cls} {trigger_word}")
+        replacements.append(cls)
+    else:
+        replacements.append(trigger_word or "")
+
+    candidates = []
+    for replacement in replacements:
+        resolved = prompt.replace("<class>", replacement)
+        for ext in IMG_EXTS:
+            candidates.append(f"{resolved[:10]}_{ident}{ext}")
+    return candidates
+
+
+def index_run_images(run_dir: Path):
+    images = {
+        path.name: path
+        for path in run_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in IMG_EXTS and not path.name.startswith("_")
+    }
+    normalized = {}
+    for name, path in images.items():
+        key = "".join(ch.lower() for ch in name if ch.isalnum())
+        normalized.setdefault(key, []).append(path)
+    return images, normalized
+
+
+def find_run_image(index, prompt: str, cls: str | None, ident: str, trigger_word: str):
+    images, normalized = index
+    candidates = output_filename_candidates(prompt, cls, ident, trigger_word)
+    for candidate in candidates:
+        if candidate in images:
+            return images[candidate]
+    for candidate in candidates:
+        key = "".join(ch.lower() for ch in candidate if ch.isalnum())
+        matches = normalized.get(key, [])
+        if len(matches) == 1:
+            return matches[0]
+    return None
 
 
 def config_value(path: str, run_cfg: dict, run_metrics: dict):
@@ -212,6 +293,8 @@ def config_value(path: str, run_cfg: dict, run_metrics: dict):
             return f"{epoch_len} x {n_epochs} = {total}"
         return f"{epoch_len} x {n_epochs}"
     if path == "computed.train_ba_sa":
+        if get_path(run_cfg, "report.branched_attention") is False:
+            return False
         return not bool(get_path(run_cfg, "disable_branched_sa", False))
     if path == "computed.train_ba_ca":
         return bool(get_path(run_cfg, "train_branched_ca_lora", False)) and not bool(
@@ -246,9 +329,14 @@ def config_value(path: str, run_cfg: dict, run_metrics: dict):
 def build_config_table_page(cfg, runs, labels, metrics, run_label, fs):
     saved_dir = Path(cfg.get("saved_dir", "saved"))
     config_aliases = cfg.get("config_aliases", {})
+    config_overrides = cfg.get("run_config_overrides", {})
     criteria = cfg.get("config_criteria") or DEFAULT_CONFIG_CRITERIA
     run_configs = {
-        run: load_run_config(saved_dir, config_aliases.get(run, run))
+        run: load_run_config(
+            saved_dir,
+            config_aliases.get(run, run),
+            config_overrides.get(run),
+        )
         for run in runs
     }
 
@@ -320,7 +408,7 @@ def build_config_table_page(cfg, runs, labels, metrics, run_label, fs):
 def build(cfg):
     results_dir = Path(cfg["results_dir"])
     refs_dir = Path(cfg["refs_dir"])
-    metrics = json.loads(Path(cfg["metrics_json"]).read_text())
+    metrics = load_metrics(cfg)
     prompts = [ln.rstrip("\n") for ln in open(cfg["prompts"], encoding="utf-8") if ln.strip()]
     classes = json.loads(Path(cfg["classes"]).read_text())
     out_pdf = Path(cfg["out_pdf"])
@@ -330,6 +418,7 @@ def build(cfg):
     header_px = int(cfg.get("header_px", cell + 70))
     dpi = int(cfg.get("dpi", 150))
     fs = float(cfg.get("font_scale", 1.0))
+    trigger_word = str(cfg.get("trigger_word", "img") or "")
 
     # runs: explicit order, else auto by overall mean id-sim (best first)
     runs = cfg.get("runs")
@@ -344,6 +433,32 @@ def build(cfg):
 
     # identities present in the metrics (union), ordered by classes.json order then alpha
     ids = sorted({i for r in runs for i in metrics[r].get("per_identity_id_sim", {})})
+    image_indexes = {run: index_run_images(results_dir / run) for run in runs}
+
+    expected_cells = len(ids) * len(prompts)
+    for run in runs:
+        matched = []
+        missing = []
+        for ident in ids:
+            cls = classes.get(ident)
+            for prompt in prompts:
+                path = find_run_image(image_indexes[run], prompt, cls, ident, trigger_word)
+                if path is None:
+                    missing.append(f"{prompt[:20]}.../{ident}")
+                else:
+                    matched.append(path.name)
+        unique_matches = set(matched)
+        print(
+            f"[pdf] {run}: matched {len(unique_matches)}/{expected_cells} grid images "
+            f"({len(image_indexes[run][0])} files in directory)"
+        )
+        if cfg.get("require_complete_grid", False) and (
+            missing or len(unique_matches) != expected_cells
+        ):
+            raise RuntimeError(
+                f"Incomplete grid for {run}: matched {len(unique_matches)}/{expected_cells}; "
+                f"missing examples: {missing[:8]}"
+            )
 
     def ref_thumb(ident, side):
         for e in IMG_EXTS:
@@ -358,21 +473,24 @@ def build(cfg):
     n_id = len(ids)
     col0 = 260
     stepcol = 70
+    detcol = 90
     meancol = 90
     idcol = max(64, int((1600) / max(1, n_id)))
-    W = col0 + stepcol + meancol + idcol * n_id + 40
+    W = col0 + stepcol + detcol + meancol + idcol * n_id + 40
     rowh = 46
     H = 120 + rowh * (len(runs) + 1)
     pg = Image.new("RGB", (W, H), (18, 18, 18))
     d = ImageDraw.Draw(pg)
-    d.text((20, 24), "Full validation (96 images) — mean id-sim per run", fill=(255, 255, 120), font=font(int(30 * fs)))
+    title = cfg.get("title", "Full validation (96 images) - mean id-sim per run")
+    d.text((20, 24), title, fill=(255, 255, 120), font=font(int(30 * fs)))
     y0 = 90
     hf = font(int(19 * fs))
     d.text((20, y0), "run", fill=(180, 210, 255), font=hf)
     d.text((col0, y0), "step", fill=(180, 210, 255), font=hf)
-    d.text((col0 + stepcol, y0), "MEAN", fill=(255, 255, 160), font=hf)
+    d.text((col0 + stepcol, y0), "faces", fill=(180, 210, 255), font=hf)
+    d.text((col0 + stepcol + detcol, y0), "MEAN", fill=(255, 255, 160), font=hf)
     for k, ident in enumerate(ids):
-        d.text((col0 + stepcol + meancol + k * idcol, y0), ident[:8], fill=(180, 210, 255), font=font(int(16 * fs)))
+        d.text((col0 + stepcol + detcol + meancol + k * idcol, y0), ident[:8], fill=(180, 210, 255), font=font(int(16 * fs)))
     # best per column highlight
     best_mean = max((metrics[r].get("mean_id_sim") or -1) for r in runs)
     y = y0 + rowh
@@ -382,11 +500,15 @@ def build(cfg):
         mean = m.get("mean_id_sim")
         d.text((20, y), run_label(r)[:26], fill=(235, 235, 235), font=cf)
         d.text((col0, y), str(m.get("step", "")), fill=(200, 200, 200), font=cf)
+        detected = m.get("n_faces_detected")
+        n_images = m.get("n_images")
+        det_text = f"{detected}/{n_images}" if detected is not None and n_images is not None else "-"
+        d.text((col0 + stepcol, y), det_text, fill=(200, 200, 200), font=cf)
         col = (120, 255, 120) if (mean is not None and mean >= best_mean - 1e-9) else sim_color(mean)
-        d.text((col0 + stepcol, y), f"{mean:.3f}" if mean is not None else "NA", fill=col, font=cf)
+        d.text((col0 + stepcol + detcol, y), f"{mean:.3f}" if mean is not None else "NA", fill=col, font=cf)
         for k, ident in enumerate(ids):
             v = m.get("per_identity_id_sim", {}).get(ident)
-            d.text((col0 + stepcol + meancol + k * idcol, y), f"{v:.3f}" if v is not None else "-", fill=sim_color(v), font=font(int(16 * fs)))
+            d.text((col0 + stepcol + detcol + meancol + k * idcol, y), f"{v:.3f}" if v is not None else "-", fill=sim_color(v), font=font(int(16 * fs)))
         y += rowh
     pages.append(pg)
 
@@ -418,16 +540,14 @@ def build(cfg):
             ry = header_px + pi * cell
             for li, line in enumerate(wrap(d, prompt, rf, label_px - 10)):
                 d.text((6, ry + 6 + li * 17), line, fill=(200, 225, 255), font=rf)
-            resolved = resolve_prompt(prompt, cls)
-            fname = f"{resolved[:10]}_{ident}.png"
             for j, r in enumerate(runs):
                 x = label_px + j * cell
-                imgp = results_dir / r / fname
-                if imgp.exists():
+                imgp = find_run_image(image_indexes[r], prompt, cls, ident, trigger_word)
+                if imgp is not None:
                     pg.paste(load_thumb(imgp, cell - 4), (x + 2, ry + 2))
                 else:
                     pg.paste(missing_cell(cell - 4), (x + 2, ry + 2))
-                sim = metrics[r].get("per_image_id_sim", {}).get(fname)
+                sim = metrics[r].get("per_image_id_sim", {}).get(imgp.name) if imgp is not None else None
                 d.rectangle([x + 2, ry + 2, x + 78, ry + 24], fill=(0, 0, 0))
                 d.text((x + 5, ry + 4), f"{sim:.3f}" if isinstance(sim, (int, float)) else "no-face", fill=sim_color(sim if isinstance(sim, (int, float)) else None), font=sf)
         pages.append(pg)

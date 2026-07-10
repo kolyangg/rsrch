@@ -70,6 +70,9 @@ class PhotomakerBranchedLora(SDXL):
         train_ba_all_steps: bool = False,
         ba_enable_runtime_sa_knobs: bool = False,
         ba_train_sa_id_embed_proj: bool = False,
+        ba_face_fusion_mode: str = "legacy",
+        ba_face_fusion_gate_init: float = 0.25,
+        ba_face_fusion_gate_max: float = 1.0,
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
         ba_uncond_face_fix: bool = False,  # F1: keep plain negative prompt for the uncond face branch under CFG
@@ -190,6 +193,9 @@ class PhotomakerBranchedLora(SDXL):
         self.train_ba_all_steps = bool(train_ba_all_steps)
         self.ba_enable_runtime_sa_knobs = bool(ba_enable_runtime_sa_knobs)
         self.ba_train_sa_id_embed_proj = bool(ba_train_sa_id_embed_proj)
+        self.ba_face_fusion_mode = str(ba_face_fusion_mode or "legacy").lower()
+        self.ba_face_fusion_gate_init = float(ba_face_fusion_gate_init)
+        self.ba_face_fusion_gate_max = float(ba_face_fusion_gate_max)
         # ID loss (identity-supervised training). Off by default -> zero overhead / behaviour change.
         self.use_id_loss = bool(use_id_loss)
         self.id_loss_weight = float(id_loss_weight)

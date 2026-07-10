@@ -27,6 +27,9 @@ model:
   trigger_word: img
   pose_adapt_ratio: ${pipeline.pose_adapt_ratio}
   ca_mixing_for_face: ${pipeline.ca_mixing_for_face}
+  ba_face_fusion_mode: ${pipeline.ba_face_fusion_mode}
+  ba_face_fusion_gate_init: ${pipeline.ba_face_fusion_gate_init}
+  ba_face_fusion_gate_max: ${pipeline.ba_face_fusion_gate_max}
   face_embed_strategy: ${pipeline.face_embed_strategy}
   train_branch_mode: ${pipeline.train_branch_mode}
   use_attn_v2: false
@@ -58,6 +61,9 @@ pipeline:
   train_branch_mode: both
   pose_adapt_ratio: 0
   ca_mixing_for_face: false
+  ba_face_fusion_mode: legacy
+  ba_face_fusion_gate_init: 0.25
+  ba_face_fusion_gate_max: 1.0
   face_embed_strategy: id
   use_id_embeds: false
   id_alpha: 0.3

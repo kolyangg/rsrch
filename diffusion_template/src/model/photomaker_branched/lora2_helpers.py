@@ -69,6 +69,8 @@ def configure_branched_trainables(model) -> None:
                 p.requires_grad_(True)
             elif is_selected_proc and train_sa_id_embed_proj and ".attn1.processor.id_to_hidden." in name:
                 p.requires_grad_(True)
+            elif is_selected_proc and ".attn1.processor.face_fusion_logit" in name:
+                p.requires_grad_(True)
 
         if non_ba_train and is_non_ba_attn and ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name:
             p.requires_grad_(True)

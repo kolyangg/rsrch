@@ -94,9 +94,14 @@ def patch_unet_attention_processors(
             "ca_mixing_for_face",
             "id_alpha",
             "use_id_embeds",
+            "ba_face_fusion_mode",
+            "ba_face_fusion_gate_init",
+            "ba_face_fusion_gate_max",
         ):
             if hasattr(pipe, k):
                 setattr(proc, k, getattr(pipe, k))
+        if hasattr(proc, "configure_face_fusion"):
+            proc.configure_face_fusion()
 
         # Optional toggle for per-branch BA-specific adapters.
         if hasattr(pipe, "ba_weights_split"):

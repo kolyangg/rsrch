@@ -1,0 +1,134 @@
+# PhotoMaker baseline vs N17 and inference-only self-attention runtime ablations.
+
+results_dir: full_validation_results
+refs_dir: ../dataset_full/val_dataset/references
+prompts: ../dataset_full/val_dataset/prompts_10.txt
+classes: ../dataset_full/val_dataset/classes_ref.json
+out_pdf: full_validation_results/full_val_report_pm_vs_N17_runtime_ablation.pdf
+saved_dir: saved
+title: PhotoMaker vs N17 runtime ablations - full 96-image validation
+trigger_word: img
+require_complete_grid: true
+
+runs:
+  - photomaker_baseline
+  - ba_longrun_N17
+  - par025_no_camix_ablation/ba_longrun_N17_step26000
+  - pose0_camix_ablation/ba_longrun_N17_step26000
+  - par_camix_ablation/ba_longrun_N17_step26000
+
+labels:
+  photomaker_baseline: PhotoMaker V2 baseline
+  ba_longrun_N17: N17 plain BA, 26k
+  par025_no_camix_ablation/ba_longrun_N17_step26000: N17 PAR=.25, no K/V mix
+  pose0_camix_ablation/ba_longrun_N17_step26000: N17 PAR=0, K/V mix
+  par_camix_ablation/ba_longrun_N17_step26000: N17 PAR=.25 + K/V mix
+
+metrics_sources:
+  photomaker_baseline:
+    path: full_validation_results/metrics_photomaker_baseline.json
+    key: photomaker_baseline
+  ba_longrun_N17:
+    path: full_validation_results/metrics_ba_longrun_N17.json
+    key: ba_longrun_N17
+  par025_no_camix_ablation/ba_longrun_N17_step26000:
+    path: full_validation_results/par025_no_camix_ablation/metrics_ba_longrun_N17_steps.json
+    key: ba_longrun_N17_step26000
+  pose0_camix_ablation/ba_longrun_N17_step26000:
+    path: full_validation_results/pose0_camix_ablation/metrics_ba_longrun_N17_steps.json
+    key: ba_longrun_N17_step26000
+  par_camix_ablation/ba_longrun_N17_step26000:
+    path: full_validation_results/par_camix_ablation/metrics_ba_longrun_N17_steps.json
+    key: ba_longrun_N17_step26000
+
+config_aliases:
+  ba_longrun_N17: ba_longrun_N17
+  par025_no_camix_ablation/ba_longrun_N17_step26000: ba_longrun_N17
+  pose0_camix_ablation/ba_longrun_N17_step26000: ba_longrun_N17
+  par_camix_ablation/ba_longrun_N17_step26000: ba_longrun_N17
+
+run_config_overrides:
+  photomaker_baseline:
+    report:
+      method: PhotoMaker V2 only
+      branched_attention: false
+      training: pretrained release
+    pipeline:
+      ba_enable_runtime_sa_knobs: false
+      pose_adapt_ratio: 0
+      ca_mixing_for_face: false
+      face_embed_strategy: id
+      use_id_embeds: false
+    model:
+      use_id_embeds: false
+  ba_longrun_N17:
+    report:
+      method: PhotoMaker + BA
+      branched_attention: true
+      training: N17, 26k
+    pipeline:
+      ba_enable_runtime_sa_knobs: false
+      pose_adapt_ratio: 0
+      ca_mixing_for_face: false
+  par025_no_camix_ablation/ba_longrun_N17_step26000:
+    report:
+      method: PhotoMaker + BA
+      branched_attention: true
+      training: N17, 26k
+    pipeline:
+      ba_enable_runtime_sa_knobs: true
+      pose_adapt_ratio: 0.25
+      ca_mixing_for_face: false
+  pose0_camix_ablation/ba_longrun_N17_step26000:
+    report:
+      method: PhotoMaker + BA
+      branched_attention: true
+      training: N17, 26k
+    pipeline:
+      ba_enable_runtime_sa_knobs: true
+      pose_adapt_ratio: 0
+      ca_mixing_for_face: true
+  par_camix_ablation/ba_longrun_N17_step26000:
+    report:
+      method: PhotoMaker + BA
+      branched_attention: true
+      training: N17, 26k
+    pipeline:
+      ba_enable_runtime_sa_knobs: true
+      pose_adapt_ratio: 0.25
+      ca_mixing_for_face: true
+
+config_criteria:
+  - {label: method, path: report.method}
+  - {label: branched attention, path: report.branched_attention}
+  - {label: checkpoint/training, path: report.training}
+  - {label: 96-val mean id-sim, path: metric.mean_id_sim}
+  - {label: faces detected, path: metric.n_faces_detected}
+  - {label: scored checkpoint step, path: metric.step}
+  - {label: runtime SA knobs enabled, path: pipeline.ba_enable_runtime_sa_knobs, default: false}
+  - {label: pose adapt ratio, path: pipeline.pose_adapt_ratio, default: 0}
+  - {label: face K/V mixing, path: pipeline.ca_mixing_for_face, default: false}
+  - {label: face embed strategy, path: computed.face_embed_strategy}
+  - {label: ID embedding conditioning, path: model.use_id_embeds, default: false}
+  - {label: loss kind, path: loss_kind}
+  - {label: face loss lambda, path: lambda_face}
+  - {label: ID loss, path: computed.id_loss}
+  - {label: BA weight mode, path: branched_attn_weight_mode}
+  - {label: BA weight kind, path: branched_attn_new_weight_kind}
+  - {label: train BA self-attn, path: computed.train_ba_sa}
+  - {label: train BA cross-attn, path: computed.train_ba_ca}
+  - {label: train BA all denoise stages, path: train_ba_all_steps}
+  - {label: LoRA rank, path: model.rank}
+  - {label: LoRA LR, path: lr_for_lora}
+  - {label: BA noise LR scale, path: ba_noise_lr_scale}
+  - {label: face prompt mode, path: model.ba_face_prompt_mode}
+  - {label: uncond face fix, path: model.ba_uncond_face_fix, default: false}
+  - {label: validation base, path: pretrained_model_for_validation_name_or_path}
+
+cell_px: 240
+label_px: 235
+config_row_px: 58
+config_label_px: 260
+config_col_px: 185
+dpi: 150
+font_scale: 1.0

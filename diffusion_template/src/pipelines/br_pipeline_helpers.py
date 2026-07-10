@@ -1126,6 +1126,18 @@ def build_pipeline_from_pretrained(
         "ba_enable_runtime_sa_knobs",
         getattr(unwrapped_model, "ba_enable_runtime_sa_knobs", False),
     )
+    ba_face_fusion_mode_cfg = kwargs.pop(
+        "ba_face_fusion_mode",
+        getattr(unwrapped_model, "ba_face_fusion_mode", "legacy"),
+    )
+    ba_face_fusion_gate_init_cfg = kwargs.pop(
+        "ba_face_fusion_gate_init",
+        getattr(unwrapped_model, "ba_face_fusion_gate_init", 0.25),
+    )
+    ba_face_fusion_gate_max_cfg = kwargs.pop(
+        "ba_face_fusion_gate_max",
+        getattr(unwrapped_model, "ba_face_fusion_gate_max", 1.0),
+    )
 
     pipeline = pipeline_cls.from_pretrained(
         scheduler=scheduler,
@@ -1153,6 +1165,9 @@ def build_pipeline_from_pretrained(
     pipeline.use_id_embeds = bool(use_id_embeds_cfg)
     pipeline.id_alpha = float(id_alpha_cfg)
     pipeline.ba_enable_runtime_sa_knobs = bool(ba_enable_runtime_sa_knobs_cfg)
+    pipeline.ba_face_fusion_mode = str(ba_face_fusion_mode_cfg or "legacy").lower()
+    pipeline.ba_face_fusion_gate_init = float(ba_face_fusion_gate_init_cfg)
+    pipeline.ba_face_fusion_gate_max = float(ba_face_fusion_gate_max_cfg)
     pipeline.strict_face_routing = bool(getattr(unwrapped_model, "strict_face_routing", False))
     pipeline.ba_uncond_face_fix = bool(getattr(unwrapped_model, "ba_uncond_face_fix", False))
     pipeline.ba_face_prompt_mode = str(getattr(unwrapped_model, "ba_face_prompt_mode", "id_only") or "id_only").lower()
