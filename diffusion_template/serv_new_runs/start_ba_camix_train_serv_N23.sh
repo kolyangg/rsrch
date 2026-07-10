@@ -7,6 +7,8 @@ set -euo pipefail
 
 export HYDRA_FULL_ERROR=1
 export CUDA_LAUNCH_BLOCKING="${CUDA_LAUNCH_BLOCKING:-0}"
+export MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
+export MASTER_PORT="${MASTER_PORT:-29500}"
 
 PM_PATH="${PM_PATH:-/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/checkpoints/PhotoMaker-V2/photomaker-v2.bin}"
 COMET_API_KEY="${COMET_API_KEY:-}"
@@ -24,7 +26,7 @@ PYTHONWARNINGS="ignore::FutureWarning" \
 COMET_DISABLE_AUTO_LOGGING=1 \
 COMET_LOGGING_CONSOLE=ERROR \
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}" \
-accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=1 train.py \
+accelerate launch --config_file=src/configs/ddp/accelerate.yaml --main_process_ip="${MASTER_ADDR}" --main_process_port="${MASTER_PORT}" --num_processes=1 train.py \
     --config-name=one_id_ba_camix_train_N23 \
     datasets=all_datasets \
     train_dataset_name=cosmic_large \
