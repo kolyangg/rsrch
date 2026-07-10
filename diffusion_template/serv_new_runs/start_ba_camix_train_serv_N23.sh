@@ -5,6 +5,27 @@ set -euo pipefail
 # This is the lowest-risk follow-up to the 96-image runtime ablation. Ten 1k epochs allow direct
 # comparison with N17@10k; validate intermediate checkpoints rather than assuming the last is best.
 
+RUN_NAME="ba_camix_train_N23"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="${SCRIPT_DIR}/$(basename -- "${BASH_SOURCE[0]}")"
+PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+LOG_DIR="${LOG_DIR:-${PROJECT_DIR}/logs_new_runs}"
+LOG_FILE="${LOG_FILE:-${LOG_DIR}/${RUN_NAME}_$(date +%Y%m%d_%H%M%S).log}"
+
+if [[ "${RUN_FOREGROUND:-0}" != "1" && "${DETACHED_RUN:-0}" != "1" ]]; then
+    mkdir -p "${LOG_DIR}"
+    echo "Starting ${RUN_NAME} detached"
+    echo "Log: ${LOG_FILE}"
+    DETACHED_RUN=1 LOG_DIR="${LOG_DIR}" LOG_FILE="${LOG_FILE}" nohup bash "${SCRIPT_PATH}" "$@" >"${LOG_FILE}" 2>&1 </dev/null &
+    echo "PID: $!"
+    echo "Follow with: tail -f ${LOG_FILE}"
+    exit 0
+fi
+
+cd "${PROJECT_DIR}"
+echo "[$(date -Is)] Starting ${RUN_NAME}"
+echo "[$(date -Is)] Log file: ${LOG_FILE}"
+
 export HYDRA_FULL_ERROR=1
 export CUDA_LAUNCH_BLOCKING="${CUDA_LAUNCH_BLOCKING:-0}"
 export MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"

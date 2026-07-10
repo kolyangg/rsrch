@@ -326,3 +326,25 @@ fixed fusion second.
 - Modified Python modules pass `py_compile`.
 - Dual-gate processor smoke test produced the expected tensor shape, initialized all four test
   heads at 0.20, propagated a nonzero gate gradient, and included the gate in `state_dict()`.
+
+## 10 Jul N24 Startup Fix
+
+The first N24 server attempt failed on a normal PhotoMaker training phase with:
+
+```text
+Invalid branched batch: total=2, generation=2, reference=0
+```
+
+Cause: N24 sets `train_ba_all_steps=false`. The text-only and PhotoMaker-only timestep branches
+called the UNet with a normal batch, but optimizer-owned branched processors were still attached and
+expected a doubled `[generation, reference]` batch.
+
+The training forward now temporarily selects the original processors for those two plain phases,
+restores the exact same branched processor instances before leaving the forward, and adds a
+zero-valued dependency on inactive trainable BA parameters. The dependency changes neither outputs
+nor weights, but keeps backward/DDP valid on intentionally non-BA steps. Branched phases continue to
+use the doubled batch and learned N24 gates.
+
+Verified locally with processor-identity/output checks and a one-process DDP regression that
+alternated plain and branched steps with `find_unused_parameters=false`; all backward/optimizer
+steps completed and inactive BA gradients remained exactly zero.

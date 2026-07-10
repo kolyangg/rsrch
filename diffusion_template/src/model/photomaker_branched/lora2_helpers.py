@@ -290,6 +290,7 @@ def run_branched_forward_pass(
     id_features: torch.Tensor | None,
 ) -> torch.Tensor:
     """Run branched two-branch prediction and return merged noise prediction."""
+    set_branched_training_mode(model, branched_active=True)
     noise_pred, _, _ = two_branch_predict(
         pipeline=model,
         latent_model_input=noisy_latents,
@@ -308,6 +309,36 @@ def run_branched_forward_pass(
         timestep_cond=None,
     )
     return noise_pred
+
+
+def set_branched_training_mode(model, *, branched_active: bool) -> None:
+    """Swap processor sets without rebuilding optimizer-owned BA modules."""
+    attr = "_branched_attn_processors_train" if branched_active else "_original_attn_processors"
+    target = getattr(model, attr, None)
+    if not target:
+        raise RuntimeError(f"Cannot select training attention mode: {attr} is unavailable")
+
+    current = model.unet.attn_processors
+    if all(current.get(name) is proc for name, proc in target.items()):
+        return
+    model.unet.set_attn_processor(dict(target))
+
+
+def attach_inactive_branched_params(model, output: torch.Tensor) -> torch.Tensor:
+    """Keep intentionally inactive BA params in the graph with exactly zero gradients."""
+    processors = getattr(model, "_branched_attn_processors_train", {}).values()
+    params = []
+    seen = set()
+    for proc in processors:
+        for param in proc.parameters():
+            if param.requires_grad and id(param) not in seen:
+                seen.add(id(param))
+                params.append(param)
+    if not params:
+        return output
+
+    anchor = sum((param.reshape(-1)[0].float() * 0.0 for param in params), output.new_zeros(()).float())
+    return output + anchor.to(device=output.device, dtype=output.dtype)
 
 
 def ensure_branched_after_eval(model) -> None:

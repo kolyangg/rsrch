@@ -26,6 +26,8 @@ from .lora2_helpers import (
     install_branched_processors_for_training,
     prepare_branched_training_inputs,
     run_branched_forward_pass,
+    set_branched_training_mode,
+    attach_inactive_branched_params,
     ensure_branched_after_eval as ensure_branched_after_eval_helper,
 )
 from .model_v2_NS import PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken
@@ -485,21 +487,31 @@ class PhotomakerBranchedLora(SDXL):
                 "text_embeds": pooled_prompt_embeds_text_only,
                 "time_ids": add_time_ids.to(device=self.device, dtype=self.unet.dtype),
             }
-            noise_pred = self.unet(
-                noisy_latents,
-                timesteps,
-                encoder_hidden_states=prompt_embeds_text_only,
-                added_cond_kwargs=text_only_kwargs,
-                return_dict=False,
-            )[0]
+            set_branched_training_mode(self, branched_active=False)
+            try:
+                noise_pred = self.unet(
+                    noisy_latents,
+                    timesteps,
+                    encoder_hidden_states=prompt_embeds_text_only,
+                    added_cond_kwargs=text_only_kwargs,
+                    return_dict=False,
+                )[0]
+            finally:
+                set_branched_training_mode(self, branched_active=True)
+            noise_pred = attach_inactive_branched_params(self, noise_pred)
         elif denoise_progress < branched_start_ratio:
-            noise_pred = self.unet(
-                noisy_latents,
-                timesteps,
-                encoder_hidden_states=prompt_embeds,
-                added_cond_kwargs=added_cond_kwargs,
-                return_dict=False,
-            )[0]
+            set_branched_training_mode(self, branched_active=False)
+            try:
+                noise_pred = self.unet(
+                    noisy_latents,
+                    timesteps,
+                    encoder_hidden_states=prompt_embeds,
+                    added_cond_kwargs=added_cond_kwargs,
+                    return_dict=False,
+                )[0]
+            finally:
+                set_branched_training_mode(self, branched_active=True)
+            noise_pred = attach_inactive_branched_params(self, noise_pred)
         else:
             ##### BRANCHED ATTENTION - FORWARD PASS #####
             """FORWARD PASS: run branched prediction via helper wrapper around `two_branch_predict`."""

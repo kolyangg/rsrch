@@ -5,6 +5,27 @@ set -euo pipefail
 # head between BA reference-face attention and current PhotoMaker-conditioned face attention.
 # The gate starts at 0.20 and is capped at 0.50 to prevent immediate collapse to the PM path.
 
+RUN_NAME="ba_dualgate_train_N24"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="${SCRIPT_DIR}/$(basename -- "${BASH_SOURCE[0]}")"
+PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+LOG_DIR="${LOG_DIR:-${PROJECT_DIR}/logs_new_runs}"
+LOG_FILE="${LOG_FILE:-${LOG_DIR}/${RUN_NAME}_$(date +%Y%m%d_%H%M%S).log}"
+
+if [[ "${RUN_FOREGROUND:-0}" != "1" && "${DETACHED_RUN:-0}" != "1" ]]; then
+    mkdir -p "${LOG_DIR}"
+    echo "Starting ${RUN_NAME} detached"
+    echo "Log: ${LOG_FILE}"
+    DETACHED_RUN=1 LOG_DIR="${LOG_DIR}" LOG_FILE="${LOG_FILE}" nohup bash "${SCRIPT_PATH}" "$@" >"${LOG_FILE}" 2>&1 </dev/null &
+    echo "PID: $!"
+    echo "Follow with: tail -f ${LOG_FILE}"
+    exit 0
+fi
+
+cd "${PROJECT_DIR}"
+echo "[$(date -Is)] Starting ${RUN_NAME}"
+echo "[$(date -Is)] Log file: ${LOG_FILE}"
+
 export HYDRA_FULL_ERROR=1
 export CUDA_LAUNCH_BLOCKING="${CUDA_LAUNCH_BLOCKING:-0}"
 
