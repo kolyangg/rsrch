@@ -1,0 +1,84 @@
+# Focused check of whether N23 reproduces PhotoMaker rather than adding useful BA behavior.
+
+results_dir: full_validation_results
+refs_dir: ../dataset_full/val_dataset/references
+prompts: ../dataset_full/val_dataset/prompts_10.txt
+classes: ../dataset_full/val_dataset/classes_ref.json
+out_pdf: full_validation_results/ba_n23_n24_13Jul/full_val_report_N23_vs_PM_CAMIX.pdf
+saved_dir: saved
+title: N23 CAMIX training vs PhotoMaker and N17 CAMIX inference
+trigger_word: img
+require_complete_grid: true
+
+runs:
+  - photomaker_baseline
+  - ba_camix_train_N23_steps/ba_camix_train_N23_step1000
+  - ba_camix_train_N23_steps/ba_camix_train_N23_step5000
+  - ba_camix_train_N23_steps/ba_camix_train_N23_step10000
+  - ba_longrun_N17
+  - pose0_camix_ablation/ba_longrun_N17_step26000
+
+labels:
+  photomaker_baseline: PhotoMaker V2
+  ba_camix_train_N23_steps/ba_camix_train_N23_step1000: N23 CAMIX 1k
+  ba_camix_train_N23_steps/ba_camix_train_N23_step5000: N23 CAMIX 5k
+  ba_camix_train_N23_steps/ba_camix_train_N23_step10000: N23 CAMIX 10k
+  ba_longrun_N17: N17 plain BA 26k
+  pose0_camix_ablation/ba_longrun_N17_step26000: N17 CAMIX inference 26k
+
+metrics_sources:
+  photomaker_baseline: {path: full_validation_results/metrics_photomaker_baseline.json, key: photomaker_baseline}
+  ba_camix_train_N23_steps/ba_camix_train_N23_step1000: {path: full_validation_results/ba_camix_train_N23_steps/metrics_ba_camix_train_N23_steps.json, key: ba_camix_train_N23_step1000}
+  ba_camix_train_N23_steps/ba_camix_train_N23_step5000: {path: full_validation_results/ba_camix_train_N23_steps/metrics_ba_camix_train_N23_steps.json, key: ba_camix_train_N23_step5000}
+  ba_camix_train_N23_steps/ba_camix_train_N23_step10000: {path: full_validation_results/ba_camix_train_N23_steps/metrics_ba_camix_train_N23_steps.json, key: ba_camix_train_N23_step10000}
+  ba_longrun_N17: {path: full_validation_results/metrics_ba_longrun_N17.json, key: ba_longrun_N17}
+  pose0_camix_ablation/ba_longrun_N17_step26000: {path: full_validation_results/pose0_camix_ablation/metrics_ba_longrun_N17_steps.json, key: ba_longrun_N17_step26000}
+
+config_aliases:
+  ba_camix_train_N23_steps/ba_camix_train_N23_step1000: ba_camix_train_N23
+  ba_camix_train_N23_steps/ba_camix_train_N23_step5000: ba_camix_train_N23
+  ba_camix_train_N23_steps/ba_camix_train_N23_step10000: ba_camix_train_N23
+  pose0_camix_ablation/ba_longrun_N17_step26000: ba_longrun_N17
+
+run_config_overrides:
+  photomaker_baseline:
+    report: {method: PhotoMaker only}
+    pipeline: {ba_enable_runtime_sa_knobs: false, pose_adapt_ratio: 0, ca_mixing_for_face: false, ba_face_fusion_mode: none}
+    model: {use_id_loss: false, use_id_embeds: false}
+  ba_camix_train_N23_steps/ba_camix_train_N23_step1000: &n23_focus
+    report: {method: CAMIX during train and inference}
+    trainer: {epoch_len: 1000, n_epochs: 10}
+    loss_kind: blended_masked
+    lambda_face: 0.15
+    train_ba_all_steps: true
+    train_branched_ca_lora: false
+    pipeline: {ba_enable_runtime_sa_knobs: true, pose_adapt_ratio: 0, ca_mixing_for_face: true, ba_face_fusion_mode: legacy}
+    model: {use_id_loss: true, id_loss_weight: 0.1, id_loss_max_timestep: 500, use_id_embeds: false}
+  ba_camix_train_N23_steps/ba_camix_train_N23_step5000: *n23_focus
+  ba_camix_train_N23_steps/ba_camix_train_N23_step10000: *n23_focus
+  ba_longrun_N17:
+    report: {method: plain BA}
+    pipeline: {ba_enable_runtime_sa_knobs: false, pose_adapt_ratio: 0, ca_mixing_for_face: false, ba_face_fusion_mode: legacy}
+  pose0_camix_ablation/ba_longrun_N17_step26000:
+    report: {method: CAMIX at inference only}
+    pipeline: {ba_enable_runtime_sa_knobs: true, pose_adapt_ratio: 0, ca_mixing_for_face: true, ba_face_fusion_mode: legacy}
+
+config_criteria:
+  - {label: method, path: report.method}
+  - {label: checkpoint step, path: metric.step}
+  - {label: 96-val mean id-sim, path: metric.mean_id_sim}
+  - {label: loss kind, path: loss_kind}
+  - {label: face loss lambda, path: lambda_face}
+  - {label: ID loss, path: computed.id_loss}
+  - {label: train BA all denoise stages, path: train_ba_all_steps}
+  - {label: train BA cross-attn, path: computed.train_ba_ca}
+  - {label: runtime SA knobs, path: pipeline.ba_enable_runtime_sa_knobs, default: false}
+  - {label: CAMIX face K/V, path: pipeline.ca_mixing_for_face, default: false}
+  - {label: face fusion mode, path: pipeline.ba_face_fusion_mode}
+
+cell_px: 240
+label_px: 235
+config_row_px: 58
+config_label_px: 270
+config_col_px: 190
+dpi: 150
