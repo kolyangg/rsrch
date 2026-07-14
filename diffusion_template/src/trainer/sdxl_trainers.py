@@ -367,6 +367,8 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 ):
                     processors = getattr(unwrapped_model, "_branched_attn_processors_train", {}).values()
                     for proc in processors:
+                        if not isinstance(proc, torch.nn.Module):
+                            continue
                         for param in proc.parameters():
                             if param.requires_grad:
                                 param.grad = None

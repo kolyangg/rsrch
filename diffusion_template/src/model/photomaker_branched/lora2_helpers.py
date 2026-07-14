@@ -140,6 +140,8 @@ def install_branched_processors_for_training(model) -> None:
 
         if hasattr(model.unet, "attn_processors"):
             for proc in model.unet.attn_processors.values():
+                if not isinstance(proc, torch.nn.Module):
+                    continue
                 for p in proc.parameters():
                     p.requires_grad_(True)
 
@@ -162,7 +164,7 @@ def install_branched_processors_for_training(model) -> None:
 
         configure_branched_trainables(model)
     except Exception as e:
-        print(f"[PhotomakerBranchedLora] exception while installing branched processors: {e}")
+        raise RuntimeError("Failed to install branched attention processors") from e
 
 
 def prepare_branched_training_inputs(
@@ -406,6 +408,8 @@ def attach_inactive_branched_params(model, output: torch.Tensor) -> torch.Tensor
     params = []
     seen = set()
     for proc in processors:
+        if not isinstance(proc, torch.nn.Module):
+            continue
         for param in proc.parameters():
             if param.requires_grad and id(param) not in seen:
                 seen.add(id(param))
