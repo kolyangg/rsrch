@@ -1,0 +1,143 @@
+# N25/N26 checkpoint evolution against the key PhotoMaker/BA controls.
+
+results_dir: full_validation_results
+refs_dir: ../dataset_full/val_dataset/references
+prompts: ../dataset_full/val_dataset/prompts_10.txt
+classes: ../dataset_full/val_dataset/classes_ref.json
+out_pdf: full_validation_results/ba_n25_n26_14Jul/full_val_report_N25_N26_vs_key.pdf
+saved_dir: saved
+title: N25 staged legacy and N26 reference-CA vs key controls
+trigger_word: img
+require_complete_grid: true
+
+runs:
+  - photomaker_baseline
+  - ba_longrun_N17_different_steps/ba_longrun_N17_step10000
+  - ba_camix_train_N23_steps/ba_camix_train_N23_step10000
+  - ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000
+  - ba_staged_legacy_N25_steps/ba_staged_legacy_N25_step1000
+  - ba_staged_legacy_N25_steps/ba_staged_legacy_N25_step5000
+  - ba_staged_legacy_N25_steps/ba_staged_legacy_N25_step10000
+  - ba_staged_caref_N26_steps/ba_staged_caref_N26_step1000
+  - ba_staged_caref_N26_steps/ba_staged_caref_N26_step5000
+  - ba_staged_caref_N26_steps/ba_staged_caref_N26_step10000
+
+labels:
+  photomaker_baseline: PhotoMaker V2
+  ba_longrun_N17_different_steps/ba_longrun_N17_step10000: N17 legacy 10k
+  ba_camix_train_N23_steps/ba_camix_train_N23_step10000: N23 CAMIX 10k
+  ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000: N24 dual gate 10k
+  ba_staged_legacy_N25_steps/ba_staged_legacy_N25_step1000: N25 staged 1k
+  ba_staged_legacy_N25_steps/ba_staged_legacy_N25_step5000: N25 staged 5k
+  ba_staged_legacy_N25_steps/ba_staged_legacy_N25_step10000: N25 staged 10k
+  ba_staged_caref_N26_steps/ba_staged_caref_N26_step1000: N26 CA-ref 1k
+  ba_staged_caref_N26_steps/ba_staged_caref_N26_step5000: N26 CA-ref 5k
+  ba_staged_caref_N26_steps/ba_staged_caref_N26_step10000: N26 CA-ref 10k
+
+metrics_sources:
+  photomaker_baseline: {path: full_validation_results/metrics_photomaker_baseline.json, key: photomaker_baseline}
+  ba_longrun_N17_different_steps/ba_longrun_N17_step10000: {path: full_validation_results/ba_longrun_N17_different_steps/metrics_ba_longrun_N17_steps.json, key: ba_longrun_N17_step10000}
+  ba_camix_train_N23_steps/ba_camix_train_N23_step10000: {path: full_validation_results/ba_camix_train_N23_steps/metrics_ba_camix_train_N23_steps.json, key: ba_camix_train_N23_step10000}
+  ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000: {path: full_validation_results/ba_dualgate_train_N24_steps/metrics_ba_dualgate_train_N24_steps.json, key: ba_dualgate_train_N24_step10000}
+  ba_staged_legacy_N25_steps/ba_staged_legacy_N25_step1000: {path: full_validation_results/ba_staged_legacy_N25_steps/metrics_ba_staged_legacy_N25_steps.json, key: ba_staged_legacy_N25_step1000}
+  ba_staged_legacy_N25_steps/ba_staged_legacy_N25_step5000: {path: full_validation_results/ba_staged_legacy_N25_steps/metrics_ba_staged_legacy_N25_steps.json, key: ba_staged_legacy_N25_step5000}
+  ba_staged_legacy_N25_steps/ba_staged_legacy_N25_step10000: {path: full_validation_results/ba_staged_legacy_N25_steps/metrics_ba_staged_legacy_N25_steps.json, key: ba_staged_legacy_N25_step10000}
+  ba_staged_caref_N26_steps/ba_staged_caref_N26_step1000: {path: full_validation_results/ba_staged_caref_N26_steps/metrics_ba_staged_caref_N26_steps.json, key: ba_staged_caref_N26_step1000}
+  ba_staged_caref_N26_steps/ba_staged_caref_N26_step5000: {path: full_validation_results/ba_staged_caref_N26_steps/metrics_ba_staged_caref_N26_steps.json, key: ba_staged_caref_N26_step5000}
+  ba_staged_caref_N26_steps/ba_staged_caref_N26_step10000: {path: full_validation_results/ba_staged_caref_N26_steps/metrics_ba_staged_caref_N26_steps.json, key: ba_staged_caref_N26_step10000}
+
+config_aliases:
+  ba_longrun_N17_different_steps/ba_longrun_N17_step10000: ba_longrun_N17
+  ba_camix_train_N23_steps/ba_camix_train_N23_step10000: ba_camix_train_N23
+  ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000: ba_dualgate_train_N24
+  ba_staged_legacy_N25_steps/ba_staged_legacy_N25_step1000: ba_staged_legacy_N25
+  ba_staged_legacy_N25_steps/ba_staged_legacy_N25_step5000: ba_staged_legacy_N25
+  ba_staged_legacy_N25_steps/ba_staged_legacy_N25_step10000: ba_staged_legacy_N25
+  ba_staged_caref_N26_steps/ba_staged_caref_N26_step1000: ba_staged_caref_N26
+  ba_staged_caref_N26_steps/ba_staged_caref_N26_step5000: ba_staged_caref_N26
+  ba_staged_caref_N26_steps/ba_staged_caref_N26_step10000: ba_staged_caref_N26
+
+run_config_overrides:
+  photomaker_baseline:
+    report: {method: PhotoMaker only}
+    pipeline: {ba_enable_runtime_sa_knobs: false, pose_adapt_ratio: 0, ca_mixing_for_face: false, ba_face_fusion_mode: none}
+    model: {use_id_loss: false, use_id_embeds: false}
+  ba_longrun_N17_different_steps/ba_longrun_N17_step10000:
+    report: {method: legacy BA, train_schedule: all timesteps}
+    pipeline: {ba_enable_runtime_sa_knobs: false, pose_adapt_ratio: 0, ca_mixing_for_face: false, ba_face_fusion_mode: legacy}
+  ba_camix_train_N23_steps/ba_camix_train_N23_step10000: &n23
+    report: {method: fixed CAMIX, train_schedule: all timesteps}
+    trainer: {epoch_len: 1000, n_epochs: 10}
+    loss_kind: blended_masked
+    lambda_face: 0.15
+    train_ba_all_steps: true
+    train_branched_ca_lora: false
+    branched_attn_weight_mode: noise_and_ref
+    ba_noise_lr_scale: 0.1
+    pipeline: {ba_enable_runtime_sa_knobs: true, pose_adapt_ratio: 0, ca_mixing_for_face: true, ba_face_fusion_mode: legacy}
+    model: {use_id_loss: true, id_loss_weight: 0.1, id_loss_max_timestep: 500, use_id_embeds: false}
+  ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000: &n24
+    report: {method: learned dual gate, train_schedule: staged}
+    trainer: {epoch_len: 1000, n_epochs: 10}
+    loss_kind: blended_masked
+    lambda_face: 0.15
+    train_ba_all_steps: false
+    train_branched_ca_lora: false
+    branched_attn_weight_mode: noise_and_ref
+    ba_noise_lr_scale: 0.1
+    pipeline: {ba_enable_runtime_sa_knobs: false, pose_adapt_ratio: 0, ca_mixing_for_face: false, ba_face_fusion_mode: dual_attention_gate, ba_face_fusion_gate_init: 0.2, ba_face_fusion_gate_max: 0.5}
+    model: {use_id_loss: true, id_loss_weight: 0.1, id_loss_max_timestep: 500, use_id_embeds: false}
+  ba_staged_legacy_N25_steps/ba_staged_legacy_N25_step1000: &n25
+    report: {method: legacy BA, train_schedule: staged}
+    trainer: {epoch_len: 1000, n_epochs: 10}
+    loss_kind: blended_masked
+    lambda_face: 0.15
+    train_ba_all_steps: false
+    train_branched_ca_lora: false
+    branched_attn_weight_mode: noise_and_ref
+    ba_noise_lr_scale: 0.1
+    pipeline: {ba_enable_runtime_sa_knobs: false, pose_adapt_ratio: 0, ca_mixing_for_face: false, ba_face_fusion_mode: legacy}
+    model: {use_id_loss: true, id_loss_weight: 0.1, id_loss_max_timestep: 500, use_id_embeds: false}
+  ba_staged_legacy_N25_steps/ba_staged_legacy_N25_step5000: *n25
+  ba_staged_legacy_N25_steps/ba_staged_legacy_N25_step10000: *n25
+  ba_staged_caref_N26_steps/ba_staged_caref_N26_step1000: &n26
+    report: {method: legacy + CA ref, train_schedule: staged}
+    trainer: {epoch_len: 1000, n_epochs: 10}
+    loss_kind: blended_masked
+    lambda_face: 0.15
+    train_ba_all_steps: false
+    train_branched_ca_lora: true
+    branched_attn_weight_mode: noise_and_ref
+    ba_noise_lr_scale: 0.1
+    ba_ca_lr_scale: 0.1
+    pipeline: {ba_enable_runtime_sa_knobs: false, pose_adapt_ratio: 0, ca_mixing_for_face: false, ba_face_fusion_mode: legacy}
+    model: {ba_ca_train_mode: ref_only, use_id_loss: true, id_loss_weight: 0.1, id_loss_max_timestep: 500, use_id_embeds: false}
+  ba_staged_caref_N26_steps/ba_staged_caref_N26_step5000: *n26
+  ba_staged_caref_N26_steps/ba_staged_caref_N26_step10000: *n26
+
+config_criteria:
+  - {label: method, path: report.method}
+  - {label: checkpoint step, path: metric.step}
+  - {label: 96-val mean ID sim, path: metric.mean_id_sim}
+  - {label: faces detected, path: metric.n_faces_detected}
+  - {label: BA training schedule, path: report.train_schedule}
+  - {label: loss kind, path: loss_kind}
+  - {label: face loss lambda, path: lambda_face}
+  - {label: ID loss, path: computed.id_loss}
+  - {label: train BA all timesteps, path: train_ba_all_steps}
+  - {label: train BA cross-attn, path: computed.train_ba_ca}
+  - {label: CA train mode, path: model.ba_ca_train_mode}
+  - {label: CA LR scale, path: ba_ca_lr_scale}
+  - {label: BA noise LR scale, path: ba_noise_lr_scale}
+  - {label: runtime SA knobs, path: pipeline.ba_enable_runtime_sa_knobs, default: false}
+  - {label: CAMIX face K/V, path: pipeline.ca_mixing_for_face, default: false}
+  - {label: face fusion mode, path: pipeline.ba_face_fusion_mode}
+  - {label: gate init, path: pipeline.ba_face_fusion_gate_init}
+  - {label: gate maximum, path: pipeline.ba_face_fusion_gate_max}
+
+cell_px: 215
+label_px: 235
+config_row_px: 58
+config_label_px: 255
+config_col_px: 160
+dpi: 150
