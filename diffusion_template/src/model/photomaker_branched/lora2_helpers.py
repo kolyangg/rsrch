@@ -5,7 +5,13 @@ from typing import Sequence
 import numpy as np
 import torch
 
-from .branched_runtime import patch_unet_attention_processors, select_branched_processor_names, two_branch_predict
+from .branched_runtime import (
+    hard_epsilon_merge,
+    patch_unet_attention_processors,
+    select_branched_processor_names,
+    target_face_predict,
+    two_branch_predict,
+)
 from .insightface_package import analyze_faces
 
 from copy import deepcopy
@@ -22,11 +28,13 @@ def configure_branched_trainables(model) -> None:
     ba_train_top_k = float(getattr(model, "ba_train_top_k", 1.0))
     non_ba_train = bool(getattr(model, "non_ba_train", False))
     train_sa_id_embed_proj = bool(getattr(model, "ba_train_sa_id_embed_proj", False))
+    sa_mode = str(getattr(model, "ba_sa_mode", "legacy") or "legacy").lower()
+    ca_mode = str(getattr(model, "ba_ca_mode", "legacy_ref_branch") or "legacy_ref_branch").lower()
     if mode not in {"shared", "ref_only", "noise_and_ref"}:
         raise ValueError(f"Unknown branched_attn_weight_mode: {mode}")
     if new_weight_kind not in {"full", "lora"}:
         raise ValueError(f"Unknown branched_attn_new_weight_kind: {new_weight_kind}")
-    if ca_train_mode not in {"all", "ref_only", "noise_only"}:
+    if ca_train_mode not in {"all", "ref_only", "noise_only", "target_face"}:
         raise ValueError(f"Unknown ba_ca_train_mode: {ca_train_mode}")
 
     patched_proc_names = tuple(getattr(model, "_ba_patched_processor_names", ()))
@@ -53,12 +61,20 @@ def configure_branched_trainables(model) -> None:
 
     for name, p in model.unet.named_parameters():
         is_non_ba_attn = bool(non_ba_attn_prefixes) and name.startswith(non_ba_attn_prefixes)
-        if mode == "shared":
+        is_selected_proc = bool(selected_proc_prefixes) and name.startswith(selected_proc_prefixes)
+        if sa_mode == "pm_face_residual":
+            if is_selected_proc and (
+                ".attn1.processor.ref_to_k." in name
+                or ".attn1.processor.ref_to_v." in name
+                or ".attn1.processor.face_delta_out." in name
+                or name.endswith(".attn1.processor.face_residual_gate")
+            ) and (new_weight_kind == "full" or "lora_" in name or "face_delta_out." in name or name.endswith("face_residual_gate")):
+                p.requires_grad_(True)
+        elif mode == "shared":
             is_selected_attn = bool(selected_attn_prefixes) and name.startswith(selected_attn_prefixes)
             if is_selected_attn and ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn1." in name:
                 p.requires_grad_(True)
         else:
-            is_selected_proc = bool(selected_proc_prefixes) and name.startswith(selected_proc_prefixes)
             if is_selected_proc and ".attn1.processor.ref_to_" in name and (
                 new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
             ):
@@ -76,12 +92,26 @@ def configure_branched_trainables(model) -> None:
             p.requires_grad_(True)
 
         if train_ca:
-            if mode == "shared":
+            if ca_mode == "target_face_residual":
+                if is_selected_proc and (
+                    ".attn2.processor.target_id_to_k." in name
+                    or ".attn2.processor.target_id_to_v." in name
+                    or ".attn2.processor.face_delta_out." in name
+                    or name.endswith(".attn2.processor.face_residual_gate")
+                    or name.endswith(".attn2.processor.id_token_basis")
+                ) and (
+                    new_weight_kind == "full"
+                    or "lora_" in name
+                    or ".face_delta_out." in name
+                    or name.endswith("face_residual_gate")
+                    or name.endswith("id_token_basis")
+                ):
+                    p.requires_grad_(True)
+            elif mode == "shared":
                 is_selected_attn = bool(selected_attn_prefixes) and name.startswith(selected_attn_prefixes)
                 if is_selected_attn and ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn2." in name:
                     p.requires_grad_(True)
             else:
-                is_selected_proc = bool(selected_proc_prefixes) and name.startswith(selected_proc_prefixes)
                 if is_selected_proc and ca_train_mode in {"all", "ref_only"} and ".attn2.processor.ref_to_" in name and (
                     new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
                 ):
@@ -160,6 +190,11 @@ def prepare_branched_training_inputs(
 
     image_h, image_w = pixel_values.shape[-2:]
     latent_h, latent_w = noisy_latents.shape[-2:]
+    needs_spatial_reference = not bool(getattr(model, "disable_reference_spatial_branch", False))
+    needs_id_features = (
+        model.face_embed_strategy == "id_embeds"
+        or str(getattr(model, "ba_ca_mode", "legacy_ref_branch")) == "target_face_residual"
+    )
 
     for i, (prompt, refs, bbox) in enumerate(zip(prompts, ref_images, face_bbox)):
         refs = refs if isinstance(refs, (list, tuple)) else [refs]
@@ -201,19 +236,20 @@ def prepare_branched_training_inputs(
                 id_embeds,
             )
 
-            ref = refs[0]
-            reference_latent = model._encode_reference_latent(ref, target_shape=(latent_h, latent_w))
-            if isinstance(ref, torch.Tensor):
-                ref_h, ref_w = ref.shape[-2:]
-            else:
-                ref_w, ref_h = ref.size
-            ref_mask = model._bbox_to_ref_mask(
-                ref_bbox,
-                latent_shape=(latent_h, latent_w),
-                image_shape=(ref_h, ref_w),
-            )
+            if needs_spatial_reference:
+                ref = refs[0]
+                reference_latent = model._encode_reference_latent(ref, target_shape=(latent_h, latent_w))
+                if isinstance(ref, torch.Tensor):
+                    ref_h, ref_w = ref.shape[-2:]
+                else:
+                    ref_w, ref_h = ref.size
+                ref_mask = model._bbox_to_ref_mask(
+                    ref_bbox,
+                    latent_shape=(latent_h, latent_w),
+                    image_shape=(ref_h, ref_w),
+                )
 
-            if model.face_embed_strategy == "id_embeds":
+            if needs_id_features:
                 pm_features = model.id_encoder.extract_id_features(
                     id_pixel_values.to(device=model.device, dtype=model.id_encoder.dtype),
                     id_embeds=id_embeds,
@@ -222,8 +258,9 @@ def prepare_branched_training_inputs(
                 pm_feature_list.append(pm_features.to(device=model.device, dtype=model.unet.dtype))
 
         class_tokens_mask_list.append(class_tokens_mask)
-        ref_latents_list.append(reference_latent)
-        ref_mask_list.append(ref_mask)
+        if needs_spatial_reference:
+            ref_latents_list.append(reference_latent)
+            ref_mask_list.append(ref_mask)
         mask_list.append(
             model._bbox_to_mask(
                 bbox,
@@ -254,8 +291,12 @@ def prepare_branched_training_inputs(
         face_prompt_embeds = prompt_embeds
 
     mask4 = torch.cat(mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
-    mask4_ref = torch.cat(ref_mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
-    reference_latents = torch.cat(ref_latents_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
+    if needs_spatial_reference:
+        mask4_ref = torch.cat(ref_mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
+        reference_latents = torch.cat(ref_latents_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
+    else:
+        mask4_ref = mask4
+        reference_latents = None
 
     model._ref_latents_all = reference_latents
     model._face_prompt_embeds = prompt_embeds
@@ -284,30 +325,65 @@ def run_branched_forward_pass(
     added_cond_kwargs: dict,
     mask4: torch.Tensor,
     mask4_ref: torch.Tensor,
-    reference_latents: torch.Tensor,
+    reference_latents: torch.Tensor | None,
     face_prompt_embeds: torch.Tensor,
     class_tokens_mask: torch.Tensor,
     id_features: torch.Tensor | None,
 ) -> torch.Tensor:
-    """Run branched two-branch prediction and return merged noise prediction."""
+    """Run the selected BA architecture and optionally hard-merge it with PhotoMaker."""
+    preservation_mode = str(getattr(model, "ba_pm_preservation_mode", "none") or "none").lower()
+    photomaker_pred = None
+    if preservation_mode == "hard_epsilon_merge":
+        set_branched_training_mode(model, branched_active=False)
+        try:
+            with torch.no_grad():
+                photomaker_pred = model.unet(
+                    noisy_latents,
+                    timesteps,
+                    encoder_hidden_states=prompt_embeds,
+                    added_cond_kwargs=added_cond_kwargs,
+                    return_dict=False,
+                )[0]
+        finally:
+            set_branched_training_mode(model, branched_active=True)
+
     set_branched_training_mode(model, branched_active=True)
-    noise_pred, _, _ = two_branch_predict(
-        pipeline=model,
-        latent_model_input=noisy_latents,
-        t=timesteps,
-        prompt_embeds=prompt_embeds,
-        added_cond_kwargs=added_cond_kwargs,
-        mask4=mask4,
-        mask4_ref=mask4_ref,
-        reference_latents=reference_latents,
-        face_prompt_embeds=face_prompt_embeds,
-        class_tokens_mask=class_tokens_mask,
-        face_embed_strategy=model.face_embed_strategy,
-        id_embeds=id_features if model.face_embed_strategy == "id_embeds" else None,
-        step_idx=0,
-        scale=1.0,
-        timestep_cond=None,
-    )
+    if str(getattr(model, "ba_ca_mode", "legacy_ref_branch")) == "target_face_residual":
+        if id_features is None:
+            raise ValueError("target_face_residual training requires PhotoMaker identity features")
+        noise_pred = target_face_predict(
+            model,
+            noisy_latents,
+            timesteps,
+            prompt_embeds,
+            added_cond_kwargs,
+            mask4,
+            id_features,
+            class_tokens_mask=class_tokens_mask,
+        )
+    else:
+        if reference_latents is None:
+            raise ValueError("Spatial branched attention requires reference latents")
+        noise_pred, _, _ = two_branch_predict(
+            pipeline=model,
+            latent_model_input=noisy_latents,
+            t=timesteps,
+            prompt_embeds=prompt_embeds,
+            added_cond_kwargs=added_cond_kwargs,
+            mask4=mask4,
+            mask4_ref=mask4_ref,
+            reference_latents=reference_latents,
+            face_prompt_embeds=face_prompt_embeds,
+            class_tokens_mask=class_tokens_mask,
+            face_embed_strategy=model.face_embed_strategy,
+            id_embeds=id_features if model.face_embed_strategy == "id_embeds" else None,
+            step_idx=0,
+            scale=1.0,
+            timestep_cond=None,
+        )
+    if photomaker_pred is not None:
+        noise_pred = hard_epsilon_merge(photomaker_pred, noise_pred, mask4)
+    model._ba_active_this_batch = True
     return noise_pred
 
 

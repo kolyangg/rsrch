@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from typing import Optional, Sequence
 
@@ -83,6 +84,17 @@ class PhotomakerBranchedLora(SDXL):
         id_loss_weight: float = 0.5,       # weight of the ID loss added to the diffusion loss
         id_loss_max_timestep: int = 500,   # only apply ID loss when the sampled timestep <= this (x0 is meaningful)
         id_loss_face_size: int = 160,      # face crop size fed to the recognizer
+        id_loss_identity_source: str = "ground_truth_target",
+        ba_sa_mode: str = "legacy",
+        ba_face_kv_mode: str = "zero_masked_full",
+        ba_face_roi_size: int = 4,
+        ba_ca_mode: str = "legacy_ref_branch",
+        ba_identity_token_count: int = 4,
+        ba_pm_preservation_mode: str = "none",
+        ba_hard_mask_resize: str = "legacy_threshold",
+        disable_reference_spatial_branch: bool = False,
+        ba_skip_inactive_optimizer_decay: bool = False,
+        ba_fix_tensor_ref_resolution: bool = False,
         photomaker_start_step: int = 10,
         merge_start_step: int = 10,
         branched_attn_start_step: int = 15,
@@ -203,7 +215,23 @@ class PhotomakerBranchedLora(SDXL):
         self.id_loss_weight = float(id_loss_weight)
         self.id_loss_max_timestep = int(id_loss_max_timestep)
         self.id_loss_face_size = int(id_loss_face_size)
+        self.id_loss_identity_source = str(id_loss_identity_source or "ground_truth_target").lower()
+        if self.id_loss_identity_source not in {"ground_truth_target", "reference"}:
+            raise ValueError(f"Unknown id_loss_identity_source: {self.id_loss_identity_source}")
         self._id_loss_net = None  # lazily built on first use
+        self.ba_sa_mode = str(ba_sa_mode or "legacy").lower()
+        self.ba_face_kv_mode = str(ba_face_kv_mode or "zero_masked_full").lower()
+        self.ba_face_roi_size = max(1, int(ba_face_roi_size))
+        self.ba_ca_mode = str(ba_ca_mode or "legacy_ref_branch").lower()
+        self.ba_identity_token_count = max(1, int(ba_identity_token_count))
+        self.ba_pm_preservation_mode = str(ba_pm_preservation_mode or "none").lower()
+        self.ba_hard_mask_resize = str(ba_hard_mask_resize or "legacy_threshold").lower()
+        self.disable_reference_spatial_branch = bool(disable_reference_spatial_branch)
+        self.ba_skip_inactive_optimizer_decay = bool(ba_skip_inactive_optimizer_decay)
+        self.ba_fix_tensor_ref_resolution = bool(ba_fix_tensor_ref_resolution)
+        if self.ba_pm_preservation_mode not in {"none", "hard_epsilon_merge"}:
+            raise ValueError(f"Unknown ba_pm_preservation_mode: {self.ba_pm_preservation_mode}")
+        self._ba_active_this_batch = False
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 
         photomaker_lora_config = LoraConfig(
@@ -370,6 +398,7 @@ class PhotomakerBranchedLora(SDXL):
         **kwargs,
     ):
         del do_cfg  # classifier-free guidance is not used during training
+        self._ba_active_this_batch = False
 
         pixel_values = pixel_values.to(self.device, self.vae.dtype)
         with torch.no_grad(): ### TO CHECK - torch.no_grad() only here now
@@ -545,10 +574,21 @@ class PhotomakerBranchedLora(SDXL):
                 timesteps=timesteps,
                 pixel_values=pixel_values,
                 face_bbox=face_bbox,
+                ref_images=ref_images,
+                face_bbox_ref=face_bbox_ref,
             )
         return out
 
-    def _compute_id_loss(self, noise_pred, noisy_latents, timesteps, pixel_values, face_bbox):
+    def _compute_id_loss(
+        self,
+        noise_pred,
+        noisy_latents,
+        timesteps,
+        pixel_values,
+        face_bbox,
+        ref_images,
+        face_bbox_ref,
+    ):
         """Cosine-distance identity loss between the generated face (decoded from the predicted
         x0) and the ground-truth face (from pixel_values), both cropped at face_bbox.
         Differentiable through the VAE decode + recognizer, so it trains the BA weights."""
@@ -588,7 +628,16 @@ class PhotomakerBranchedLora(SDXL):
 
         # FaceNet runs in fp32 outside autocast for numerical stability.
         with torch.autocast(device_type=self.device.type if hasattr(self.device, "type") else "cuda", enabled=False):
-            id_loss = self._id_loss_net(gen_images.float(), gt_images.float(), bboxes)
+            if self.id_loss_identity_source == "reference":
+                id_loss = self._id_loss_net(
+                    gen_images.float(),
+                    gt_images.float(),
+                    bboxes,
+                    reference_images=ref_images,
+                    reference_bboxes=face_bbox_ref,
+                )
+            else:
+                id_loss = self._id_loss_net(gen_images.float(), gt_images.float(), bboxes)
         return id_loss
 
     def encode_prompt_with_trigger_word(
@@ -718,10 +767,13 @@ class PhotomakerBranchedLora(SDXL):
                 scale_w = resized_w / max(image_w, 1)
                 scale_h = resized_h / max(image_h, 1)
 
-                x_start = max(0, min(self.target_size, int(round(x0 * scale_w + pad_left))))
-                x_end = max(0, min(self.target_size, int(round(x1 * scale_w + pad_left))))
-                y_start = max(0, min(self.target_size, int(round(y0 * scale_h + pad_top))))
-                y_end = max(0, min(self.target_size, int(round(y1 * scale_h + pad_top))))
+                use_coverage = self.ba_hard_mask_resize == "area_preserving"
+                start_fn = math.floor if use_coverage else round
+                end_fn = math.ceil if use_coverage else round
+                x_start = max(0, min(self.target_size, int(start_fn(x0 * scale_w + pad_left))))
+                x_end = max(0, min(self.target_size, int(end_fn(x1 * scale_w + pad_left))))
+                y_start = max(0, min(self.target_size, int(start_fn(y0 * scale_h + pad_top))))
+                y_end = max(0, min(self.target_size, int(end_fn(y1 * scale_h + pad_top))))
 
                 if x_end <= x_start or y_end <= y_start:
                     mask.fill_(1.0)
@@ -729,7 +781,10 @@ class PhotomakerBranchedLora(SDXL):
                     mask[:, :, y_start:y_end, x_start:x_end] = 1.0
 
         if mask.shape[-2:] != latent_shape:
-            mask = F.interpolate(mask, size=latent_shape, mode="nearest")
+            if self.ba_hard_mask_resize == "area_preserving":
+                mask = F.adaptive_max_pool2d(mask, output_size=latent_shape)
+            else:
+                mask = F.interpolate(mask, size=latent_shape, mode="nearest")
         return mask
 
     def _bbox_to_mask(
@@ -751,10 +806,13 @@ class PhotomakerBranchedLora(SDXL):
         scale_w = latent_shape[1] / max(image_shape[1], 1)
         scale_h = latent_shape[0] / max(image_shape[0], 1)
 
-        x_start = max(0, min(latent_shape[1], int(round(x0 * scale_w))))
-        x_end = max(0, min(latent_shape[1], int(round(x1 * scale_w))))
-        y_start = max(0, min(latent_shape[0], int(round(y0 * scale_h))))
-        y_end = max(0, min(latent_shape[0], int(round(y1 * scale_h))))
+        use_coverage = self.ba_hard_mask_resize == "area_preserving"
+        x_start_fn = math.floor if use_coverage else round
+        x_end_fn = math.ceil if use_coverage else round
+        x_start = max(0, min(latent_shape[1], int(x_start_fn(x0 * scale_w))))
+        x_end = max(0, min(latent_shape[1], int(x_end_fn(x1 * scale_w))))
+        y_start = max(0, min(latent_shape[0], int(x_start_fn(y0 * scale_h))))
+        y_end = max(0, min(latent_shape[0], int(x_end_fn(y1 * scale_h))))
 
         if x_end <= x_start or y_end <= y_start:
             mask.fill_(1.0)
@@ -772,8 +830,23 @@ class PhotomakerBranchedLora(SDXL):
             ref_tensor = ref_image.clone().detach()
             if ref_tensor.dim() == 3:
                 ref_tensor = ref_tensor.unsqueeze(0)
-            if ref_tensor.shape[-2:] != target_shape:
-                ref_tensor = F.interpolate(ref_tensor, size=target_shape, mode="bilinear", align_corners=False)
+            if self.ba_fix_tensor_ref_resolution:
+                oh, ow = ref_tensor.shape[-2:]
+                scale = min(self.target_size / max(ow, 1), self.target_size / max(oh, 1))
+                rw = max(8, int(round(ow * scale)) // 8 * 8)
+                rh = max(8, int(round(oh * scale)) // 8 * 8)
+                ref_tensor = F.interpolate(
+                    ref_tensor.float(), size=(rh, rw), mode="bilinear", align_corners=False
+                )
+                pl = (self.target_size - rw) // 2
+                pr = self.target_size - rw - pl
+                pt = (self.target_size - rh) // 2
+                pb = self.target_size - rh - pt
+                ref_tensor = F.pad(ref_tensor, (pl, pr, pt, pb), value=0.0)
+            elif ref_tensor.shape[-2:] != target_shape:
+                ref_tensor = F.interpolate(
+                    ref_tensor, size=target_shape, mode="bilinear", align_corners=False
+                )
             ref_tensor = ref_tensor.to(device=self.device, dtype=self.vae.dtype)
         else:
             if not isinstance(ref_image, Image.Image):

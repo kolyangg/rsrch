@@ -357,11 +357,24 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             assert torch.isfinite(batch["loss"]) # sum of all losses is always called loss
             ### 25 APR - ADD GRAD ACCUM ###
             self.accelerator.backward(batch["loss"] / accum_steps)
+            unwrapped_model = self.accelerator.unwrap_model(self.model)
+            ba_active = bool(getattr(unwrapped_model, "_ba_active_this_batch", False))
+            self._ba_active_in_accum = bool(getattr(self, "_ba_active_in_accum", False)) or ba_active
             if is_accum_end:
+                if (
+                    bool(getattr(unwrapped_model, "ba_skip_inactive_optimizer_decay", False))
+                    and not self._ba_active_in_accum
+                ):
+                    processors = getattr(unwrapped_model, "_branched_attn_processors_train", {}).values()
+                    for proc in processors:
+                        for param in proc.parameters():
+                            if param.requires_grad:
+                                param.grad = None
                 self._clip_grad_norm()
                 self.optimizer.step()
                 if self.lr_scheduler is not None:
                     self.lr_scheduler.step()
+                self._ba_active_in_accum = False
             ### 25 APR - ADD GRAD ACCUM ###
 
             # Branched-attention drift canary, logged on the same cadence as

@@ -13,6 +13,8 @@ from transformers import CLIPImageProcessor
 
 from src.model.photomaker_branched.branched_runtime import (
     encode_face_prompt,
+    hard_epsilon_merge,
+    target_face_predict,
     two_branch_predict,
 )
 from src.model.photomaker_branched.branch_helpers import prepare_mask4
@@ -531,7 +533,10 @@ def run_branched_setup(
         except Exception:
             return None
 
-    if use_branched_attention and input_id_images:
+    needs_spatial_reference = not bool(
+        getattr(pipeline, "disable_reference_spatial_branch", False)
+    )
+    if use_branched_attention and input_id_images and needs_spatial_reference:
         per_prompt_refs = (
             batch_size > 1
             and isinstance(input_id_images, (list, tuple))
@@ -619,7 +624,7 @@ def run_branched_setup(
 
     pipeline._ref_img = id_pixel_values[0] if id_pixel_values.dim() == 5 else id_pixel_values
 
-    if use_branched_attention and hasattr(pipeline, "_ref_latents_all") and not hasattr(pipeline, "_ref_noise"):
+    if use_branched_attention and needs_spatial_reference and hasattr(pipeline, "_ref_latents_all") and not hasattr(pipeline, "_ref_noise"):
         if isinstance(generator, (list, tuple)) and len(generator) == pipeline._ref_latents_all.shape[0]:
             pipeline._ref_noise = torch.cat(
                 [
@@ -675,6 +680,8 @@ def ensure_ref_latents_ready(
     id_pixel_values: Optional[torch.Tensor],
 ) -> None:
     if not use_branched_attention:
+        return
+    if bool(getattr(pipeline, "disable_reference_spatial_branch", False)):
         return
     if hasattr(pipeline, "_ref_latents_all"):
         return
@@ -773,9 +780,12 @@ def run_branched_step(
     num_outputs: int,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
     mask4 = prepare_mask4(pipeline, latent_model_input, suffix="")
-    mask4_ref = prepare_mask4(pipeline, latent_model_input, suffix="_ref")
-    if mask4 is None or mask4_ref is None:
-        raise RuntimeError("Branched attention requires both mask4 and mask4_ref.")
+    needs_spatial_reference = not bool(
+        getattr(pipeline, "disable_reference_spatial_branch", False)
+    )
+    mask4_ref = prepare_mask4(pipeline, latent_model_input, suffix="_ref") if needs_spatial_reference else mask4
+    if mask4 is None or (needs_spatial_reference and mask4_ref is None):
+        raise RuntimeError("Branched attention requires all masks used by the selected architecture.")
 
     if _val_debug_enabled(pipeline) and (i == branched_attn_start_step or i % 10 == 0):
         print(
@@ -786,9 +796,9 @@ def run_branched_step(
         if md < 0.01:
             print(f"[Warning] Noise and ref masks are nearly identical (diff={md:.4f})")
 
-    if _val_debug_enabled(pipeline) and debug_dir is not None:
+    if needs_spatial_reference and _val_debug_enabled(pipeline) and debug_dir is not None:
         debug_reference_latents_once(pipeline, mask4_ref, debug_dir)
-    if _val_debug_enabled(pipeline) and i == branched_attn_start_step:
+    if needs_spatial_reference and _val_debug_enabled(pipeline) and i == branched_attn_start_step:
         base_debug_dir = Path(debug_dir) if debug_dir is not None else None
         if base_debug_dir is not None:
             ref_masks = mask4_ref
@@ -812,7 +822,7 @@ def run_branched_step(
 
     id_face_ehs = None
     proc_id_embeds = None
-    if fes_step == "id_embeds":
+    if fes_step == "id_embeds" or getattr(pipeline, "ba_ca_mode", "legacy_ref_branch") == "target_face_residual":
         pm = getattr(pipeline, "_pm_id_embeds_2048", None)
         if pm is None:
             raise ValueError("id_embeds strategy requires cached _pm_id_embeds_2048.")
@@ -848,23 +858,61 @@ def run_branched_step(
     mask4_for_merge = mask4 if i >= merge_start_step else torch.zeros_like(mask4)
     mask4_ref_for_merge = mask4_ref if i >= merge_start_step else torch.zeros_like(mask4_ref)
 
-    noise_pred, noise_face, _ = two_branch_predict(
-        pipeline,
-        latent_model_input,
-        t=t,
-        prompt_embeds=current_prompt_embeds,
-        added_cond_kwargs=added_cond_kwargs,
-        mask4=mask4_for_merge,
-        mask4_ref=mask4_ref_for_merge,
-        reference_latents=pipeline._ref_latents_all,
-        face_prompt_embeds=(pipeline._face_prompt_embeds if fes_step == "face" else id_face_ehs),
-        class_tokens_mask=class_tokens_mask,
-        face_embed_strategy=fes_step,
-        id_embeds=proc_id_embeds,
-        step_idx=i,
-        scale=photomaker_scale,
-        timestep_cond=timestep_cond,
-    )
+    photomaker_pred = None
+    if getattr(pipeline, "ba_pm_preservation_mode", "none") == "hard_epsilon_merge":
+        set_validation_unet_mode(pipeline, branched_active=False)
+        try:
+            with torch.no_grad():
+                photomaker_pred = pipeline.unet(
+                    latent_model_input,
+                    t,
+                    encoder_hidden_states=current_prompt_embeds,
+                    timestep_cond=timestep_cond,
+                    cross_attention_kwargs=pipeline.cross_attention_kwargs,
+                    added_cond_kwargs=added_cond_kwargs,
+                    return_dict=False,
+                )[0]
+        finally:
+            set_validation_unet_mode(pipeline, branched_active=True)
+
+    if getattr(pipeline, "ba_ca_mode", "legacy_ref_branch") == "target_face_residual":
+        if proc_id_embeds is None:
+            raise ValueError("target_face_residual inference requires cached PhotoMaker identity features")
+        noise_pred = target_face_predict(
+            pipeline,
+            latent_model_input,
+            t,
+            current_prompt_embeds,
+            added_cond_kwargs,
+            mask4_for_merge,
+            proc_id_embeds,
+            class_tokens_mask=class_tokens_mask,
+            timestep_cond=timestep_cond,
+        )
+        debug_mask = mask4_for_merge
+        if debug_mask.shape[0] != noise_pred.shape[0]:
+            debug_mask = debug_mask.repeat(noise_pred.shape[0] // debug_mask.shape[0], 1, 1, 1)
+        noise_face = noise_pred * debug_mask.repeat(1, noise_pred.shape[1], 1, 1)
+    else:
+        noise_pred, noise_face, _ = two_branch_predict(
+            pipeline,
+            latent_model_input,
+            t=t,
+            prompt_embeds=current_prompt_embeds,
+            added_cond_kwargs=added_cond_kwargs,
+            mask4=mask4_for_merge,
+            mask4_ref=mask4_ref_for_merge,
+            reference_latents=pipeline._ref_latents_all,
+            face_prompt_embeds=(pipeline._face_prompt_embeds if fes_step == "face" else id_face_ehs),
+            class_tokens_mask=class_tokens_mask,
+            face_embed_strategy=fes_step,
+            id_embeds=proc_id_embeds,
+            step_idx=i,
+            scale=photomaker_scale,
+            timestep_cond=timestep_cond,
+        )
+    if photomaker_pred is not None:
+        noise_pred = hard_epsilon_merge(photomaker_pred, noise_pred, mask4_for_merge)
 
     if _val_debug_enabled(pipeline) and i < (branched_attn_start_step + 3):
         print(
@@ -1176,6 +1224,17 @@ def build_pipeline_from_pretrained(
     pipeline.branched_attn_lora_rank = int(
         getattr(unwrapped_model, "branched_attn_lora_rank", getattr(unwrapped_model, "lora_rank", 16))
     )
+    for attr, default in (
+        ("ba_sa_mode", "legacy"),
+        ("ba_face_kv_mode", "zero_masked_full"),
+        ("ba_face_roi_size", 4),
+        ("ba_ca_mode", "legacy_ref_branch"),
+        ("ba_identity_token_count", 4),
+        ("ba_pm_preservation_mode", "none"),
+        ("ba_hard_mask_resize", "legacy_threshold"),
+        ("disable_reference_spatial_branch", False),
+    ):
+        setattr(pipeline, attr, getattr(unwrapped_model, attr, default))
     if hasattr(unwrapped_model, "_original_attn_processors"):
         pipeline._original_attn_processors = dict(unwrapped_model._original_attn_processors)
     if hasattr(unwrapped_model.unet, "attn_processors"):

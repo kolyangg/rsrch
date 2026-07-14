@@ -24,6 +24,41 @@ def _ensure_dir(p: Path):
     return p
 
 
+def _apply_saved_ba_architecture(cfg, checkpoint) -> None:
+    """Restore architecture switches that are not encoded by tensor shapes alone."""
+    if not checkpoint:
+        return
+    saved_config_path = Path(str(checkpoint)).expanduser().resolve().parent / "config.yaml"
+    if not saved_config_path.is_file():
+        return
+    saved = OmegaConf.load(saved_config_path)
+    model_keys = (
+        "ba_sa_mode",
+        "ba_face_kv_mode",
+        "ba_face_roi_size",
+        "ba_ca_mode",
+        "ba_ca_train_mode",
+        "ba_identity_token_count",
+        "ba_pm_preservation_mode",
+        "ba_hard_mask_resize",
+        "disable_reference_spatial_branch",
+        "branched_attn_weight_mode",
+        "branched_attn_new_weight_kind",
+        "train_branched_ca_lora",
+    )
+    for key in model_keys:
+        if "model" in saved and key in saved.model:
+            cfg.model[key] = saved.model[key]
+    if "pipeline" in saved and "face_embed_strategy" in saved.pipeline:
+        strategy = saved.pipeline.face_embed_strategy
+        cfg.pipeline.face_embed_strategy = strategy
+        cfg.model.face_embed_strategy = strategy
+        cfg.validation_args.face_embed_strategy = strategy
+    for key in ("disable_branched_sa", "disable_branched_ca"):
+        if key in saved:
+            cfg[key] = saved[key]
+
+
 def _iter_named_images(images, prompt: str, ref_stem: str):
     base = f"{prompt[:10]}_{ref_stem}"
     if isinstance(images, list):
@@ -62,8 +97,12 @@ def main():
         raise FileNotFoundError(f"Config not found: {cfg_path}")
     cfg = OmegaConf.load(str(cfg_path))
     OmegaConf.set_struct(cfg, False)
-    if overrides:
-        cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(overrides))
+    cli_cfg = OmegaConf.from_dotlist(overrides) if overrides else None
+    if cli_cfg is not None:
+        cfg = OmegaConf.merge(cfg, cli_cfg)
+    _apply_saved_ba_architecture(cfg, getattr(cfg, "saved_checkpoint", None))
+    if cli_cfg is not None:
+        cfg = OmegaConf.merge(cfg, cli_cfg)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Match torch dtype choice with PhotoMaker (bf16 if supported, else fp16) (Alligned with PhotoMaker)

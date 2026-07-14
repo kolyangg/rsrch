@@ -15,6 +15,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 
 class IdentityLoss(nn.Module):
@@ -65,7 +66,35 @@ class IdentityLoss(nn.Module):
         emb = self.net(x)
         return F.normalize(emb, dim=-1)
 
-    def forward(self, gen_images: torch.Tensor, gt_images: torch.Tensor, face_bboxes):
+    @staticmethod
+    def _reference_tensor(image, *, device: torch.device) -> torch.Tensor:
+        if isinstance(image, (list, tuple)):
+            if not image:
+                raise ValueError("Reference image list is empty")
+            image = image[0]
+        if torch.is_tensor(image):
+            tensor = image.detach().float()
+            if tensor.ndim == 4:
+                tensor = tensor[0]
+            if tensor.ndim != 3:
+                raise ValueError(f"Unsupported reference tensor shape: {tuple(tensor.shape)}")
+            if tensor.max() > 1.5:
+                tensor = tensor / 127.5 - 1.0
+            elif tensor.min() >= 0:
+                tensor = tensor * 2.0 - 1.0
+            return tensor.to(device=device)
+        array = np.asarray(image.convert("RGB"), dtype=np.float32) / 127.5 - 1.0
+        return torch.from_numpy(array).permute(2, 0, 1).to(device=device)
+
+    def forward(
+        self,
+        gen_images: torch.Tensor,
+        gt_images: torch.Tensor,
+        face_bboxes,
+        *,
+        reference_images=None,
+        reference_bboxes=None,
+    ):
         """gen_images/gt_images: (B,3,H,W) in [-1,1] (gen carries grad, gt does not).
         face_bboxes: per-sample [x0,y0,x1,y1] in pixel coords.
         Returns a scalar cosine-distance loss (0 when no valid face crop)."""
@@ -75,11 +104,23 @@ class IdentityLoss(nn.Module):
         if len(face_bboxes) == 1 and B > 1:
             face_bboxes = list(face_bboxes) * B
 
+        if reference_images is not None:
+            if reference_bboxes is None:
+                raise ValueError("reference_bboxes are required with reference_images")
+            reference_images = list(reference_images)
+            reference_bboxes = list(reference_bboxes)
+
         gen_faces, gt_faces = [], []
         for i in range(B):
             bbox = face_bboxes[i] if i < len(face_bboxes) else face_bboxes[-1]
             gc = self._crop_resize(gen_images[i], bbox, H, W)
-            tc = self._crop_resize(gt_images[i], bbox, H, W)
+            if reference_images is None:
+                tc = self._crop_resize(gt_images[i], bbox, H, W)
+            else:
+                ref = self._reference_tensor(reference_images[i], device=gen_images.device)
+                ref_h, ref_w = ref.shape[-2:]
+                ref_bbox = reference_bboxes[i]
+                tc = self._crop_resize(ref, ref_bbox, ref_h, ref_w)
             if gc is None or tc is None:
                 continue
             gen_faces.append(gc)

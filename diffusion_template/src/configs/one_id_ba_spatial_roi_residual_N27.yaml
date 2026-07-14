@@ -1,0 +1,25 @@
+defaults:
+  - one_id_ba_staged_legacy_N25
+  - _self_
+
+# N27: PhotoMaker target path plus a hard-bbox residual from compact reference ROI tokens.
+branched_attn_weight_mode: ref_only
+branched_attn_new_weight_kind: lora
+train_branched_ca_lora: false
+
+pipeline:
+  pose_adapt_ratio: 0
+  ca_mixing_for_face: false
+  face_embed_strategy: id
+
+model:
+  ba_sa_mode: pm_face_residual
+  ba_face_kv_mode: compact_hard_bbox
+  ba_face_roi_size: 4
+  ba_ca_mode: standard
+  ba_pm_preservation_mode: hard_epsilon_merge
+  ba_hard_mask_resize: area_preserving
+  disable_reference_spatial_branch: false
+  ba_skip_inactive_optimizer_decay: true
+  ba_fix_tensor_ref_resolution: true
+  id_loss_identity_source: reference
