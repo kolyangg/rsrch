@@ -214,8 +214,6 @@ class PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken(CLIPVisionModelWithProjecti
         ### 01 FEB fix
        
 
-        print('[DEBUG] id features from PM extracted')
-
         return e
 
 if __name__ == "__main__":
