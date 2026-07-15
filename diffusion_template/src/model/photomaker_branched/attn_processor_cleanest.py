@@ -797,7 +797,9 @@ class BranchedCrossAttnProcessor(nn.Module):
         self.ba_hard_mask_resize = str(ba_hard_mask_resize or "legacy_threshold").lower()
         if self.ba_ca_mode not in {"legacy_ref_branch", "target_face_residual"}:
             raise ValueError(f"Unknown ba_ca_mode: {self.ba_ca_mode}")
-        if self.ba_identity_memory_mode not in {"mean_plus_basis", "qformer_tokens"}:
+        if self.ba_identity_memory_mode not in {
+            "mean_plus_basis", "qformer_tokens", "face_patch_resampler"
+        }:
             raise ValueError(f"Unknown ba_identity_memory_mode: {self.ba_identity_memory_mode}")
         
         self.mask = None
@@ -947,12 +949,12 @@ class BranchedCrossAttnProcessor(nn.Module):
             id_embeds = id_embeds.repeat(
                 (batch_size // id_embeds.shape[0],) + (1,) * (id_embeds.ndim - 1)
             )
-        if self.ba_identity_memory_mode == "qformer_tokens":
+        if self.ba_identity_memory_mode in {"qformer_tokens", "face_patch_resampler"}:
             if id_embeds.ndim != 3:
-                raise ValueError(f"qformer_tokens expects [B,T,D], got {tuple(id_embeds.shape)}")
+                raise ValueError(f"Token identity memory expects [B,T,D], got {tuple(id_embeds.shape)}")
             if id_embeds.shape[1] != self.ba_identity_token_count:
                 raise ValueError(
-                    f"Expected {self.ba_identity_token_count} QFormer tokens, got {id_embeds.shape[1]}"
+                    f"Expected {self.ba_identity_token_count} identity tokens, got {id_embeds.shape[1]}"
                 )
             has_identity = (id_embeds.float().abs().sum(dim=(1, 2), keepdim=True) > 0).to(id_embeds.dtype)
             id_tokens = id_embeds * has_identity

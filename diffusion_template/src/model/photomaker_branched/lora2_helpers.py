@@ -13,7 +13,7 @@ from .branched_runtime import (
     two_branch_predict,
 )
 from .insightface_package import analyze_faces
-from .identity_memory import bbox_normalized_reference
+from .identity_memory import bbox_normalized_reference, reference_bbox_to_clip_patch_mask
 
 from copy import deepcopy
 
@@ -190,6 +190,9 @@ def prepare_branched_training_inputs(
     ref_mask_list = []
     ref_latents_list = []
     pm_feature_list = []
+    patch_feature_list = []
+    patch_mask_list = []
+    patch_identity_list = []
 
     image_h, image_w = pixel_values.shape[-2:]
     latent_h, latent_w = noisy_latents.shape[-2:]
@@ -266,18 +269,40 @@ def prepare_branched_training_inputs(
                     feature_pixels = model.id_image_processor(
                         cropped_refs, return_tensors="pt"
                     ).pixel_values.unsqueeze(0).to(model.device, dtype=model.id_encoder.dtype)
-                feature_reduce = (
-                    "tokens"
-                    if getattr(model, "ba_identity_memory_mode", "mean_plus_basis") == "qformer_tokens"
-                    else "mean"
-                )
-                pm_features = model.id_encoder.extract_id_features(
-                    feature_pixels.to(device=model.device, dtype=model.id_encoder.dtype),
-                    id_embeds=id_embeds,
-                    class_tokens_mask=class_tokens_mask,
-                    reduce=feature_reduce,
-                )
-                pm_feature_list.append(pm_features.to(device=model.device, dtype=model.unet.dtype))
+                memory_mode = getattr(model, "ba_identity_memory_mode", "mean_plus_basis")
+                if memory_mode == "face_patch_resampler":
+                    if getattr(model, "ba_identity_resampler", None) is None:
+                        raise RuntimeError("face_patch_resampler is enabled without a resampler module")
+                    pixels = feature_pixels.to(device=model.device, dtype=model.id_encoder.dtype)
+                    vision_hidden = model.id_encoder.vision_model(pixels.flatten(0, 1))[0]
+                    patches = vision_hidden[:, 1:]
+                    patch_mask = reference_bbox_to_clip_patch_mask(
+                        refs[0],
+                        ref_bbox,
+                        processed_height=int(pixels.shape[-2]),
+                        processed_width=int(pixels.shape[-1]),
+                        patch_size=int(model.id_encoder.config.patch_size),
+                        padding=getattr(model, "ba_identity_patch_padding", 0.0),
+                    )
+                    if patch_mask.numel() != patches.shape[1]:
+                        raise RuntimeError(
+                            f"Reference patch mask has {patch_mask.numel()} entries, "
+                            f"but CLIP returned {patches.shape[1]} patches"
+                        )
+                    patch_feature_list.append(patches.to(device=model.device, dtype=model.unet.dtype))
+                    patch_mask_list.append(patch_mask[None].to(device=model.device))
+                    patch_identity_list.append(
+                        id_embeds[:, 0].to(device=model.device, dtype=model.unet.dtype)
+                    )
+                else:
+                    feature_reduce = "tokens" if memory_mode == "qformer_tokens" else "mean"
+                    pm_features = model.id_encoder.extract_id_features(
+                        feature_pixels.to(device=model.device, dtype=model.id_encoder.dtype),
+                        id_embeds=id_embeds,
+                        class_tokens_mask=class_tokens_mask,
+                        reduce=feature_reduce,
+                    )
+                    pm_feature_list.append(pm_features.to(device=model.device, dtype=model.unet.dtype))
 
         class_tokens_mask_list.append(class_tokens_mask)
         if needs_spatial_reference:
@@ -297,15 +322,29 @@ def prepare_branched_training_inputs(
     pooled_prompt_embeds = torch.cat(pooled_prompt_embeds_list, dim=0).to(device=model.device, dtype=model.unet.dtype)
     class_tokens_mask = torch.cat(class_tokens_mask_list, dim=0).to(device=model.device)
 
-    id_features = None
+    extracted_id_features = None
+    if patch_feature_list:
+        extracted_id_features = model.ba_identity_resampler(
+            torch.cat(patch_feature_list, dim=0),
+            torch.cat(patch_identity_list, dim=0),
+            torch.cat(patch_mask_list, dim=0),
+        ).to(dtype=model.unet.dtype)
+    elif pm_feature_list:
+        extracted_id_features = torch.cat(pm_feature_list, dim=0)
+
+    id_features = (
+        extracted_id_features
+        if str(getattr(model, "ba_ca_mode", "legacy_ref_branch")) == "target_face_residual"
+        else None
+    )
     if model.face_embed_strategy == "face":
         face_prompt_text = ["a close-up human face laughing hard"] * prompt_embeds.shape[0]
         face_prompt_embeds, _ = model.encode_prompt(face_prompt_text, do_cfg=False)
         face_prompt_embeds = face_prompt_embeds.to(device=model.device, dtype=model.unet.dtype)
     elif model.face_embed_strategy == "id_embeds":
-        if not pm_feature_list:
+        if extracted_id_features is None:
             raise ValueError("id_embeds strategy requires PM features in training forward.")
-        id_features = torch.cat(pm_feature_list, dim=0)
+        id_features = extracted_id_features
         seq_len = prompt_embeds.shape[1]
         dim = prompt_embeds.shape[2]
         prompt_id_features = id_features.mean(dim=1) if id_features.ndim == 3 else id_features
@@ -352,11 +391,12 @@ def run_branched_forward_pass(
     face_prompt_embeds: torch.Tensor,
     class_tokens_mask: torch.Tensor,
     id_features: torch.Tensor | None,
-) -> torch.Tensor:
+    photomaker_pred: torch.Tensor | None = None,
+    return_photomaker_pred: bool = False,
+) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor | None]:
     """Run the selected BA architecture and optionally hard-merge it with PhotoMaker."""
     preservation_mode = str(getattr(model, "ba_pm_preservation_mode", "none") or "none").lower()
-    photomaker_pred = None
-    if preservation_mode == "hard_epsilon_merge":
+    if preservation_mode == "hard_epsilon_merge" and photomaker_pred is None:
         set_branched_training_mode(model, branched_active=False)
         try:
             with torch.no_grad():
@@ -407,6 +447,8 @@ def run_branched_forward_pass(
     if photomaker_pred is not None:
         noise_pred = hard_epsilon_merge(photomaker_pred, noise_pred, mask4)
     model._ba_active_this_batch = True
+    if return_photomaker_pred:
+        return noise_pred, photomaker_pred
     return noise_pred
 
 
@@ -435,11 +477,52 @@ def attach_inactive_branched_params(model, output: torch.Tensor) -> torch.Tensor
             if param.requires_grad and id(param) not in seen:
                 seen.add(id(param))
                 params.append(param)
+    resampler = getattr(model, "ba_identity_resampler", None)
+    if isinstance(resampler, torch.nn.Module):
+        for param in resampler.parameters():
+            if param.requires_grad and id(param) not in seen:
+                seen.add(id(param))
+                params.append(param)
     if not params:
         return output
 
     anchor = sum((param.reshape(-1)[0].float() * 0.0 for param in params), output.new_zeros(()).float())
     return output + anchor.to(device=output.device, dtype=output.dtype)
+
+
+def select_wrong_identity_features(
+    identity_features: torch.Tensor,
+    *,
+    global_negatives: bool,
+) -> torch.Tensor:
+    """Select a confidently different frozen identity memory for each sample."""
+    if identity_features.ndim not in {2, 3}:
+        raise ValueError(
+            f"Identity features must be [B,D] or [B,T,D], got {tuple(identity_features.shape)}"
+        )
+    local = identity_features.detach()
+    candidates = local
+    rank = 0
+    if (
+        global_negatives
+        and torch.distributed.is_available()
+        and torch.distributed.is_initialized()
+    ):
+        world = torch.distributed.get_world_size()
+        rank = torch.distributed.get_rank()
+        gathered = [torch.empty_like(local) for _ in range(world)]
+        torch.distributed.all_gather(gathered, local)
+        candidates = torch.cat(gathered, dim=0)
+
+    if candidates.shape[0] < 2:
+        raise ValueError("paired_wrong_reference requires a total batch size of at least two")
+    local_repr = torch.nn.functional.normalize(local.float().flatten(1), dim=-1)
+    candidate_repr = torch.nn.functional.normalize(candidates.float().flatten(1), dim=-1)
+    similarities = local_repr @ candidate_repr.T
+    own_indices = rank * local.shape[0] + torch.arange(local.shape[0], device=local.device)
+    similarities[torch.arange(local.shape[0], device=local.device), own_indices] = float("inf")
+    wrong_indices = similarities.argmin(dim=1)
+    return candidates.index_select(0, wrong_indices)
 
 
 def ensure_branched_after_eval(model) -> None:

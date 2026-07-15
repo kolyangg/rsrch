@@ -21,6 +21,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from tqdm.auto import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.model.photomaker_branched.insightface_package import (  # noqa: E402
@@ -45,36 +46,61 @@ def identity_of(filename: str) -> str:
     return stem.rsplit("_", 1)[-1]
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--out-dir", required=True)
-    ap.add_argument("--refs-dir", required=True)
-    ap.add_argument("--run", required=True)
-    ap.add_argument("--epoch", type=int, required=True)
-    ap.add_argument("--step", type=int, required=True)
-    ap.add_argument("--json", required=True)
-    ap.add_argument("--checkpoint", default="")
-    args = ap.parse_args()
-
-    analyzer = create_face_analyzer(
-        providers=["CPUExecutionProvider"],
-        allowed_modules=["detection", "recognition"],
-        ctx_id=-1, det_size=(640, 640), fallback_ctx_id=-1, quiet=True,
-    )
-
-    # Reference embedding per identity (by file stem).
+def load_reference_embeddings(
+    analyzer,
+    refs_dir: Path,
+    *,
+    show_progress: bool = False,
+    progress_desc: str = "Reference faces",
+) -> dict[str, np.ndarray | None]:
+    """Load one normalized recognition embedding per reference identity."""
     ref_emb = {}
-    for p in sorted(Path(args.refs_dir).iterdir()):
-        if p.suffix.lower() in IMG_SUFFIXES:
-            ref_emb[p.stem] = embed(analyzer, p)
+    refs = sorted(
+        p for p in Path(refs_dir).iterdir() if p.suffix.lower() in IMG_SUFFIXES
+    )
+    for p in tqdm(
+        refs,
+        desc=progress_desc,
+        unit="image",
+        dynamic_ncols=True,
+        disable=not show_progress,
+    ):
+        ref_emb[p.stem] = embed(analyzer, p)
+    return ref_emb
 
-    out_dir = Path(args.out_dir)
-    imgs = sorted(p for p in out_dir.glob("*.png") if not p.name.startswith("_"))
+
+def compute_full_val_metrics(
+    analyzer,
+    out_dir: Path,
+    refs_dir: Path,
+    *,
+    epoch: int | None,
+    step: int,
+    checkpoint: str = "",
+    reference_embeddings: dict[str, np.ndarray | None] | None = None,
+    show_progress: bool = False,
+    progress_desc: str = "Identity metrics",
+) -> dict:
+    """Compute the established per-image and aggregate full-validation metrics."""
+    ref_emb = reference_embeddings or load_reference_embeddings(analyzer, refs_dir)
+
+    out_dir = Path(out_dir)
+    imgs = sorted(
+        p
+        for p in out_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in IMG_SUFFIXES and not p.name.startswith("_")
+    )
 
     per_image = {}
     per_id_vals: dict[str, list] = {}
     detected = 0
-    for img in imgs:
+    for img in tqdm(
+        imgs,
+        desc=progress_desc,
+        unit="image",
+        dynamic_ncols=True,
+        disable=not show_progress,
+    ):
         ident = identity_of(img.name)
         ref = ref_emb.get(ident)
         e = embed(analyzer, img)
@@ -94,10 +120,10 @@ def main() -> int:
     per_identity = {
         k: round(float(np.mean(v)), 4) if v else None for k, v in sorted(per_id_vals.items())
     }
-    record = {
-        "epoch": args.epoch,
-        "step": args.step,
-        "checkpoint": args.checkpoint,
+    return {
+        "epoch": epoch,
+        "step": step,
+        "checkpoint": checkpoint,
         "n_images": len(imgs),
         "n_faces_detected": detected,
         "detection_rate": round(detected / max(1, len(imgs)), 4),
@@ -106,19 +132,50 @@ def main() -> int:
         "per_image_id_sim": per_image,
     }
 
-    json_path = Path(args.json)
+
+def update_metrics_json(json_path: Path, run: str, record: dict) -> None:
+    """Insert or replace one run-step record in the shared metrics JSON."""
+    json_path = Path(json_path)
     data = {}
     if json_path.exists():
         try:
             data = json.loads(json_path.read_text())
         except Exception:
             data = {}
-    data[args.run] = record
+    data[run] = record
     json_path.parent.mkdir(parents=True, exist_ok=True)
-    json_path.write_text(json.dumps(data, indent=2))
+    json_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out-dir", required=True)
+    ap.add_argument("--refs-dir", required=True)
+    ap.add_argument("--run", required=True)
+    ap.add_argument("--epoch", type=int, required=True)
+    ap.add_argument("--step", type=int, required=True)
+    ap.add_argument("--json", required=True)
+    ap.add_argument("--checkpoint", default="")
+    args = ap.parse_args()
+
+    analyzer = create_face_analyzer(
+        providers=["CPUExecutionProvider"],
+        allowed_modules=["detection", "recognition"],
+        ctx_id=-1, det_size=(640, 640), fallback_ctx_id=-1, quiet=True,
+    )
+    record = compute_full_val_metrics(
+        analyzer,
+        Path(args.out_dir),
+        Path(args.refs_dir),
+        epoch=args.epoch,
+        step=args.step,
+        checkpoint=args.checkpoint,
+    )
+    update_metrics_json(Path(args.json), args.run, record)
 
     print(f"[metrics] {args.run}: epoch={args.epoch} step={args.step} "
-          f"mean_id_sim={record['mean_id_sim']} det={detected}/{len(imgs)}")
+          f"mean_id_sim={record['mean_id_sim']} "
+          f"det={record['n_faces_detected']}/{record['n_images']}")
     return 0
 
 

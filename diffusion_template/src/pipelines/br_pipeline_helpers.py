@@ -26,7 +26,10 @@ from src.model.photomaker_branched.debug_helpers import (
     save_debug_ref_mask_overlay,
 )
 from src.model.photomaker_branched.insightface_package import analyze_faces, create_face_analyzer
-from src.model.photomaker_branched.identity_memory import bbox_normalized_reference
+from src.model.photomaker_branched.identity_memory import (
+    bbox_normalized_reference,
+    reference_bbox_to_clip_patch_mask,
+)
 
 
 def _val_debug_enabled(pipeline) -> bool:
@@ -418,23 +421,37 @@ def prepare_id_features(
     class_tokens_mask: torch.LongTensor,
 ) -> None:
     if id_pixel_values is not None and hasattr(pipeline, "id_encoder"):
-        feature_pixels = id_pixel_values
-        if getattr(pipeline, "ba_identity_image_mode", "full_reference") == "bbox_normalized":
-            batch_size = int(id_pixel_values.shape[0])
-            if int(id_pixel_values.shape[1]) != 1:
-                raise ValueError("bbox_normalized identity memory currently requires one reference per prompt")
+        memory_mode = getattr(pipeline, "ba_identity_memory_mode", "mean_plus_basis")
+        batch_size = int(id_pixel_values.shape[0])
+        refs = None
+        boxes = None
+        needs_reference_geometry = (
+            getattr(pipeline, "ba_identity_image_mode", "full_reference") == "bbox_normalized"
+            or memory_mode == "face_patch_resampler"
+        )
+        if needs_reference_geometry:
             refs = list(input_id_images) if isinstance(input_id_images, (list, tuple)) else [input_id_images]
-            if batch_size == 1 and refs and isinstance(refs[0], (list, tuple)):
+            if len(refs) == batch_size and refs and all(isinstance(ref, (list, tuple)) for ref in refs):
+                if not all(len(ref) == 1 for ref in refs):
+                    raise ValueError("This identity-memory mode requires one reference per prompt")
+                refs = [ref[0] for ref in refs]
+            elif batch_size == 1 and refs and isinstance(refs[0], (list, tuple)):
+                if len(refs[0]) != 1:
+                    raise ValueError("This identity-memory mode requires one reference per prompt")
                 refs = [refs[0][0]]
             if len(refs) != batch_size:
                 raise RuntimeError(f"Reference image batch {len(refs)} does not match ID batch {batch_size}")
             per_prompt_boxes = (
-                batch_size > 1
-                and isinstance(face_bbox_ref, (list, tuple))
+                isinstance(face_bbox_ref, (list, tuple))
                 and len(face_bbox_ref) == batch_size
                 and all(isinstance(box, (list, tuple)) for box in face_bbox_ref)
             )
             boxes = list(face_bbox_ref) if per_prompt_boxes else [face_bbox_ref] * batch_size
+
+        feature_pixels = id_pixel_values
+        if getattr(pipeline, "ba_identity_image_mode", "full_reference") == "bbox_normalized":
+            if int(id_pixel_values.shape[1]) != 1:
+                raise ValueError("bbox_normalized identity memory currently requires one reference per prompt")
             cropped = [
                 bbox_normalized_reference(
                     ref,
@@ -446,17 +463,46 @@ def prepare_id_features(
             feature_pixels = pipeline.id_image_processor(
                 cropped, return_tensors="pt"
             ).pixel_values.unsqueeze(1)
-        feature_reduce = (
-            "tokens"
-            if getattr(pipeline, "ba_identity_memory_mode", "mean_plus_basis") == "qformer_tokens"
-            else "mean"
-        )
-        pm_feats = pipeline.id_encoder.extract_id_features(
-            feature_pixels.to(device=pipeline.device, dtype=prompt_embeds.dtype),
-            id_embeds=id_embeds,
-            class_tokens_mask=class_tokens_mask,
-            reduce=feature_reduce,
-        )
+        feature_pixels = feature_pixels.to(device=pipeline.device, dtype=prompt_embeds.dtype)
+        if memory_mode == "face_patch_resampler":
+            resampler = getattr(pipeline, "ba_identity_resampler", None)
+            if resampler is None:
+                raise RuntimeError("face_patch_resampler is enabled without a resampler module")
+            if int(feature_pixels.shape[1]) != 1 or id_embeds is None:
+                raise ValueError("face_patch_resampler requires one reference and InsightFace embeddings")
+            vision_hidden = pipeline.id_encoder.vision_model(feature_pixels.flatten(0, 1))[0]
+            patches = vision_hidden[:, 1:]
+            patch_size = int(pipeline.id_encoder.config.patch_size)
+            patch_masks = torch.stack([
+                reference_bbox_to_clip_patch_mask(
+                    ref,
+                    box,
+                    processed_height=int(feature_pixels.shape[-2]),
+                    processed_width=int(feature_pixels.shape[-1]),
+                    patch_size=patch_size,
+                    padding=getattr(pipeline, "ba_identity_patch_padding", 0.0),
+                )
+                for ref, box in zip(refs, boxes)
+            ]).to(device=pipeline.device)
+            if patch_masks.shape[1] != patches.shape[1]:
+                raise RuntimeError(
+                    f"Reference patch mask has {patch_masks.shape[1]} entries, "
+                    f"but CLIP returned {patches.shape[1]} patches"
+                )
+            identity_embeds = id_embeds[:, 0] if id_embeds.ndim == 3 else id_embeds
+            pm_feats = resampler(
+                patches.to(dtype=pipeline.unet.dtype),
+                identity_embeds.to(device=pipeline.device, dtype=pipeline.unet.dtype),
+                patch_masks,
+            )
+        else:
+            feature_reduce = "tokens" if memory_mode == "qformer_tokens" else "mean"
+            pm_feats = pipeline.id_encoder.extract_id_features(
+                feature_pixels,
+                id_embeds=id_embeds,
+                class_tokens_mask=class_tokens_mask,
+                reduce=feature_reduce,
+            )
         pipeline._pm_id_embeds_2048 = pm_feats.to(device=pipeline.device, dtype=pipeline.unet.dtype)
 
 
@@ -1246,6 +1292,8 @@ def build_pipeline_from_pretrained(
 
     pipeline.id_image_processor = CLIPImageProcessor()
     pipeline.id_encoder = unwrapped_model.id_encoder
+    if getattr(unwrapped_model, "ba_identity_resampler", None) is not None:
+        pipeline.ba_identity_resampler = unwrapped_model.ba_identity_resampler
 
     pipeline.pose_adapt_ratio = pose_adapt_ratio_cfg
     pipeline.ca_mixing_for_face = ca_mixing_for_face_cfg
@@ -1273,6 +1321,7 @@ def build_pipeline_from_pretrained(
         ("ba_identity_memory_mode", "mean_plus_basis"),
         ("ba_identity_image_mode", "full_reference"),
         ("ba_identity_crop_padding", 0.10),
+        ("ba_identity_patch_padding", 0.0),
         ("ba_pm_preservation_mode", "none"),
         ("ba_hard_mask_resize", "legacy_threshold"),
         ("disable_reference_spatial_branch", False),

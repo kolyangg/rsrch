@@ -1,0 +1,97 @@
+# N29/N30 checkpoint evolution against PhotoMaker and recent BA controls.
+
+results_dir: full_validation_results
+refs_dir: ../dataset_full/val_dataset/references
+prompts: ../dataset_full/val_dataset/prompts_10.txt
+classes: ../dataset_full/val_dataset/classes_ref.json
+out_pdf: full_validation_results/ba_n29_n30_15Jul/full_val_report_N29_N30_vs_key.pdf
+saved_dir: saved
+title: N29 QFormer tokens and N30 bbox-normalized tokens vs key controls
+trigger_word: img
+require_complete_grid: true
+
+runs:
+  - photomaker_baseline
+  - ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000
+  - ba_spatial_roi_residual_N27_steps/ba_spatial_roi_residual_N27_step10000
+  - ba_idtoken_ca_residual_N28_steps/ba_idtoken_ca_residual_N28_step10000
+  - ba_qformer_idtokens_N29/ba_qformer_idtokens_N29_step2000
+  - ba_qformer_idtokens_N29/ba_qformer_idtokens_N29_step6000
+  - ba_qformer_idtokens_N29/ba_qformer_idtokens_N29_step10000
+  - ba_bboxnorm_idtokens_N30/ba_bboxnorm_idtokens_N30_step2000
+  - ba_bboxnorm_idtokens_N30/ba_bboxnorm_idtokens_N30_step6000
+  - ba_bboxnorm_idtokens_N30/ba_bboxnorm_idtokens_N30_step10000
+
+labels:
+  photomaker_baseline: PhotoMaker V2
+  ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000: N24 dual gate 10k
+  ba_spatial_roi_residual_N27_steps/ba_spatial_roi_residual_N27_step10000: N27 ROI 10k
+  ba_idtoken_ca_residual_N28_steps/ba_idtoken_ca_residual_N28_step10000: N28 mean+basis 10k
+  ba_qformer_idtokens_N29/ba_qformer_idtokens_N29_step2000: N29 QFormer 2k
+  ba_qformer_idtokens_N29/ba_qformer_idtokens_N29_step6000: N29 QFormer 6k
+  ba_qformer_idtokens_N29/ba_qformer_idtokens_N29_step10000: N29 QFormer 10k
+  ba_bboxnorm_idtokens_N30/ba_bboxnorm_idtokens_N30_step2000: N30 crop 2k
+  ba_bboxnorm_idtokens_N30/ba_bboxnorm_idtokens_N30_step6000: N30 crop 6k
+  ba_bboxnorm_idtokens_N30/ba_bboxnorm_idtokens_N30_step10000: N30 crop 10k
+
+metrics_sources:
+  photomaker_baseline: {path: full_validation_results/metrics_photomaker_baseline.json, key: photomaker_baseline}
+  ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000: {path: full_validation_results/ba_dualgate_train_N24_steps/metrics_ba_dualgate_train_N24_steps.json, key: ba_dualgate_train_N24_step10000}
+  ba_spatial_roi_residual_N27_steps/ba_spatial_roi_residual_N27_step10000: {path: full_validation_results/ba_spatial_roi_residual_N27_steps/metrics_ba_spatial_roi_residual_N27_steps.json, key: ba_spatial_roi_residual_N27_step10000}
+  ba_idtoken_ca_residual_N28_steps/ba_idtoken_ca_residual_N28_step10000: {path: full_validation_results/ba_idtoken_ca_residual_N28_steps/metrics_ba_idtoken_ca_residual_N28_steps.json, key: ba_idtoken_ca_residual_N28_step10000}
+  ba_qformer_idtokens_N29/ba_qformer_idtokens_N29_step2000: {path: full_validation_results/ba_qformer_idtokens_N29/metrics_ba_qformer_idtokens_N29_steps.json, key: ba_qformer_idtokens_N29_step2000}
+  ba_qformer_idtokens_N29/ba_qformer_idtokens_N29_step6000: {path: full_validation_results/ba_qformer_idtokens_N29/metrics_ba_qformer_idtokens_N29_steps.json, key: ba_qformer_idtokens_N29_step6000}
+  ba_qformer_idtokens_N29/ba_qformer_idtokens_N29_step10000: {path: full_validation_results/ba_qformer_idtokens_N29/metrics_ba_qformer_idtokens_N29_steps.json, key: ba_qformer_idtokens_N29_step10000}
+  ba_bboxnorm_idtokens_N30/ba_bboxnorm_idtokens_N30_step2000: {path: full_validation_results/ba_bboxnorm_idtokens_N30/metrics_ba_bboxnorm_idtokens_N30_steps.json, key: ba_bboxnorm_idtokens_N30_step2000}
+  ba_bboxnorm_idtokens_N30/ba_bboxnorm_idtokens_N30_step6000: {path: full_validation_results/ba_bboxnorm_idtokens_N30/metrics_ba_bboxnorm_idtokens_N30_steps.json, key: ba_bboxnorm_idtokens_N30_step6000}
+  ba_bboxnorm_idtokens_N30/ba_bboxnorm_idtokens_N30_step10000: {path: full_validation_results/ba_bboxnorm_idtokens_N30/metrics_ba_bboxnorm_idtokens_N30_steps.json, key: ba_bboxnorm_idtokens_N30_step10000}
+
+run_config_overrides:
+  photomaker_baseline: &pm
+    report: {method: PhotoMaker only, target_path: standard PM, memory: none, ref_input: full reference, residual: none, trainables: released PM, PM_frozen: n/a}
+    model: {ba_sa_mode: standard, ba_ca_mode: standard, ba_pm_preservation_mode: native, use_id_loss: false}
+  ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000:
+    report: {method: learned dual gate, target_path: gated PM/ref outputs, memory: full reference grid, ref_input: full reference, residual: gated absolute outputs, trainables: SA branches + per-head gate, PM_frozen: yes}
+    model: {ba_sa_mode: legacy, ba_ca_mode: legacy_ref_branch, ba_pm_preservation_mode: none, use_id_loss: true, id_loss_identity_source: target}
+  ba_spatial_roi_residual_N27_steps/ba_spatial_roi_residual_N27_step10000:
+    report: {method: spatial ROI residual, target_path: PM + hard-bbox delta, memory: pooled 4x4 ref UNet ROI, ref_input: full reference, residual: zero-init low-rank delta, trainables: ref K/V + delta + gate, PM_frozen: yes}
+    model: {ba_sa_mode: pm_face_residual, ba_ca_mode: standard, ba_pm_preservation_mode: hard_epsilon_merge, ba_hard_mask_resize: area_preserving, use_id_loss: true, id_loss_identity_source: reference}
+  ba_idtoken_ca_residual_N28_steps/ba_idtoken_ca_residual_N28_step10000: &n28
+    report: {method: ID-token CA residual, target_path: PM + hard-bbox delta, memory: mean ID + 4 global bases, ref_input: full reference, residual: zero-init low-rank delta, trainables: target K/V + bases + delta, PM_frozen: yes}
+    model: {ba_sa_mode: standard, ba_ca_mode: target_face_residual, ba_identity_memory_mode: mean_plus_basis, ba_identity_token_count: 4, ba_pm_preservation_mode: hard_epsilon_merge, ba_hard_mask_resize: area_preserving, use_id_loss: true, id_loss_identity_source: reference}
+  ba_qformer_idtokens_N29/ba_qformer_idtokens_N29_step2000: &n29
+    report: {method: QFormer-token CA residual, target_path: PM + hard-bbox delta, memory: 2 distinct frozen PM QFormer tokens, ref_input: full reference, residual: zero-init low-rank delta, trainables: target K/V + delta + gate, PM_frozen: yes}
+    model: {ba_sa_mode: standard, ba_ca_mode: target_face_residual, ba_identity_memory_mode: qformer_tokens, ba_identity_image_mode: full_reference, ba_identity_token_count: 2, ba_pm_preservation_mode: hard_epsilon_merge, ba_hard_mask_resize: area_preserving, use_id_loss: true, id_loss_identity_source: reference}
+  ba_qformer_idtokens_N29/ba_qformer_idtokens_N29_step6000: *n29
+  ba_qformer_idtokens_N29/ba_qformer_idtokens_N29_step10000: *n29
+  ba_bboxnorm_idtokens_N30/ba_bboxnorm_idtokens_N30_step2000: &n30
+    report: {method: cropped QFormer CA residual, target_path: PM + hard-bbox delta, memory: 2 distinct frozen PM QFormer tokens, ref_input: bbox-square crop for BA only, residual: zero-init low-rank delta, trainables: target K/V + delta + gate, PM_frozen: yes}
+    model: {ba_sa_mode: standard, ba_ca_mode: target_face_residual, ba_identity_memory_mode: qformer_tokens, ba_identity_image_mode: bbox_normalized, ba_identity_token_count: 2, ba_pm_preservation_mode: hard_epsilon_merge, ba_hard_mask_resize: area_preserving, use_id_loss: true, id_loss_identity_source: reference}
+  ba_bboxnorm_idtokens_N30/ba_bboxnorm_idtokens_N30_step6000: *n30
+  ba_bboxnorm_idtokens_N30/ba_bboxnorm_idtokens_N30_step10000: *n30
+
+config_criteria:
+  - {label: method, path: report.method}
+  - {label: checkpoint step, path: metric.step}
+  - {label: mean ID sim (secondary), path: metric.mean_id_sim}
+  - {label: target generation path, path: report.target_path}
+  - {label: BA identity memory, path: report.memory}
+  - {label: BA reference input, path: report.ref_input}
+  - {label: residual/fusion form, path: report.residual}
+  - {label: trainable parameters, path: report.trainables}
+  - {label: PhotoMaker/ID encoder frozen, path: report.PM_frozen}
+  - {label: self-attention mode, path: model.ba_sa_mode}
+  - {label: cross-attention mode, path: model.ba_ca_mode}
+  - {label: identity memory mode, path: model.ba_identity_memory_mode}
+  - {label: identity token count, path: model.ba_identity_token_count}
+  - {label: identity image mode, path: model.ba_identity_image_mode}
+  - {label: hard PM epsilon preservation, path: model.ba_pm_preservation_mode}
+  - {label: hard-mask resize, path: model.ba_hard_mask_resize}
+  - {label: ID loss source, path: model.id_loss_identity_source}
+
+cell_px: 215
+label_px: 235
+config_row_px: 62
+config_label_px: 270
+config_col_px: 175
+dpi: 150

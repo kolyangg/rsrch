@@ -602,6 +602,12 @@ class BaseTrainer:
 
             dataset_total = len(dataloader.dataset) if hasattr(dataloader, "dataset") else len(dataloader)
             total_images = min(dataset_total, int(max_samples)) if max_samples is not None else dataset_total
+            world_size = int(getattr(self.accelerator, "num_processes", 1))
+            local_max_samples = (
+                (int(max_samples) + world_size - 1) // world_size
+                if max_samples is not None
+                else None
+            )
             if hasattr(self, 'pipe'):
                 for attr in ('_call_debug_counter', '_current_debug_idx', '_current_debug_total'):
                     if hasattr(self.pipe, attr):
@@ -625,11 +631,11 @@ class BaseTrainer:
                 print(f"[DebugImage] total validation images: {total_images}")  # always show total
             processed_samples = 0
             progress_total = len(dataloader)
-            if max_samples is not None:
+            if local_max_samples is not None:
                 loader_batch_size = int(getattr(dataloader, "batch_size", 1) or 1)
                 progress_total = min(
                     progress_total,
-                    (int(max_samples) + loader_batch_size - 1) // loader_batch_size,
+                    (local_max_samples + loader_batch_size - 1) // loader_batch_size,
                 )
             for batch_idx, batch in tqdm(
                 enumerate(dataloader),
@@ -637,7 +643,7 @@ class BaseTrainer:
                 total=progress_total,
                 disable=not self.accelerator.is_local_main_process,
             ):
-                if max_samples is not None and processed_samples >= int(max_samples):
+                if local_max_samples is not None and processed_samples >= local_max_samples:
                     break
                 if self.accelerator.is_main_process:
                     print(f"[DebugImage] validation image {batch_idx:02d}/{total_images:02d}")  # always show current id
@@ -925,6 +931,8 @@ class BaseTrainer:
                 'model_best.pth'(do not duplicate the checkpoint as
                 checkpoint-epochEpochNumber.pth)
         """
+        if not self.accelerator.is_main_process:
+            return
         arch = type(self.accelerator.unwrap_model(self.model)).__name__
         state = {
             "arch": arch,
@@ -942,6 +950,8 @@ class BaseTrainer:
         torch.save(state, filename)
 
     def _save_weights_only_checkpoint(self, epoch):
+        if not self.accelerator.is_main_process:
+            return
         state = self.accelerator.unwrap_model(self.model).get_state_dict()
         filename = str(self.checkpoint_dir / f"weights-epoch{epoch}.pth")
         if self.accelerator.is_main_process:

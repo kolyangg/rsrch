@@ -1,0 +1,12 @@
+defaults:
+  - one_id_ba_qformer_idtokens_N29
+  - _self_
+
+# N31: keep N29's safe generation path, but require the BA residual to depend
+# on the correct identity memory rather than learning a generic face edit.
+model:
+  ba_identity_dependence_mode: paired_wrong_reference
+  ba_identity_dependence_weight: 0.25
+  ba_identity_dependence_margin: 0.02
+  ba_identity_dependence_global_negatives: true
+

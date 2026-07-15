@@ -30,7 +30,9 @@ from .lora2_helpers import (
     set_branched_training_mode,
     attach_inactive_branched_params,
     ensure_branched_after_eval as ensure_branched_after_eval_helper,
+    select_wrong_identity_features,
 )
+from .identity_memory import FacePatchIdentityResampler
 from .model_v2_NS import PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken
 ##### BRANCHED ATTENTION - ADDITIONAL IMPORTS #####
 
@@ -93,6 +95,12 @@ class PhotomakerBranchedLora(SDXL):
         ba_identity_memory_mode: str = "mean_plus_basis",
         ba_identity_image_mode: str = "full_reference",
         ba_identity_crop_padding: float = 0.10,
+        ba_identity_patch_padding: float = 0.0,
+        ba_identity_resampler_hidden_dim: int = 256,
+        ba_identity_dependence_mode: str = "none",
+        ba_identity_dependence_weight: float = 0.25,
+        ba_identity_dependence_margin: float = 0.02,
+        ba_identity_dependence_global_negatives: bool = True,
         ba_pm_preservation_mode: str = "none",
         ba_hard_mask_resize: str = "legacy_threshold",
         disable_reference_spatial_branch: bool = False,
@@ -230,6 +238,12 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_identity_memory_mode = str(ba_identity_memory_mode or "mean_plus_basis").lower()
         self.ba_identity_image_mode = str(ba_identity_image_mode or "full_reference").lower()
         self.ba_identity_crop_padding = float(ba_identity_crop_padding)
+        self.ba_identity_patch_padding = float(ba_identity_patch_padding)
+        self.ba_identity_resampler_hidden_dim = int(ba_identity_resampler_hidden_dim)
+        self.ba_identity_dependence_mode = str(ba_identity_dependence_mode or "none").lower()
+        self.ba_identity_dependence_weight = float(ba_identity_dependence_weight)
+        self.ba_identity_dependence_margin = float(ba_identity_dependence_margin)
+        self.ba_identity_dependence_global_negatives = bool(ba_identity_dependence_global_negatives)
         self.ba_pm_preservation_mode = str(ba_pm_preservation_mode or "none").lower()
         self.ba_hard_mask_resize = str(ba_hard_mask_resize or "legacy_threshold").lower()
         self.disable_reference_spatial_branch = bool(disable_reference_spatial_branch)
@@ -237,10 +251,27 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_fix_tensor_ref_resolution = bool(ba_fix_tensor_ref_resolution)
         if self.ba_pm_preservation_mode not in {"none", "hard_epsilon_merge"}:
             raise ValueError(f"Unknown ba_pm_preservation_mode: {self.ba_pm_preservation_mode}")
-        if self.ba_identity_memory_mode not in {"mean_plus_basis", "qformer_tokens"}:
+        if self.ba_identity_memory_mode not in {
+            "mean_plus_basis", "qformer_tokens", "face_patch_resampler"
+        }:
             raise ValueError(f"Unknown ba_identity_memory_mode: {self.ba_identity_memory_mode}")
         if self.ba_identity_image_mode not in {"full_reference", "bbox_normalized"}:
             raise ValueError(f"Unknown ba_identity_image_mode: {self.ba_identity_image_mode}")
+        if (
+            self.ba_identity_memory_mode == "face_patch_resampler"
+            and self.ba_identity_image_mode != "full_reference"
+        ):
+            raise ValueError("face_patch_resampler selects patches from the full reference image")
+        if self.ba_identity_dependence_mode not in {"none", "paired_wrong_reference"}:
+            raise ValueError(f"Unknown ba_identity_dependence_mode: {self.ba_identity_dependence_mode}")
+        if self.ba_identity_dependence_weight < 0 or self.ba_identity_dependence_margin < 0:
+            raise ValueError("Identity-dependence weight and margin must be non-negative")
+        self.ba_identity_resampler = None
+        if self.ba_identity_memory_mode == "face_patch_resampler":
+            self.ba_identity_resampler = FacePatchIdentityResampler(
+                num_tokens=self.ba_identity_token_count,
+                hidden_dim=self.ba_identity_resampler_hidden_dim,
+            ).to(device=self.device, dtype=self.weight_dtype)
         self._ba_active_this_batch = False
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 
@@ -261,6 +292,9 @@ class PhotomakerBranchedLora(SDXL):
         self.unet.requires_grad_(False)
         self.id_encoder.to(dtype=self.weight_dtype)
         self.id_encoder.requires_grad_(False)
+        if self.ba_identity_resampler is not None:
+            self.ba_identity_resampler.to(device=self.device, dtype=self.weight_dtype)
+            self.ba_identity_resampler.requires_grad_(True)
 
         adapter_lora_config = LoraConfig(
             r=self.lora_rank,
@@ -311,6 +345,20 @@ class PhotomakerBranchedLora(SDXL):
         noise_wd = config.get("ba_noise_weight_decay", None)
 
         named = [(n, p) for n, p in self.unet.named_parameters() if p.requires_grad]
+        identity_resampler_params = (
+            [p for p in self.ba_identity_resampler.parameters() if p.requires_grad]
+            if self.ba_identity_resampler is not None
+            else []
+        )
+
+        def _with_identity_resampler(groups):
+            if identity_resampler_params:
+                groups.append({
+                    "params": identity_resampler_params,
+                    "lr": config.lr_for_lora,
+                    "name": "ba_identity_resampler_params",
+                })
+            return groups
 
         def _is_noise_clone(name: str) -> bool:
             return ".processor." in name and ".noise_to_" in name
@@ -324,9 +372,9 @@ class PhotomakerBranchedLora(SDXL):
             and noise_wd is None
         ) or not any(_is_noise_clone(n) or _is_ca_processor(n) for n, _ in named):
             # Single group — bit-identical to the previous behaviour.
-            return [
+            return _with_identity_resampler([
                 {"params": [p for _, p in named], "lr": config.lr_for_lora, "name": "lora_params"},
-            ]
+            ])
 
         groups = {}
         for name, param in named:
@@ -350,7 +398,7 @@ class PhotomakerBranchedLora(SDXL):
                 if is_noise and noise_wd is not None:
                     groups[group_name]["weight_decay"] = float(noise_wd)
             groups[group_name]["params"].append(param)
-        return [group for group in groups.values() if group["params"]]
+        return _with_identity_resampler([group for group in groups.values() if group["params"]])
         ##### BRANCHED ATTENTION - NEW BLOCK 2 #####
 
     def get_state_dict(self):
@@ -378,6 +426,8 @@ class PhotomakerBranchedLora(SDXL):
                     proc_sd[name] = sd
             if proc_sd:
                 state["attn_processors"] = proc_sd
+        if self.ba_identity_resampler is not None:
+            state["ba_identity_resampler"] = self.ba_identity_resampler.state_dict()
         return state
 
     def load_state_dict_(self, state_dict):
@@ -393,6 +443,13 @@ class PhotomakerBranchedLora(SDXL):
             proc = self.unet.attn_processors.get(name)
             if proc is not None and hasattr(proc, "load_state_dict"):
                 proc.load_state_dict(sd, strict=False)
+        resampler_state = state_dict.get("ba_identity_resampler")
+        if resampler_state is not None:
+            if self.ba_identity_resampler is None:
+                raise ValueError(
+                    "Checkpoint contains a BA identity resampler, but the current config does not enable it"
+                )
+            self.ba_identity_resampler.load_state_dict(resampler_state, strict=True)
 
     def forward(
         self,
@@ -463,6 +520,15 @@ class PhotomakerBranchedLora(SDXL):
         )
         ##### BRANCHED ATTENTION - NEW BLOCK 4 #####
 
+        wrong_id_features = None
+        if self.ba_identity_dependence_mode == "paired_wrong_reference":
+            if id_features is None:
+                raise ValueError("paired_wrong_reference requires identity memory features")
+            wrong_id_features = select_wrong_identity_features(
+                id_features,
+                global_negatives=self.ba_identity_dependence_global_negatives,
+            )
+
         ##### BRANCHED ATTENTION - NEW BLOCK 5 #####
         """NEW BLOCK 5 is implemented in `lora2_helpers.prepare_branched_training_inputs`."""
         ##### BRANCHED ATTENTION - NEW BLOCK 5 #####
@@ -497,6 +563,34 @@ class PhotomakerBranchedLora(SDXL):
             device=self.device, dtype=self.unet.dtype
         )
 
+        def _run_active_predictions():
+            common = dict(
+                noisy_latents=noisy_latents,
+                timesteps=timesteps,
+                prompt_embeds=prompt_embeds,
+                added_cond_kwargs=added_cond_kwargs,
+                mask4=mask4,
+                mask4_ref=mask4_ref,
+                reference_latents=reference_latents,
+                face_prompt_embeds=face_prompt_embeds,
+                class_tokens_mask=class_tokens_mask,
+            )
+            if wrong_id_features is None:
+                return run_branched_forward_pass(self, id_features=id_features, **common), None
+            correct_pred, photomaker_pred = run_branched_forward_pass(
+                self,
+                id_features=id_features,
+                return_photomaker_pred=True,
+                **common,
+            )
+            wrong_pred = run_branched_forward_pass(
+                self,
+                id_features=wrong_id_features,
+                photomaker_pred=photomaker_pred,
+                **common,
+            )
+            return correct_pred, wrong_pred
+
         ### MEMO: INITIAL LORA UNet pass ###
         # model_pred = self.unet(
         #     noisy_model_input,
@@ -508,19 +602,7 @@ class PhotomakerBranchedLora(SDXL):
         ### MEMO: INITIAL LORA UNet pass ###
 
         if self.train_ba_all_steps:
-            noise_pred = run_branched_forward_pass(
-                self,
-                noisy_latents=noisy_latents,
-                timesteps=timesteps,
-                prompt_embeds=prompt_embeds,
-                added_cond_kwargs=added_cond_kwargs,
-                mask4=mask4,
-                mask4_ref=mask4_ref,
-                reference_latents=reference_latents,
-                face_prompt_embeds=face_prompt_embeds,
-                class_tokens_mask=class_tokens_mask,
-                id_features=id_features,
-            )
+            noise_pred, wrong_identity_pred = _run_active_predictions()
         elif denoise_progress < photomaker_start_ratio:
             text_only_kwargs = {
                 "text_embeds": pooled_prompt_embeds_text_only,
@@ -554,25 +636,15 @@ class PhotomakerBranchedLora(SDXL):
         else:
             ##### BRANCHED ATTENTION - FORWARD PASS #####
             """FORWARD PASS: run branched prediction via helper wrapper around `two_branch_predict`."""
-            noise_pred = run_branched_forward_pass(
-                self,
-                noisy_latents=noisy_latents,
-                timesteps=timesteps,
-                prompt_embeds=prompt_embeds,
-                added_cond_kwargs=added_cond_kwargs,
-                mask4=mask4,
-                mask4_ref=mask4_ref,
-                reference_latents=reference_latents,
-                face_prompt_embeds=face_prompt_embeds,
-                class_tokens_mask=class_tokens_mask,
-                id_features=id_features,
-            )
+            noise_pred, wrong_identity_pred = _run_active_predictions()
             ##### BRANCHED ATTENTION - FORWARD PASS #####
 
         out = {
             'model_pred': noise_pred,
             'target': noise,
         }
+        if 'wrong_identity_pred' in locals() and wrong_identity_pred is not None:
+            out['wrong_identity_pred'] = wrong_identity_pred
 
         # ID loss (identity-supervised): only when enabled AND the sampled timestep is low enough
         # that the predicted x0 is meaningful. t is shared across the batch (see t_scalar above),

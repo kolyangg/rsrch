@@ -132,7 +132,9 @@ def patch_unet_attention_processors(
     # Always provide id_embeds so processor-local weights participate on every rank
     if id_embeds is not None:
         _idem = id_embeds.to(dev, dt)
-    elif getattr(pipeline, "ba_identity_memory_mode", "mean_plus_basis") == "qformer_tokens":
+    elif getattr(pipeline, "ba_identity_memory_mode", "mean_plus_basis") in {
+        "qformer_tokens", "face_patch_resampler"
+    }:
         _idem = torch.zeros(
             B,
             int(getattr(pipeline, "ba_identity_token_count", 2)),

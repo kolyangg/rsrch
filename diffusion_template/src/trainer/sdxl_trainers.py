@@ -7,6 +7,7 @@ from omegaconf import OmegaConf  # --- MODIFIED For training integration ---
 DEBUG_LOG_DEBUG_IMAGES = os.environ.get("PM_DEBUG_IMAGES", "1") not in {"0", "false", "False", ""}
 
 from src.metrics.tracker import MetricTracker
+from src.loss.diffusion_loss import identity_dependence_ranking_loss
 from src.trainer.base_trainer import BaseTrainer
 
 
@@ -252,6 +253,20 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             self._id_loss_weight_cached = w
         return w
 
+    def _identity_dependence_config(self):
+        cached = getattr(self, "_identity_dependence_config_cached", None)
+        if cached is None:
+            try:
+                model = self.accelerator.unwrap_model(self.model)
+            except Exception:
+                model = self.model
+            cached = (
+                float(getattr(model, "ba_identity_dependence_weight", 0.0)),
+                float(getattr(model, "ba_identity_dependence_margin", 0.0)),
+            )
+            self._identity_dependence_config_cached = cached
+        return cached
+
     def _update_ba_weight_norms(self, train_metrics):
         """Drift canary: L2 norm of branched-processor lora_B weights per group.
 
@@ -303,6 +318,13 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 sums[f"{kind}_{branch}"] += float(p.detach().float().pow(2).sum().item())
         for group, sq_sum in sums.items():
             train_metrics.update(f"ba_norm/{group}", sq_sum ** 0.5)
+        resampler_sq = sum(
+            float(p.detach().float().pow(2).sum().item())
+            for name, p in unwrapped.named_parameters()
+            if name.startswith("ba_identity_resampler.") and p.requires_grad
+        )
+        if resampler_sq:
+            train_metrics.update("ba_norm/identity_resampler", resampler_sq ** 0.5)
         if face_gates:
             train_metrics.update("ba_gate/face_residual_mean", sum(face_gates) / len(face_gates))
         
@@ -373,6 +395,25 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             else:
                 msg = f"[ID_LOSS] non-finite id_loss at batch_idx={batch.get('batch_idx')}, skipped"
                 (self.logger.warning(msg) if self.logger is not None else print(msg))
+
+        wrong_identity_pred = batch.get("wrong_identity_pred")
+        if wrong_identity_pred is not None:
+            dependence_weight, dependence_margin = self._identity_dependence_config()
+            dependence_loss, correct_face_loss, wrong_face_loss = identity_dependence_ranking_loss(
+                batch["model_pred"],
+                wrong_identity_pred,
+                batch["target"],
+                batch["face_bbox"],
+                margin=dependence_margin,
+            )
+            if not torch.isfinite(dependence_loss):
+                raise RuntimeError("Identity-dependence loss became non-finite")
+            batch["loss"] = batch["loss"] + dependence_weight * dependence_loss
+            train_metrics.update("identity_dependence/loss", float(dependence_loss.detach().item()))
+            train_metrics.update(
+                "identity_dependence/wrong_minus_correct",
+                float((wrong_face_loss - correct_face_loss).detach().item()),
+            )
 
         if self.is_train:
             assert torch.isfinite(batch["loss"]) # sum of all losses is always called loss

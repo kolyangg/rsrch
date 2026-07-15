@@ -32,6 +32,37 @@ def _masked_face_mse(model_pred, target, face_bbox):
     return loss / valid
 
 
+def identity_dependence_ranking_loss(
+    correct_pred,
+    wrong_pred,
+    target,
+    face_bbox,
+    *,
+    margin: float,
+):
+    """Require correct BA memory to reconstruct each target face better than wrong memory."""
+    correct_losses = []
+    wrong_losses = []
+    for i, box in enumerate(face_bbox):
+        scaled_box = (np.array(box) / 8).astype(np.int32)
+        x0, y0, x1, y1 = [int(v) for v in scaled_box]
+        if x1 > x0 and y1 > y0:
+            correct_face = correct_pred[i, :, y0:y1, x0:x1]
+            wrong_face = wrong_pred[i, :, y0:y1, x0:x1]
+            target_face = target[i, :, y0:y1, x0:x1]
+        else:
+            correct_face, wrong_face, target_face = correct_pred[i], wrong_pred[i], target[i]
+        if correct_face.numel() == 0 or target_face.numel() == 0:
+            correct_face, wrong_face, target_face = correct_pred[i], wrong_pred[i], target[i]
+        correct_losses.append(F.mse_loss(correct_face.float(), target_face.float()))
+        wrong_losses.append(F.mse_loss(wrong_face.float(), target_face.float()))
+
+    correct = torch.stack(correct_losses)
+    wrong = torch.stack(wrong_losses)
+    ranking = F.relu(float(margin) + correct - wrong).mean()
+    return ranking, correct.mean(), wrong.mean()
+
+
 class DiffusionLoss(nn.Module):
     def __init__(self) -> None:
         super().__init__()

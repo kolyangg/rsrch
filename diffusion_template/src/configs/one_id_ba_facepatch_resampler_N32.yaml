@@ -1,0 +1,13 @@
+defaults:
+  - one_id_ba_qformer_idtokens_N29
+  - _self_
+
+# N32: retain N29's target-only hard-bbox residual, but replace its two frozen
+# QFormer tokens with eight trainable identity queries over hard-bbox CLIP patches.
+model:
+  ba_identity_token_count: 8
+  ba_identity_memory_mode: face_patch_resampler
+  ba_identity_image_mode: full_reference
+  ba_identity_patch_padding: 0.0
+  ba_identity_resampler_hidden_dim: 256
+

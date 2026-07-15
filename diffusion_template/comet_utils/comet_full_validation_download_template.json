@@ -1,0 +1,17 @@
+{
+  "output_root": "../full_validation_results",
+  "refs_dir": "../../dataset_full/val_dataset/references",
+  "expected_names_json": "../../dataset_full/val_dataset/pm96_bboxes_new.json",
+  "expected_images": 96,
+  "default_steps": [2000, 6000, 10000],
+  "strict_steps": true,
+  "compute_metrics": true,
+  "clean_step_dirs": false,
+  "runs": [
+    {
+      "run_id": "REPLACE_WITH_COMET_EXPERIMENT_KEY",
+      "run_name": null,
+      "steps": [2000, 6000, 10000]
+    }
+  ]
+}

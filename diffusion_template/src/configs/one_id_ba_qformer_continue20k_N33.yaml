@@ -1,0 +1,7 @@
+defaults:
+  - one_id_ba_qformer_idtokens_N29
+  - _self_
+
+# N33 is an unchanged N29 continuation. Its purpose is to distinguish an
+# architecture gain in N31/N32 from the effect of giving N29 more updates.
+
