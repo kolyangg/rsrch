@@ -26,6 +26,7 @@ from src.model.photomaker_branched.debug_helpers import (
     save_debug_ref_mask_overlay,
 )
 from src.model.photomaker_branched.insightface_package import analyze_faces, create_face_analyzer
+from src.model.photomaker_branched.identity_memory import bbox_normalized_reference
 
 
 def _val_debug_enabled(pipeline) -> bool:
@@ -410,15 +411,51 @@ def prepare_id_features(
     pipeline,
     *,
     id_pixel_values: Optional[torch.Tensor],
+    input_id_images: Sequence[Any],
+    face_bbox_ref,
     prompt_embeds: torch.Tensor,
     id_embeds: Optional[torch.Tensor],
     class_tokens_mask: torch.LongTensor,
 ) -> None:
     if id_pixel_values is not None and hasattr(pipeline, "id_encoder"):
+        feature_pixels = id_pixel_values
+        if getattr(pipeline, "ba_identity_image_mode", "full_reference") == "bbox_normalized":
+            batch_size = int(id_pixel_values.shape[0])
+            if int(id_pixel_values.shape[1]) != 1:
+                raise ValueError("bbox_normalized identity memory currently requires one reference per prompt")
+            refs = list(input_id_images) if isinstance(input_id_images, (list, tuple)) else [input_id_images]
+            if batch_size == 1 and refs and isinstance(refs[0], (list, tuple)):
+                refs = [refs[0][0]]
+            if len(refs) != batch_size:
+                raise RuntimeError(f"Reference image batch {len(refs)} does not match ID batch {batch_size}")
+            per_prompt_boxes = (
+                batch_size > 1
+                and isinstance(face_bbox_ref, (list, tuple))
+                and len(face_bbox_ref) == batch_size
+                and all(isinstance(box, (list, tuple)) for box in face_bbox_ref)
+            )
+            boxes = list(face_bbox_ref) if per_prompt_boxes else [face_bbox_ref] * batch_size
+            cropped = [
+                bbox_normalized_reference(
+                    ref,
+                    box,
+                    padding=getattr(pipeline, "ba_identity_crop_padding", 0.10),
+                )
+                for ref, box in zip(refs, boxes)
+            ]
+            feature_pixels = pipeline.id_image_processor(
+                cropped, return_tensors="pt"
+            ).pixel_values.unsqueeze(1)
+        feature_reduce = (
+            "tokens"
+            if getattr(pipeline, "ba_identity_memory_mode", "mean_plus_basis") == "qformer_tokens"
+            else "mean"
+        )
         pm_feats = pipeline.id_encoder.extract_id_features(
-            id_pixel_values.to(device=pipeline.device, dtype=prompt_embeds.dtype),
+            feature_pixels.to(device=pipeline.device, dtype=prompt_embeds.dtype),
             id_embeds=id_embeds,
             class_tokens_mask=class_tokens_mask,
+            reduce=feature_reduce,
         )
         pipeline._pm_id_embeds_2048 = pm_feats.to(device=pipeline.device, dtype=pipeline.unet.dtype)
 
@@ -667,6 +704,8 @@ def run_branched_setup(
     prepare_id_features(
         pipeline,
         id_pixel_values=id_pixel_values,
+        input_id_images=input_id_images,
+        face_bbox_ref=face_bbox_ref,
         prompt_embeds=prompt_embeds,
         id_embeds=id_embeds,
         class_tokens_mask=class_tokens_mask,
@@ -833,11 +872,12 @@ def run_branched_step(
         if pm.shape[0] == b_pos:
             pm_b = pm
         elif pm.shape[0] == 1:
-            pm_b = pm.expand(b_pos, -1)
+            pm_b = pm.expand((b_pos,) + tuple(pm.shape[1:]))
         else:
-            pm_b = pm.mean(dim=0, keepdim=True).expand(b_pos, -1)
+            pm_b = pm.mean(dim=0, keepdim=True).expand((b_pos,) + tuple(pm.shape[1:]))
 
-        pos = pm_b.unsqueeze(1).expand(b_pos, seq_len, dim)
+        prompt_memory = pm_b.mean(dim=1) if pm_b.ndim == 3 else pm_b
+        pos = prompt_memory.unsqueeze(1).expand(b_pos, seq_len, dim)
         if pipeline.do_classifier_free_guidance:
             neg = torch.zeros_like(pos)
             id_face_ehs = torch.cat([neg, pos], dim=0)
@@ -1230,6 +1270,9 @@ def build_pipeline_from_pretrained(
         ("ba_face_roi_size", 4),
         ("ba_ca_mode", "legacy_ref_branch"),
         ("ba_identity_token_count", 4),
+        ("ba_identity_memory_mode", "mean_plus_basis"),
+        ("ba_identity_image_mode", "full_reference"),
+        ("ba_identity_crop_padding", 0.10),
         ("ba_pm_preservation_mode", "none"),
         ("ba_hard_mask_resize", "legacy_threshold"),
         ("disable_reference_spatial_branch", False),

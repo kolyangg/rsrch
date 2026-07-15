@@ -776,6 +776,7 @@ class BranchedCrossAttnProcessor(nn.Module):
         branched_attn_lora_rank: int = 16,
         ba_ca_mode: str = "legacy_ref_branch",
         ba_identity_token_count: int = 4,
+        ba_identity_memory_mode: str = "mean_plus_basis",
         ba_hard_mask_resize: str = "legacy_threshold",
     ):
         super().__init__()
@@ -792,9 +793,12 @@ class BranchedCrossAttnProcessor(nn.Module):
         self.branched_attn_lora_rank = int(branched_attn_lora_rank)
         self.ba_ca_mode = str(ba_ca_mode or "legacy_ref_branch").lower()
         self.ba_identity_token_count = max(1, int(ba_identity_token_count))
+        self.ba_identity_memory_mode = str(ba_identity_memory_mode or "mean_plus_basis").lower()
         self.ba_hard_mask_resize = str(ba_hard_mask_resize or "legacy_threshold").lower()
         if self.ba_ca_mode not in {"legacy_ref_branch", "target_face_residual"}:
             raise ValueError(f"Unknown ba_ca_mode: {self.ba_ca_mode}")
+        if self.ba_identity_memory_mode not in {"mean_plus_basis", "qformer_tokens"}:
+            raise ValueError(f"Unknown ba_identity_memory_mode: {self.ba_identity_memory_mode}")
         
         self.mask = None
         self.mask_ref = None
@@ -862,15 +866,16 @@ class BranchedCrossAttnProcessor(nn.Module):
             template = next(self.target_id_to_k.parameters(), None)
             device = template.device if template is not None else attn.to_k.weight.device
             dtype = template.dtype if template is not None else attn.to_k.weight.dtype
-            self.id_token_basis = nn.Parameter(
-                torch.empty(
-                    self.ba_identity_token_count,
-                    self.cross_attention_dim,
-                    device=device,
-                    dtype=dtype,
+            if self.ba_identity_memory_mode == "mean_plus_basis":
+                self.id_token_basis = nn.Parameter(
+                    torch.empty(
+                        self.ba_identity_token_count,
+                        self.cross_attention_dim,
+                        device=device,
+                        dtype=dtype,
+                    )
                 )
-            )
-            nn.init.normal_(self.id_token_basis, mean=0.0, std=0.01)
+                nn.init.normal_(self.id_token_basis, mean=0.0, std=0.01)
             self.face_delta_out = ZeroInitResidualProjection(
                 self.hidden_size, self.branched_attn_lora_rank
             ).to(device=device, dtype=dtype)
@@ -932,21 +937,33 @@ class BranchedCrossAttnProcessor(nn.Module):
         )
 
         id_embeds = self.id_embeds.to(device=normalized.device, dtype=normalized.dtype)
-        if id_embeds.ndim == 3 and id_embeds.shape[1] == 1:
-            id_embeds = id_embeds[:, 0]
-        if id_embeds.ndim != 2 or id_embeds.shape[-1] != self.cross_attention_dim:
-            raise ValueError(
-                f"Expected identity features [B,{self.cross_attention_dim}], got {tuple(id_embeds.shape)}"
-            )
+        if id_embeds.ndim not in {2, 3} or id_embeds.shape[-1] != self.cross_attention_dim:
+            raise ValueError(f"Unsupported identity memory shape: {tuple(id_embeds.shape)}")
         if id_embeds.shape[0] != batch_size:
             if id_embeds.shape[0] <= 0 or batch_size % id_embeds.shape[0] != 0:
                 raise RuntimeError(
                     f"Identity batch {id_embeds.shape[0]} does not match target batch {batch_size}"
                 )
-            id_embeds = id_embeds.repeat(batch_size // id_embeds.shape[0], 1)
-        has_identity = (id_embeds.float().abs().sum(dim=-1, keepdim=True) > 0).to(id_embeds.dtype)
-        id_tokens = id_embeds.unsqueeze(1) + self.id_token_basis.unsqueeze(0) * has_identity.unsqueeze(1)
-        id_tokens = id_tokens * has_identity.unsqueeze(1)
+            id_embeds = id_embeds.repeat(
+                (batch_size // id_embeds.shape[0],) + (1,) * (id_embeds.ndim - 1)
+            )
+        if self.ba_identity_memory_mode == "qformer_tokens":
+            if id_embeds.ndim != 3:
+                raise ValueError(f"qformer_tokens expects [B,T,D], got {tuple(id_embeds.shape)}")
+            if id_embeds.shape[1] != self.ba_identity_token_count:
+                raise ValueError(
+                    f"Expected {self.ba_identity_token_count} QFormer tokens, got {id_embeds.shape[1]}"
+                )
+            has_identity = (id_embeds.float().abs().sum(dim=(1, 2), keepdim=True) > 0).to(id_embeds.dtype)
+            id_tokens = id_embeds * has_identity
+        else:
+            if id_embeds.ndim == 3 and id_embeds.shape[1] == 1:
+                id_embeds = id_embeds[:, 0]
+            if id_embeds.ndim != 2:
+                raise ValueError(f"mean_plus_basis expects [B,D], got {tuple(id_embeds.shape)}")
+            has_identity = (id_embeds.float().abs().sum(dim=-1, keepdim=True) > 0).to(id_embeds.dtype)
+            id_tokens = id_embeds.unsqueeze(1) + self.id_token_basis.unsqueeze(0) * has_identity.unsqueeze(1)
+            id_tokens = id_tokens * has_identity.unsqueeze(1)
 
         num_heads = int(attn.heads)
         query = attn.to_q(normalized)

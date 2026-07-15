@@ -306,10 +306,24 @@ class BaseTrainer:
             self.writer.set_step((epoch - 1) * self.epoch_len)
             self.writer.add_scalar("general/epoch", epoch)
 
-        if epoch == 1:
+        # An opt-in smoke test uses the normal validation loader but caps step 0.
+        # The complete loader remains untouched for subsequent validation epochs.
+        run_initial_validation = bool(getattr(self.config, "validate_before_training", True))
+        val_smoke_test = bool(getattr(self.config, "val_smoke_test", False))
+        if epoch == 1 and (run_initial_validation or val_smoke_test):
             self.accelerator.wait_for_everyone()
+            smoke_limit = (
+                int(getattr(self.config, "val_smoke_test_limit", 24))
+                if val_smoke_test
+                else None
+            )
             for part, dataloader in self.evaluation_dataloaders.items():
-                val_logs = self._evaluation_epoch(epoch - 1, part, dataloader)
+                val_logs = self._evaluation_epoch(
+                    epoch - 1,
+                    part,
+                    dataloader,
+                    max_samples=smoke_limit,
+                )
                 if self.accelerator.is_main_process:
                     logs.update(**{f"{part}/{name}": value for name, value in val_logs.items()})
             self.is_train = True
@@ -432,7 +446,7 @@ class BaseTrainer:
 
         return logs
 
-    def _evaluation_epoch(self, epoch, part, dataloader):
+    def _evaluation_epoch(self, epoch, part, dataloader, max_samples=None):
         """
         Evaluate model on the partition after training for an epoch.
 
@@ -573,7 +587,8 @@ class BaseTrainer:
                     if hasattr(self.model, attr):
                         setattr(self.pipe, attr, getattr(self.model, attr))
 
-            total_images = len(dataloader.dataset) if hasattr(dataloader, "dataset") else len(dataloader)
+            dataset_total = len(dataloader.dataset) if hasattr(dataloader, "dataset") else len(dataloader)
+            total_images = min(dataset_total, int(max_samples)) if max_samples is not None else dataset_total
             if hasattr(self, 'pipe'):
                 for attr in ('_call_debug_counter', '_current_debug_idx', '_current_debug_total'):
                     if hasattr(self.pipe, attr):
@@ -595,12 +610,22 @@ class BaseTrainer:
                 self._val_generation_dir = None
             if self.accelerator.is_main_process:
                 print(f"[DebugImage] total validation images: {total_images}")  # always show total
+            processed_samples = 0
+            progress_total = len(dataloader)
+            if max_samples is not None:
+                loader_batch_size = int(getattr(dataloader, "batch_size", 1) or 1)
+                progress_total = min(
+                    progress_total,
+                    (int(max_samples) + loader_batch_size - 1) // loader_batch_size,
+                )
             for batch_idx, batch in tqdm(
                 enumerate(dataloader),
                 desc=f"{part}_rank{self.accelerator.process_index}",
-                total=len(dataloader),
+                total=progress_total,
                 disable=not self.accelerator.is_local_main_process,
             ):
+                if max_samples is not None and processed_samples >= int(max_samples):
+                    break
                 if self.accelerator.is_main_process:
                     print(f"[DebugImage] validation image {batch_idx:02d}/{total_images:02d}")  # always show current id
                 batch["debug_idx"] = batch_idx  # --- MODIFIED For training integration ---
@@ -611,6 +636,12 @@ class BaseTrainer:
                 batch = self.process_evaluation_batch(
                     batch,
                     eval_metrics=self.evaluation_metrics,
+                )
+                batch_prompts = batch.get("prompt", [])
+                processed_samples += (
+                    len(batch_prompts)
+                    if isinstance(batch_prompts, (list, tuple))
+                    else 1
                 )
                 process_time = time.time() - process_start
                 prev_time = time.time()

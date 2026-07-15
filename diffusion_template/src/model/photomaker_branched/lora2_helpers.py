@@ -13,6 +13,7 @@ from .branched_runtime import (
     two_branch_predict,
 )
 from .insightface_package import analyze_faces
+from .identity_memory import bbox_normalized_reference
 
 from copy import deepcopy
 
@@ -252,10 +253,29 @@ def prepare_branched_training_inputs(
                 )
 
             if needs_id_features:
+                feature_pixels = id_pixel_values
+                if getattr(model, "ba_identity_image_mode", "full_reference") == "bbox_normalized":
+                    cropped_refs = [
+                        bbox_normalized_reference(
+                            ref,
+                            ref_bbox,
+                            padding=getattr(model, "ba_identity_crop_padding", 0.10),
+                        )
+                        for ref in refs
+                    ]
+                    feature_pixels = model.id_image_processor(
+                        cropped_refs, return_tensors="pt"
+                    ).pixel_values.unsqueeze(0).to(model.device, dtype=model.id_encoder.dtype)
+                feature_reduce = (
+                    "tokens"
+                    if getattr(model, "ba_identity_memory_mode", "mean_plus_basis") == "qformer_tokens"
+                    else "mean"
+                )
                 pm_features = model.id_encoder.extract_id_features(
-                    id_pixel_values.to(device=model.device, dtype=model.id_encoder.dtype),
+                    feature_pixels.to(device=model.device, dtype=model.id_encoder.dtype),
                     id_embeds=id_embeds,
                     class_tokens_mask=class_tokens_mask,
+                    reduce=feature_reduce,
                 )
                 pm_feature_list.append(pm_features.to(device=model.device, dtype=model.unet.dtype))
 
@@ -288,7 +308,8 @@ def prepare_branched_training_inputs(
         id_features = torch.cat(pm_feature_list, dim=0)
         seq_len = prompt_embeds.shape[1]
         dim = prompt_embeds.shape[2]
-        face_prompt_embeds = id_features.unsqueeze(1).expand(-1, seq_len, dim).contiguous()
+        prompt_id_features = id_features.mean(dim=1) if id_features.ndim == 3 else id_features
+        face_prompt_embeds = prompt_id_features.unsqueeze(1).expand(-1, seq_len, dim).contiguous()
     else:
         face_prompt_embeds = prompt_embeds
 

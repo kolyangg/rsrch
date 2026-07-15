@@ -90,6 +90,9 @@ class PhotomakerBranchedLora(SDXL):
         ba_face_roi_size: int = 4,
         ba_ca_mode: str = "legacy_ref_branch",
         ba_identity_token_count: int = 4,
+        ba_identity_memory_mode: str = "mean_plus_basis",
+        ba_identity_image_mode: str = "full_reference",
+        ba_identity_crop_padding: float = 0.10,
         ba_pm_preservation_mode: str = "none",
         ba_hard_mask_resize: str = "legacy_threshold",
         disable_reference_spatial_branch: bool = False,
@@ -224,6 +227,9 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_face_roi_size = max(1, int(ba_face_roi_size))
         self.ba_ca_mode = str(ba_ca_mode or "legacy_ref_branch").lower()
         self.ba_identity_token_count = max(1, int(ba_identity_token_count))
+        self.ba_identity_memory_mode = str(ba_identity_memory_mode or "mean_plus_basis").lower()
+        self.ba_identity_image_mode = str(ba_identity_image_mode or "full_reference").lower()
+        self.ba_identity_crop_padding = float(ba_identity_crop_padding)
         self.ba_pm_preservation_mode = str(ba_pm_preservation_mode or "none").lower()
         self.ba_hard_mask_resize = str(ba_hard_mask_resize or "legacy_threshold").lower()
         self.disable_reference_spatial_branch = bool(disable_reference_spatial_branch)
@@ -231,6 +237,10 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_fix_tensor_ref_resolution = bool(ba_fix_tensor_ref_resolution)
         if self.ba_pm_preservation_mode not in {"none", "hard_epsilon_merge"}:
             raise ValueError(f"Unknown ba_pm_preservation_mode: {self.ba_pm_preservation_mode}")
+        if self.ba_identity_memory_mode not in {"mean_plus_basis", "qformer_tokens"}:
+            raise ValueError(f"Unknown ba_identity_memory_mode: {self.ba_identity_memory_mode}")
+        if self.ba_identity_image_mode not in {"full_reference", "bbox_normalized"}:
+            raise ValueError(f"Unknown ba_identity_image_mode: {self.ba_identity_image_mode}")
         self._ba_active_this_batch = False
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 

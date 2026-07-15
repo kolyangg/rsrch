@@ -264,10 +264,29 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             unwrapped = self.accelerator.unwrap_model(self.model)
         except Exception:
             unwrapped = self.model
-        sums = {"sa_ref": 0.0, "sa_noise": 0.0, "ca_ref": 0.0, "ca_noise": 0.0}
+        sums = {
+            "sa_ref": 0.0,
+            "sa_noise": 0.0,
+            "ca_ref": 0.0,
+            "ca_noise": 0.0,
+            "ca_target_id": 0.0,
+            "face_delta": 0.0,
+        }
+        face_gates = []
         with torch.no_grad():
             for name, p in unwrapped.named_parameters():
-                if ".processor." not in name or "lora_B" not in name:
+                if ".processor." not in name:
+                    continue
+                if name.endswith("face_residual_gate"):
+                    face_gates.append(float(p.detach().float().mean().item()))
+                    continue
+                if ".face_delta_out.up.weight" in name:
+                    sums["face_delta"] += float(p.detach().float().pow(2).sum().item())
+                    continue
+                if "lora_B" not in name:
+                    continue
+                if ".attn2.processor.target_id_to_" in name:
+                    sums["ca_target_id"] += float(p.detach().float().pow(2).sum().item())
                     continue
                 if ".attn1.processor." in name:
                     kind = "sa"
@@ -284,6 +303,8 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 sums[f"{kind}_{branch}"] += float(p.detach().float().pow(2).sum().item())
         for group, sq_sum in sums.items():
             train_metrics.update(f"ba_norm/{group}", sq_sum ** 0.5)
+        if face_gates:
+            train_metrics.update("ba_gate/face_residual_mean", sum(face_gates) / len(face_gates))
         
     def process_batch(self, batch, train_metrics: MetricTracker):
         ### 25 APR - ADD GRAD ACCUM ###

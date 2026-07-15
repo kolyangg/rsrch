@@ -62,6 +62,7 @@ branched_attn_weight_mode: ref_only   # shared | ref_only | noise_and_ref
 branched_attn_new_weight_kind: full   # full | lora ; only used when mode != shared
 train_branched_ca_lora: false
 weights_only_save_period: 1
+validate_before_training: true
 
 
 

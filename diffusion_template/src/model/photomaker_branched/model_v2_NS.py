@@ -162,9 +162,9 @@ class PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken(CLIPVisionModelWithProjecti
     def extract_id_features(self, id_pixel_values, id_embeds=None, class_tokens_mask=None, reduce: str = "mean"): # 01 FEB fix
 
         """
-        Return per-sample 2048-D PhotoMaker ID features (NOT fused text).
-        Shape: [B, 2048]. If multiple ID images per sample are given (N),
-        we reduce across N (default: mean).
+        Return PhotoMaker ID features before text fusion. ``mean`` and ``max``
+        return [B, 2048]; ``tokens`` preserves QFormer outputs as
+        [B, N * num_tokens, 2048].
         """
         b, n, c, h, w = id_pixel_values.shape  # [B,N,C,H,W]
         x = id_pixel_values.view(b * n, c, h, w)
@@ -199,11 +199,18 @@ class PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken(CLIPVisionModelWithProjecti
         
         ### 01 FEB fix
         
-        e = e.reshape(b, n, 2048)
-        if reduce == "mean":
-            e = e.mean(dim=1)
-        elif reduce == "max":
-            e = e.max(dim=1).values
+        if reduce == "tokens":
+            if id_embeds is None:
+                raise ValueError("reduce='tokens' requires InsightFace id_embeds")
+            e = toks.reshape(b, n * self.num_tokens, 2048)
+        else:
+            e = e.reshape(b, n, 2048)
+            if reduce == "mean":
+                e = e.mean(dim=1)
+            elif reduce == "max":
+                e = e.max(dim=1).values
+            else:
+                raise ValueError(f"Unknown ID feature reduction: {reduce}")
         ### 01 FEB fix
        
 

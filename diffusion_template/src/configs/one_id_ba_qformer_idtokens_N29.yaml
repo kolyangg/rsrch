@@ -1,0 +1,15 @@
+defaults:
+  - one_id_ba_idtoken_ca_residual_N28
+  - _self_
+
+# N29: isolate N28's token-construction flaw. Keep the same PM-preserving
+# target-face CA residual, but retain PhotoMaker's two distinct QFormer tokens
+# instead of averaging them and adding identity-independent basis vectors.
+model:
+  ba_identity_token_count: 2
+  ba_identity_memory_mode: qformer_tokens
+  ba_identity_image_mode: full_reference
+  ba_identity_crop_padding: 0.10
+
+val_smoke_test: true
+val_smoke_test_limit: 24

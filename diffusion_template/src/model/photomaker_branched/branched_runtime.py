@@ -106,6 +106,7 @@ def patch_unet_attention_processors(
             "ba_face_roi_size",
             "ba_ca_mode",
             "ba_identity_token_count",
+            "ba_identity_memory_mode",
             "ba_hard_mask_resize",
         ):
             if hasattr(pipe, k):
@@ -129,7 +130,18 @@ def patch_unet_attention_processors(
     _mask  = mask     if mask     is not None else torch.zeros(B, 1,  mask_ref.shape[-2], mask_ref.shape[-1], device=dev, dtype=dt)
     _mref  = mask_ref if mask_ref is not None else _mask
     # Always provide id_embeds so processor-local weights participate on every rank
-    _idem = id_embeds.to(dev, dt) if id_embeds is not None else torch.zeros(B, 2048, device=dev, dtype=dt)   
+    if id_embeds is not None:
+        _idem = id_embeds.to(dev, dt)
+    elif getattr(pipeline, "ba_identity_memory_mode", "mean_plus_basis") == "qformer_tokens":
+        _idem = torch.zeros(
+            B,
+            int(getattr(pipeline, "ba_identity_token_count", 2)),
+            2048,
+            device=dev,
+            dtype=dt,
+        )
+    else:
+        _idem = torch.zeros(B, 2048, device=dev, dtype=dt)
 
     ba_patch_top_k = float(getattr(pipeline, "ba_patch_top_k", 1.0))
     patchable_sa_names = select_branched_processor_names(
@@ -218,6 +230,9 @@ def patch_unet_attention_processors(
                         ),
                         ba_ca_mode=getattr(pipeline, "ba_ca_mode", "legacy_ref_branch"),
                         ba_identity_token_count=int(getattr(pipeline, "ba_identity_token_count", 4)),
+                        ba_identity_memory_mode=getattr(
+                            pipeline, "ba_identity_memory_mode", "mean_plus_basis"
+                        ),
                         ba_hard_mask_resize=getattr(pipeline, "ba_hard_mask_resize", "legacy_threshold"),
                     ).to(pipeline.device, dtype=pipeline.unet.dtype)
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))

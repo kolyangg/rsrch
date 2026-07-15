@@ -1,0 +1,9 @@
+defaults:
+  - one_id_ba_qformer_idtokens_N29
+  - _self_
+
+# N30: isolate reference normalization. PhotoMaker keeps its ordinary full
+# reference input, while only the BA QFormer memory sees a square face-bbox crop.
+model:
+  ba_identity_image_mode: bbox_normalized
+

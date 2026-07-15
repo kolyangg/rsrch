@@ -1,0 +1,119 @@
+# N27/N28 checkpoint evolution against PhotoMaker and key BA architecture controls.
+
+results_dir: full_validation_results
+refs_dir: ../dataset_full/val_dataset/references
+prompts: ../dataset_full/val_dataset/prompts_10.txt
+classes: ../dataset_full/val_dataset/classes_ref.json
+out_pdf: full_validation_results/ba_n27_n28_15Jul/full_val_report_N27_N28_vs_key.pdf
+saved_dir: saved
+title: N27 spatial ROI and N28 ID-token residuals vs key controls
+trigger_word: img
+require_complete_grid: true
+
+runs:
+  - photomaker_baseline
+  - ba_longrun_N17
+  - ba_camix_train_N23_steps/ba_camix_train_N23_step10000
+  - ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000
+  - ba_spatial_roi_residual_N27_steps/ba_spatial_roi_residual_N27_step1000
+  - ba_spatial_roi_residual_N27_steps/ba_spatial_roi_residual_N27_step5000
+  - ba_spatial_roi_residual_N27_steps/ba_spatial_roi_residual_N27_step10000
+  - ba_idtoken_ca_residual_N28_steps/ba_idtoken_ca_residual_N28_step1000
+  - ba_idtoken_ca_residual_N28_steps/ba_idtoken_ca_residual_N28_step5000
+  - ba_idtoken_ca_residual_N28_steps/ba_idtoken_ca_residual_N28_step10000
+
+labels:
+  photomaker_baseline: PhotoMaker V2
+  ba_longrun_N17: N17 legacy 26k
+  ba_camix_train_N23_steps/ba_camix_train_N23_step10000: N23 CAMIX 10k
+  ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000: N24 dual gate 10k
+  ba_spatial_roi_residual_N27_steps/ba_spatial_roi_residual_N27_step1000: N27 ROI 1k
+  ba_spatial_roi_residual_N27_steps/ba_spatial_roi_residual_N27_step5000: N27 ROI 5k
+  ba_spatial_roi_residual_N27_steps/ba_spatial_roi_residual_N27_step10000: N27 ROI 10k
+  ba_idtoken_ca_residual_N28_steps/ba_idtoken_ca_residual_N28_step1000: N28 ID-CA 1k
+  ba_idtoken_ca_residual_N28_steps/ba_idtoken_ca_residual_N28_step5000: N28 ID-CA 5k
+  ba_idtoken_ca_residual_N28_steps/ba_idtoken_ca_residual_N28_step10000: N28 ID-CA 10k
+
+metrics_sources:
+  photomaker_baseline: {path: full_validation_results/metrics_photomaker_baseline.json, key: photomaker_baseline}
+  ba_longrun_N17: {path: full_validation_results/metrics_ba_longrun_N17.json, key: ba_longrun_N17}
+  ba_camix_train_N23_steps/ba_camix_train_N23_step10000: {path: full_validation_results/ba_camix_train_N23_steps/metrics_ba_camix_train_N23_steps.json, key: ba_camix_train_N23_step10000}
+  ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000: {path: full_validation_results/ba_dualgate_train_N24_steps/metrics_ba_dualgate_train_N24_steps.json, key: ba_dualgate_train_N24_step10000}
+  ba_spatial_roi_residual_N27_steps/ba_spatial_roi_residual_N27_step1000: {path: full_validation_results/ba_spatial_roi_residual_N27_steps/metrics_ba_spatial_roi_residual_N27_steps.json, key: ba_spatial_roi_residual_N27_step1000}
+  ba_spatial_roi_residual_N27_steps/ba_spatial_roi_residual_N27_step5000: {path: full_validation_results/ba_spatial_roi_residual_N27_steps/metrics_ba_spatial_roi_residual_N27_steps.json, key: ba_spatial_roi_residual_N27_step5000}
+  ba_spatial_roi_residual_N27_steps/ba_spatial_roi_residual_N27_step10000: {path: full_validation_results/ba_spatial_roi_residual_N27_steps/metrics_ba_spatial_roi_residual_N27_steps.json, key: ba_spatial_roi_residual_N27_step10000}
+  ba_idtoken_ca_residual_N28_steps/ba_idtoken_ca_residual_N28_step1000: {path: full_validation_results/ba_idtoken_ca_residual_N28_steps/metrics_ba_idtoken_ca_residual_N28_steps.json, key: ba_idtoken_ca_residual_N28_step1000}
+  ba_idtoken_ca_residual_N28_steps/ba_idtoken_ca_residual_N28_step5000: {path: full_validation_results/ba_idtoken_ca_residual_N28_steps/metrics_ba_idtoken_ca_residual_N28_steps.json, key: ba_idtoken_ca_residual_N28_step5000}
+  ba_idtoken_ca_residual_N28_steps/ba_idtoken_ca_residual_N28_step10000: {path: full_validation_results/ba_idtoken_ca_residual_N28_steps/metrics_ba_idtoken_ca_residual_N28_steps.json, key: ba_idtoken_ca_residual_N28_step10000}
+
+run_config_overrides:
+  photomaker_baseline: &pm
+    report: {method: PhotoMaker only, train_schedule: n/a, target_path: standard PM, face_source: PM ID conditioning, memory: none, residual: none, full_ref_unet: false, trainables: released PM}
+    pipeline: {pose_adapt_ratio: 0, ca_mixing_for_face: false, ba_face_fusion_mode: none}
+    model: {ba_sa_mode: standard, ba_ca_mode: standard, ba_pm_preservation_mode: native, use_id_loss: false, id_loss_identity_source: none}
+  ba_longrun_N17:
+    report: {method: legacy spatial BA, train_schedule: BA all sampled timesteps, target_path: face attention replacement, face_source: full reference grid, memory: masked full-grid ref, residual: absolute replacement, full_ref_unet: true, trainables: SA ref/noise branches}
+    train_ba_all_steps: true
+    pipeline: {pose_adapt_ratio: 0, ca_mixing_for_face: false, ba_face_fusion_mode: legacy}
+    model: {ba_sa_mode: legacy, ba_ca_mode: legacy_ref_branch, ba_pm_preservation_mode: none, id_loss_identity_source: target}
+  ba_camix_train_N23_steps/ba_camix_train_N23_step10000:
+    report: {method: fixed CAMIX, train_schedule: BA all sampled timesteps, target_path: legacy BA + PM face K/V, face_source: reference + target face, memory: concatenated full grids, residual: absolute replacement, full_ref_unet: true, trainables: SA ref/noise branches}
+    train_ba_all_steps: true
+    pipeline: {pose_adapt_ratio: 0, ca_mixing_for_face: true, ba_face_fusion_mode: legacy}
+    model: {ba_sa_mode: legacy, ba_ca_mode: legacy_ref_branch, ba_pm_preservation_mode: none, use_id_loss: true, id_loss_identity_source: target}
+  ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000:
+    report: {method: learned dual gate, train_schedule: staged PM then BA, target_path: gated ref/PM face attentions, face_source: reference + target face, memory: two full-grid attentions, residual: gated absolute outputs, full_ref_unet: true, trainables: SA branches + per-head gate}
+    train_ba_all_steps: false
+    pipeline: {pose_adapt_ratio: 0, ca_mixing_for_face: false, ba_face_fusion_mode: dual_attention_gate, ba_face_fusion_gate_init: 0.2, ba_face_fusion_gate_max: 0.5}
+    model: {ba_sa_mode: legacy, ba_ca_mode: legacy_ref_branch, ba_pm_preservation_mode: none, use_id_loss: true, id_loss_identity_source: target}
+  ba_spatial_roi_residual_N27_steps/ba_spatial_roi_residual_N27_step1000: &n27
+    report: {method: compact spatial ROI residual, train_schedule: staged PM then BA, target_path: standard PM + bbox delta, face_source: reference UNet ROI, memory: pooled 4x4 ref tokens, residual: zero-init low-rank delta, full_ref_unet: true, trainables: ref K/V + delta + gate}
+    loss_kind: blended_masked
+    lambda_face: 0.15
+    train_ba_all_steps: false
+    branched_attn_weight_mode: ref_only
+    branched_attn_new_weight_kind: lora
+    pipeline: {pose_adapt_ratio: 0, ca_mixing_for_face: false, ba_face_fusion_mode: none}
+    model: {ba_sa_mode: pm_face_residual, ba_face_kv_mode: compact_hard_bbox, ba_face_roi_size: 4, ba_ca_mode: standard, ba_pm_preservation_mode: hard_epsilon_merge, ba_hard_mask_resize: area_preserving, disable_reference_spatial_branch: false, use_id_loss: true, id_loss_weight: 0.1, id_loss_identity_source: reference}
+  ba_spatial_roi_residual_N27_steps/ba_spatial_roi_residual_N27_step5000: *n27
+  ba_spatial_roi_residual_N27_steps/ba_spatial_roi_residual_N27_step10000: *n27
+  ba_idtoken_ca_residual_N28_steps/ba_idtoken_ca_residual_N28_step1000: &n28
+    report: {method: target ID-token CA residual, train_schedule: staged PM then BA, target_path: standard PM + bbox delta, face_source: PM/InsightFace ID vector, memory: four compact ID tokens, residual: zero-init low-rank delta, full_ref_unet: false, trainables: target ID K/V + tokens + delta + gate}
+    loss_kind: blended_masked
+    lambda_face: 0.15
+    train_ba_all_steps: false
+    branched_attn_weight_mode: shared
+    branched_attn_new_weight_kind: lora
+    pipeline: {pose_adapt_ratio: 0, ca_mixing_for_face: false, ba_face_fusion_mode: none, face_embed_strategy: id_embeds}
+    model: {ba_sa_mode: standard, ba_ca_mode: target_face_residual, ba_ca_train_mode: target_face, ba_identity_token_count: 4, ba_pm_preservation_mode: hard_epsilon_merge, ba_hard_mask_resize: area_preserving, disable_reference_spatial_branch: true, use_id_loss: true, id_loss_weight: 0.1, id_loss_identity_source: reference}
+  ba_idtoken_ca_residual_N28_steps/ba_idtoken_ca_residual_N28_step5000: *n28
+  ba_idtoken_ca_residual_N28_steps/ba_idtoken_ca_residual_N28_step10000: *n28
+
+config_criteria:
+  - {label: method, path: report.method}
+  - {label: checkpoint step, path: metric.step}
+  - {label: mean ID sim (secondary), path: metric.mean_id_sim}
+  - {label: target path, path: report.target_path}
+  - {label: face conditioning source, path: report.face_source}
+  - {label: reference/ID memory, path: report.memory}
+  - {label: residual/fusion form, path: report.residual}
+  - {label: full reference UNet branch, path: report.full_ref_unet}
+  - {label: trainable BA parameters, path: report.trainables}
+  - {label: training schedule, path: report.train_schedule}
+  - {label: self-attention mode, path: model.ba_sa_mode}
+  - {label: cross-attention mode, path: model.ba_ca_mode}
+  - {label: hard PM epsilon preservation, path: model.ba_pm_preservation_mode}
+  - {label: reference K/V mode, path: model.ba_face_kv_mode}
+  - {label: compact memory size, path: model.ba_face_roi_size}
+  - {label: identity token count, path: model.ba_identity_token_count}
+  - {label: hard-mask resize, path: model.ba_hard_mask_resize}
+  - {label: ID loss source, path: model.id_loss_identity_source}
+  - {label: CAMIX target-face K/V, path: pipeline.ca_mixing_for_face, default: false}
+  - {label: learned face fusion, path: pipeline.ba_face_fusion_mode}
+
+cell_px: 215
+label_px: 235
+config_row_px: 62
+config_label_px: 270
+config_col_px: 175
+dpi: 150
