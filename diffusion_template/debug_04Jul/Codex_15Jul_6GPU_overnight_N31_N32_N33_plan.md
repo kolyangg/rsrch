@@ -11,9 +11,9 @@ runs.
 |---|---|---|---:|---:|
 | 4 GPU | N31 | Make face improvement causally depend on BA identity memory | 2 / 8 | 10k optimizer steps, 80k samples |
 | 2 GPU, GPU 0 | N32 | Test richer hard-face patch-token memory | 2 / 2 | 10k optimizer steps, 20k samples |
-| 2 GPU, GPU 1 | N33 | Unchanged N29 duration control | 2 / 2 | resume 10k and finish at 20k, 20k additional samples |
+| 2 GPU, GPU 1 | N33 | Unchanged N29 duration control | 2 / 2 | resume 10k and finish at 40k, 60k additional samples |
 
-This allocates 120k sample exposures, the same order as six 10k single-GPU runs,
+This allocates 160k sample exposures, the same order as six 10k single-GPU runs,
 but concentrates them on two unresolved architecture questions and one clean duration
 control. N31 also performs an additional wrong-memory UNet pass on BA-active steps, so
 it does more useful identity-attribution work than a plain large-batch N29 run.
@@ -127,14 +127,14 @@ training-only feature. The configuration is
 N31 and N32 are intentionally separate. Combining a new memory and a new objective now
 would make a good or bad result impossible to attribute.
 
-## N33: unchanged N29 to 20k
+## N33: unchanged N29 to 40k
 
-N33 resumes `ba_qformer_idtokens_N29/checkpoint-epoch5.pth` at step 10k and runs five
-more 2k epochs. It changes no architecture or loss. This answers whether N29's mild
-2k-to-10k visual evolution simply needed more updates.
+N33 resumes `ba_qformer_idtokens_N29/checkpoint-epoch5.pth` at step 10k and runs 15
+more 2k epochs, ending at step 40k. It changes no architecture or loss. This answers
+whether N29's mild 2k-to-10k visual evolution simply needed substantially more updates.
 
-This is preferable to starting a fresh 20k run: only 10k new steps are needed tonight,
-and Comet step numbering continues at 10k. The configuration is
+This is preferable to starting a fresh 40k run: 30k new steps are needed, and Comet step
+numbering continues at 10k. The configuration is
 [`one_id_ba_qformer_continue20k_N33.yaml`](../src/configs/one_id_ba_qformer_continue20k_N33.yaml).
 
 Do not interpret more face change alone as success. N33 passes only if additional changes
@@ -197,7 +197,7 @@ Follow all runs:
 ```bash
 tail -f logs_new_runs/ba_identity_dependence_4gpu_N31_*.log
 tail -f logs_new_runs/ba_facepatch_resampler_N32_*.log
-tail -f logs_new_runs/ba_qformer_continue20k_N33_*.log
+tail -f logs_new_runs/ba_qformer_continue40k_N33_*.log
 ```
 
 Do not increase N31's local train batch above 2. It retains two trainable BA graphs per
@@ -208,12 +208,12 @@ active step; global batch 8 is already the intended experiment. If it OOMs, reru
 
 - N31 and N32: 24-image smoke validation before training, then all 96 fixed-seed images at
   2k, 4k, 6k, 8k, and 10k.
-- N33: all 96 fixed-seed images at 12k, 14k, 16k, 18k, and 20k. There is no redundant
+- N33: all 96 fixed-seed images every 2k from 12k through 40k. There is no redundant
   step-10k smoke because that checkpoint was already evaluated.
 
 Expected wall time from N29's approximately 7.2-hour 10k run is about 10-11 hours for N31,
-roughly 7-8 hours for N32, and roughly 7-8 hours for N33's additional 10k. Validation and
-machine I/O can extend these estimates.
+roughly 7-8 hours for N32, and roughly 22-24 hours for N33's additional 30k. Its 15 full
+validations and machine I/O can extend that estimate.
 
 ## What to check while running
 
@@ -235,7 +235,7 @@ N32:
 N33:
 
 - log says `Resume training from epoch 6`;
-- first new full validation is step 12k;
+- first new full validation is step 12k and the final one is step 40k;
 - visual identity progress broadens across people rather than concentrating in facial hair,
   age, or expression intensity.
 
@@ -248,8 +248,8 @@ secondary evidence unless the difference is large.
    pose, it becomes the primary architecture. Test wrong/null-memory inference before a long run.
 2. If N32 produces more reference-correct local changes while retaining N29 alignment, combine
    N32 memory with N31's objective in a short confirmation run.
-3. If only N33 improves, continue N29 cautiously to 30k; do not jump directly to 50k unless the
-   visual gains are identity-specific and monotonic.
+3. If only N33 improves, use its 20k/30k/40k trajectory to decide whether 50k is justified;
+   continue only if the visual gains are identity-specific and monotonic.
 4. If N31 and N32 both fail while N33 plateaus, more hyperparameter variants are unlikely to fix
    the core problem. The next change should revisit how BA residuals are supervised or decoded.
 

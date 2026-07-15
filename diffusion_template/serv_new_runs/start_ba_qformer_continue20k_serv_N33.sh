@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# N33: continue unchanged N29 from 10k to 20k as the duration control.
+# N33: continue unchanged N29 from 10k to 40k as the duration control.
 
-RUN_NAME="ba_qformer_continue20k_N33"
+RUN_NAME="ba_qformer_continue40k_N33"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_PATH="${SCRIPT_DIR}/$(basename -- "${BASH_SOURCE[0]}")"
 PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
@@ -16,6 +16,9 @@ if [[ ! -f "${N29_CHECKPOINT}" ]]; then
     echo "Set N29_CHECKPOINT to checkpoint-epoch5.pth from the completed N29 run." >&2
     exit 2
 fi
+# BaseTrainer resolves relative resume paths under the new run directory. Pass
+# an absolute path so a checkpoint from N29 remains external to N33's save dir.
+N29_CHECKPOINT="$(realpath -- "${N29_CHECKPOINT}")"
 
 if [[ "${RUN_FOREGROUND:-0}" != "1" && "${DETACHED_RUN:-0}" != "1" ]]; then
     mkdir -p "${LOG_DIR}"
@@ -45,7 +48,7 @@ if [[ -z "${COMET_API_KEY}" ]]; then
     exit 2
 fi
 
-echo "Continuation: N29 10k -> 20k; full validation at 12k,14k,16k,18k,20k; batch=12"
+echo "Continuation: N29 10k -> 40k; full validation every 2k from 12k through 40k; batch=12"
 
 ACCELERATE_LOG_LEVEL=error \
 TRANSFORMERS_VERBOSITY=error \
