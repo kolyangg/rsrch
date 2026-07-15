@@ -15,6 +15,14 @@ import os
 import time
 
 
+def _configure_validation_vae_slicing(pipe, enabled: bool) -> None:
+    if not enabled:
+        return
+    vae = getattr(pipe, "vae", None)
+    if vae is None or not hasattr(vae, "enable_slicing"):
+        raise RuntimeError("Validation VAE does not support sliced decoding")
+    vae.enable_slicing()
+
 
 class BaseTrainer:
     """
@@ -586,6 +594,11 @@ class BaseTrainer:
                 for attr in ("disable_branched_sa", "disable_branched_ca"):
                     if hasattr(self.model, attr):
                         setattr(self.pipe, attr, getattr(self.model, attr))
+
+            _configure_validation_vae_slicing(
+                self.pipe,
+                bool(getattr(self.config, "validation_enable_vae_slicing", False)),
+            )
 
             dataset_total = len(dataloader.dataset) if hasattr(dataloader, "dataset") else len(dataloader)
             total_images = min(dataset_total, int(max_samples)) if max_samples is not None else dataset_total

@@ -63,6 +63,7 @@ branched_attn_new_weight_kind: full   # full | lora ; only used when mode != sha
 train_branched_ca_lora: false
 weights_only_save_period: 1
 validate_before_training: true
+validation_enable_vae_slicing: false
 
 
 

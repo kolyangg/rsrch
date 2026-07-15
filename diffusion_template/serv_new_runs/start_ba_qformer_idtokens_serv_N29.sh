@@ -41,6 +41,7 @@ fi
 
 echo "Validation: step0_smoke=${VAL_SMOKE_TEST} smoke_images=24 batch_size=12"
 echo "Validation: full_images=96 steps=2000,4000,6000,8000,10000"
+echo "Validation: VAE sliced decoding enabled"
 
 ACCELERATE_LOG_LEVEL=error \
 TRANSFORMERS_VERBOSITY=error \
@@ -66,6 +67,7 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml \
     validate_before_training=false \
     val_smoke_test="${VAL_SMOKE_TEST}" \
     val_smoke_test_limit=24 \
+    validation_enable_vae_slicing=true \
     dataloaders.train.batch_size=2 \
     dataloaders.train.num_workers=12 \
     model.rank=32 \

@@ -55,6 +55,7 @@ Both launchers use the same generation contract as `inference/full_val.yaml`:
 - fixed `pm96_bboxes_new.json` target boxes; no automatic bbox pass;
 - 50 inference steps, guidance scale 5, RealVisXL V4 validation base;
 - validation batch size 12;
+- sliced VAE decoding during training validation, preserving batch-12 denoising while avoiding a 12-image decode peak;
 - full validation and checkpoint every 2,000 training steps;
 - Comet metrics and images at steps 0, 2k, 4k, 6k, 8k, and 10k.
 
@@ -65,6 +66,8 @@ VAL_SMOKE_TEST=true
 ```
 
 Disable only the step-0 pass with `VAL_SMOKE_TEST=false`. Later 96-image validations are unaffected. The old full step-0 behavior remains available with `validate_before_training=true val_smoke_test=false`.
+
+`validation_enable_vae_slicing=true` is set by both launchers. It changes only how the VAE decodes the completed latent batch: images are decoded sequentially to reduce peak VRAM. The default is `false`, and a final command-line override can reproduce unsliced decoding.
 
 The composed training and inference datasets were compared sample by sample: all 96 prompts, identities, seeds, reference boxes, and generation boxes match. Runtime generation settings also match. The saved config restores `face_embed_strategy=id_embeds` and each run's new architecture before standalone inference loads its checkpoint.
 
@@ -95,6 +98,19 @@ To skip the smoke pass:
 ```bash
 VAL_SMOKE_TEST=false CUDA_VISIBLE_DEVICES=0 bash serv_new_runs/start_ba_qformer_idtokens_serv_N29.sh
 ```
+
+### Validation OOM recovery
+
+The first N29 step-0 attempt reached VAE decode but failed because another process (`890999` in that attempt) occupied 59.44 GiB on the same visible GPU. The launchers now enable `validation_enable_vae_slicing=true`, which removes the 12-image VAE decode peak while retaining batch-12 denoising.
+
+Before restarting, confirm that N29 and N30 are on separate physical GPUs:
+
+```bash
+nvidia-smi
+ps -fp 890999
+```
+
+If the other process is a wanted run, explicitly select a different free card. CUDA renumbers the selected card as GPU 0 inside the process, so the traceback's GPU number is not sufficient to identify the physical card.
 
 ## Standalone full inference
 
