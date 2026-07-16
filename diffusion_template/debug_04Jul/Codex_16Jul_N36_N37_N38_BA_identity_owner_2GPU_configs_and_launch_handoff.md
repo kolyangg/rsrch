@@ -166,6 +166,17 @@ bash serv_new_runs/start_ba_identity_owner_hybrid_2gpu_N37.sh
 Set `PM_PATH` and `COMET_API_KEY` as for N34/N35. Each script starts detached by default and
 prints its PID and log path.
 
+To run the complete 96-image validation at step 0, add the script-only
+`full_step0_val` argument:
+
+```bash
+bash serv_new_runs/start_ba_identity_owner_cropped_qformer_2gpu_N38.sh full_step0_val
+```
+
+The script removes this token before forwarding other arguments to Hydra. Without it, step 0
+keeps the default smoke validation capped at 24 images. Later validations remain full
+96-image evaluations in both cases.
+
 ## Scheduler correction
 
 Accelerate advances this repository's scheduler once per process for each optimizer update.

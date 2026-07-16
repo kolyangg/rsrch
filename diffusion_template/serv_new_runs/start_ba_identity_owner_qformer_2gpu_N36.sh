@@ -6,12 +6,32 @@ set -euo pipefail
 
 RUN_NAME="${RUN_NAME:-ba_identity_owner_qformer_2gpu_N36}"
 VAL_SMOKE_TEST="${VAL_SMOKE_TEST:-true}"
+FULL_STEP0_VAL="${FULL_STEP0_VAL:-false}"
 NUM_PROCESSES="${NUM_PROCESSES:-2}"
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-1}"
 LOCAL_EFFECTIVE_BATCH="${LOCAL_EFFECTIVE_BATCH:-2}"
 VAL_BATCH_SIZE_PER_GPU="${VAL_BATCH_SIZE_PER_GPU:-3}"
 NUM_EPOCHS="${NUM_EPOCHS:-8}"
 WARMUP_OPTIMIZER_STEPS="${WARMUP_OPTIMIZER_STEPS:-200}"
+HYDRA_ARGS=()
+for arg in "$@"; do
+    if [[ "${arg}" == "full_step0_val" ]]; then
+        FULL_STEP0_VAL=true
+    else
+        HYDRA_ARGS+=("${arg}")
+    fi
+done
+if [[ "${FULL_STEP0_VAL}" == "true" ]]; then
+    VALIDATE_BEFORE_TRAINING=true
+    VAL_SMOKE_TEST=false
+    STEP0_VAL_DESCRIPTION="full 96 images"
+elif [[ "${VAL_SMOKE_TEST}" == "true" ]]; then
+    VALIDATE_BEFORE_TRAINING=false
+    STEP0_VAL_DESCRIPTION="smoke test up to 24 images"
+else
+    VALIDATE_BEFORE_TRAINING=false
+    STEP0_VAL_DESCRIPTION="disabled"
+fi
 if (( LOCAL_EFFECTIVE_BATCH % TRAIN_BATCH_SIZE != 0 )); then
     echo "LOCAL_EFFECTIVE_BATCH must be divisible by TRAIN_BATCH_SIZE." >&2
     exit 2
@@ -31,13 +51,14 @@ if [[ "${RUN_FOREGROUND:-0}" != "1" && "${DETACHED_RUN:-0}" != "1" ]]; then
     echo "Log: ${LOG_FILE}"
     DETACHED_RUN=1 LOG_DIR="${LOG_DIR}" LOG_FILE="${LOG_FILE}" \
         RUN_NAME="${RUN_NAME}" VAL_SMOKE_TEST="${VAL_SMOKE_TEST}" \
+        FULL_STEP0_VAL="${FULL_STEP0_VAL}" \
         NUM_PROCESSES="${NUM_PROCESSES}" TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE}" \
         LOCAL_EFFECTIVE_BATCH="${LOCAL_EFFECTIVE_BATCH}" \
         VAL_BATCH_SIZE_PER_GPU="${VAL_BATCH_SIZE_PER_GPU}" \
         NUM_EPOCHS="${NUM_EPOCHS}" \
         WARMUP_OPTIMIZER_STEPS="${WARMUP_OPTIMIZER_STEPS}" \
         CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}" \
-        nohup bash "${SCRIPT_PATH}" "$@" >"${LOG_FILE}" 2>&1 </dev/null &
+        nohup bash "${SCRIPT_PATH}" "${HYDRA_ARGS[@]}" >"${LOG_FILE}" 2>&1 </dev/null &
     echo "PID: $!"
     echo "Follow with: tail -f ${LOG_FILE}"
     exit 0
@@ -60,6 +81,7 @@ fi
 echo "N36: 16 identity-owner CA sites, QFormer memory, local PM-ID attenuation"
 echo "Training: ranks=${NUM_PROCESSES} local_batch=${TRAIN_BATCH_SIZE} accumulation=${ACCUM_STEPS} global_effective=$((NUM_PROCESSES * LOCAL_EFFECTIVE_BATCH))"
 echo "Validation: full 96 images every 1000 optimizer steps; total=$((NUM_EPOCHS * 1000)); warmup=${WARMUP_OPTIMIZER_STEPS} optimizer steps"
+echo "Step-0 validation: ${STEP0_VAL_DESCRIPTION}"
 
 ACCELERATE_LOG_LEVEL=error \
 TRANSFORMERS_VERBOSITY=error \
@@ -82,7 +104,7 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml \
     dataloaders.manual_val.num_workers=1 \
     trainer.epoch_len="${MICROBATCHES_PER_EPOCH}" \
     trainer.n_epochs="${NUM_EPOCHS}" \
-    validate_before_training=false \
+    validate_before_training="${VALIDATE_BEFORE_TRAINING}" \
     val_smoke_test="${VAL_SMOKE_TEST}" \
     val_smoke_test_limit=24 \
     validation_enable_vae_slicing=true \
@@ -115,4 +137,4 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml \
     pretrained_model_for_validation_name_or_path=SG161222/RealVisXL_V4.0 \
     metrics=all_metrics \
     writer=cometml writer.run_name="${RUN_NAME}" \
-    "$@"
+    "${HYDRA_ARGS[@]}"
