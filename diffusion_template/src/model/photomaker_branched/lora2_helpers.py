@@ -25,6 +25,10 @@ from .identity_memory import (
 from copy import deepcopy
 
 
+class InvalidIdentityConditioningSample(ValueError):
+    """A sample cannot provide the face evidence required by BA training."""
+
+
 def _face_field(face, name, default=None):
     if hasattr(face, name):
         return getattr(face, name)
@@ -57,6 +61,97 @@ def _target_tensor_to_bgr(image: torch.Tensor) -> np.ndarray:
     image = image.detach().float().cpu().clamp(-1.0, 1.0)
     rgb = ((image + 1.0) * 127.5).round().byte().permute(1, 2, 0).numpy()
     return rgb[:, :, ::-1]
+
+
+def _valid_face_embedding(face) -> bool:
+    embedding = _face_field(face, "embedding")
+    if embedding is None:
+        return False
+    embedding = np.asarray(embedding)
+    return embedding.size == 512 and bool(np.isfinite(embedding).all())
+
+
+def _valid_face_landmarks(face) -> bool:
+    landmarks = _face_field(face, "kps")
+    if landmarks is None:
+        return False
+    landmarks = np.asarray(landmarks)
+    return landmarks.shape == (5, 2) and bool(np.isfinite(landmarks).all())
+
+
+def _detect_face_with_bbox_fallback(
+    face_analyzer,
+    image_bgr: np.ndarray,
+    bbox,
+    *,
+    require_embedding: bool = False,
+    require_landmarks: bool = False,
+    crop_padding: float = 0.35,
+):
+    """Detect on the full image, then retry on the known face bbox."""
+
+    def _usable(face) -> bool:
+        return (
+            face is not None
+            and (not require_embedding or _valid_face_embedding(face))
+            and (not require_landmarks or _valid_face_landmarks(face))
+        )
+
+    face = _select_face_for_bbox(analyze_faces(face_analyzer, image_bgr), bbox)
+    if _usable(face):
+        landmarks = _face_field(face, "kps")
+        return face, None if landmarks is None else np.asarray(landmarks, dtype=np.float32), False
+
+    if bbox is None or len(bbox) < 4:
+        return None, None, False
+    image_h, image_w = image_bgr.shape[:2]
+    x0, y0, x1, y1 = (float(value) for value in bbox[:4])
+    if x1 <= x0 or y1 <= y0:
+        return None, None, False
+    pad_x = (x1 - x0) * max(0.0, float(crop_padding))
+    pad_y = (y1 - y0) * max(0.0, float(crop_padding))
+    left = max(0, int(np.floor(x0 - pad_x)))
+    top = max(0, int(np.floor(y0 - pad_y)))
+    right = min(image_w, int(np.ceil(x1 + pad_x)))
+    bottom = min(image_h, int(np.ceil(y1 + pad_y)))
+    if right <= left or bottom <= top:
+        return None, None, False
+
+    crop = np.ascontiguousarray(image_bgr[top:bottom, left:right])
+    crop_bbox = [x0 - left, y0 - top, x1 - left, y1 - top]
+    face = _select_face_for_bbox(analyze_faces(face_analyzer, crop), crop_bbox)
+    if not _usable(face):
+        return None, None, False
+    landmarks = _face_field(face, "kps")
+    if landmarks is not None:
+        landmarks = np.asarray(landmarks, dtype=np.float32) + np.asarray(
+            [left, top], dtype=np.float32
+        )
+    return face, landmarks, True
+
+
+def _raise_if_any_rank_has_invalid_identity(model, local_failures) -> None:
+    """Make an invalid-sample skip collective-safe before later BA collectives."""
+    failed = torch.tensor(
+        [1 if local_failures else 0],
+        device=model.device,
+        dtype=torch.int32,
+    )
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        torch.distributed.all_reduce(failed, op=torch.distributed.ReduceOp.MAX)
+    if not bool(failed.item()):
+        return
+
+    rank = (
+        torch.distributed.get_rank()
+        if torch.distributed.is_available() and torch.distributed.is_initialized()
+        else 0
+    )
+    for failure in local_failures:
+        print(f"[BA INVALID IDENTITY] rank={rank} {failure}", flush=True)
+    raise InvalidIdentityConditioningSample(
+        "At least one distributed rank has an invalid identity-conditioning sample"
+    )
 
 
 def _cast_trainable_ba_params_to_fp32(model) -> None:
@@ -239,6 +334,7 @@ def prepare_branched_training_inputs(
     ref_images: Sequence[Sequence],
     face_bbox: Sequence[Sequence[float]],
     face_bbox_ref: Sequence[Sequence[float]] | None = None,
+    identity_ids: Sequence[str] | None = None,
     pixel_values: torch.Tensor,
     noisy_latents: torch.Tensor,
     collect_identity_metadata: bool = False,
@@ -264,6 +360,7 @@ def prepare_branched_training_inputs(
     identity_selector_list = []
     reference_landmarks = []
     target_landmarks = []
+    identity_failures = []
 
     image_h, image_w = pixel_values.shape[-2:]
     latent_h, latent_w = noisy_latents.shape[-2:]
@@ -297,18 +394,49 @@ def prepare_branched_training_inputs(
             ref_face = None
             for ref in refs:
                 img_np = np.array(ref.convert("RGB"))[:, :, ::-1]
-                faces = analyze_faces(model.face_analyzer, img_np)
-                ref_face = _select_face_for_bbox(faces, ref_bbox)
+                if bool(getattr(model, "ba_reference_face_bbox_fallback", False)):
+                    ref_face, ref_kps, used_bbox_fallback = _detect_face_with_bbox_fallback(
+                        model.face_analyzer,
+                        img_np,
+                        ref_bbox,
+                        require_embedding=True,
+                    )
+                    if used_bbox_fallback:
+                        recovered = int(
+                            getattr(model, "_ba_reference_face_bbox_recoveries", 0)
+                        ) + 1
+                        model._ba_reference_face_bbox_recoveries = recovered
+                        if recovered <= 3 and int(os.environ.get("LOCAL_RANK", "0")) == 0:
+                            print(
+                                "[BA Reference Face] recovered detection from bbox crop "
+                                f"count={recovered}",
+                                flush=True,
+                            )
+                else:
+                    faces = analyze_faces(model.face_analyzer, img_np)
+                    ref_face = _select_face_for_bbox(faces, ref_bbox)
+                    ref_kps = None if ref_face is None else _face_field(ref_face, "kps")
                 if ref_face is not None:
                     embedding = torch.from_numpy(
                         np.asarray(_face_field(ref_face, "embedding"))
                     ).float()
                 else:
                     if bool(getattr(model, "ba_require_reference_face", False)):
-                        raise ValueError("Reference face detection failed for identity-conditioned training")
+                        identity = (
+                            identity_ids[i]
+                            if identity_ids is not None and i < len(identity_ids)
+                            else "unknown"
+                        )
+                        digest = hashlib.sha1(
+                            np.ascontiguousarray(img_np).tobytes()
+                        ).hexdigest()[:12]
+                        identity_failures.append(
+                            "reference_face_missing "
+                            f"sample={i} identity={identity} bbox={list(ref_bbox)} "
+                            f"image_size={tuple(ref.convert('RGB').size)} sha1={digest}"
+                        )
                     embedding = torch.zeros(512, dtype=torch.float32)
                 id_embed_list.append(embedding)
-            ref_kps = None if ref_face is None else _face_field(ref_face, "kps")
             reference_landmarks.append(
                 None if ref_kps is None else np.asarray(ref_kps, dtype=np.float32)
             )
@@ -438,17 +566,44 @@ def prepare_branched_training_inputs(
         prompt_embeds_list.append(prompt_embeds)
         pooled_prompt_embeds_list.append(pooled_prompt_embeds)
         if collect_identity_metadata:
-            target_faces = analyze_faces(
-                model.face_analyzer,
-                _target_tensor_to_bgr(pixel_values[i]),
-            )
-            target_face = _select_face_for_bbox(target_faces, bbox)
-            target_kps = None if target_face is None else _face_field(target_face, "kps")
+            target_bgr = _target_tensor_to_bgr(pixel_values[i])
+            if bool(getattr(model, "ba_reference_face_bbox_fallback", False)):
+                target_face, target_kps, _ = _detect_face_with_bbox_fallback(
+                    model.face_analyzer,
+                    target_bgr,
+                    bbox,
+                    require_landmarks=bool(
+                        getattr(model, "ba_causal_require_landmarks", False)
+                    ),
+                )
+            else:
+                target_faces = analyze_faces(model.face_analyzer, target_bgr)
+                target_face = _select_face_for_bbox(target_faces, bbox)
+                target_kps = (
+                    None if target_face is None else _face_field(target_face, "kps")
+                )
             if target_kps is None and bool(getattr(model, "ba_causal_require_landmarks", False)):
-                raise ValueError("Target face landmarks are required for causal identity supervision")
+                identity = (
+                    identity_ids[i]
+                    if identity_ids is not None and i < len(identity_ids)
+                    else "unknown"
+                )
+                identity_failures.append(
+                    "target_landmarks_missing "
+                    f"sample={i} identity={identity} bbox={list(bbox)}"
+                )
             target_landmarks.append(
                 None if target_kps is None else np.asarray(target_kps, dtype=np.float32)
             )
+
+    if (
+        bool(getattr(model, "ba_require_reference_face", False))
+        or (
+            collect_identity_metadata
+            and bool(getattr(model, "ba_causal_require_landmarks", False))
+        )
+    ):
+        _raise_if_any_rank_has_invalid_identity(model, identity_failures)
 
     prompt_embeds = torch.cat(prompt_embeds_list, dim=0).to(device=model.device, dtype=model.unet.dtype)
     pooled_prompt_embeds = torch.cat(pooled_prompt_embeds_list, dim=0).to(device=model.device, dtype=model.unet.dtype)

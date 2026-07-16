@@ -8,6 +8,9 @@ DEBUG_LOG_DEBUG_IMAGES = os.environ.get("PM_DEBUG_IMAGES", "1") not in {"0", "fa
 
 from src.metrics.tracker import MetricTracker
 from src.loss.diffusion_loss import identity_dependence_ranking_loss
+from src.model.photomaker_branched.lora2_helpers import (
+    InvalidIdentityConditioningSample,
+)
 from src.trainer.base_trainer import BaseTrainer
 
 
@@ -351,6 +354,14 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         accum_steps = int(getattr(self, "grad_accum_steps", 1))
         is_accum_start = batch["batch_idx"] % accum_steps == 0
         is_accum_end = (batch["batch_idx"] + 1) % accum_steps == 0
+        if self.is_train and bool(
+            getattr(self, "_skip_invalid_accum_until_boundary", False)
+        ):
+            if is_accum_end:
+                self._skip_invalid_accum_until_boundary = False
+            batch["skip_batch"] = True
+            batch["loss"] = torch.zeros((), device=self.device)
+            return batch
         if self.is_train and is_accum_start:
             self.optimizer.zero_grad()
         ### 25 APR - ADD GRAD ACCUM ###
@@ -361,6 +372,30 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         output = None
         try:
             output = self.model(**batch, do_cfg=do_cfg)
+        except InvalidIdentityConditioningSample as exc:
+            try:
+                unwrapped = self.accelerator.unwrap_model(self.model)
+            except Exception:
+                unwrapped = self.model
+            if not bool(
+                getattr(unwrapped, "ba_skip_invalid_identity_samples", False)
+            ):
+                raise
+            self.optimizer.zero_grad(set_to_none=True)
+            self._ba_active_in_accum = False
+            self._skip_invalid_accum_until_boundary = not is_accum_end
+            rank = int(getattr(self.accelerator, "process_index", 0))
+            msg = (
+                f"[INVALID_IDENTITY_SKIP] time={time.strftime('%Y-%m-%d %H:%M:%S')} "
+                f"rank={rank} batch_idx={batch.get('batch_idx')} reason={exc}"
+            )
+            if self.logger is not None:
+                self.logger.warning(msg)
+            else:
+                print(msg, flush=True)
+            batch["skip_batch"] = True
+            batch["loss"] = torch.zeros((), device=self.device)
+            return batch
         except RuntimeError as exc:
             if "out of memory" not in str(exc).lower():
                 raise

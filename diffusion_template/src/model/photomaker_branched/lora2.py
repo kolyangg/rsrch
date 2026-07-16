@@ -132,6 +132,8 @@ class PhotomakerBranchedLora(SDXL):
         ba_post_cfg_guidance_scale: bool = False,
         ba_sync_timestep: bool = False,
         ba_require_reference_face: bool = False,
+        ba_reference_face_bbox_fallback: bool = False,
+        ba_skip_invalid_identity_samples: bool = False,
         ba_identity_canonical_size: int = 224,
         ba_strict_checkpoint_restore: bool = False,
         photomaker_start_step: int = 10,
@@ -312,6 +314,12 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_post_cfg_guidance_scale = bool(ba_post_cfg_guidance_scale)
         self.ba_sync_timestep = bool(ba_sync_timestep)
         self.ba_require_reference_face = bool(ba_require_reference_face)
+        self.ba_reference_face_bbox_fallback = bool(
+            ba_reference_face_bbox_fallback
+        )
+        self.ba_skip_invalid_identity_samples = bool(
+            ba_skip_invalid_identity_samples
+        )
         self.ba_identity_canonical_size = int(ba_identity_canonical_size)
         self.ba_strict_checkpoint_restore = bool(ba_strict_checkpoint_restore)
         if self.ba_pm_preservation_mode not in {"none", "hard_epsilon_merge"}:
@@ -732,6 +740,7 @@ class PhotomakerBranchedLora(SDXL):
             ref_images=ref_images,
             face_bbox=face_bbox,
             face_bbox_ref=face_bbox_ref,
+            identity_ids=identity_id,
             pixel_values=pixel_values,
             noisy_latents=noisy_latents,
             collect_identity_metadata=causal_step,

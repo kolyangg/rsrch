@@ -40,6 +40,10 @@ model:
   ba_target_mask_fail_closed: true
   ba_sync_timestep: true
   ba_require_reference_face: true
+  # Retry InsightFace on the trusted face bbox. If even that fails, skip the
+  # synchronized accumulation window rather than crash DDP or use zero ID.
+  ba_reference_face_bbox_fallback: true
+  ba_skip_invalid_identity_samples: true
   ba_strict_checkpoint_restore: true
 
 val_smoke_test: true

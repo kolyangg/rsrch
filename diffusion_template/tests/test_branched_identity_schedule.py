@@ -1,7 +1,9 @@
 from types import SimpleNamespace
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import numpy as np
 import torch
 from hydra import compose, initialize_config_dir
 
@@ -10,6 +12,11 @@ from src.model.photomaker_branched.branched_runtime import (
 )
 from src.model.photomaker_branched.config_utils import (
     branched_model_runtime_kwargs,
+)
+from src.model.photomaker_branched.lora2_helpers import (
+    InvalidIdentityConditioningSample,
+    _detect_face_with_bbox_fallback,
+    _raise_if_any_rank_has_invalid_identity,
 )
 from src.pipelines.br_pipeline_helpers import select_mode_and_prompts
 
@@ -89,6 +96,41 @@ class BranchedIdentityScheduleTest(unittest.TestCase):
                 with initialize_config_dir(config_dir=config_dir, version_base=None):
                     cfg = compose(config_name=config_name)
                 self.assertTrue(cfg.model.ba_post_cfg_guidance_scale)
+                self.assertTrue(cfg.model.ba_reference_face_bbox_fallback)
+                self.assertTrue(cfg.model.ba_skip_invalid_identity_samples)
+
+    def test_reference_detection_retries_known_bbox_and_restores_landmark_coordinates(self):
+        face = SimpleNamespace(
+            bbox=np.asarray([4.0, 4.0, 30.0, 30.0], dtype=np.float32),
+            embedding=np.ones(512, dtype=np.float32),
+            kps=np.asarray(
+                [[8.0, 9.0], [20.0, 9.0], [14.0, 15.0], [9.0, 23.0], [19.0, 23.0]],
+                dtype=np.float32,
+            ),
+        )
+        image = np.zeros((100, 120, 3), dtype=np.uint8)
+        with patch(
+            "src.model.photomaker_branched.lora2_helpers.analyze_faces",
+            side_effect=[[], [face]],
+        ):
+            detected, landmarks, used_fallback = _detect_face_with_bbox_fallback(
+                object(),
+                image,
+                [20.0, 30.0, 60.0, 70.0],
+                require_embedding=True,
+                require_landmarks=True,
+            )
+
+        self.assertIs(detected, face)
+        self.assertTrue(used_fallback)
+        np.testing.assert_allclose(landmarks[0], [14.0, 25.0])
+
+    def test_invalid_identity_raises_typed_error_without_distributed_runtime(self):
+        with self.assertRaises(InvalidIdentityConditioningSample):
+            _raise_if_any_rank_has_invalid_identity(
+                SimpleNamespace(device=torch.device("cpu")),
+                ["reference_face_missing sample=0"],
+            )
 
     def test_post_cfg_identity_delta_can_restore_cfg_strength(self):
         pm = torch.tensor([1.0, 3.0]).reshape(2, 1, 1, 1)
