@@ -800,6 +800,7 @@ class BranchedCrossAttnProcessor(nn.Module):
         ba_face_gate_mode: str = "legacy_scalar",
         ba_face_gate_init: float = 1.0,
         ba_face_gate_max: float = 1.0,
+        ba_pm_identity_context_scale: float = 1.0,
     ):
         super().__init__()
         
@@ -820,16 +821,23 @@ class BranchedCrossAttnProcessor(nn.Module):
         self.ba_face_gate_mode = str(ba_face_gate_mode or "legacy_scalar").lower()
         self.ba_face_gate_init = float(ba_face_gate_init)
         self.ba_face_gate_max = float(ba_face_gate_max)
+        self.ba_pm_identity_context_scale = float(ba_pm_identity_context_scale)
         if self.ba_ca_mode not in {"legacy_ref_branch", "target_face_residual"}:
             raise ValueError(f"Unknown ba_ca_mode: {self.ba_ca_mode}")
         if self.ba_identity_memory_mode not in {
-            "mean_plus_basis", "qformer_tokens", "face_patch_resampler", "canonical_face_parts"
+            "mean_plus_basis",
+            "qformer_tokens",
+            "face_patch_resampler",
+            "canonical_face_parts",
+            "qformer_plus_canonical_parts",
         }:
             raise ValueError(f"Unknown ba_identity_memory_mode: {self.ba_identity_memory_mode}")
         if self.ba_face_gate_mode not in {"legacy_scalar", "bounded_sigmoid"}:
             raise ValueError(f"Unknown ba_face_gate_mode: {self.ba_face_gate_mode}")
         if self.ba_face_gate_max <= 0:
             raise ValueError("ba_face_gate_max must be positive")
+        if not 0.0 <= self.ba_pm_identity_context_scale <= 1.0:
+            raise ValueError("ba_pm_identity_context_scale must be in [0, 1]")
         
         self.mask = None
         self.mask_ref = None
@@ -846,6 +854,7 @@ class BranchedCrossAttnProcessor(nn.Module):
         self.face_residual_gate = None
         self.id_embeds = None
         self.class_tokens_mask = None
+        self.pm_text_only_embeds = None
 
         self.has_cross_attention_kwargs = True # Accept cross_attention_kwargs to avoid noisy warnings
 
@@ -971,10 +980,41 @@ class BranchedCrossAttnProcessor(nn.Module):
         if self.id_embeds is None:
             raise ValueError("target_face_residual requires 2048-D reference identity features")
 
+        pm_context = encoder_hidden_states
+        if self.ba_pm_identity_context_scale < 1.0:
+            if self.pm_text_only_embeds is None:
+                raise ValueError(
+                    "PhotoMaker identity-context attenuation requires text-only prompt embeddings"
+                )
+            text_context = self.pm_text_only_embeds.to(
+                device=encoder_hidden_states.device,
+                dtype=encoder_hidden_states.dtype,
+            )
+            if text_context.shape[0] != encoder_hidden_states.shape[0]:
+                if (
+                    text_context.shape[0] <= 0
+                    or encoder_hidden_states.shape[0] % text_context.shape[0] != 0
+                ):
+                    raise RuntimeError(
+                        f"Text-only prompt batch {text_context.shape[0]} does not match "
+                        f"PhotoMaker prompt batch {encoder_hidden_states.shape[0]}"
+                    )
+                text_context = text_context.repeat(
+                    (encoder_hidden_states.shape[0] // text_context.shape[0], 1, 1)
+                )
+            if text_context.shape != encoder_hidden_states.shape:
+                raise RuntimeError(
+                    f"Text-only prompt shape {tuple(text_context.shape)} does not match "
+                    f"PhotoMaker prompt shape {tuple(encoder_hidden_states.shape)}"
+                )
+            pm_context = text_context + self.ba_pm_identity_context_scale * (
+                encoder_hidden_states - text_context
+            )
+
         pm_out = _STANDARD_ATTN_PROCESSOR(
             attn,
             hidden_states,
-            encoder_hidden_states=encoder_hidden_states,
+            encoder_hidden_states=pm_context,
             attention_mask=attention_mask,
             temb=temb,
         )
@@ -998,7 +1038,10 @@ class BranchedCrossAttnProcessor(nn.Module):
                 (batch_size // id_embeds.shape[0],) + (1,) * (id_embeds.ndim - 1)
             )
         if self.ba_identity_memory_mode in {
-            "qformer_tokens", "face_patch_resampler", "canonical_face_parts"
+            "qformer_tokens",
+            "face_patch_resampler",
+            "canonical_face_parts",
+            "qformer_plus_canonical_parts",
         }:
             if id_embeds.ndim != 3:
                 raise ValueError(f"Token identity memory expects [B,T,D], got {tuple(id_embeds.shape)}")

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 import numpy as np
 import torch
@@ -124,6 +124,9 @@ class PhotomakerBranchedLora(SDXL):
         ba_face_gate_mode: str = "legacy_scalar",
         ba_face_gate_init: float = 1.0,
         ba_face_gate_max: float = 1.0,
+        ba_face_gate_init_overrides: Optional[Mapping[str, float]] = None,
+        ba_pm_identity_context_scale: float = 1.0,
+        ba_pm_identity_context_scale_overrides: Optional[Mapping[str, float]] = None,
         ba_cfg_composition: str = "legacy_guided",
         ba_residual_scale: float = 1.0,
         ba_sync_timestep: bool = False,
@@ -294,6 +297,15 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_face_gate_mode = str(ba_face_gate_mode or "legacy_scalar").lower()
         self.ba_face_gate_init = float(ba_face_gate_init)
         self.ba_face_gate_max = float(ba_face_gate_max)
+        self.ba_face_gate_init_overrides = {
+            str(pattern): float(value)
+            for pattern, value in (ba_face_gate_init_overrides or {}).items()
+        }
+        self.ba_pm_identity_context_scale = float(ba_pm_identity_context_scale)
+        self.ba_pm_identity_context_scale_overrides = {
+            str(pattern): float(value)
+            for pattern, value in (ba_pm_identity_context_scale_overrides or {}).items()
+        }
         self.ba_cfg_composition = str(ba_cfg_composition or "legacy_guided").lower()
         self.ba_residual_scale = float(ba_residual_scale)
         self.ba_sync_timestep = bool(ba_sync_timestep)
@@ -303,7 +315,11 @@ class PhotomakerBranchedLora(SDXL):
         if self.ba_pm_preservation_mode not in {"none", "hard_epsilon_merge"}:
             raise ValueError(f"Unknown ba_pm_preservation_mode: {self.ba_pm_preservation_mode}")
         if self.ba_identity_memory_mode not in {
-            "mean_plus_basis", "qformer_tokens", "face_patch_resampler", "canonical_face_parts"
+            "mean_plus_basis",
+            "qformer_tokens",
+            "face_patch_resampler",
+            "canonical_face_parts",
+            "qformer_plus_canonical_parts",
         }:
             raise ValueError(f"Unknown ba_identity_memory_mode: {self.ba_identity_memory_mode}")
         if self.ba_identity_image_mode not in {"full_reference", "bbox_normalized"}:
@@ -325,6 +341,15 @@ class PhotomakerBranchedLora(SDXL):
             raise ValueError(f"Unknown ba_trainable_dtype: {self.ba_trainable_dtype}")
         if self.ba_face_gate_mode not in {"legacy_scalar", "bounded_sigmoid"}:
             raise ValueError(f"Unknown ba_face_gate_mode: {self.ba_face_gate_mode}")
+        if not 0.0 <= self.ba_pm_identity_context_scale <= 1.0:
+            raise ValueError("ba_pm_identity_context_scale must be in [0, 1]")
+        if any(
+            not 0.0 <= value <= 1.0
+            for value in self.ba_pm_identity_context_scale_overrides.values()
+        ):
+            raise ValueError(
+                "ba_pm_identity_context_scale_overrides values must be in [0, 1]"
+            )
         if self.ba_cfg_composition not in {"legacy_guided", "post_cfg_delta"}:
             raise ValueError(f"Unknown ba_cfg_composition: {self.ba_cfg_composition}")
         if (
@@ -340,11 +365,19 @@ class PhotomakerBranchedLora(SDXL):
                 num_tokens=self.ba_identity_token_count,
                 hidden_dim=self.ba_identity_resampler_hidden_dim,
             )
-        elif self.ba_identity_memory_mode == "canonical_face_parts":
+        elif self.ba_identity_memory_mode in {
+            "canonical_face_parts", "qformer_plus_canonical_parts"
+        }:
             self.ba_identity_resampler = CanonicalFacePartResampler(
-                num_tokens=self.ba_identity_token_count,
+                num_tokens=8,
                 hidden_dim=self.ba_identity_resampler_hidden_dim,
             )
+            expected_tokens = 8 if self.ba_identity_memory_mode == "canonical_face_parts" else 10
+            if self.ba_identity_token_count != expected_tokens:
+                raise ValueError(
+                    f"{self.ba_identity_memory_mode} requires "
+                    f"ba_identity_token_count={expected_tokens}"
+                )
         if self.ba_identity_resampler is not None:
             memory_dtype = (
                 torch.float32 if self.ba_trainable_dtype == "fp32" else self.weight_dtype
@@ -507,6 +540,11 @@ class PhotomakerBranchedLora(SDXL):
             "ba_face_gate_mode": self.ba_face_gate_mode,
             "ba_face_gate_init": self.ba_face_gate_init,
             "ba_face_gate_max": self.ba_face_gate_max,
+            "ba_face_gate_init_overrides": dict(self.ba_face_gate_init_overrides),
+            "ba_pm_identity_context_scale": self.ba_pm_identity_context_scale,
+            "ba_pm_identity_context_scale_overrides": dict(
+                self.ba_pm_identity_context_scale_overrides
+            ),
             "ba_cfg_composition": self.ba_cfg_composition,
             "ba_residual_scale": self.ba_residual_scale,
             "ba_pm_preservation_mode": self.ba_pm_preservation_mode,
@@ -758,6 +796,7 @@ class PhotomakerBranchedLora(SDXL):
         pooled_prompt_embeds_text_only = pooled_prompt_embeds_text_only.to(
             device=self.device, dtype=self.unet.dtype
         )
+        self._ba_text_only_prompt_embeds = prompt_embeds_text_only
 
         def _run_active_predictions():
             common = dict(

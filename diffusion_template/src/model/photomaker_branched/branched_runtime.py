@@ -30,6 +30,28 @@ def processor_name_matches_allowlist(
     )
 
 
+def resolve_processor_override(
+    name: str,
+    overrides,
+    default: float,
+) -> float:
+    """Resolve the first prefix/wildcard override for an attention processor."""
+    if not overrides:
+        return float(default)
+    for pattern, value in overrides.items():
+        pattern = str(pattern).strip()
+        if not pattern:
+            continue
+        matches = (
+            fnmatch.fnmatch(name, pattern)
+            if any(ch in pattern for ch in "*?[]")
+            else name.startswith(pattern)
+        )
+        if matches:
+            return float(value)
+    return float(default)
+
+
 def select_branched_processor_names(
     attn_processor_names: Sequence[str],
     *,
@@ -108,7 +130,7 @@ def patch_unet_attention_processors(
         return mod
 
 
-    def _apply_runtime_flags(proc, pipe):
+    def _apply_runtime_flags(proc, pipe, proc_name):
         # Keep old behavior unless ba_enable_runtime_sa_knobs is explicitly enabled.
         for k in (
             "ba_enable_runtime_sa_knobs",
@@ -132,6 +154,12 @@ def patch_unet_attention_processors(
         ):
             if hasattr(pipe, k):
                 setattr(proc, k, getattr(pipe, k))
+        if hasattr(proc, "ba_pm_identity_context_scale"):
+            proc.ba_pm_identity_context_scale = resolve_processor_override(
+                proc_name,
+                getattr(pipe, "ba_pm_identity_context_scale_overrides", None),
+                float(getattr(pipe, "ba_pm_identity_context_scale", 1.0)),
+            )
         if hasattr(proc, "configure_face_fusion"):
             proc.configure_face_fusion()
 
@@ -159,7 +187,10 @@ def patch_unet_attention_processors(
     if id_embeds is not None:
         _idem = id_embeds.to(dev, identity_dtype)
     elif getattr(pipeline, "ba_identity_memory_mode", "mean_plus_basis") in {
-        "qformer_tokens", "face_patch_resampler", "canonical_face_parts"
+        "qformer_tokens",
+        "face_patch_resampler",
+        "canonical_face_parts",
+        "qformer_plus_canonical_parts",
     }:
         _idem = torch.zeros(
             B,
@@ -229,7 +260,7 @@ def patch_unet_attention_processors(
                     proc = proc.to(pipeline.device, dtype=pipeline.unet.dtype)
                     proc.set_masks(_mask, _mref)
                     setattr(proc, "strict_face_routing", bool(getattr(pipeline, "strict_face_routing", False)))
-                    _apply_runtime_flags(proc, pipeline)
+                    _apply_runtime_flags(proc, pipeline, name)
 
                     # Wire id_embeds (zeros if missing); whether they are used is controlled by use_id_embeds
                     proc.id_embeds = _idem
@@ -246,6 +277,16 @@ def patch_unet_attention_processors(
                     num_tokens = 77  # Standard CLIP token count
                     if hasattr(pipeline, 'tokenizer_2'):
                         num_tokens = pipeline.tokenizer_2.model_max_length
+                    gate_init = resolve_processor_override(
+                        name,
+                        getattr(pipeline, "ba_face_gate_init_overrides", None),
+                        float(getattr(pipeline, "ba_face_gate_init", 1.0)),
+                    )
+                    pm_identity_context_scale = resolve_processor_override(
+                        name,
+                        getattr(pipeline, "ba_pm_identity_context_scale_overrides", None),
+                        float(getattr(pipeline, "ba_pm_identity_context_scale", 1.0)),
+                    )
 
                     proc = BranchedCrossAttnProcessor(
                         hidden_size=hidden_size,
@@ -264,8 +305,9 @@ def patch_unet_attention_processors(
                         ),
                         ba_hard_mask_resize=getattr(pipeline, "ba_hard_mask_resize", "legacy_threshold"),
                         ba_face_gate_mode=getattr(pipeline, "ba_face_gate_mode", "legacy_scalar"),
-                        ba_face_gate_init=float(getattr(pipeline, "ba_face_gate_init", 1.0)),
+                        ba_face_gate_init=gate_init,
                         ba_face_gate_max=float(getattr(pipeline, "ba_face_gate_max", 1.0)),
+                        ba_pm_identity_context_scale=pm_identity_context_scale,
                     ).to(pipeline.device, dtype=pipeline.unet.dtype)
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
                     if proc.ba_ca_mode == "legacy_ref_branch":
@@ -273,9 +315,13 @@ def patch_unet_attention_processors(
                         setattr(proc, "equalize_clip", (1/3, 8.0))
                     setattr(proc, "strict_face_routing", bool(getattr(pipeline, "strict_face_routing", False)))
                     proc.set_masks(_mask, _mref)
+                    _apply_runtime_flags(proc, pipeline, name)
                     if proc.ba_ca_mode == "target_face_residual":
                         proc.id_embeds = _idem
                         proc.class_tokens_mask = class_tokens_mask
+                        proc.pm_text_only_embeds = getattr(
+                            pipeline, "_ba_text_only_prompt_embeds", None
+                        )
 
                     new_procs[name] = proc
                     patched_proc_names.append(name)
@@ -293,11 +339,15 @@ def patch_unet_attention_processors(
             if isinstance(proc, (BranchedAttnProcessor, BranchedCrossAttnProcessor)):
                 patched_proc_names.append(name)
                 proc.set_masks(_mask, _mref)
-                _apply_runtime_flags(proc, pipeline)
+                _apply_runtime_flags(proc, pipeline, name)
                 if hasattr(proc, "id_embeds"):
                     proc.id_embeds = _idem
                 if hasattr(proc, "class_tokens_mask"):
                     proc.class_tokens_mask = class_tokens_mask
+                if hasattr(proc, "pm_text_only_embeds"):
+                    proc.pm_text_only_embeds = getattr(
+                        pipeline, "_ba_text_only_prompt_embeds", None
+                    )
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
 
 

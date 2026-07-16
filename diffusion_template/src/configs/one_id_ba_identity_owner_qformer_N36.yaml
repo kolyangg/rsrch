@@ -1,0 +1,45 @@
+defaults:
+  - one_id_ba_causal_highres_qformer_N34
+  - _self_
+
+# N36: make BA the local identity owner while PhotoMaker remains the global
+# pose/composition/render baseline. Legacy behavior is restored by setting the
+# two identity-context scale toggles to 1 and the allowlist back to [up_blocks.1].
+model:
+  # Six high-resolution up_blocks.1 sites plus ten late up_blocks.0 sites.
+  # The latter receive a weaker gate and retain half of PhotoMaker identity.
+  ba_ca_layer_allowlist:
+    - up_blocks.1
+    - up_blocks.0.attentions.2
+
+  ba_face_gate_mode: bounded_sigmoid
+  ba_face_gate_init: 1.0
+  ba_face_gate_max: 2.0
+  ba_face_gate_init_overrides:
+    up_blocks.0.attentions.2: 0.5
+
+  # At BA-owned high-resolution sites, use text-only context for the standard
+  # attention path; at the lower-resolution geometry sites retain 50% PM ID.
+  ba_pm_identity_context_scale: 0.0
+  ba_pm_identity_context_scale_overrides:
+    up_blocks.0.attentions.2: 0.5
+
+  # The final PM prediction is still the external baseline and BA is merged only
+  # inside the hard target bbox, after CFG.
+  ba_cfg_composition: post_cfg_delta
+  ba_residual_scale: 1.0
+
+  # Stronger decoded causal pressure than N34, while preserving structure.
+  ba_causal_identity_weight: 0.5
+  ba_causal_margin: 0.05
+  ba_causal_direct_weight: 0.5
+  ba_causal_wrong_weight: 1.0
+  ba_causal_cross_weight: 0.5
+  ba_causal_preservation_weight: 0.1
+  ba_causal_structure_weight: 0.2
+
+  # Begin BA together with PhotoMaker rather than five inference steps later.
+  branched_attn_start_step: 10
+
+val_smoke_test: true
+val_smoke_test_limit: 24

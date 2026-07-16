@@ -1,0 +1,13 @@
+defaults:
+  - one_id_ba_identity_owner_qformer_N36
+  - _self_
+
+# N37: canonical-aligned memory comparison. Preserve the two frozen, unpooled
+# QFormer tokens from the aligned face, then append eight trainable face-part
+# tokens built from the same canonical reference.
+model:
+  ba_identity_token_count: 10
+  ba_identity_memory_mode: qformer_plus_canonical_parts
+  ba_identity_image_mode: full_reference
+  ba_identity_resampler_hidden_dim: 256
+  ba_identity_canonical_size: 224

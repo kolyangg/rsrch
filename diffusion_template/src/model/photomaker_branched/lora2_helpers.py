@@ -378,9 +378,13 @@ def prepare_branched_training_inputs(
                     patch_identity_list.append(
                         id_embeds[:, 0].to(device=model.device, dtype=model.unet.dtype)
                     )
-                elif memory_mode == "canonical_face_parts":
+                elif memory_mode in {
+                    "canonical_face_parts", "qformer_plus_canonical_parts"
+                }:
                     if getattr(model, "ba_identity_resampler", None) is None:
-                        raise RuntimeError("canonical_face_parts is enabled without a resampler module")
+                        raise RuntimeError(
+                            f"{memory_mode} is enabled without a resampler module"
+                        )
                     aligned_ref = canonical_aligned_reference(
                         refs[0],
                         landmarks=reference_landmarks[-1],
@@ -457,11 +461,18 @@ def prepare_branched_training_inputs(
         else model.unet.dtype
     )
     if canonical_part_list:
-        extracted_id_features = model.ba_identity_resampler(
+        canonical_tokens = model.ba_identity_resampler(
             torch.cat(canonical_part_list, dim=0),
             torch.cat(canonical_identity_list, dim=0),
             torch.cat(canonical_qformer_list, dim=0),
         ).to(dtype=identity_output_dtype)
+        if getattr(model, "ba_identity_memory_mode", "") == "qformer_plus_canonical_parts":
+            qformer_tokens = torch.cat(canonical_qformer_list, dim=0).to(
+                device=model.device, dtype=identity_output_dtype
+            )
+            extracted_id_features = torch.cat([qformer_tokens, canonical_tokens], dim=1)
+        else:
+            extracted_id_features = canonical_tokens
     elif patch_feature_list:
         extracted_id_features = model.ba_identity_resampler(
             torch.cat(patch_feature_list, dim=0),

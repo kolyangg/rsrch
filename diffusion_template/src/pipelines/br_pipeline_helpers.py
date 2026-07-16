@@ -195,7 +195,7 @@ def ensure_id_embeds(
     if (
         provided_id_embeds is not None
         and getattr(pipeline, "ba_identity_memory_mode", "mean_plus_basis")
-        != "canonical_face_parts"
+        not in {"canonical_face_parts", "qformer_plus_canonical_parts"}
     ):
         return provided_id_embeds
 
@@ -461,7 +461,11 @@ def prepare_id_features(
         boxes = None
         needs_reference_geometry = (
             getattr(pipeline, "ba_identity_image_mode", "full_reference") == "bbox_normalized"
-            or memory_mode in {"face_patch_resampler", "canonical_face_parts"}
+            or memory_mode in {
+                "face_patch_resampler",
+                "canonical_face_parts",
+                "qformer_plus_canonical_parts",
+            }
         )
         if needs_reference_geometry:
             refs = list(input_id_images) if isinstance(input_id_images, (list, tuple)) else [input_id_images]
@@ -534,12 +538,14 @@ def prepare_id_features(
                 identity_embeds.to(device=pipeline.device, dtype=pipeline.unet.dtype),
                 patch_masks,
             )
-        elif memory_mode == "canonical_face_parts":
+        elif memory_mode in {"canonical_face_parts", "qformer_plus_canonical_parts"}:
             resampler = getattr(pipeline, "ba_identity_resampler", None)
             if resampler is None:
-                raise RuntimeError("canonical_face_parts is enabled without a resampler module")
+                raise RuntimeError(f"{memory_mode} is enabled without a resampler module")
             if int(feature_pixels.shape[1]) != 1 or id_embeds is None:
-                raise ValueError("canonical_face_parts requires one reference and InsightFace embeddings")
+                raise ValueError(
+                    f"{memory_mode} requires one reference and InsightFace embeddings"
+                )
             cached_landmarks = list(getattr(pipeline, "_ba_reference_landmarks", []))
             if len(cached_landmarks) != batch_size:
                 cached_landmarks = [None] * batch_size
@@ -575,7 +581,15 @@ def prepare_id_features(
                 qformer_identity.to(device=pipeline.device, dtype=vision_hidden.dtype),
                 vision_hidden,
             )
-            pm_feats = resampler(parts, identity_embeds, qformer)
+            canonical_tokens = resampler(parts, identity_embeds, qformer)
+            pm_feats = (
+                torch.cat(
+                    [qformer.to(dtype=canonical_tokens.dtype), canonical_tokens],
+                    dim=1,
+                )
+                if memory_mode == "qformer_plus_canonical_parts"
+                else canonical_tokens
+            )
         else:
             feature_reduce = "tokens" if memory_mode == "qformer_tokens" else "mean"
             pm_feats = pipeline.id_encoder.extract_id_features(
@@ -942,6 +956,7 @@ def run_branched_step(
     mode: str,
     latent_model_input: torch.Tensor,
     current_prompt_embeds: torch.Tensor,
+    text_only_prompt_embeds: torch.Tensor,
     added_cond_kwargs: Dict[str, Any],
     class_tokens_mask: Optional[torch.LongTensor],
     timestep_cond: Optional[torch.Tensor],
@@ -952,6 +967,7 @@ def run_branched_step(
     debug_dir: Optional[str],
     num_outputs: int,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
+    pipeline._ba_text_only_prompt_embeds = text_only_prompt_embeds
     mask4 = prepare_mask4(pipeline, latent_model_input, suffix="")
     needs_spatial_reference = not bool(
         getattr(pipeline, "disable_reference_spatial_branch", False)
@@ -1249,6 +1265,11 @@ def run_denoising_step(
         if pipeline.do_classifier_free_guidance
         else base_prompt
     )
+    current_text_only_prompt_embeds = (
+        torch.cat([negative_prompt_embeds, prompt_embeds_text_only], dim=0)
+        if pipeline.do_classifier_free_guidance
+        else prompt_embeds_text_only
+    )
     add_text_embeds = (
         torch.cat([negative_pooled_prompt_embeds, base_pooled], dim=0)
         if pipeline.do_classifier_free_guidance
@@ -1271,6 +1292,7 @@ def run_denoising_step(
             mode=mode,
             latent_model_input=latent_model_input,
             current_prompt_embeds=current_prompt_embeds,
+            text_only_prompt_embeds=current_text_only_prompt_embeds,
             added_cond_kwargs=added_cond_kwargs,
             class_tokens_mask=class_tokens_mask,
             timestep_cond=timestep_cond,
@@ -1442,6 +1464,9 @@ def build_pipeline_from_pretrained(
         ("ba_face_gate_mode", "legacy_scalar"),
         ("ba_face_gate_init", 1.0),
         ("ba_face_gate_max", 1.0),
+        ("ba_face_gate_init_overrides", None),
+        ("ba_pm_identity_context_scale", 1.0),
+        ("ba_pm_identity_context_scale_overrides", None),
         ("ba_cfg_composition", "legacy_guided"),
         ("ba_residual_scale", 1.0),
         ("ba_require_reference_face", False),

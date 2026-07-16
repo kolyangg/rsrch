@@ -1,0 +1,12 @@
+defaults:
+  - one_id_ba_identity_owner_qformer_N36
+  - _self_
+
+# N38: controlled reference-preprocessing comparison to N36. Build the same
+# two frozen QFormer identity tokens from a padded, bbox-normalized face crop,
+# reducing clothing/background leakage while retaining the target pose from PM.
+model:
+  ba_identity_token_count: 2
+  ba_identity_memory_mode: qformer_tokens
+  ba_identity_image_mode: bbox_normalized
+  ba_identity_crop_padding: 0.15
