@@ -267,6 +267,17 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             self._identity_dependence_config_cached = cached
         return cached
 
+    def _causal_identity_weight_value(self) -> float:
+        cached = getattr(self, "_causal_identity_weight_cached", None)
+        if cached is None:
+            try:
+                model = self.accelerator.unwrap_model(self.model)
+            except Exception:
+                model = self.model
+            cached = float(getattr(model, "ba_causal_identity_weight", 0.0))
+            self._causal_identity_weight_cached = cached
+        return cached
+
     def _update_ba_weight_norms(self, train_metrics):
         """Drift canary: L2 norm of branched-processor lora_B weights per group.
 
@@ -293,7 +304,6 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 if ".processor." not in name:
                     continue
                 if name.endswith("face_residual_gate"):
-                    face_gates.append(float(p.detach().float().mean().item()))
                     continue
                 if ".face_delta_out.up.weight" in name:
                     sums["face_delta"] += float(p.detach().float().pow(2).sum().item())
@@ -316,6 +326,12 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 else:
                     continue
                 sums[f"{kind}_{branch}"] += float(p.detach().float().pow(2).sum().item())
+            for proc in getattr(unwrapped, "_branched_attn_processors_train", {}).values():
+                if not isinstance(proc, torch.nn.Module):
+                    continue
+                if hasattr(proc, "effective_face_residual_gate"):
+                    gate = proc.effective_face_residual_gate()
+                    face_gates.append(float(gate.detach().float().mean().item()))
         for group, sq_sum in sums.items():
             train_metrics.update(f"ba_norm/{group}", sq_sum ** 0.5)
         resampler_sq = sum(
@@ -327,6 +343,8 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             train_metrics.update("ba_norm/identity_resampler", resampler_sq ** 0.5)
         if face_gates:
             train_metrics.update("ba_gate/face_residual_mean", sum(face_gates) / len(face_gates))
+            train_metrics.update("ba_gate/face_residual_min", min(face_gates))
+            train_metrics.update("ba_gate/face_residual_max", max(face_gates))
         
     def process_batch(self, batch, train_metrics: MetricTracker):
         ### 25 APR - ADD GRAD ACCUM ###
@@ -396,6 +414,31 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 msg = f"[ID_LOSS] non-finite id_loss at batch_idx={batch.get('batch_idx')}, skipped"
                 (self.logger.warning(msg) if self.logger is not None else print(msg))
 
+        causal_identity_loss = batch.get("causal_identity_loss")
+        if causal_identity_loss is not None and torch.is_tensor(causal_identity_loss):
+            if not torch.isfinite(causal_identity_loss):
+                raise RuntimeError("Causal identity loss became non-finite")
+            weight = self._causal_identity_weight_value()
+            batch["loss"] = batch["loss"] + weight * causal_identity_loss
+            train_metrics.update(
+                "causal_identity/loss",
+                float(causal_identity_loss.detach().item()),
+            )
+            for key in (
+                "correct_gain",
+                "wrong_gain",
+                "correct_similarity",
+                "wrong_similarity",
+                "preservation",
+                "structure",
+            ):
+                value = batch.get(f"causal_identity_{key}")
+                if value is not None and torch.is_tensor(value):
+                    train_metrics.update(
+                        f"causal_identity/{key}",
+                        float(value.detach().item()),
+                    )
+
         wrong_identity_pred = batch.get("wrong_identity_pred")
         if wrong_identity_pred is not None:
             dependence_weight, dependence_margin = self._identity_dependence_config()
@@ -432,6 +475,11 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                         if not isinstance(proc, torch.nn.Module):
                             continue
                         for param in proc.parameters():
+                            if param.requires_grad:
+                                param.grad = None
+                    resampler = getattr(unwrapped_model, "ba_identity_resampler", None)
+                    if isinstance(resampler, torch.nn.Module):
+                        for param in resampler.parameters():
                             if param.requires_grad:
                                 param.grad = None
                 self._clip_grad_norm()

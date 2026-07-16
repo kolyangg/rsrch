@@ -42,8 +42,24 @@ def _apply_saved_ba_architecture(cfg, checkpoint) -> None:
         "ba_identity_memory_mode",
         "ba_identity_image_mode",
         "ba_identity_crop_padding",
+        "ba_identity_patch_padding",
+        "ba_identity_resampler_hidden_dim",
+        "ba_identity_canonical_size",
         "ba_pm_preservation_mode",
         "ba_hard_mask_resize",
+        "ba_target_mask_fail_closed",
+        "ba_ca_layer_allowlist",
+        "ba_trainable_dtype",
+        "ba_face_gate_mode",
+        "ba_face_gate_init",
+        "ba_face_gate_max",
+        "ba_cfg_composition",
+        "ba_residual_scale",
+        "ba_require_reference_face",
+        "ba_strict_checkpoint_restore",
+        "ba_uncond_face_fix",
+        "ba_face_prompt_mode",
+        "use_id_embeds",
         "disable_reference_spatial_branch",
         "branched_attn_weight_mode",
         "branched_attn_new_weight_kind",
@@ -153,6 +169,8 @@ def main():
         try:
             model.prepare_for_training()
         except Exception:
+            if bool(getattr(cfg.model, "ba_strict_checkpoint_restore", False)):
+                raise
             # Some models may not require this; continue if it fails harmlessly
             pass
     # Move full module tree to target device for single-GPU inference

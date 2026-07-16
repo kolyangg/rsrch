@@ -1,0 +1,27 @@
+{
+  "output_root": "../full_validation_results",
+  "refs_dir": "../../dataset_full/val_dataset/references",
+  "expected_names_json": "../../dataset_full/val_dataset/pm96_bboxes_new.json",
+  "expected_images": 96,
+  "default_steps": [2000, 6000, 10000],
+  "strict_steps": true,
+  "compute_metrics": true,
+  "clean_step_dirs": false,
+  "runs": [
+    {
+      "run_id": "847a122493dc4824944d0e6649a90deb",
+      "run_name": null,
+      "steps": [2000, 6000, 10000, 12000]
+    },
+    {
+      "run_id": "de72896fdebe4611a6ace6321295d982",
+      "run_name": null,
+      "steps": [2000, 6000, 10000, 16000]
+    },
+    {
+      "run_id": "ba844711c7a14a0eb709ec0c74d32c40",
+      "run_name": null,
+      "steps": [14000, 20000, 26000]
+    }
+  ]
+}

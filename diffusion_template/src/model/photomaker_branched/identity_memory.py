@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Sequence
 
+import numpy as np
 from PIL import Image
 import torch
 from torch import nn
@@ -33,6 +34,74 @@ def bbox_normalized_reference(
 
     # PIL pads out-of-image crop coordinates with black, keeping the face centered.
     return image.crop((left, top, right, bottom))
+
+
+def canonical_aligned_reference(
+    image: Image.Image,
+    *,
+    landmarks=None,
+    bbox: Sequence[float] | None = None,
+    image_size: int = 224,
+    fallback_padding: float = 0.10,
+) -> Image.Image:
+    """Align a reference to InsightFace's five-point canonical template."""
+    image = image.convert("RGB")
+    if landmarks is not None:
+        from insightface.utils import face_align
+
+        kps = np.asarray(landmarks, dtype=np.float32)
+        if kps.shape == (5, 2) and np.isfinite(kps).all():
+            bgr = np.asarray(image)[:, :, ::-1]
+            aligned = face_align.norm_crop(bgr, landmark=kps, image_size=int(image_size))
+            return Image.fromarray(aligned[:, :, ::-1])
+    if bbox is None:
+        raise ValueError("Canonical identity memory requires landmarks or a reference bbox")
+    return bbox_normalized_reference(
+        image,
+        bbox,
+        padding=fallback_padding,
+    ).resize((int(image_size), int(image_size)), Image.BICUBIC)
+
+
+def canonical_face_part_features(
+    patch_features: torch.Tensor,
+    *,
+    grid_height: int,
+    grid_width: int,
+) -> torch.Tensor:
+    """Pool ordered global/part tokens from a landmark-aligned CLIP patch grid."""
+    if patch_features.ndim != 3:
+        raise ValueError(f"Expected patch features [B,P,D], got {tuple(patch_features.shape)}")
+    if patch_features.shape[1] != int(grid_height) * int(grid_width):
+        raise ValueError(
+            f"Patch count {patch_features.shape[1]} does not match grid "
+            f"{(grid_height, grid_width)}"
+        )
+    grid = patch_features.view(
+        patch_features.shape[0], int(grid_height), int(grid_width), patch_features.shape[-1]
+    )
+
+    def _region(y0, y1, x0, x1):
+        y0 = max(0, min(int(grid_height), int(round(y0 * grid_height))))
+        y1 = max(y0 + 1, min(int(grid_height), int(round(y1 * grid_height))))
+        x0 = max(0, min(int(grid_width), int(round(x0 * grid_width))))
+        x1 = max(x0 + 1, min(int(grid_width), int(round(x1 * grid_width))))
+        return grid[:, y0:y1, x0:x1].mean(dim=(1, 2))
+
+    # Coordinates are fractions of the canonical ArcFace crop.
+    return torch.stack(
+        [
+            grid.mean(dim=(1, 2)),                  # global
+            _region(0.20, 0.48, 0.08, 0.50),      # left eye / brow
+            _region(0.20, 0.48, 0.50, 0.92),      # right eye / brow
+            _region(0.35, 0.68, 0.32, 0.68),      # nose
+            _region(0.58, 0.88, 0.24, 0.76),      # mouth
+            _region(0.40, 0.82, 0.04, 0.38),      # left cheek / contour
+            _region(0.40, 0.82, 0.62, 0.96),      # right cheek / contour
+            _region(0.30, 0.94, 0.12, 0.88),      # full inner face
+        ],
+        dim=1,
+    )
 
 
 def reference_bbox_to_clip_patch_mask(
@@ -162,5 +231,69 @@ class FacePatchIdentityResampler(nn.Module):
             need_weights=False,
         )
         hidden = queries + attended
+        hidden = hidden + self.ff(hidden)
+        return self.output_norm(self.output_proj(hidden))
+
+
+class CanonicalFacePartResampler(nn.Module):
+    """Fuse canonical face-part evidence, global ID, and frozen QFormer context."""
+
+    def __init__(
+        self,
+        *,
+        num_tokens: int = 8,
+        patch_dim: int = 1024,
+        identity_dim: int = 512,
+        qformer_dim: int = 2048,
+        hidden_dim: int = 256,
+        output_dim: int = 2048,
+    ) -> None:
+        super().__init__()
+        if int(num_tokens) != 8:
+            raise ValueError("canonical_face_parts currently defines exactly 8 ordered tokens")
+        self.num_tokens = int(num_tokens)
+        self.part_norm = nn.LayerNorm(patch_dim)
+        self.part_proj = nn.Linear(patch_dim, hidden_dim)
+        self.identity_norm = nn.LayerNorm(identity_dim)
+        self.identity_proj = nn.Linear(identity_dim, hidden_dim)
+        self.qformer_norm = nn.LayerNorm(qformer_dim)
+        self.qformer_proj = nn.Linear(qformer_dim, hidden_dim)
+        self.token_bias = nn.Parameter(torch.zeros(1, self.num_tokens, hidden_dim))
+        self.ff = nn.Sequential(
+            nn.LayerNorm(hidden_dim),
+            nn.Linear(hidden_dim, hidden_dim * 2),
+            nn.GELU(),
+            nn.Linear(hidden_dim * 2, hidden_dim),
+        )
+        self.output_proj = nn.Linear(hidden_dim, output_dim)
+        self.output_norm = nn.LayerNorm(output_dim)
+
+    def forward(
+        self,
+        part_features: torch.Tensor,
+        identity_embeds: torch.Tensor,
+        qformer_tokens: torch.Tensor,
+    ) -> torch.Tensor:
+        if part_features.ndim != 3 or part_features.shape[1] != self.num_tokens:
+            raise ValueError(
+                f"Expected canonical parts [B,{self.num_tokens},D], got "
+                f"{tuple(part_features.shape)}"
+            )
+        if identity_embeds.ndim != 2:
+            raise ValueError(f"Expected identity embeddings [B,D], got {tuple(identity_embeds.shape)}")
+        if qformer_tokens.ndim != 3:
+            raise ValueError(f"Expected QFormer tokens [B,T,D], got {tuple(qformer_tokens.shape)}")
+
+        dtype = self.part_proj.weight.dtype
+        parts = self.part_proj(self.part_norm(part_features.to(dtype=dtype)))
+        identity = self.identity_proj(
+            self.identity_norm(identity_embeds.to(device=parts.device, dtype=dtype))
+        ).unsqueeze(1)
+        qformer = self.qformer_proj(
+            self.qformer_norm(
+                qformer_tokens.to(device=parts.device, dtype=dtype).mean(dim=1)
+            )
+        ).unsqueeze(1)
+        hidden = parts + identity + qformer + self.token_bias
         hidden = hidden + self.ff(hidden)
         return self.output_norm(self.output_proj(hidden))

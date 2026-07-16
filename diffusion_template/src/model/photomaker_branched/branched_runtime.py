@@ -3,6 +3,7 @@ branched_new.py - Simplified branched attention implementation with cross-attent
 """
 
 import math
+import fnmatch
 import torch
 import torch.nn.functional as F
 from typing import Optional, Dict, Any, Tuple, Sequence
@@ -10,6 +11,23 @@ import os
 from PIL import Image
 
 from .debug_helpers import save_debug_images
+
+
+def processor_name_matches_allowlist(
+    name: str,
+    allowlist: Optional[Sequence[str]],
+) -> bool:
+    """Match processor names by prefix or shell-style wildcard."""
+    if allowlist is None:
+        return True
+    patterns = [str(item).strip() for item in allowlist if str(item).strip()]
+    if not patterns:
+        return True
+    return any(
+        fnmatch.fnmatch(name, pattern) if any(ch in pattern for ch in "*?[]")
+        else name.startswith(pattern)
+        for pattern in patterns
+    )
 
 
 def select_branched_processor_names(
@@ -108,6 +126,9 @@ def patch_unet_attention_processors(
             "ba_identity_token_count",
             "ba_identity_memory_mode",
             "ba_hard_mask_resize",
+            "ba_face_gate_mode",
+            "ba_face_gate_init",
+            "ba_face_gate_max",
         ):
             if hasattr(pipe, k):
                 setattr(proc, k, getattr(pipe, k))
@@ -127,23 +148,28 @@ def patch_unet_attention_processors(
     # Ensure masks are non-None to avoid runtime errors
     B = (mask.shape[0] if mask is not None else mask_ref.shape[0])
     dev, dt = pipeline.device, pipeline.unet.dtype
+    identity_dtype = (
+        torch.float32
+        if str(getattr(pipeline, "ba_trainable_dtype", "model")).lower() == "fp32"
+        else dt
+    )
     _mask  = mask     if mask     is not None else torch.zeros(B, 1,  mask_ref.shape[-2], mask_ref.shape[-1], device=dev, dtype=dt)
     _mref  = mask_ref if mask_ref is not None else _mask
     # Always provide id_embeds so processor-local weights participate on every rank
     if id_embeds is not None:
-        _idem = id_embeds.to(dev, dt)
+        _idem = id_embeds.to(dev, identity_dtype)
     elif getattr(pipeline, "ba_identity_memory_mode", "mean_plus_basis") in {
-        "qformer_tokens", "face_patch_resampler"
+        "qformer_tokens", "face_patch_resampler", "canonical_face_parts"
     }:
         _idem = torch.zeros(
             B,
             int(getattr(pipeline, "ba_identity_token_count", 2)),
             2048,
             device=dev,
-            dtype=dt,
+            dtype=identity_dtype,
         )
     else:
-        _idem = torch.zeros(B, 2048, device=dev, dtype=dt)
+        _idem = torch.zeros(B, 2048, device=dev, dtype=identity_dtype)
 
     ba_patch_top_k = float(getattr(pipeline, "ba_patch_top_k", 1.0))
     patchable_sa_names = select_branched_processor_names(
@@ -154,6 +180,7 @@ def patch_unet_attention_processors(
         param_name="ba_patch_top_k",
     )
     patchable_sa_name_set = set(patchable_sa_names)
+    ca_allowlist = getattr(pipeline, "ba_ca_layer_allowlist", None)
 
     if not has_branched:
         # Create new processors
@@ -211,7 +238,7 @@ def patch_unet_attention_processors(
                     patched_proc_names.append(name)
                 
             elif name.endswith("attn2.processor"):
-                if disable_ca:
+                if disable_ca or not processor_name_matches_allowlist(name, ca_allowlist):
                     # Keep original cross-attn processor; no branched CA.
                     new_procs[name] = pipeline._original_attn_processors[name]
                 else:
@@ -236,6 +263,9 @@ def patch_unet_attention_processors(
                             pipeline, "ba_identity_memory_mode", "mean_plus_basis"
                         ),
                         ba_hard_mask_resize=getattr(pipeline, "ba_hard_mask_resize", "legacy_threshold"),
+                        ba_face_gate_mode=getattr(pipeline, "ba_face_gate_mode", "legacy_scalar"),
+                        ba_face_gate_init=float(getattr(pipeline, "ba_face_gate_init", 1.0)),
+                        ba_face_gate_max=float(getattr(pipeline, "ba_face_gate_max", 1.0)),
                     ).to(pipeline.device, dtype=pipeline.unet.dtype)
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
                     if proc.ba_ca_mode == "legacy_ref_branch":
@@ -293,6 +323,32 @@ def hard_epsilon_merge(
             )
         mask = mask.repeat((branched_pred.shape[0] // mask.shape[0], 1, 1, 1))
     return photomaker_pred * (1.0 - mask) + branched_pred * mask
+
+
+def compose_post_cfg_identity_delta(
+    photomaker_pred: torch.Tensor,
+    branched_pred: torch.Tensor,
+    hard_mask: torch.Tensor,
+    *,
+    guidance_scale: float,
+    residual_scale: float,
+    do_classifier_free_guidance: bool,
+) -> torch.Tensor:
+    """Apply the conditional BA correction once, outside text CFG."""
+    if do_classifier_free_guidance:
+        if photomaker_pred.shape[0] % 2 != 0 or branched_pred.shape[0] != photomaker_pred.shape[0]:
+            raise ValueError("post_cfg_delta requires matching even CFG batches")
+        pm_uncond, pm_cond = photomaker_pred.chunk(2)
+        _, ba_cond = branched_pred.chunk(2)
+        merged_cond = hard_epsilon_merge(pm_cond, ba_cond, hard_mask)
+        delta_cond = merged_cond - pm_cond
+        guided = pm_uncond + float(guidance_scale) * (pm_cond - pm_uncond)
+        guided = guided + float(residual_scale) * delta_cond
+        # The caller's unchanged CFG block maps two identical halves back to `guided`.
+        return torch.cat([guided, guided], dim=0)
+
+    merged = hard_epsilon_merge(photomaker_pred, branched_pred, hard_mask)
+    return photomaker_pred + float(residual_scale) * (merged - photomaker_pred)
 
 
 def target_face_predict(

@@ -1,0 +1,43 @@
+defaults:
+  - one_id_ba_qformer_idtokens_N29
+  - _self_
+
+# N34: corrected identity-causal residual while retaining N29's two frozen
+# QFormer tokens as the memory control.
+model:
+  use_id_loss: false
+  ba_identity_dependence_mode: decoded_causal
+  ba_identity_dependence_global_negatives: true
+  ba_negative_strategy: semi_hard
+  ba_negative_target_similarity: 0.30
+  ba_causal_identity_weight: 0.25
+  ba_causal_margin: 0.02
+  ba_causal_direct_weight: 0.25
+  ba_causal_wrong_weight: 1.0
+  ba_causal_cross_weight: 0.5
+  ba_causal_preservation_weight: 0.10
+  ba_causal_structure_weight: 0.10
+  ba_causal_max_timestep: 300
+  ba_causal_every_n_steps: 1
+  ba_causal_require_landmarks: true
+
+  # Six high-resolution SDXL CA sites instead of all 70 sites.
+  ba_ca_layer_allowlist: [up_blocks.1]
+
+  # Keep trainable BA masters/Adam states in FP32; frozen PM/SDXL stays BF16.
+  ba_trainable_dtype: fp32
+  ba_face_gate_mode: bounded_sigmoid
+  ba_face_gate_init: 0.25
+  ba_face_gate_max: 1.0
+
+  # Add the conditional BA delta once after PM CFG.
+  ba_cfg_composition: post_cfg_delta
+  ba_residual_scale: 1.0
+
+  ba_target_mask_fail_closed: true
+  ba_sync_timestep: true
+  ba_require_reference_face: true
+  ba_strict_checkpoint_restore: true
+
+val_smoke_test: true
+val_smoke_test_limit: 24

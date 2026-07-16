@@ -68,6 +68,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--force-download", action="store_true")
     parser.add_argument("--force-metrics", action="store_true")
+    parser.add_argument(
+        "--force-update",
+        action="store_true",
+        help="Refresh completed runs, re-download images, and recompute local metrics.",
+    )
     parser.add_argument("--skip-local-metrics", action="store_true")
     parser.add_argument(
         "--no-progress",
@@ -413,6 +418,85 @@ def read_metrics_json(path: Path) -> dict[str, Any]:
         return {}
 
 
+def complete_metric_record(record: Any, expected_images: int) -> bool:
+    return bool(
+        isinstance(record, dict)
+        and record.get("n_images") == expected_images
+        and len(record.get("per_image_id_sim", {})) == expected_images
+    )
+
+
+def exact_valid_image_set(step_dir: Path, expected_names: list[str]) -> bool:
+    if not step_dir.is_dir():
+        return False
+    local_images = list_step_images(step_dir)
+    if {path.name for path in local_images} != set(expected_names):
+        return False
+    return all(valid_image(step_dir / name) for name in expected_names)
+
+
+def find_cached_run(
+    output_root: Path,
+    run_config: dict[str, Any],
+) -> tuple[Path, dict[str, Any]] | None:
+    candidates: list[Path] = []
+    configured_name = run_config.get("run_name")
+    if configured_name:
+        candidates.append(output_root / sanitize_folder_name(configured_name) / "comet_export.json")
+    candidates.extend(output_root.glob("*/comet_export.json"))
+
+    seen = set()
+    for export_path in candidates:
+        resolved = export_path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        try:
+            cached = load_json(export_path) if export_path.is_file() else None
+        except ConfigError:
+            continue
+        if isinstance(cached, dict) and cached.get("run_id") == run_config["run_id"]:
+            return export_path.parent, cached
+    return None
+
+
+def cached_run_is_complete(
+    run_dir: Path,
+    cached: dict[str, Any],
+    run_config: dict[str, Any],
+    expected_names: list[str],
+    expected_images: int,
+    *,
+    require_local_metrics: bool,
+) -> bool:
+    cached_steps = {
+        parse_optional_int(step.get("requested_step")): step
+        for step in cached.get("steps", [])
+        if isinstance(step, dict)
+    }
+    folder_name = run_dir.name
+    metrics_path = run_dir / f"metrics_{folder_name}_steps.json"
+    metrics = read_metrics_json(metrics_path)
+
+    for requested_step in run_config["steps"]:
+        step = cached_steps.get(requested_step)
+        if not isinstance(step, dict) or step.get("errors"):
+            return False
+        output_folder = step.get("output_folder")
+        if not output_folder:
+            return False
+        step_dir = Path(str(output_folder))
+        if not step_dir.is_absolute():
+            step_dir = run_dir.parent / step_dir
+        if not exact_valid_image_set(step_dir, expected_names):
+            return False
+        if require_local_metrics:
+            run_key = step_dir.name
+            if not complete_metric_record(metrics.get(run_key), expected_images):
+                return False
+    return True
+
+
 def epoch_for_step(step: int, run_config: dict[str, Any], hyperparameters: dict[str, Any]) -> int | None:
     epoch_len = run_config.get("epoch_len") or parse_optional_int(hyperparameters.get("trainer.epoch_len"))
     if not epoch_len or step % epoch_len != 0:
@@ -428,9 +512,9 @@ def write_json(path: Path, value: Any) -> None:
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     args = parse_args()
-    if not args.api_key:
-        print("Missing COMET_API_KEY; export it or pass --api-key.", file=sys.stderr)
-        return 2
+    if args.force_update:
+        args.force_download = True
+        args.force_metrics = True
     try:
         config = load_config(args.config, args.steps)
         expected_names = load_expected_names(
@@ -443,7 +527,7 @@ def main() -> int:
 
     output_root: Path = config["output_root"]
     output_root.mkdir(parents=True, exist_ok=True)
-    client = CometRestClient(args.api_key, args.base_url, timeout=args.timeout)
+    client = None
     generated_at = datetime.now(timezone.utc).isoformat()
     combined = {
         "generated_at_utc": generated_at,
@@ -469,6 +553,51 @@ def main() -> int:
         run_id = run_config["run_id"]
         configured_name = run_config.get("run_name") or run_id[:8]
         run_progress.set_postfix_str(configured_name)
+        require_local_metrics = (
+            run_config["compute_metrics"] and not args.skip_local_metrics
+        )
+        cached_match = find_cached_run(output_root, run_config)
+        if (
+            not (args.force_update or args.force_download or args.force_metrics)
+            and cached_match is not None
+            and cached_run_is_complete(
+                cached_match[0],
+                cached_match[1],
+                run_config,
+                expected_names,
+                config["expected_images"],
+                require_local_metrics=require_local_metrics,
+            )
+        ):
+            run_dir, cached = cached_match
+            folder_name = run_dir.name
+            reserved_names[folder_name] = run_id
+            tqdm.write(
+                f"[Cache] {folder_name}: all requested images and metrics are complete; "
+                "skipping Comet download and local metric calculation"
+            )
+            combined["runs"].append(
+                {
+                    "run_id": run_id,
+                    "run_name": cached.get("run_name") or folder_name,
+                    "output_folder": str(run_dir.relative_to(output_root)),
+                    "steps": cached.get("steps", []),
+                    "warnings": cached.get("warnings", []),
+                    "errors": cached.get("errors", []),
+                    "status": "complete_existing",
+                }
+            )
+            write_json(combined_path, combined)
+            continue
+        if not args.api_key:
+            print(
+                f"Run {configured_name} is incomplete and requires Comet access. "
+                "Export COMET_API_KEY or pass --api-key.",
+                file=sys.stderr,
+            )
+            return 2
+        if client is None:
+            client = CometRestClient(args.api_key, args.base_url, timeout=args.timeout)
         tqdm.write(f"[Comet] Fetching run metadata, metrics, and image index: {configured_name}")
         run_errors: list[str] = []
         run_warnings: list[str] = []
@@ -624,10 +753,8 @@ def main() -> int:
             should_compute = run_config["compute_metrics"] and not args.skip_local_metrics
             if should_compute and actual_names == expected_set:
                 existing_metrics = read_metrics_json(metrics_path).get(run_key)
-                complete_existing = bool(
-                    isinstance(existing_metrics, dict)
-                    and existing_metrics.get("n_images") == config["expected_images"]
-                    and len(existing_metrics.get("per_image_id_sim", {})) == config["expected_images"]
+                complete_existing = complete_metric_record(
+                    existing_metrics, config["expected_images"]
                 )
                 if complete_existing and not args.force_metrics:
                     step_result["metric_record"] = existing_metrics

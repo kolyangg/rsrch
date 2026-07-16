@@ -32,7 +32,7 @@ from .lora2_helpers import (
     ensure_branched_after_eval as ensure_branched_after_eval_helper,
     select_wrong_identity_features,
 )
-from .identity_memory import FacePatchIdentityResampler
+from .identity_memory import CanonicalFacePartResampler, FacePatchIdentityResampler
 from .model_v2_NS import PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken
 ##### BRANCHED ATTENTION - ADDITIONAL IMPORTS #####
 
@@ -101,11 +101,35 @@ class PhotomakerBranchedLora(SDXL):
         ba_identity_dependence_weight: float = 0.25,
         ba_identity_dependence_margin: float = 0.02,
         ba_identity_dependence_global_negatives: bool = True,
+        ba_negative_strategy: str = "least_similar",
+        ba_negative_target_similarity: float = 0.30,
+        ba_causal_identity_weight: float = 0.25,
+        ba_causal_margin: float = 0.02,
+        ba_causal_direct_weight: float = 0.25,
+        ba_causal_wrong_weight: float = 1.0,
+        ba_causal_cross_weight: float = 0.5,
+        ba_causal_preservation_weight: float = 0.1,
+        ba_causal_structure_weight: float = 0.1,
+        ba_causal_max_timestep: int = 300,
+        ba_causal_every_n_steps: int = 1,
+        ba_causal_require_landmarks: bool = False,
         ba_pm_preservation_mode: str = "none",
         ba_hard_mask_resize: str = "legacy_threshold",
+        ba_target_mask_fail_closed: bool = False,
         disable_reference_spatial_branch: bool = False,
         ba_skip_inactive_optimizer_decay: bool = False,
         ba_fix_tensor_ref_resolution: bool = False,
+        ba_ca_layer_allowlist: Optional[Sequence[str]] = None,
+        ba_trainable_dtype: str = "model",
+        ba_face_gate_mode: str = "legacy_scalar",
+        ba_face_gate_init: float = 1.0,
+        ba_face_gate_max: float = 1.0,
+        ba_cfg_composition: str = "legacy_guided",
+        ba_residual_scale: float = 1.0,
+        ba_sync_timestep: bool = False,
+        ba_require_reference_face: bool = False,
+        ba_identity_canonical_size: int = 224,
+        ba_strict_checkpoint_restore: bool = False,
         photomaker_start_step: int = 10,
         merge_start_step: int = 10,
         branched_attn_start_step: int = 15,
@@ -244,15 +268,42 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_identity_dependence_weight = float(ba_identity_dependence_weight)
         self.ba_identity_dependence_margin = float(ba_identity_dependence_margin)
         self.ba_identity_dependence_global_negatives = bool(ba_identity_dependence_global_negatives)
+        self.ba_negative_strategy = str(ba_negative_strategy or "least_similar").lower()
+        self.ba_negative_target_similarity = float(ba_negative_target_similarity)
+        self.ba_causal_identity_weight = float(ba_causal_identity_weight)
+        self.ba_causal_margin = float(ba_causal_margin)
+        self.ba_causal_direct_weight = float(ba_causal_direct_weight)
+        self.ba_causal_wrong_weight = float(ba_causal_wrong_weight)
+        self.ba_causal_cross_weight = float(ba_causal_cross_weight)
+        self.ba_causal_preservation_weight = float(ba_causal_preservation_weight)
+        self.ba_causal_structure_weight = float(ba_causal_structure_weight)
+        self.ba_causal_max_timestep = int(ba_causal_max_timestep)
+        self.ba_causal_every_n_steps = max(1, int(ba_causal_every_n_steps))
+        self.ba_causal_require_landmarks = bool(ba_causal_require_landmarks)
         self.ba_pm_preservation_mode = str(ba_pm_preservation_mode or "none").lower()
         self.ba_hard_mask_resize = str(ba_hard_mask_resize or "legacy_threshold").lower()
+        self.ba_target_mask_fail_closed = bool(ba_target_mask_fail_closed)
         self.disable_reference_spatial_branch = bool(disable_reference_spatial_branch)
         self.ba_skip_inactive_optimizer_decay = bool(ba_skip_inactive_optimizer_decay)
         self.ba_fix_tensor_ref_resolution = bool(ba_fix_tensor_ref_resolution)
+        self.ba_ca_layer_allowlist = (
+            None if ba_ca_layer_allowlist is None
+            else tuple(str(item) for item in ba_ca_layer_allowlist)
+        )
+        self.ba_trainable_dtype = str(ba_trainable_dtype or "model").lower()
+        self.ba_face_gate_mode = str(ba_face_gate_mode or "legacy_scalar").lower()
+        self.ba_face_gate_init = float(ba_face_gate_init)
+        self.ba_face_gate_max = float(ba_face_gate_max)
+        self.ba_cfg_composition = str(ba_cfg_composition or "legacy_guided").lower()
+        self.ba_residual_scale = float(ba_residual_scale)
+        self.ba_sync_timestep = bool(ba_sync_timestep)
+        self.ba_require_reference_face = bool(ba_require_reference_face)
+        self.ba_identity_canonical_size = int(ba_identity_canonical_size)
+        self.ba_strict_checkpoint_restore = bool(ba_strict_checkpoint_restore)
         if self.ba_pm_preservation_mode not in {"none", "hard_epsilon_merge"}:
             raise ValueError(f"Unknown ba_pm_preservation_mode: {self.ba_pm_preservation_mode}")
         if self.ba_identity_memory_mode not in {
-            "mean_plus_basis", "qformer_tokens", "face_patch_resampler"
+            "mean_plus_basis", "qformer_tokens", "face_patch_resampler", "canonical_face_parts"
         }:
             raise ValueError(f"Unknown ba_identity_memory_mode: {self.ba_identity_memory_mode}")
         if self.ba_identity_image_mode not in {"full_reference", "bbox_normalized"}:
@@ -262,16 +313,44 @@ class PhotomakerBranchedLora(SDXL):
             and self.ba_identity_image_mode != "full_reference"
         ):
             raise ValueError("face_patch_resampler selects patches from the full reference image")
-        if self.ba_identity_dependence_mode not in {"none", "paired_wrong_reference"}:
+        if self.ba_identity_dependence_mode not in {
+            "none", "paired_wrong_reference", "decoded_causal"
+        }:
             raise ValueError(f"Unknown ba_identity_dependence_mode: {self.ba_identity_dependence_mode}")
         if self.ba_identity_dependence_weight < 0 or self.ba_identity_dependence_margin < 0:
             raise ValueError("Identity-dependence weight and margin must be non-negative")
+        if self.ba_negative_strategy not in {"least_similar", "semi_hard"}:
+            raise ValueError(f"Unknown ba_negative_strategy: {self.ba_negative_strategy}")
+        if self.ba_trainable_dtype not in {"model", "fp32"}:
+            raise ValueError(f"Unknown ba_trainable_dtype: {self.ba_trainable_dtype}")
+        if self.ba_face_gate_mode not in {"legacy_scalar", "bounded_sigmoid"}:
+            raise ValueError(f"Unknown ba_face_gate_mode: {self.ba_face_gate_mode}")
+        if self.ba_cfg_composition not in {"legacy_guided", "post_cfg_delta"}:
+            raise ValueError(f"Unknown ba_cfg_composition: {self.ba_cfg_composition}")
+        if (
+            self.ba_cfg_composition == "post_cfg_delta"
+            and self.ba_pm_preservation_mode != "hard_epsilon_merge"
+        ):
+            raise ValueError(
+                "post_cfg_delta requires ba_pm_preservation_mode=hard_epsilon_merge"
+            )
         self.ba_identity_resampler = None
         if self.ba_identity_memory_mode == "face_patch_resampler":
             self.ba_identity_resampler = FacePatchIdentityResampler(
                 num_tokens=self.ba_identity_token_count,
                 hidden_dim=self.ba_identity_resampler_hidden_dim,
-            ).to(device=self.device, dtype=self.weight_dtype)
+            )
+        elif self.ba_identity_memory_mode == "canonical_face_parts":
+            self.ba_identity_resampler = CanonicalFacePartResampler(
+                num_tokens=self.ba_identity_token_count,
+                hidden_dim=self.ba_identity_resampler_hidden_dim,
+            )
+        if self.ba_identity_resampler is not None:
+            memory_dtype = (
+                torch.float32 if self.ba_trainable_dtype == "fp32" else self.weight_dtype
+            )
+            self.ba_identity_resampler.to(device=self.device, dtype=memory_dtype)
+        self._causal_id_loss_net = None
         self._ba_active_this_batch = False
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 
@@ -293,7 +372,10 @@ class PhotomakerBranchedLora(SDXL):
         self.id_encoder.to(dtype=self.weight_dtype)
         self.id_encoder.requires_grad_(False)
         if self.ba_identity_resampler is not None:
-            self.ba_identity_resampler.to(device=self.device, dtype=self.weight_dtype)
+            memory_dtype = (
+                torch.float32 if self.ba_trainable_dtype == "fp32" else self.weight_dtype
+            )
+            self.ba_identity_resampler.to(device=self.device, dtype=memory_dtype)
             self.ba_identity_resampler.requires_grad_(True)
 
         adapter_lora_config = LoraConfig(
@@ -401,10 +483,44 @@ class PhotomakerBranchedLora(SDXL):
         return _with_identity_resampler([group for group in groups.values() if group["params"]])
         ##### BRANCHED ATTENTION - NEW BLOCK 2 #####
 
+    def _ba_architecture_manifest(self):
+        return {
+            "ba_sa_mode": self.ba_sa_mode,
+            "ba_ca_mode": self.ba_ca_mode,
+            "ba_ca_train_mode": self.ba_ca_train_mode,
+            "branched_attn_weight_mode": self.branched_attn_weight_mode,
+            "branched_attn_new_weight_kind": self.branched_attn_new_weight_kind,
+            "train_branched_ca_lora": self.train_branched_ca_lora,
+            "face_embed_strategy": self.face_embed_strategy,
+            "use_id_embeds": self.use_id_embeds,
+            "ba_uncond_face_fix": self.ba_uncond_face_fix,
+            "ba_face_prompt_mode": self.ba_face_prompt_mode,
+            "ba_identity_memory_mode": self.ba_identity_memory_mode,
+            "ba_identity_token_count": self.ba_identity_token_count,
+            "ba_identity_image_mode": self.ba_identity_image_mode,
+            "ba_identity_crop_padding": self.ba_identity_crop_padding,
+            "ba_identity_patch_padding": self.ba_identity_patch_padding,
+            "ba_identity_resampler_hidden_dim": self.ba_identity_resampler_hidden_dim,
+            "ba_identity_canonical_size": self.ba_identity_canonical_size,
+            "ba_ca_layer_allowlist": list(self.ba_ca_layer_allowlist or []),
+            "ba_trainable_dtype": self.ba_trainable_dtype,
+            "ba_face_gate_mode": self.ba_face_gate_mode,
+            "ba_face_gate_init": self.ba_face_gate_init,
+            "ba_face_gate_max": self.ba_face_gate_max,
+            "ba_cfg_composition": self.ba_cfg_composition,
+            "ba_residual_scale": self.ba_residual_scale,
+            "ba_pm_preservation_mode": self.ba_pm_preservation_mode,
+            "ba_hard_mask_resize": self.ba_hard_mask_resize,
+            "ba_target_mask_fail_closed": self.ba_target_mask_fail_closed,
+            "ba_require_reference_face": self.ba_require_reference_face,
+            "disable_reference_spatial_branch": self.disable_reference_spatial_branch,
+        }
+
     def get_state_dict(self):
         lora_weights = convert_state_dict_to_diffusers(get_peft_model_state_dict(self.unet, adapter_name="lora_adapter"))
         state = {
             'lora_weights': lora_weights,
+            'ba_architecture': self._ba_architecture_manifest(),
         }
         if hasattr(self.unet, "attn_processors"):
             proc_sd = {}
@@ -431,6 +547,18 @@ class PhotomakerBranchedLora(SDXL):
         return state
 
     def load_state_dict_(self, state_dict):
+        saved_architecture = state_dict.get("ba_architecture")
+        if self.ba_strict_checkpoint_restore and saved_architecture is None:
+            raise ValueError("Strict BA checkpoint restore requires ba_architecture")
+        if self.ba_strict_checkpoint_restore:
+            current = self._ba_architecture_manifest()
+            mismatches = {
+                key: (saved_architecture.get(key), current.get(key))
+                for key in current
+                if saved_architecture.get(key) != current.get(key)
+            }
+            if mismatches:
+                raise ValueError(f"BA checkpoint architecture mismatch: {mismatches}")
         lora_state_dict = state_dict["lora_weights"]
         unet_state_dict = {k.replace("unet.", ""): v for k, v in lora_state_dict.items()}
         unet_state_dict = convert_unet_state_dict_to_peft(unet_state_dict)
@@ -439,11 +567,47 @@ class PhotomakerBranchedLora(SDXL):
             unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
             # In newer peft versions this is an empty list when there are no unexpected keys
             assert not unexpected_keys, unexpected_keys
-        for name, sd in state_dict.get("attn_processors", {}).items():
+        saved_processors = state_dict.get("attn_processors", {})
+        if self.ba_strict_checkpoint_restore:
+            expected_names = {
+                name
+                for name, proc in self.unet.attn_processors.items()
+                if isinstance(proc, torch.nn.Module)
+                and any(param.requires_grad for param in proc.parameters())
+            }
+            if set(saved_processors) != expected_names:
+                raise ValueError(
+                    "BA checkpoint processor-name mismatch: "
+                    f"saved={sorted(saved_processors)}, expected={sorted(expected_names)}"
+                )
+        for name, sd in saved_processors.items():
             proc = self.unet.attn_processors.get(name)
-            if proc is not None and hasattr(proc, "load_state_dict"):
-                proc.load_state_dict(sd, strict=False)
+            if proc is None or not hasattr(proc, "load_state_dict"):
+                if self.ba_strict_checkpoint_restore:
+                    raise ValueError(f"Checkpoint processor is unavailable: {name}")
+                continue
+            if self.ba_strict_checkpoint_restore:
+                trainable = tuple(n for n, p in proc.named_parameters() if p.requires_grad)
+                expected_keys = {
+                    key for key in proc.state_dict()
+                    if any(key == n or key.startswith(n + ".") for n in trainable)
+                }
+                if set(sd) != expected_keys:
+                    raise ValueError(
+                        f"Checkpoint tensor mismatch for {name}: "
+                        f"saved={sorted(sd)}, expected={sorted(expected_keys)}"
+                    )
+            proc.load_state_dict(sd, strict=False)
         resampler_state = state_dict.get("ba_identity_resampler")
+        if (
+            self.ba_strict_checkpoint_restore
+            and (resampler_state is None) != (self.ba_identity_resampler is None)
+        ):
+            raise ValueError(
+                "BA checkpoint resampler mismatch: "
+                f"saved={resampler_state is not None}, "
+                f"expected={self.ba_identity_resampler is not None}"
+            )
         if resampler_state is not None:
             if self.ba_identity_resampler is None:
                 raise ValueError(
@@ -460,6 +624,7 @@ class PhotomakerBranchedLora(SDXL):
         crop_top_lefts: Sequence[Sequence[int]],
         face_bbox: Sequence[Sequence[float]],
         face_bbox_ref: Sequence[Sequence[float]] | None = None,
+        identity_id: Sequence[str] | None = None,
         do_cfg: bool = False,
         *args,
         **kwargs,
@@ -484,6 +649,12 @@ class PhotomakerBranchedLora(SDXL):
             (1,),
             device=latents.device,
         ).long()
+        if (
+            self.ba_sync_timestep
+            and torch.distributed.is_available()
+            and torch.distributed.is_initialized()
+        ):
+            torch.distributed.broadcast(t_scalar, src=0)
         timesteps = t_scalar.repeat(batch_size)
         denoise_progress = 1.0 - (
             float(t_scalar.item()) / float(self.noise_scheduler.config.num_train_timesteps - 1)
@@ -493,6 +664,12 @@ class PhotomakerBranchedLora(SDXL):
         # (this is the forward diffusion process)
 
         noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
+        batch_idx = int(kwargs.get("batch_idx", 0))
+        causal_step = (
+            self.ba_identity_dependence_mode == "decoded_causal"
+            and int(t_scalar.item()) <= self.ba_causal_max_timestep
+            and batch_idx % self.ba_causal_every_n_steps == 0
+        )
 
         add_time_ids = torch.cat(
             [self.compute_time_ids(orig_size, crop) for orig_size, crop in zip(original_sizes, crop_top_lefts)]
@@ -517,16 +694,35 @@ class PhotomakerBranchedLora(SDXL):
             face_bbox_ref=face_bbox_ref,
             pixel_values=pixel_values,
             noisy_latents=noisy_latents,
+            collect_identity_metadata=causal_step,
         )
         ##### BRANCHED ATTENTION - NEW BLOCK 4 #####
 
         wrong_id_features = None
+        wrong_identity_indices = None
+        prepared_reference_embeddings = None
         if self.ba_identity_dependence_mode == "paired_wrong_reference":
             if id_features is None:
                 raise ValueError("paired_wrong_reference requires identity memory features")
             wrong_id_features = select_wrong_identity_features(
                 id_features,
                 global_negatives=self.ba_identity_dependence_global_negatives,
+            )
+        elif causal_step:
+            if id_features is None:
+                raise ValueError("decoded_causal requires identity memory features")
+            wrong_id_features, wrong_identity_indices = select_wrong_identity_features(
+                id_features,
+                selector_features=getattr(self, "_ba_identity_selector_features", None),
+                identity_ids=identity_id,
+                global_negatives=self.ba_identity_dependence_global_negatives,
+                strategy=self.ba_negative_strategy,
+                target_similarity=self.ba_negative_target_similarity,
+                return_indices=True,
+            )
+            prepared_reference_embeddings = self._prepare_causal_reference_embeddings(
+                ref_images,
+                face_bbox_ref,
             )
 
         ##### BRANCHED ATTENTION - NEW BLOCK 5 #####
@@ -576,7 +772,11 @@ class PhotomakerBranchedLora(SDXL):
                 class_tokens_mask=class_tokens_mask,
             )
             if wrong_id_features is None:
-                return run_branched_forward_pass(self, id_features=id_features, **common), None
+                return (
+                    run_branched_forward_pass(self, id_features=id_features, **common),
+                    None,
+                    None,
+                )
             correct_pred, photomaker_pred = run_branched_forward_pass(
                 self,
                 id_features=id_features,
@@ -589,7 +789,7 @@ class PhotomakerBranchedLora(SDXL):
                 photomaker_pred=photomaker_pred,
                 **common,
             )
-            return correct_pred, wrong_pred
+            return correct_pred, wrong_pred, photomaker_pred
 
         ### MEMO: INITIAL LORA UNet pass ###
         # model_pred = self.unet(
@@ -602,7 +802,7 @@ class PhotomakerBranchedLora(SDXL):
         ### MEMO: INITIAL LORA UNet pass ###
 
         if self.train_ba_all_steps:
-            noise_pred, wrong_identity_pred = _run_active_predictions()
+            noise_pred, wrong_identity_pred, null_identity_pred = _run_active_predictions()
         elif denoise_progress < photomaker_start_ratio:
             text_only_kwargs = {
                 "text_embeds": pooled_prompt_embeds_text_only,
@@ -636,15 +836,41 @@ class PhotomakerBranchedLora(SDXL):
         else:
             ##### BRANCHED ATTENTION - FORWARD PASS #####
             """FORWARD PASS: run branched prediction via helper wrapper around `two_branch_predict`."""
-            noise_pred, wrong_identity_pred = _run_active_predictions()
+            noise_pred, wrong_identity_pred, null_identity_pred = _run_active_predictions()
             ##### BRANCHED ATTENTION - FORWARD PASS #####
 
         out = {
             'model_pred': noise_pred,
             'target': noise,
         }
-        if 'wrong_identity_pred' in locals() and wrong_identity_pred is not None:
+        if (
+            self.ba_identity_dependence_mode == "paired_wrong_reference"
+            and 'wrong_identity_pred' in locals()
+            and wrong_identity_pred is not None
+        ):
             out['wrong_identity_pred'] = wrong_identity_pred
+        if (
+            self.ba_identity_dependence_mode == "decoded_causal"
+            and 'wrong_identity_pred' in locals()
+            and wrong_identity_pred is not None
+            and null_identity_pred is not None
+            and wrong_identity_indices is not None
+        ):
+            causal = self._compute_causal_identity_loss(
+                correct_pred=noise_pred,
+                null_pred=null_identity_pred,
+                wrong_pred=wrong_identity_pred,
+                noisy_latents=noisy_latents,
+                timesteps=timesteps,
+                face_bbox=face_bbox,
+                ref_images=ref_images,
+                face_bbox_ref=face_bbox_ref,
+                wrong_identity_indices=wrong_identity_indices,
+                prepared_reference_embeddings=prepared_reference_embeddings,
+            )
+            out["causal_identity_loss"] = causal.pop("loss")
+            for key, value in causal.items():
+                out[f"causal_identity_{key}"] = value
 
         # ID loss (identity-supervised): only when enabled AND the sampled timestep is low enough
         # that the predicted x0 is meaningful. t is shared across the batch (see t_scalar above),
@@ -660,6 +886,110 @@ class PhotomakerBranchedLora(SDXL):
                 face_bbox_ref=face_bbox_ref,
             )
         return out
+
+    def _prediction_to_x0(self, prediction, noisy_latents, timesteps):
+        abar = self.noise_scheduler.alphas_cumprod.to(prediction.device)[timesteps].float()
+        abar = abar.view(-1, 1, 1, 1)
+        return (
+            noisy_latents.float() - (1.0 - abar).sqrt() * prediction.float()
+        ) / abar.sqrt().clamp_min(1e-4)
+
+    def _decode_x0(self, x0):
+        return self.vae.decode(
+            (x0 / self.vae.config.scaling_factor).to(self.vae.dtype)
+        ).sample
+
+    def _causal_identity_loss_module(self):
+        if self._causal_id_loss_net is None:
+            from src.loss.id_loss import CausalIdentityLoss
+
+            self._causal_id_loss_net = CausalIdentityLoss(
+                face_size=self.id_loss_face_size,
+                device=self.device,
+            )
+        return self._causal_id_loss_net
+
+    def _prepare_causal_reference_embeddings(self, ref_images, face_bbox_ref):
+        ref_bboxes = (
+            face_bbox_ref if isinstance(face_bbox_ref, (list, tuple)) else [face_bbox_ref]
+        )
+        with torch.autocast(
+            device_type=self.device.type if hasattr(self.device, "type") else "cuda",
+            enabled=False,
+        ):
+            return self._causal_identity_loss_module().prepare_reference_embeddings(
+                ref_images,
+                getattr(self, "_ba_reference_landmarks", None),
+                ref_bboxes,
+                device=self.device,
+                global_negatives=self.ba_identity_dependence_global_negatives,
+            )
+
+    def _compute_causal_identity_loss(
+        self,
+        *,
+        correct_pred,
+        null_pred,
+        wrong_pred,
+        noisy_latents,
+        timesteps,
+        face_bbox,
+        ref_images,
+        face_bbox_ref,
+        wrong_identity_indices,
+        prepared_reference_embeddings,
+    ):
+        causal_id_loss = self._causal_identity_loss_module()
+
+        correct_x0 = self._prediction_to_x0(correct_pred, noisy_latents, timesteps)
+        wrong_x0 = self._prediction_to_x0(wrong_pred, noisy_latents, timesteps)
+        with torch.no_grad():
+            null_x0 = self._prediction_to_x0(null_pred, noisy_latents, timesteps)
+
+        tile = hasattr(self.vae, "enable_tiling") and hasattr(self.vae, "disable_tiling")
+        slicing = hasattr(self.vae, "enable_slicing") and hasattr(self.vae, "disable_slicing")
+        if tile:
+            self.vae.enable_tiling()
+        if slicing:
+            self.vae.enable_slicing()
+        try:
+            correct_images = self._decode_x0(correct_x0)
+            wrong_images = self._decode_x0(wrong_x0)
+            with torch.no_grad():
+                null_images = self._decode_x0(null_x0)
+        finally:
+            if tile:
+                self.vae.disable_tiling()
+            if slicing:
+                self.vae.disable_slicing()
+
+        bboxes = face_bbox if isinstance(face_bbox, (list, tuple)) else [face_bbox]
+        ref_bboxes = (
+            face_bbox_ref if isinstance(face_bbox_ref, (list, tuple)) else [face_bbox_ref]
+        )
+        with torch.autocast(
+            device_type=self.device.type if hasattr(self.device, "type") else "cuda",
+            enabled=False,
+        ):
+            return causal_id_loss(
+                correct_images.float(),
+                null_images.float(),
+                wrong_images.float(),
+                target_landmarks=getattr(self, "_ba_target_landmarks", None),
+                target_bboxes=bboxes,
+                reference_images=ref_images,
+                reference_landmarks=getattr(self, "_ba_reference_landmarks", None),
+                reference_bboxes=ref_bboxes,
+                wrong_indices=wrong_identity_indices,
+                global_negatives=self.ba_identity_dependence_global_negatives,
+                margin=self.ba_causal_margin,
+                direct_weight=self.ba_causal_direct_weight,
+                wrong_weight=self.ba_causal_wrong_weight,
+                cross_weight=self.ba_causal_cross_weight,
+                preservation_weight=self.ba_causal_preservation_weight,
+                structure_weight=self.ba_causal_structure_weight,
+                prepared_reference_embeddings=prepared_reference_embeddings,
+            )
 
     def _compute_id_loss(
         self,
@@ -877,11 +1207,15 @@ class PhotomakerBranchedLora(SDXL):
     ) -> torch.Tensor:
         mask = torch.zeros(1, 1, latent_shape[0], latent_shape[1], device=self.device)
         if bbox is None or len(bbox) < 4:
+            if self.ba_target_mask_fail_closed:
+                raise ValueError(f"Missing target face bbox: {bbox}")
             mask.fill_(1.0)
             return mask
 
         x0, y0, x1, y1 = [float(v) for v in bbox]
         if x1 <= x0 or y1 <= y0:
+            if self.ba_target_mask_fail_closed:
+                raise ValueError(f"Invalid target face bbox: {bbox}")
             mask.fill_(1.0)
             return mask
 
@@ -897,6 +1231,10 @@ class PhotomakerBranchedLora(SDXL):
         y_end = max(0, min(latent_shape[0], int(x_end_fn(y1 * scale_h))))
 
         if x_end <= x_start or y_end <= y_start:
+            if self.ba_target_mask_fail_closed:
+                raise ValueError(
+                    f"Target face bbox becomes empty at latent shape {latent_shape}: {bbox}"
+                )
             mask.fill_(1.0)
             return mask
 

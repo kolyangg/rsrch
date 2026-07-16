@@ -61,6 +61,9 @@ class IdentityLoss(nn.Module):
         )
 
     def _embed(self, faces: torch.Tensor) -> torch.Tensor:
+        # This module is attached lazily after DDP construction. Keep the
+        # frozen recognizer in evaluation mode even after parent train() calls.
+        self.net.eval()
         net_dtype = next(self.net.parameters()).dtype
         x = self._standardize(faces).to(net_dtype)
         emb = self.net(x)
@@ -134,3 +137,239 @@ class IdentityLoss(nn.Module):
             gt_emb = self._embed(torch.cat(gt_faces, dim=0))
         cos = (gen_emb * gt_emb).sum(dim=-1)
         return (1.0 - cos).mean()
+
+
+class CausalIdentityLoss(IdentityLoss):
+    """Correct/null/wrong identity-direction loss on aligned decoded faces."""
+
+    def __init__(self, face_size: int = 160, alignment_size: int = 112, device=None):
+        super().__init__(face_size=face_size, device=device)
+        self.alignment_size = int(alignment_size)
+
+    @staticmethod
+    def _warp_affine(
+        image: torch.Tensor,
+        matrix,
+        *,
+        output_size: int,
+    ) -> torch.Tensor:
+        """Differentiably warp a source image with a source->destination affine matrix."""
+        _, source_h, source_w = image.shape
+        matrix3 = torch.eye(3, device=image.device, dtype=torch.float32)
+        matrix3[:2] = torch.as_tensor(matrix, device=image.device, dtype=torch.float32)
+        inverse = torch.linalg.inv(matrix3)
+        ys, xs = torch.meshgrid(
+            torch.arange(output_size, device=image.device, dtype=torch.float32),
+            torch.arange(output_size, device=image.device, dtype=torch.float32),
+            indexing="ij",
+        )
+        destination = torch.stack([xs, ys, torch.ones_like(xs)], dim=-1)
+        source = destination @ inverse.T
+        grid = torch.stack(
+            [
+                2.0 * source[..., 0] / max(source_w - 1, 1) - 1.0,
+                2.0 * source[..., 1] / max(source_h - 1, 1) - 1.0,
+            ],
+            dim=-1,
+        )
+        return F.grid_sample(
+            image.unsqueeze(0),
+            grid.unsqueeze(0),
+            mode="bilinear",
+            padding_mode="border",
+            align_corners=True,
+        )
+
+    def _aligned_face(self, image: torch.Tensor, landmarks, bbox) -> torch.Tensor | None:
+        if landmarks is not None:
+            from insightface.utils import face_align
+
+            kps = np.asarray(landmarks, dtype=np.float32)
+            if kps.shape == (5, 2) and np.isfinite(kps).all():
+                matrix, _ = face_align.estimate_norm(kps, image_size=self.alignment_size)
+                aligned = self._warp_affine(
+                    image,
+                    matrix,
+                    output_size=self.alignment_size,
+                )
+                return F.interpolate(
+                    aligned,
+                    size=(self.face_size, self.face_size),
+                    mode="bilinear",
+                    align_corners=False,
+                )
+        return self._crop_resize(
+            image,
+            bbox,
+            int(image.shape[-2]),
+            int(image.shape[-1]),
+        )
+
+    @staticmethod
+    def _normalize_items(items, batch_size):
+        if items is None:
+            return [None] * batch_size
+        items = list(items)
+        if len(items) == 1 and batch_size > 1:
+            items = items * batch_size
+        if len(items) != batch_size:
+            raise ValueError(f"Expected {batch_size} metadata items, got {len(items)}")
+        return items
+
+    def _generated_faces(self, images, landmarks, bboxes):
+        batch_size = images.shape[0]
+        landmarks = self._normalize_items(landmarks, batch_size)
+        bboxes = self._normalize_items(bboxes, batch_size)
+        faces = [
+            self._aligned_face(images[i], landmarks[i], bboxes[i])
+            for i in range(batch_size)
+        ]
+        if any(face is None for face in faces):
+            raise ValueError("Causal identity loss received an invalid generated face crop")
+        return torch.cat(faces, dim=0)
+
+    def _reference_faces(self, images, landmarks, bboxes, *, device):
+        images = list(images)
+        batch_size = len(images)
+        landmarks = self._normalize_items(landmarks, batch_size)
+        bboxes = self._normalize_items(bboxes, batch_size)
+        faces = []
+        for image, kps, bbox in zip(images, landmarks, bboxes):
+            tensor = self._reference_tensor(image, device=device)
+            face = self._aligned_face(tensor, kps, bbox)
+            if face is None:
+                raise ValueError("Causal identity loss received an invalid reference face crop")
+            faces.append(face)
+        return torch.cat(faces, dim=0)
+
+    @torch.no_grad()
+    def prepare_reference_embeddings(
+        self,
+        images,
+        landmarks,
+        bboxes,
+        *,
+        device,
+        global_negatives: bool,
+    ):
+        local = self._embed(
+            self._reference_faces(images, landmarks, bboxes, device=device)
+        )
+        candidates = local
+        if (
+            global_negatives
+            and torch.distributed.is_available()
+            and torch.distributed.is_initialized()
+        ):
+            gathered = [
+                torch.empty_like(local)
+                for _ in range(torch.distributed.get_world_size())
+            ]
+            torch.distributed.all_gather(gathered, local)
+            candidates = torch.cat(gathered, dim=0)
+        return local, candidates
+
+    def forward(
+        self,
+        correct_images: torch.Tensor,
+        null_images: torch.Tensor,
+        wrong_images: torch.Tensor,
+        *,
+        target_landmarks,
+        target_bboxes,
+        reference_images,
+        reference_landmarks,
+        reference_bboxes,
+        wrong_indices: torch.Tensor,
+        global_negatives: bool,
+        margin: float,
+        direct_weight: float,
+        wrong_weight: float,
+        cross_weight: float,
+        preservation_weight: float,
+        structure_weight: float,
+        prepared_reference_embeddings=None,
+    ):
+        correct_faces = self._generated_faces(
+            correct_images, target_landmarks, target_bboxes
+        )
+        null_faces = self._generated_faces(
+            null_images, target_landmarks, target_bboxes
+        )
+        wrong_faces = self._generated_faces(
+            wrong_images, target_landmarks, target_bboxes
+        )
+
+        correct_embeddings = self._embed(correct_faces)
+        wrong_embeddings = self._embed(wrong_faces)
+        with torch.no_grad():
+            null_embeddings = self._embed(null_faces)
+            if prepared_reference_embeddings is None:
+                reference_embeddings, candidates = self.prepare_reference_embeddings(
+                    reference_images,
+                    reference_landmarks,
+                    reference_bboxes,
+                    device=correct_images.device,
+                    global_negatives=global_negatives,
+                )
+            else:
+                reference_embeddings, candidates = prepared_reference_embeddings
+            wrong_reference_embeddings = candidates.index_select(
+                0, wrong_indices.to(device=candidates.device, dtype=torch.long)
+            )
+
+        sim_correct_correct = (correct_embeddings * reference_embeddings).sum(dim=-1)
+        sim_null_correct = (null_embeddings * reference_embeddings).sum(dim=-1)
+        sim_wrong_wrong = (wrong_embeddings * wrong_reference_embeddings).sum(dim=-1)
+        sim_null_wrong = (null_embeddings * wrong_reference_embeddings).sum(dim=-1)
+        sim_correct_wrong = (correct_embeddings * wrong_reference_embeddings).sum(dim=-1)
+        sim_wrong_correct = (wrong_embeddings * reference_embeddings).sum(dim=-1)
+
+        correct_gain = sim_correct_correct - sim_null_correct
+        wrong_gain = sim_wrong_wrong - sim_null_wrong
+        correct_rank = F.relu(float(margin) - correct_gain).mean()
+        wrong_rank = F.relu(float(margin) - wrong_gain).mean()
+        correct_cross_rank = F.relu(
+            float(margin) + sim_correct_wrong - sim_correct_correct
+        ).mean()
+        wrong_cross_rank = F.relu(
+            float(margin) + sim_wrong_correct - sim_wrong_wrong
+        ).mean()
+        cross_rank = 0.5 * (correct_cross_rank + wrong_cross_rank)
+        direct = (1.0 - sim_correct_correct).mean()
+
+        pooled_correct = F.adaptive_avg_pool2d(correct_faces, output_size=(16, 16))
+        pooled_null = F.adaptive_avg_pool2d(null_faces.detach(), output_size=(16, 16))
+        chroma_correct = pooled_correct - pooled_correct.mean(dim=1, keepdim=True)
+        chroma_null = pooled_null - pooled_null.mean(dim=1, keepdim=True)
+        preservation = F.l1_loss(chroma_correct, chroma_null)
+        gray_correct = pooled_correct.mean(dim=1, keepdim=True)
+        gray_null = pooled_null.mean(dim=1, keepdim=True)
+        structure = 0.5 * (
+            F.l1_loss(
+                gray_correct[..., 1:, :] - gray_correct[..., :-1, :],
+                gray_null[..., 1:, :] - gray_null[..., :-1, :],
+            )
+            + F.l1_loss(
+                gray_correct[..., :, 1:] - gray_correct[..., :, :-1],
+                gray_null[..., :, 1:] - gray_null[..., :, :-1],
+            )
+        )
+
+        loss = (
+            correct_rank
+            + float(wrong_weight) * wrong_rank
+            + float(cross_weight) * cross_rank
+            + float(direct_weight) * direct
+            + float(preservation_weight) * preservation
+            + float(structure_weight) * structure
+        )
+        return {
+            "loss": loss,
+            "correct_gain": correct_gain.mean(),
+            "wrong_gain": wrong_gain.mean(),
+            "correct_similarity": sim_correct_correct.mean(),
+            "wrong_similarity": sim_wrong_wrong.mean(),
+            "preservation": preservation,
+            "structure": structure,
+        }

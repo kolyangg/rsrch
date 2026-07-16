@@ -60,7 +60,10 @@ Useful overrides:
 # Select different steps for every configured run.
 python comet_utils/download_full_validation.py --config <config.json> --steps 2000 10000
 
-# Re-download existing valid images or recompute existing complete metric records.
+# Force a complete refresh of runs that are already locally complete.
+python comet_utils/download_full_validation.py --config <config.json> --force-update
+
+# More selective refreshes.
 python comet_utils/download_full_validation.py --config <config.json> --force-download
 python comet_utils/download_full_validation.py --config <config.json> --force-metrics
 
@@ -68,7 +71,16 @@ python comet_utils/download_full_validation.py --config <config.json> --force-me
 python comet_utils/download_full_validation.py --config <config.json> --skip-local-metrics
 ```
 
-Rerunning is resumable by default: valid existing images and complete per-image metric records are reused. `clean_step_dirs=true` is an explicit destructive option for configured step folders.
+Rerunning is resumable by default. If every requested step for a run has the exact
+valid 96-image set and a complete per-image metric record, that run is skipped before
+any Comet API request or local metric initialization. Incomplete runs retain partial
+recovery: valid images and complete metric records are reused while missing work is
+filled. Use `--force-update` to bypass the whole-run cache, re-download images, and
+recompute metrics. `clean_step_dirs=true` is an explicit destructive option for
+configured step folders.
+
+When every configured run is complete, the cache check also works without
+`COMET_API_KEY`. A key is requested only if at least one run needs Comet access.
 
 ## Output
 

@@ -1,0 +1,141 @@
+# N31/N32/N33 checkpoint evolution against PhotoMaker and key BA controls.
+
+results_dir: full_validation_results
+refs_dir: ../dataset_full/val_dataset/references
+prompts: ../dataset_full/val_dataset/prompts_10.txt
+classes: ../dataset_full/val_dataset/classes_ref.json
+out_pdf: full_validation_results/ba_n31_n32_n33_16Jul/full_val_report_N31_N32_N33_vs_key.pdf
+saved_dir: saved
+title: N31 identity dependence, N32 face-patch resampler, and N33 continuation
+trigger_word: img
+require_complete_grid: true
+
+runs:
+  - photomaker_baseline
+  - ba_nr_alt_N3a
+  - ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000
+  - ba_qformer_idtokens_N29/ba_qformer_idtokens_N29_step10000
+  - ba_identity_dependence_4gpu_N31/ba_identity_dependence_4gpu_N31_step2000
+  - ba_identity_dependence_4gpu_N31/ba_identity_dependence_4gpu_N31_step6000
+  - ba_identity_dependence_4gpu_N31/ba_identity_dependence_4gpu_N31_step10000
+  - ba_identity_dependence_4gpu_N31/ba_identity_dependence_4gpu_N31_step12000
+  - ba_facepatch_resampler_N32/ba_facepatch_resampler_N32_step2000
+  - ba_facepatch_resampler_N32/ba_facepatch_resampler_N32_step6000
+  - ba_facepatch_resampler_N32/ba_facepatch_resampler_N32_step10000
+  - ba_facepatch_resampler_N32/ba_facepatch_resampler_N32_step16000
+  - ba_qformer_continue40k_N33/ba_qformer_continue40k_N33_step14000
+  - ba_qformer_continue40k_N33/ba_qformer_continue40k_N33_step20000
+  - ba_qformer_continue40k_N33/ba_qformer_continue40k_N33_step24000
+  - ba_qformer_continue40k_N33/ba_qformer_continue40k_N33_step26000
+
+labels:
+  photomaker_baseline: PhotoMaker V2
+  ba_nr_alt_N3a: N3a hard BA 10k
+  ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000: N24 dual gate 10k
+  ba_qformer_idtokens_N29/ba_qformer_idtokens_N29_step10000: N29 QFormer 10k
+  ba_identity_dependence_4gpu_N31/ba_identity_dependence_4gpu_N31_step2000: N31 dependence 2k
+  ba_identity_dependence_4gpu_N31/ba_identity_dependence_4gpu_N31_step6000: N31 dependence 6k
+  ba_identity_dependence_4gpu_N31/ba_identity_dependence_4gpu_N31_step10000: N31 dependence 10k
+  ba_identity_dependence_4gpu_N31/ba_identity_dependence_4gpu_N31_step12000: N31 dependence 12k
+  ba_facepatch_resampler_N32/ba_facepatch_resampler_N32_step2000: N32 resampler 2k
+  ba_facepatch_resampler_N32/ba_facepatch_resampler_N32_step6000: N32 resampler 6k
+  ba_facepatch_resampler_N32/ba_facepatch_resampler_N32_step10000: N32 resampler 10k
+  ba_facepatch_resampler_N32/ba_facepatch_resampler_N32_step16000: N32 resampler 16k
+  ba_qformer_continue40k_N33/ba_qformer_continue40k_N33_step14000: N33 continuation 14k
+  ba_qformer_continue40k_N33/ba_qformer_continue40k_N33_step20000: N33 continuation 20k
+  ba_qformer_continue40k_N33/ba_qformer_continue40k_N33_step24000: N33 continuation 24k
+  ba_qformer_continue40k_N33/ba_qformer_continue40k_N33_step26000: N33 continuation 26k
+
+metrics_sources:
+  photomaker_baseline: {path: full_validation_results/metrics_photomaker_baseline.json, key: photomaker_baseline}
+  ba_nr_alt_N3a: {path: full_validation_results/metrics.json, key: ba_nr_alt_N3a}
+  ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000: {path: full_validation_results/ba_dualgate_train_N24_steps/metrics_ba_dualgate_train_N24_steps.json, key: ba_dualgate_train_N24_step10000}
+  ba_qformer_idtokens_N29/ba_qformer_idtokens_N29_step10000: {path: full_validation_results/ba_qformer_idtokens_N29/metrics_ba_qformer_idtokens_N29_steps.json, key: ba_qformer_idtokens_N29_step10000}
+  ba_identity_dependence_4gpu_N31/ba_identity_dependence_4gpu_N31_step2000: {path: full_validation_results/ba_identity_dependence_4gpu_N31/metrics_ba_identity_dependence_4gpu_N31_steps.json, key: ba_identity_dependence_4gpu_N31_step2000}
+  ba_identity_dependence_4gpu_N31/ba_identity_dependence_4gpu_N31_step6000: {path: full_validation_results/ba_identity_dependence_4gpu_N31/metrics_ba_identity_dependence_4gpu_N31_steps.json, key: ba_identity_dependence_4gpu_N31_step6000}
+  ba_identity_dependence_4gpu_N31/ba_identity_dependence_4gpu_N31_step10000: {path: full_validation_results/ba_identity_dependence_4gpu_N31/metrics_ba_identity_dependence_4gpu_N31_steps.json, key: ba_identity_dependence_4gpu_N31_step10000}
+  ba_identity_dependence_4gpu_N31/ba_identity_dependence_4gpu_N31_step12000: {path: full_validation_results/ba_identity_dependence_4gpu_N31/metrics_ba_identity_dependence_4gpu_N31_steps.json, key: ba_identity_dependence_4gpu_N31_step12000}
+  ba_facepatch_resampler_N32/ba_facepatch_resampler_N32_step2000: {path: full_validation_results/ba_facepatch_resampler_N32/metrics_ba_facepatch_resampler_N32_steps.json, key: ba_facepatch_resampler_N32_step2000}
+  ba_facepatch_resampler_N32/ba_facepatch_resampler_N32_step6000: {path: full_validation_results/ba_facepatch_resampler_N32/metrics_ba_facepatch_resampler_N32_steps.json, key: ba_facepatch_resampler_N32_step6000}
+  ba_facepatch_resampler_N32/ba_facepatch_resampler_N32_step10000: {path: full_validation_results/ba_facepatch_resampler_N32/metrics_ba_facepatch_resampler_N32_steps.json, key: ba_facepatch_resampler_N32_step10000}
+  ba_facepatch_resampler_N32/ba_facepatch_resampler_N32_step16000: {path: full_validation_results/ba_facepatch_resampler_N32/metrics_ba_facepatch_resampler_N32_steps.json, key: ba_facepatch_resampler_N32_step16000}
+  ba_qformer_continue40k_N33/ba_qformer_continue40k_N33_step14000: {path: full_validation_results/ba_qformer_continue40k_N33/metrics_ba_qformer_continue40k_N33_steps.json, key: ba_qformer_continue40k_N33_step14000}
+  ba_qformer_continue40k_N33/ba_qformer_continue40k_N33_step20000: {path: full_validation_results/ba_qformer_continue40k_N33/metrics_ba_qformer_continue40k_N33_steps.json, key: ba_qformer_continue40k_N33_step20000}
+  ba_qformer_continue40k_N33/ba_qformer_continue40k_N33_step24000: {path: full_validation_results/ba_qformer_continue40k_N33/metrics_ba_qformer_continue40k_N33_steps.json, key: ba_qformer_continue40k_N33_step24000}
+  ba_qformer_continue40k_N33/ba_qformer_continue40k_N33_step26000: {path: full_validation_results/ba_qformer_continue40k_N33/metrics_ba_qformer_continue40k_N33_steps.json, key: ba_qformer_continue40k_N33_step26000}
+
+run_config_overrides:
+  photomaker_baseline: &pm
+    report: {method: PhotoMaker only, target_path: standard PM, BA_memory: none, spatial_ref_UNet: no, fusion: none, global_batch: n/a, approximate_samples: n/a}
+    model: {ba_ca_mode: standard, ba_pm_preservation_mode: native, ba_identity_dependence_mode: none, use_id_loss: false}
+  ba_nr_alt_N3a:
+    report: {method: hard spatial BA, target_path: absolute branched output, BA_memory: full reference latent/grid, spatial_ref_UNet: yes, fusion: hard hidden-state replacement, global_batch: 2, approximate_samples: 20k}
+    model: {ba_ca_mode: legacy_ref_branch, ba_pm_preservation_mode: none, ba_identity_dependence_mode: none, use_id_loss: false}
+  ba_dualgate_train_N24_steps/ba_dualgate_train_N24_step10000:
+    report: {method: learned dual gate, target_path: gated PM/ref absolute outputs, BA_memory: full reference grid, spatial_ref_UNet: yes, fusion: learned absolute-output gate, global_batch: 2, approximate_samples: 20k}
+    model: {ba_ca_mode: legacy_ref_branch, ba_pm_preservation_mode: none, ba_identity_dependence_mode: none, use_id_loss: true}
+  ba_qformer_idtokens_N29/ba_qformer_idtokens_N29_step10000: &n29
+    report: {method: target-only QFormer residual, target_path: PM plus hard-face delta, BA_memory: 2 frozen PM QFormer tokens, spatial_ref_UNet: no, fusion: zero-init CA residual, global_batch: 2, approximate_samples: 20k}
+    model: {ba_ca_mode: target_face_residual, ba_identity_memory_mode: qformer_tokens, ba_identity_token_count: 2, ba_pm_preservation_mode: hard_epsilon_merge, ba_identity_dependence_mode: none, use_id_loss: true}
+  ba_identity_dependence_4gpu_N31/ba_identity_dependence_4gpu_N31_step2000: &n31_2
+    report: {method: QFormer plus correct/wrong ranking, target_path: PM plus hard-face delta, BA_memory: 2 frozen PM QFormer tokens, spatial_ref_UNet: no, fusion: zero-init CA residual, global_batch: 8, approximate_samples: 16k}
+    model: {ba_ca_mode: target_face_residual, ba_identity_memory_mode: qformer_tokens, ba_identity_token_count: 2, ba_pm_preservation_mode: hard_epsilon_merge, ba_identity_dependence_mode: paired_wrong_reference, ba_identity_dependence_weight: 0.25, ba_identity_dependence_margin: 0.02, use_id_loss: true}
+  ba_identity_dependence_4gpu_N31/ba_identity_dependence_4gpu_N31_step6000:
+    <<: *n31_2
+    report: {method: QFormer plus correct/wrong ranking, target_path: PM plus hard-face delta, BA_memory: 2 frozen PM QFormer tokens, spatial_ref_UNet: no, fusion: zero-init CA residual, global_batch: 8, approximate_samples: 48k}
+  ba_identity_dependence_4gpu_N31/ba_identity_dependence_4gpu_N31_step10000:
+    <<: *n31_2
+    report: {method: QFormer plus correct/wrong ranking, target_path: PM plus hard-face delta, BA_memory: 2 frozen PM QFormer tokens, spatial_ref_UNet: no, fusion: zero-init CA residual, global_batch: 8, approximate_samples: 80k}
+  ba_identity_dependence_4gpu_N31/ba_identity_dependence_4gpu_N31_step12000:
+    <<: *n31_2
+    report: {method: QFormer plus correct/wrong ranking, target_path: PM plus hard-face delta, BA_memory: 2 frozen PM QFormer tokens, spatial_ref_UNet: no, fusion: zero-init CA residual, global_batch: 8, approximate_samples: 96k}
+  ba_facepatch_resampler_N32/ba_facepatch_resampler_N32_step2000: &n32_2
+    report: {method: face-patch resampler residual, target_path: PM plus hard-face delta, BA_memory: 8 learned face-patch queries, spatial_ref_UNet: no, fusion: zero-init CA residual, global_batch: 2, approximate_samples: 4k}
+    model: {ba_ca_mode: target_face_residual, ba_identity_memory_mode: face_patch_resampler, ba_identity_token_count: 8, ba_pm_preservation_mode: hard_epsilon_merge, ba_identity_dependence_mode: none, use_id_loss: true}
+  ba_facepatch_resampler_N32/ba_facepatch_resampler_N32_step6000:
+    <<: *n32_2
+    report: {method: face-patch resampler residual, target_path: PM plus hard-face delta, BA_memory: 8 learned face-patch queries, spatial_ref_UNet: no, fusion: zero-init CA residual, global_batch: 2, approximate_samples: 12k}
+  ba_facepatch_resampler_N32/ba_facepatch_resampler_N32_step10000:
+    <<: *n32_2
+    report: {method: face-patch resampler residual, target_path: PM plus hard-face delta, BA_memory: 8 learned face-patch queries, spatial_ref_UNet: no, fusion: zero-init CA residual, global_batch: 2, approximate_samples: 20k}
+  ba_facepatch_resampler_N32/ba_facepatch_resampler_N32_step16000:
+    <<: *n32_2
+    report: {method: face-patch resampler residual, target_path: PM plus hard-face delta, BA_memory: 8 learned face-patch queries, spatial_ref_UNet: no, fusion: zero-init CA residual, global_batch: 2, approximate_samples: 32k}
+  ba_qformer_continue40k_N33/ba_qformer_continue40k_N33_step14000: &n33_14
+    report: {method: unchanged N29 continuation, target_path: PM plus hard-face delta, BA_memory: 2 frozen PM QFormer tokens, spatial_ref_UNet: no, fusion: zero-init CA residual, global_batch: 2, approximate_samples: 28k}
+    model: {ba_ca_mode: target_face_residual, ba_identity_memory_mode: qformer_tokens, ba_identity_token_count: 2, ba_pm_preservation_mode: hard_epsilon_merge, ba_identity_dependence_mode: none, use_id_loss: true}
+  ba_qformer_continue40k_N33/ba_qformer_continue40k_N33_step20000:
+    <<: *n33_14
+    report: {method: unchanged N29 continuation, target_path: PM plus hard-face delta, BA_memory: 2 frozen PM QFormer tokens, spatial_ref_UNet: no, fusion: zero-init CA residual, global_batch: 2, approximate_samples: 40k}
+  ba_qformer_continue40k_N33/ba_qformer_continue40k_N33_step24000:
+    <<: *n33_14
+    report: {method: unchanged N29 continuation, target_path: PM plus hard-face delta, BA_memory: 2 frozen PM QFormer tokens, spatial_ref_UNet: no, fusion: zero-init CA residual, global_batch: 2, approximate_samples: 48k}
+  ba_qformer_continue40k_N33/ba_qformer_continue40k_N33_step26000:
+    <<: *n33_14
+    report: {method: unchanged N29 continuation, target_path: PM plus hard-face delta, BA_memory: 2 frozen PM QFormer tokens, spatial_ref_UNet: no, fusion: zero-init CA residual, global_batch: 2, approximate_samples: 52k}
+
+config_criteria:
+  - {label: method, path: report.method}
+  - {label: checkpoint step, path: metric.step}
+  - {label: mean ID sim (secondary), path: metric.mean_id_sim}
+  - {label: approximate training samples seen, path: report.approximate_samples}
+  - {label: global training batch, path: report.global_batch}
+  - {label: target generation path, path: report.target_path}
+  - {label: BA identity memory, path: report.BA_memory}
+  - {label: spatial reference UNet branch, path: report.spatial_ref_UNet}
+  - {label: fusion form, path: report.fusion}
+  - {label: cross-attention mode, path: model.ba_ca_mode}
+  - {label: identity memory mode, path: model.ba_identity_memory_mode}
+  - {label: identity token count, path: model.ba_identity_token_count}
+  - {label: hard PM epsilon preservation, path: model.ba_pm_preservation_mode}
+  - {label: identity-dependence objective, path: model.ba_identity_dependence_mode}
+  - {label: dependence weight, path: model.ba_identity_dependence_weight}
+  - {label: dependence margin, path: model.ba_identity_dependence_margin}
+  - {label: decoded ID loss, path: model.use_id_loss}
+
+cell_px: 170
+label_px: 220
+config_row_px: 62
+config_label_px: 260
+config_col_px: 155
+dpi: 150

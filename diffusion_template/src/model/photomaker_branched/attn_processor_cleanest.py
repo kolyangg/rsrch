@@ -26,7 +26,8 @@ class ZeroInitResidualProjection(nn.Module):
         nn.init.zeros_(self.up.weight)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        return self.up(self.down(hidden_states))
+        dtype = self.down.weight.dtype
+        return self.up(self.down(hidden_states.to(dtype=dtype)))
 
 
 class BranchLoRALinear(nn.Module):
@@ -50,10 +51,16 @@ class BranchLoRALinear(nn.Module):
         nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return F.linear(x, self.base_weight, self.base_bias) + F.linear(
-            F.linear(x, self.lora_A),
+        base = F.linear(
+            x.to(dtype=self.base_weight.dtype),
+            self.base_weight,
+            self.base_bias,
+        )
+        delta = F.linear(
+            F.linear(x.to(dtype=self.lora_A.dtype), self.lora_A),
             self.lora_B,
         ) * self.scaling
+        return base.to(dtype=delta.dtype) + delta
 
 
 def _clone_effective_linear(
@@ -98,6 +105,18 @@ def _clone_effective_linear(
             if base.bias is not None:
                 cloned.base_bias.copy_(base.bias.detach())
     return cloned
+
+
+def _linear_forward(layer, hidden_states: torch.Tensor) -> torch.Tensor:
+    """Run mixed-precision trainable clones without changing frozen UNet dtype."""
+    if isinstance(layer, BranchLoRALinear):
+        return layer(hidden_states)
+    weight = getattr(layer, "weight", None)
+    if weight is None and hasattr(layer, "get_base_layer"):
+        weight = layer.get_base_layer().weight
+    if weight is None:
+        return layer(hidden_states)
+    return layer(hidden_states.to(dtype=weight.dtype))
 
 
 def _branch_batch_sizes(mask, total_batch):
@@ -778,6 +797,9 @@ class BranchedCrossAttnProcessor(nn.Module):
         ba_identity_token_count: int = 4,
         ba_identity_memory_mode: str = "mean_plus_basis",
         ba_hard_mask_resize: str = "legacy_threshold",
+        ba_face_gate_mode: str = "legacy_scalar",
+        ba_face_gate_init: float = 1.0,
+        ba_face_gate_max: float = 1.0,
     ):
         super().__init__()
         
@@ -795,12 +817,19 @@ class BranchedCrossAttnProcessor(nn.Module):
         self.ba_identity_token_count = max(1, int(ba_identity_token_count))
         self.ba_identity_memory_mode = str(ba_identity_memory_mode or "mean_plus_basis").lower()
         self.ba_hard_mask_resize = str(ba_hard_mask_resize or "legacy_threshold").lower()
+        self.ba_face_gate_mode = str(ba_face_gate_mode or "legacy_scalar").lower()
+        self.ba_face_gate_init = float(ba_face_gate_init)
+        self.ba_face_gate_max = float(ba_face_gate_max)
         if self.ba_ca_mode not in {"legacy_ref_branch", "target_face_residual"}:
             raise ValueError(f"Unknown ba_ca_mode: {self.ba_ca_mode}")
         if self.ba_identity_memory_mode not in {
-            "mean_plus_basis", "qformer_tokens", "face_patch_resampler"
+            "mean_plus_basis", "qformer_tokens", "face_patch_resampler", "canonical_face_parts"
         }:
             raise ValueError(f"Unknown ba_identity_memory_mode: {self.ba_identity_memory_mode}")
+        if self.ba_face_gate_mode not in {"legacy_scalar", "bounded_sigmoid"}:
+            raise ValueError(f"Unknown ba_face_gate_mode: {self.ba_face_gate_mode}")
+        if self.ba_face_gate_max <= 0:
+            raise ValueError("ba_face_gate_max must be positive")
         
         self.mask = None
         self.mask_ref = None
@@ -881,7 +910,24 @@ class BranchedCrossAttnProcessor(nn.Module):
             self.face_delta_out = ZeroInitResidualProjection(
                 self.hidden_size, self.branched_attn_lora_rank
             ).to(device=device, dtype=dtype)
-            self.face_residual_gate = nn.Parameter(torch.ones(1, device=device, dtype=dtype))
+            if self.ba_face_gate_mode == "bounded_sigmoid":
+                ratio = min(
+                    max(self.ba_face_gate_init / self.ba_face_gate_max, 1e-4),
+                    1.0 - 1e-4,
+                )
+                raw_init = math.log(ratio / (1.0 - ratio))
+                self.face_residual_gate = nn.Parameter(
+                    torch.full((1,), raw_init, device=device, dtype=dtype)
+                )
+            else:
+                self.face_residual_gate = nn.Parameter(
+                    torch.full((1,), self.ba_face_gate_init, device=device, dtype=dtype)
+                )
+
+    def effective_face_residual_gate(self) -> torch.Tensor:
+        if self.ba_face_gate_mode == "bounded_sigmoid":
+            return self.ba_face_gate_max * torch.sigmoid(self.face_residual_gate)
+        return self.face_residual_gate
 
     def _q_noise(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
         layer = self.noise_to_q if self.noise_to_q is not None else attn.to_q
@@ -938,7 +984,9 @@ class BranchedCrossAttnProcessor(nn.Module):
             device=normalized.device, dtype=normalized.dtype
         )
 
-        id_embeds = self.id_embeds.to(device=normalized.device, dtype=normalized.dtype)
+        target_param = next(self.target_id_to_k.parameters(), None)
+        identity_dtype = target_param.dtype if target_param is not None else normalized.dtype
+        id_embeds = self.id_embeds.to(device=normalized.device, dtype=identity_dtype)
         if id_embeds.ndim not in {2, 3} or id_embeds.shape[-1] != self.cross_attention_dim:
             raise ValueError(f"Unsupported identity memory shape: {tuple(id_embeds.shape)}")
         if id_embeds.shape[0] != batch_size:
@@ -949,7 +997,9 @@ class BranchedCrossAttnProcessor(nn.Module):
             id_embeds = id_embeds.repeat(
                 (batch_size // id_embeds.shape[0],) + (1,) * (id_embeds.ndim - 1)
             )
-        if self.ba_identity_memory_mode in {"qformer_tokens", "face_patch_resampler"}:
+        if self.ba_identity_memory_mode in {
+            "qformer_tokens", "face_patch_resampler", "canonical_face_parts"
+        }:
             if id_embeds.ndim != 3:
                 raise ValueError(f"Token identity memory expects [B,T,D], got {tuple(id_embeds.shape)}")
             if id_embeds.shape[1] != self.ba_identity_token_count:
@@ -969,8 +1019,10 @@ class BranchedCrossAttnProcessor(nn.Module):
 
         num_heads = int(attn.heads)
         query = attn.to_q(normalized)
-        key = self.target_id_to_k(id_tokens)
-        value = self.target_id_to_v(id_tokens)
+        key = _linear_forward(self.target_id_to_k, id_tokens)
+        value = _linear_forward(self.target_id_to_v, id_tokens)
+        query = query.to(dtype=key.dtype)
+        value = value.to(dtype=key.dtype)
         head_dim = int(key.shape[-1]) // num_heads
         query = query.view(batch_size, -1, num_heads, head_dim).transpose(1, 2)
         key = key.view(batch_size, -1, num_heads, head_dim).transpose(1, 2)
@@ -979,7 +1031,11 @@ class BranchedCrossAttnProcessor(nn.Module):
             query, key, value, dropout_p=0.0, is_causal=False
         )
         face_hidden = face_hidden.transpose(1, 2).reshape(batch_size, seq_len, -1)
-        face_delta = self.face_delta_out(face_hidden) * self.face_residual_gate.to(face_hidden.dtype)
+        gate = self.effective_face_residual_gate().to(
+            device=face_hidden.device, dtype=face_hidden.dtype
+        )
+        face_delta = self.face_delta_out(face_hidden) * gate
+        face_delta = face_delta * has_identity.reshape(batch_size, 1, 1).to(face_delta.dtype)
         face_delta = face_delta * mask_gate.squeeze(1)
         if pm_out.ndim == 4:
             _, channels, height, width = pm_out.shape

@@ -12,6 +12,7 @@ from diffusers import DDIMScheduler
 from transformers import CLIPImageProcessor
 
 from src.model.photomaker_branched.branched_runtime import (
+    compose_post_cfg_identity_delta,
     encode_face_prompt,
     hard_epsilon_merge,
     target_face_predict,
@@ -28,6 +29,8 @@ from src.model.photomaker_branched.debug_helpers import (
 from src.model.photomaker_branched.insightface_package import analyze_faces, create_face_analyzer
 from src.model.photomaker_branched.identity_memory import (
     bbox_normalized_reference,
+    canonical_aligned_reference,
+    canonical_face_part_features,
     reference_bbox_to_clip_patch_mask,
 )
 
@@ -170,17 +173,31 @@ def ensure_id_embeds(
     dtype: torch.dtype,
 ) -> torch.FloatTensor:
     #### 08 MAR - FIX BATCHED VALIDATION ####
-    def _normalize_id_embeds(x: torch.FloatTensor) -> torch.FloatTensor:
+    def _reshape_id_embeds(x: torch.FloatTensor) -> torch.FloatTensor:
         if x.dim() == 1:
             x = x.unsqueeze(0).unsqueeze(0)
         elif x.dim() == 2:
             x = x.unsqueeze(1)
         elif x.dim() != 3:
             raise ValueError(f"Unsupported id_embeds shape: {tuple(x.shape)}")
-        return x.to(device=device, dtype=dtype)
+        return x
 
+    def _normalize_id_embeds(x: torch.FloatTensor) -> torch.FloatTensor:
+        return _reshape_id_embeds(x).to(device=device, dtype=dtype)
+
+    provided_id_embeds = (
+        _normalize_id_embeds(id_embeds) if id_embeds is not None else None
+    )
     if id_embeds is not None:
-        return _normalize_id_embeds(id_embeds)
+        pipeline._ba_identity_embeds_fp32 = _reshape_id_embeds(id_embeds).to(
+            device=device, dtype=torch.float32
+        )
+    if (
+        provided_id_embeds is not None
+        and getattr(pipeline, "ba_identity_memory_mode", "mean_plus_basis")
+        != "canonical_face_parts"
+    ):
+        return provided_id_embeds
 
     ensure_face_analyzer(pipeline)
 
@@ -200,6 +217,7 @@ def ensure_id_embeds(
         refs = list(input_id_images)
 
     embeddings = []
+    reference_landmarks = []
     for ref in refs:
         if isinstance(ref, torch.Tensor):
             ref_img = ref.detach().cpu()
@@ -215,16 +233,32 @@ def ensure_id_embeds(
         faces = analyze_faces(pipeline._face_analyzer, img_np)
         if faces:
             embedding = torch.from_numpy(faces[0]["embedding"]).float()
+            kps = getattr(faces[0], "kps", None)
+            if kps is None:
+                try:
+                    kps = faces[0]["kps"]
+                except Exception:
+                    kps = None
         else:
+            if bool(getattr(pipeline, "ba_require_reference_face", False)):
+                raise ValueError("Reference face detection failed for identity-conditioned inference")
             embedding = torch.zeros(512, dtype=torch.float32)
+            kps = None
         embeddings.append(embedding)
+        reference_landmarks.append(
+            None if kps is None else np.asarray(kps, dtype=np.float32)
+        )
 
     stacked = torch.stack(embeddings, dim=0)
+    pipeline._ba_reference_landmarks = reference_landmarks
     if is_per_prompt:
         stacked = stacked.unsqueeze(1)
     else:
         stacked = stacked.unsqueeze(0)
+    pipeline._ba_identity_embeds_fp32 = stacked.to(device=device, dtype=torch.float32)
     #### 08 MAR - FIX BATCHED VALIDATION ####
+    if provided_id_embeds is not None:
+        return provided_id_embeds
     return stacked.to(device=device, dtype=dtype)
 
 
@@ -427,7 +461,7 @@ def prepare_id_features(
         boxes = None
         needs_reference_geometry = (
             getattr(pipeline, "ba_identity_image_mode", "full_reference") == "bbox_normalized"
-            or memory_mode == "face_patch_resampler"
+            or memory_mode in {"face_patch_resampler", "canonical_face_parts"}
         )
         if needs_reference_geometry:
             refs = list(input_id_images) if isinstance(input_id_images, (list, tuple)) else [input_id_images]
@@ -489,12 +523,59 @@ def prepare_id_features(
                     f"Reference patch mask has {patch_masks.shape[1]} entries, "
                     f"but CLIP returned {patches.shape[1]} patches"
                 )
-            identity_embeds = id_embeds[:, 0] if id_embeds.ndim == 3 else id_embeds
+            identity_source = getattr(pipeline, "_ba_identity_embeds_fp32", id_embeds)
+            identity_embeds = (
+                identity_source[:, 0]
+                if identity_source.ndim == 3
+                else identity_source
+            )
             pm_feats = resampler(
                 patches.to(dtype=pipeline.unet.dtype),
                 identity_embeds.to(device=pipeline.device, dtype=pipeline.unet.dtype),
                 patch_masks,
             )
+        elif memory_mode == "canonical_face_parts":
+            resampler = getattr(pipeline, "ba_identity_resampler", None)
+            if resampler is None:
+                raise RuntimeError("canonical_face_parts is enabled without a resampler module")
+            if int(feature_pixels.shape[1]) != 1 or id_embeds is None:
+                raise ValueError("canonical_face_parts requires one reference and InsightFace embeddings")
+            cached_landmarks = list(getattr(pipeline, "_ba_reference_landmarks", []))
+            if len(cached_landmarks) != batch_size:
+                cached_landmarks = [None] * batch_size
+            aligned = [
+                canonical_aligned_reference(
+                    ref,
+                    landmarks=kps,
+                    bbox=box,
+                    image_size=int(getattr(pipeline, "ba_identity_canonical_size", 224)),
+                    fallback_padding=getattr(pipeline, "ba_identity_crop_padding", 0.10),
+                )
+                for ref, box, kps in zip(refs, boxes, cached_landmarks)
+            ]
+            canonical_pixels = pipeline.id_image_processor(
+                aligned, return_tensors="pt"
+            ).pixel_values.to(device=pipeline.device, dtype=pipeline.id_encoder.dtype)
+            vision_hidden = pipeline.id_encoder.vision_model(canonical_pixels)[0]
+            patches = vision_hidden[:, 1:]
+            patch_size = int(pipeline.id_encoder.config.patch_size)
+            parts = canonical_face_part_features(
+                patches,
+                grid_height=int(canonical_pixels.shape[-2]) // patch_size,
+                grid_width=int(canonical_pixels.shape[-1]) // patch_size,
+            )
+            qformer_identity = id_embeds[:, 0] if id_embeds.ndim == 3 else id_embeds
+            identity_source = getattr(pipeline, "_ba_identity_embeds_fp32", id_embeds)
+            identity_embeds = (
+                identity_source[:, 0]
+                if identity_source.ndim == 3
+                else identity_source
+            )
+            qformer = pipeline.id_encoder.qformer_perceiver(
+                qformer_identity.to(device=pipeline.device, dtype=vision_hidden.dtype),
+                vision_hidden,
+            )
+            pm_feats = resampler(parts, identity_embeds, qformer)
         else:
             feature_reduce = "tokens" if memory_mode == "qformer_tokens" else "mean"
             pm_feats = pipeline.id_encoder.extract_id_features(
@@ -503,7 +584,14 @@ def prepare_id_features(
                 class_tokens_mask=class_tokens_mask,
                 reduce=feature_reduce,
             )
-        pipeline._pm_id_embeds_2048 = pm_feats.to(device=pipeline.device, dtype=pipeline.unet.dtype)
+        identity_dtype = (
+            torch.float32
+            if str(getattr(pipeline, "ba_trainable_dtype", "model")).lower() == "fp32"
+            else pipeline.unet.dtype
+        )
+        pipeline._pm_id_embeds_2048 = pm_feats.to(
+            device=pipeline.device, dtype=identity_dtype
+        )
 
 
 def _set_unet_adapters(unet, adapter_names) -> None:
@@ -936,9 +1024,14 @@ def run_branched_step(
             device=current_prompt_embeds.device,
             dtype=current_prompt_embeds.dtype,
         )
+        identity_dtype = (
+            torch.float32
+            if str(getattr(pipeline, "ba_trainable_dtype", "model")).lower() == "fp32"
+            else current_prompt_embeds.dtype
+        )
         proc_id_embeds = proc_id_embeds.to(
             device=current_prompt_embeds.device,
-            dtype=current_prompt_embeds.dtype,
+            dtype=identity_dtype,
         )
 
     mask4_for_merge = mask4 if i >= merge_start_step else torch.zeros_like(mask4)
@@ -998,7 +1091,19 @@ def run_branched_step(
             timestep_cond=timestep_cond,
         )
     if photomaker_pred is not None:
-        noise_pred = hard_epsilon_merge(photomaker_pred, noise_pred, mask4_for_merge)
+        if getattr(pipeline, "ba_cfg_composition", "legacy_guided") == "post_cfg_delta":
+            noise_pred = compose_post_cfg_identity_delta(
+                photomaker_pred,
+                noise_pred,
+                mask4_for_merge,
+                guidance_scale=float(getattr(pipeline, "guidance_scale", 1.0)),
+                residual_scale=float(getattr(pipeline, "ba_residual_scale", 1.0)),
+                do_classifier_free_guidance=bool(
+                    getattr(pipeline, "do_classifier_free_guidance", False)
+                ),
+            )
+        else:
+            noise_pred = hard_epsilon_merge(photomaker_pred, noise_pred, mask4_for_merge)
 
     if _val_debug_enabled(pipeline) and i < (branched_attn_start_step + 3):
         print(
@@ -1206,7 +1311,14 @@ def run_denoising_step(
 def cleanup_branched_runtime(pipeline, *, use_branched_attention: bool) -> None:
     del use_branched_attention
     set_validation_unet_mode(pipeline, branched_active=False)
-    for attr in ["_reference_latents", "_face_prompt_embeds", "_ref_latents_all", "_ref_noise"]:
+    for attr in [
+        "_reference_latents",
+        "_face_prompt_embeds",
+        "_ref_latents_all",
+        "_ref_noise",
+        "_ba_reference_landmarks",
+        "_ba_identity_embeds_fp32",
+    ]:
         if hasattr(pipeline, attr):
             delattr(pipeline, attr)
 
@@ -1322,8 +1434,17 @@ def build_pipeline_from_pretrained(
         ("ba_identity_image_mode", "full_reference"),
         ("ba_identity_crop_padding", 0.10),
         ("ba_identity_patch_padding", 0.0),
+        ("ba_identity_canonical_size", 224),
         ("ba_pm_preservation_mode", "none"),
         ("ba_hard_mask_resize", "legacy_threshold"),
+        ("ba_ca_layer_allowlist", None),
+        ("ba_trainable_dtype", "model"),
+        ("ba_face_gate_mode", "legacy_scalar"),
+        ("ba_face_gate_init", 1.0),
+        ("ba_face_gate_max", 1.0),
+        ("ba_cfg_composition", "legacy_guided"),
+        ("ba_residual_scale", 1.0),
+        ("ba_require_reference_face", False),
         ("disable_reference_spatial_branch", False),
     ):
         setattr(pipeline, attr, getattr(unwrapped_model, attr, default))

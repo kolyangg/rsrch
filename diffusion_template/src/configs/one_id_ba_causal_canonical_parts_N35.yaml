@@ -1,0 +1,14 @@
+defaults:
+  - one_id_ba_causal_highres_qformer_N34
+  - _self_
+
+# N35: change only BA memory relative to N34. Eight ordered tokens are pooled
+# from a five-landmark canonical reference face and fused with frozen
+# InsightFace identity plus frozen QFormer context.
+model:
+  ba_identity_token_count: 8
+  ba_identity_memory_mode: canonical_face_parts
+  ba_identity_image_mode: full_reference
+  ba_identity_resampler_hidden_dim: 256
+  ba_identity_canonical_size: 224
+

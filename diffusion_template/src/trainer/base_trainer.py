@@ -172,6 +172,8 @@ class BaseTrainer:
         # (initial validation, barriers) can desynchronize collectives.
         self._sync_start_epoch()
 
+    def _optimizer_step_from_microsteps(self, microsteps: int) -> int:
+        return int(microsteps) // max(1, int(getattr(self, "grad_accum_steps", 1)))
 
     def train(self):
         """
@@ -204,6 +206,9 @@ class BaseTrainer:
                 "_face_mask_ref",
                 "_face_mask_t",
                 "_face_mask_t_ref",
+                "_ba_identity_selector_features",
+                "_ba_reference_landmarks",
+                "_ba_target_landmarks",
             ):
                 if hasattr(obj, attr):
                     try:
@@ -311,7 +316,9 @@ class BaseTrainer:
         self.train_metrics.reset()
 
         if self.accelerator.is_main_process:
-            self.writer.set_step((epoch - 1) * self.epoch_len)
+            self.writer.set_step(
+                self._optimizer_step_from_microsteps((epoch - 1) * self.epoch_len)
+            )
             self.writer.add_scalar("general/epoch", epoch)
 
         # An opt-in smoke test uses the normal validation loader but caps step 0.
@@ -406,7 +413,11 @@ class BaseTrainer:
             # log current results
             if batch_idx % self.log_step == 0:
                 if self.accelerator.is_main_process:
-                    self.writer.set_step((epoch - 1) * self.epoch_len + batch_idx)
+                    self.writer.set_step(
+                        self._optimizer_step_from_microsteps(
+                            (epoch - 1) * self.epoch_len + batch_idx
+                        )
+                    )
                     self.logger.debug(
                         "Train Epoch: {} {} Reduced Loss: {:.6f}".format(
                             epoch, self._progress(batch_idx), batch["loss"].item()
@@ -473,7 +484,10 @@ class BaseTrainer:
             metric.to_cuda()
 
         if self.writer is not None:
-            self.writer.set_step(epoch * self.epoch_len, part)
+            self.writer.set_step(
+                self._optimizer_step_from_microsteps(epoch * self.epoch_len),
+                part,
+            )
         prev_time = time.time()
         with torch.no_grad():
             # Optionally swap to an alternate base model for validation only

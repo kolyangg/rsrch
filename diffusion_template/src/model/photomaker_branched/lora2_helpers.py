@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import os
 from typing import Sequence
 
 import numpy as np
@@ -13,9 +15,63 @@ from .branched_runtime import (
     two_branch_predict,
 )
 from .insightface_package import analyze_faces
-from .identity_memory import bbox_normalized_reference, reference_bbox_to_clip_patch_mask
+from .identity_memory import (
+    bbox_normalized_reference,
+    canonical_aligned_reference,
+    canonical_face_part_features,
+    reference_bbox_to_clip_patch_mask,
+)
 
 from copy import deepcopy
+
+
+def _face_field(face, name, default=None):
+    if hasattr(face, name):
+        return getattr(face, name)
+    try:
+        return face[name]
+    except Exception:
+        return default
+
+
+def _select_face_for_bbox(faces, bbox):
+    if not faces:
+        return None
+    if bbox is None or len(bbox) < 4:
+        return faces[0]
+    target_cx = 0.5 * (float(bbox[0]) + float(bbox[2]))
+    target_cy = 0.5 * (float(bbox[1]) + float(bbox[3]))
+
+    def _distance(face):
+        face_bbox = _face_field(face, "bbox")
+        if face_bbox is None or len(face_bbox) < 4:
+            return float("inf")
+        cx = 0.5 * (float(face_bbox[0]) + float(face_bbox[2]))
+        cy = 0.5 * (float(face_bbox[1]) + float(face_bbox[3]))
+        return (cx - target_cx) ** 2 + (cy - target_cy) ** 2
+
+    return min(faces, key=_distance)
+
+
+def _target_tensor_to_bgr(image: torch.Tensor) -> np.ndarray:
+    image = image.detach().float().cpu().clamp(-1.0, 1.0)
+    rgb = ((image + 1.0) * 127.5).round().byte().permute(1, 2, 0).numpy()
+    return rgb[:, :, ::-1]
+
+
+def _cast_trainable_ba_params_to_fp32(model) -> None:
+    if str(getattr(model, "ba_trainable_dtype", "model")).lower() != "fp32":
+        return
+    with torch.no_grad():
+        for proc in getattr(model, "_branched_attn_processors_train", {}).values():
+            if not isinstance(proc, torch.nn.Module):
+                continue
+            for param in proc.parameters():
+                if param.requires_grad and param.dtype != torch.float32:
+                    param.data = param.data.float()
+        resampler = getattr(model, "ba_identity_resampler", None)
+        if isinstance(resampler, torch.nn.Module):
+            resampler.float()
 
 
 def configure_branched_trainables(model) -> None:
@@ -164,6 +220,14 @@ def install_branched_processors_for_training(model) -> None:
                         proc.id_to_hidden.weight.mul_(0.1)
 
         configure_branched_trainables(model)
+        _cast_trainable_ba_params_to_fp32(model)
+        if int(os.environ.get("LOCAL_RANK", "0")) == 0:
+            selected = tuple(getattr(model, "_ba_trainable_processor_names", ()))
+            print(
+                f"[BA Architecture] selected_processors={len(selected)} "
+                f"allowlist={getattr(model, 'ba_ca_layer_allowlist', None)} "
+                f"trainable_dtype={getattr(model, 'ba_trainable_dtype', 'model')}"
+            )
     except Exception as e:
         raise RuntimeError("Failed to install branched attention processors") from e
 
@@ -177,6 +241,7 @@ def prepare_branched_training_inputs(
     face_bbox_ref: Sequence[Sequence[float]] | None = None,
     pixel_values: torch.Tensor,
     noisy_latents: torch.Tensor,
+    collect_identity_metadata: bool = False,
 ):
     """
     Build all branched-training tensors from prompts/references/bboxes.
@@ -193,6 +258,12 @@ def prepare_branched_training_inputs(
     patch_feature_list = []
     patch_mask_list = []
     patch_identity_list = []
+    canonical_part_list = []
+    canonical_identity_list = []
+    canonical_qformer_list = []
+    identity_selector_list = []
+    reference_landmarks = []
+    target_landmarks = []
 
     image_h, image_w = pixel_values.shape[-2:]
     latent_h, latent_w = noisy_latents.shape[-2:]
@@ -223,17 +294,30 @@ def prepare_branched_training_inputs(
 
             prompt_for_id = prompt_embeds.to(dtype=model.id_encoder.dtype)
             id_embed_list = []
+            ref_face = None
             for ref in refs:
                 img_np = np.array(ref.convert("RGB"))[:, :, ::-1]
                 faces = analyze_faces(model.face_analyzer, img_np)
-                if faces:
-                    embedding = torch.from_numpy(faces[0]["embedding"]).float()
+                ref_face = _select_face_for_bbox(faces, ref_bbox)
+                if ref_face is not None:
+                    embedding = torch.from_numpy(
+                        np.asarray(_face_field(ref_face, "embedding"))
+                    ).float()
                 else:
+                    if bool(getattr(model, "ba_require_reference_face", False)):
+                        raise ValueError("Reference face detection failed for identity-conditioned training")
                     embedding = torch.zeros(512, dtype=torch.float32)
                 id_embed_list.append(embedding)
+            ref_kps = None if ref_face is None else _face_field(ref_face, "kps")
+            reference_landmarks.append(
+                None if ref_kps is None else np.asarray(ref_kps, dtype=np.float32)
+            )
 
-            id_embeds = torch.stack(id_embed_list, dim=0).unsqueeze(0)
-            id_embeds = id_embeds.to(device=model.device, dtype=model.id_encoder.dtype)
+            id_embeds_fp32 = torch.stack(id_embed_list, dim=0).unsqueeze(0).to(
+                device=model.device, dtype=torch.float32
+            )
+            id_embeds = id_embeds_fp32.to(dtype=model.id_encoder.dtype)
+            identity_selector_list.append(id_embeds_fp32[:, 0])
 
             prompt_embeds = model.id_encoder(
                 id_pixel_values,
@@ -294,6 +378,38 @@ def prepare_branched_training_inputs(
                     patch_identity_list.append(
                         id_embeds[:, 0].to(device=model.device, dtype=model.unet.dtype)
                     )
+                elif memory_mode == "canonical_face_parts":
+                    if getattr(model, "ba_identity_resampler", None) is None:
+                        raise RuntimeError("canonical_face_parts is enabled without a resampler module")
+                    aligned_ref = canonical_aligned_reference(
+                        refs[0],
+                        landmarks=reference_landmarks[-1],
+                        bbox=ref_bbox,
+                        image_size=int(getattr(model, "ba_identity_canonical_size", 224)),
+                        fallback_padding=getattr(model, "ba_identity_crop_padding", 0.10),
+                    )
+                    canonical_pixels = model.id_image_processor(
+                        [aligned_ref], return_tensors="pt"
+                    ).pixel_values.to(device=model.device, dtype=model.id_encoder.dtype)
+                    vision_hidden = model.id_encoder.vision_model(canonical_pixels)[0]
+                    patches = vision_hidden[:, 1:]
+                    patch_size = int(model.id_encoder.config.patch_size)
+                    grid_h = int(canonical_pixels.shape[-2]) // patch_size
+                    grid_w = int(canonical_pixels.shape[-1]) // patch_size
+                    canonical_part_list.append(
+                        canonical_face_part_features(
+                            patches,
+                            grid_height=grid_h,
+                            grid_width=grid_w,
+                        )
+                    )
+                    canonical_identity_list.append(id_embeds_fp32[:, 0])
+                    canonical_qformer_list.append(
+                        model.id_encoder.qformer_perceiver(
+                            id_embeds[:, 0].to(dtype=vision_hidden.dtype),
+                            vision_hidden,
+                        )
+                    )
                 else:
                     feature_reduce = "tokens" if memory_mode == "qformer_tokens" else "mean"
                     pm_features = model.id_encoder.extract_id_features(
@@ -317,18 +433,41 @@ def prepare_branched_training_inputs(
         )
         prompt_embeds_list.append(prompt_embeds)
         pooled_prompt_embeds_list.append(pooled_prompt_embeds)
+        if collect_identity_metadata:
+            target_faces = analyze_faces(
+                model.face_analyzer,
+                _target_tensor_to_bgr(pixel_values[i]),
+            )
+            target_face = _select_face_for_bbox(target_faces, bbox)
+            target_kps = None if target_face is None else _face_field(target_face, "kps")
+            if target_kps is None and bool(getattr(model, "ba_causal_require_landmarks", False)):
+                raise ValueError("Target face landmarks are required for causal identity supervision")
+            target_landmarks.append(
+                None if target_kps is None else np.asarray(target_kps, dtype=np.float32)
+            )
 
     prompt_embeds = torch.cat(prompt_embeds_list, dim=0).to(device=model.device, dtype=model.unet.dtype)
     pooled_prompt_embeds = torch.cat(pooled_prompt_embeds_list, dim=0).to(device=model.device, dtype=model.unet.dtype)
     class_tokens_mask = torch.cat(class_tokens_mask_list, dim=0).to(device=model.device)
 
     extracted_id_features = None
-    if patch_feature_list:
+    identity_output_dtype = (
+        torch.float32
+        if str(getattr(model, "ba_trainable_dtype", "model")).lower() == "fp32"
+        else model.unet.dtype
+    )
+    if canonical_part_list:
+        extracted_id_features = model.ba_identity_resampler(
+            torch.cat(canonical_part_list, dim=0),
+            torch.cat(canonical_identity_list, dim=0),
+            torch.cat(canonical_qformer_list, dim=0),
+        ).to(dtype=identity_output_dtype)
+    elif patch_feature_list:
         extracted_id_features = model.ba_identity_resampler(
             torch.cat(patch_feature_list, dim=0),
             torch.cat(patch_identity_list, dim=0),
             torch.cat(patch_mask_list, dim=0),
-        ).to(dtype=model.unet.dtype)
+        ).to(dtype=identity_output_dtype)
     elif pm_feature_list:
         extracted_id_features = torch.cat(pm_feature_list, dim=0)
 
@@ -362,6 +501,9 @@ def prepare_branched_training_inputs(
 
     model._ref_latents_all = reference_latents
     model._face_prompt_embeds = prompt_embeds
+    model._ba_identity_selector_features = torch.cat(identity_selector_list, dim=0)
+    model._ba_reference_landmarks = reference_landmarks
+    model._ba_target_landmarks = target_landmarks if collect_identity_metadata else None
     model.do_classifier_free_guidance = False
     if hasattr(model, "_ref_noise"):
         delattr(model, "_ref_noise")
@@ -494,7 +636,12 @@ def select_wrong_identity_features(
     identity_features: torch.Tensor,
     *,
     global_negatives: bool,
-) -> torch.Tensor:
+    selector_features: torch.Tensor | None = None,
+    identity_ids: Sequence[str] | None = None,
+    strategy: str = "least_similar",
+    target_similarity: float = 0.30,
+    return_indices: bool = False,
+) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
     """Select a confidently different frozen identity memory for each sample."""
     if identity_features.ndim not in {2, 3}:
         raise ValueError(
@@ -502,6 +649,23 @@ def select_wrong_identity_features(
         )
     local = identity_features.detach()
     candidates = local
+    selector_local = (selector_features if selector_features is not None else local).detach()
+    selector_candidates = selector_local
+    local_id_hashes = None
+    candidate_id_hashes = None
+    if identity_ids is not None:
+        if len(identity_ids) != local.shape[0]:
+            raise ValueError("identity_ids length must match the local identity batch")
+        local_id_hashes = torch.tensor(
+            [
+                int.from_bytes(hashlib.sha1(str(value).encode("utf-8")).digest()[:8], "little")
+                & ((1 << 63) - 1)
+                for value in identity_ids
+            ],
+            device=local.device,
+            dtype=torch.long,
+        )
+        candidate_id_hashes = local_id_hashes
     rank = 0
     if (
         global_negatives
@@ -513,16 +677,53 @@ def select_wrong_identity_features(
         gathered = [torch.empty_like(local) for _ in range(world)]
         torch.distributed.all_gather(gathered, local)
         candidates = torch.cat(gathered, dim=0)
+        gathered_selector = [torch.empty_like(selector_local) for _ in range(world)]
+        torch.distributed.all_gather(gathered_selector, selector_local)
+        selector_candidates = torch.cat(gathered_selector, dim=0)
+        if local_id_hashes is not None:
+            gathered_hashes = [torch.empty_like(local_id_hashes) for _ in range(world)]
+            torch.distributed.all_gather(gathered_hashes, local_id_hashes)
+            candidate_id_hashes = torch.cat(gathered_hashes, dim=0)
 
     if candidates.shape[0] < 2:
-        raise ValueError("paired_wrong_reference requires a total batch size of at least two")
-    local_repr = torch.nn.functional.normalize(local.float().flatten(1), dim=-1)
-    candidate_repr = torch.nn.functional.normalize(candidates.float().flatten(1), dim=-1)
+        raise ValueError("Wrong-reference supervision requires a total batch size of at least two")
+    local_repr = torch.nn.functional.normalize(selector_local.float().flatten(1), dim=-1)
+    candidate_repr = torch.nn.functional.normalize(selector_candidates.float().flatten(1), dim=-1)
     similarities = local_repr @ candidate_repr.T
     own_indices = rank * local.shape[0] + torch.arange(local.shape[0], device=local.device)
-    similarities[torch.arange(local.shape[0], device=local.device), own_indices] = float("inf")
-    wrong_indices = similarities.argmin(dim=1)
-    return candidates.index_select(0, wrong_indices)
+    invalid = torch.zeros_like(similarities, dtype=torch.bool)
+    invalid[torch.arange(local.shape[0], device=local.device), own_indices] = True
+    if local_id_hashes is not None and candidate_id_hashes is not None:
+        invalid |= local_id_hashes[:, None] == candidate_id_hashes[None, :]
+
+    strategy = str(strategy or "least_similar").lower()
+    if strategy == "least_similar":
+        scores = similarities.masked_fill(invalid, float("inf"))
+    elif strategy == "semi_hard":
+        scores = (similarities - float(target_similarity)).abs().masked_fill(
+            invalid, float("inf")
+        )
+    else:
+        raise ValueError(f"Unknown negative-selection strategy: {strategy}")
+
+    no_valid = torch.isinf(scores).all(dim=1)
+    if bool(no_valid.any()):
+        if local_id_hashes is not None:
+            raise ValueError(
+                "No different identity_id is available for wrong-reference supervision"
+            )
+        fallback_invalid = torch.zeros_like(invalid)
+        fallback_invalid[
+            torch.arange(local.shape[0], device=local.device), own_indices
+        ] = True
+        fallback = (similarities - float(target_similarity)).abs().masked_fill(
+            fallback_invalid, float("inf")
+        )
+        scores[no_valid] = fallback[no_valid]
+
+    wrong_indices = scores.argmin(dim=1)
+    wrong = candidates.index_select(0, wrong_indices)
+    return (wrong, wrong_indices) if return_indices else wrong
 
 
 def ensure_branched_after_eval(model) -> None:
