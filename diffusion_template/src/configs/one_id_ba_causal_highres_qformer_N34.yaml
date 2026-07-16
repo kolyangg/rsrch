@@ -30,9 +30,12 @@ model:
   ba_face_gate_init: 0.25
   ba_face_gate_max: 1.0
 
-  # Add the conditional BA delta once after PM CFG.
+  # Add the conditional BA delta once after PM CFG. Guidance scaling restores
+  # the strength that N29/N32 received by placing the delta before CFG, while
+  # keeping BA out of the unconditional branch.
   ba_cfg_composition: post_cfg_delta
   ba_residual_scale: 1.0
+  ba_post_cfg_guidance_scale: true
 
   ba_target_mask_fail_closed: true
   ba_sync_timestep: true

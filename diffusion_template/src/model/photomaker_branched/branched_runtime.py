@@ -383,6 +383,7 @@ def compose_post_cfg_identity_delta(
     guidance_scale: float,
     residual_scale: float,
     do_classifier_free_guidance: bool,
+    scale_identity_delta_by_guidance: bool = False,
 ) -> torch.Tensor:
     """Apply the conditional BA correction once, outside text CFG."""
     if do_classifier_free_guidance:
@@ -393,7 +394,10 @@ def compose_post_cfg_identity_delta(
         merged_cond = hard_epsilon_merge(pm_cond, ba_cond, hard_mask)
         delta_cond = merged_cond - pm_cond
         guided = pm_uncond + float(guidance_scale) * (pm_cond - pm_uncond)
-        guided = guided + float(residual_scale) * delta_cond
+        identity_gain = (
+            float(guidance_scale) if scale_identity_delta_by_guidance else 1.0
+        )
+        guided = guided + float(residual_scale) * identity_gain * delta_cond
         # The caller's unchanged CFG block maps two identical halves back to `guided`.
         return torch.cat([guided, guided], dim=0)
 

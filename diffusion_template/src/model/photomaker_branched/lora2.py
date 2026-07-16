@@ -129,6 +129,7 @@ class PhotomakerBranchedLora(SDXL):
         ba_pm_identity_context_scale_overrides: Optional[Mapping[str, float]] = None,
         ba_cfg_composition: str = "legacy_guided",
         ba_residual_scale: float = 1.0,
+        ba_post_cfg_guidance_scale: bool = False,
         ba_sync_timestep: bool = False,
         ba_require_reference_face: bool = False,
         ba_identity_canonical_size: int = 224,
@@ -308,6 +309,7 @@ class PhotomakerBranchedLora(SDXL):
         }
         self.ba_cfg_composition = str(ba_cfg_composition or "legacy_guided").lower()
         self.ba_residual_scale = float(ba_residual_scale)
+        self.ba_post_cfg_guidance_scale = bool(ba_post_cfg_guidance_scale)
         self.ba_sync_timestep = bool(ba_sync_timestep)
         self.ba_require_reference_face = bool(ba_require_reference_face)
         self.ba_identity_canonical_size = int(ba_identity_canonical_size)

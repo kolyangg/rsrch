@@ -8,6 +8,7 @@ from tqdm.auto import tqdm
 
 from src.datasets.data_utils import inf_loop
 from src.metrics.tracker import MetricTracker
+from src.model.photomaker_branched.config_utils import branched_model_runtime_kwargs
 from src.utils.io_utils import ROOT_PATH
 from hydra.utils import instantiate
 
@@ -530,8 +531,22 @@ class BaseTrainer:
                 prev_model_base = getattr(self.config.model, "pretrained_model_name_or_path", None)
                 try:
                     self.config.model.pretrained_model_name_or_path = val_pretrained
-                    _val_model = instantiate(self.config.model, device=self.device)
+                    _val_model = instantiate(
+                        self.config.model,
+                        device=self.device,
+                        **branched_model_runtime_kwargs(self.config),
+                    )
                     setattr(_val_model, "strict_face_routing", bool(getattr(self.config, "strict_face_routing", False)))
+                    setattr(
+                        _val_model,
+                        "disable_branched_sa",
+                        bool(getattr(self.config, "disable_branched_sa", False)),
+                    )
+                    setattr(
+                        _val_model,
+                        "disable_branched_ca",
+                        bool(getattr(self.config, "disable_branched_ca", False)),
+                    )
                     # Ensure adapters are initialized before loading LoRA weights
                     if hasattr(_val_model, "prepare_for_training"):
                         _val_model.prepare_for_training()
@@ -556,14 +571,40 @@ class BaseTrainer:
                         if train_unet is not None and val_unet is not None:
                             t_procs = getattr(train_unet, "attn_processors", {})
                             v_procs = getattr(val_unet, "attn_processors", {})
-                            for name, t_proc in t_procs.items():
+                            expected_names = set(
+                                getattr(
+                                    self.accelerator.unwrap_model(self.model),
+                                    "_ba_patched_processor_names",
+                                    (),
+                                )
+                            )
+                            copied_names = set()
+                            copy_errors = {}
+                            for name in expected_names:
+                                t_proc = t_procs.get(name)
                                 v_proc = v_procs.get(name)
-                                if v_proc is None:
+                                if t_proc is None or v_proc is None:
+                                    copy_errors[name] = "processor missing"
                                     continue
                                 try:
                                     v_proc.load_state_dict(t_proc.state_dict(), strict=False)
-                                except Exception:
-                                    continue
+                                    copied_names.add(name)
+                                except Exception as exc:
+                                    copy_errors[name] = str(exc)
+                            if (
+                                bool(getattr(_val_model, "ba_strict_checkpoint_restore", False))
+                                and copied_names != expected_names
+                            ):
+                                raise RuntimeError(
+                                    "Validation BA processor transfer incomplete: "
+                                    f"copied={len(copied_names)}/{len(expected_names)}, "
+                                    f"errors={copy_errors}"
+                                )
+                            if self.accelerator.is_main_process:
+                                print(
+                                    "[BA Validation] copied trained processors "
+                                    f"{len(copied_names)}/{len(expected_names)}"
+                                )
                     # Move the temporary validation model to the active device (GPU)
                     try:
                         _val_model.to(self.device)

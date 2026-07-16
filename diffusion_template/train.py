@@ -8,6 +8,7 @@ from accelerate import Accelerator
 from accelerate.utils import InitProcessGroupKwargs, DistributedDataParallelKwargs
 
 from src.datasets.data_utils import get_dataloaders
+from src.model.photomaker_branched.config_utils import branched_model_runtime_kwargs
 from src.utils.init_utils import set_random_seed, setup_saving_and_logging
 import os
 import datetime
@@ -214,35 +215,9 @@ def main(config):
     # batch_transforms should be put on device
     dataloaders, batch_transforms = get_dataloaders(config, device, logger)
 
-    ### 28 Nov: train only BA layers ###
-    # Optional flag: when true, restrict training to branched attention processors only.
-    train_ba_only = bool(getattr(config, "train_ba_only", False))
-    ba_train_top_k = float(getattr(config, "ba_train_top_k", 1.0))
-    ba_patch_top_k = float(getattr(config, "ba_patch_top_k", 1.0))
-    non_ba_train = bool(getattr(config, "non_ba_train", False))
-    train_ba_all_steps = bool(getattr(config, "train_ba_all_steps", False))
-    # Optional flag: when true, enable clean separation of BA-specific parameters.
-    ### 29 Nov - Clean separataion of BA-specific parameters ###
-    ba_weights_split = bool(getattr(config, "ba_weights_split", False))
-    # Optional flag: select v2 (trainable) vs legacy branched attention processors.
-    use_attn_v2 = bool(getattr(config, "use_attn_v2", False)) # use attn_v1 by default (no Linear layers)
-    ### 29 Nov - Clean separataion of BA-specific parameters ###
-    ba_kwargs = {}
-    model_target = str(getattr(getattr(config, "model", {}), "_target_", ""))
-    if (
-        "src.model.photomaker_branched.lora2.PhotomakerBranchedLora" in model_target
-        or "src.model.photomaker_branched.lora3.PhotomakerBranchedLora" in model_target
-    ):
-        ba_kwargs["train_ba_only"] = train_ba_only
-        ba_kwargs["ba_train_top_k"] = ba_train_top_k
-        ba_kwargs["ba_patch_top_k"] = ba_patch_top_k
-        ba_kwargs["non_ba_train"] = non_ba_train
-        ba_kwargs["train_ba_all_steps"] = train_ba_all_steps
-        ### 29 Nov - Clean separataion of BA-specific parameters ###
-        ba_kwargs["ba_weights_split"] = ba_weights_split
-        ba_kwargs["use_attn_v2"] = use_attn_v2
-        ### 29 Nov - Clean separataion of BA-specific parameters ###
-    ### 28 Nov: train only BA layers ###
+    # Runtime-only BA constructor arguments must also be used by the temporary
+    # alternate-base validation model.
+    ba_kwargs = branched_model_runtime_kwargs(config)
 
     # build model architecture, then print to console
     model = instantiate(config.model, device=device, **ba_kwargs)

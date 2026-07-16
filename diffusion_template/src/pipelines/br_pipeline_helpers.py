@@ -1111,6 +1111,30 @@ def run_branched_step(
             timestep_cond=timestep_cond,
         )
     if photomaker_pred is not None:
+        if not bool(getattr(pipeline, "_ba_delta_diagnostic_logged", False)):
+            merged_for_diagnostic = hard_epsilon_merge(
+                photomaker_pred,
+                noise_pred,
+                mask4_for_merge,
+            )
+            raw_delta = merged_for_diagnostic - photomaker_pred
+            if (
+                bool(getattr(pipeline, "do_classifier_free_guidance", False))
+                and raw_delta.shape[0] % 2 == 0
+            ):
+                raw_delta = raw_delta.chunk(2)[1]
+            guidance_gain = (
+                float(getattr(pipeline, "guidance_scale", 1.0))
+                if bool(getattr(pipeline, "ba_post_cfg_guidance_scale", False))
+                else 1.0
+            )
+            print(
+                "[BA Runtime] conditional_delta "
+                f"abs_mean={raw_delta.detach().float().abs().mean().item():.6g} "
+                f"abs_max={raw_delta.detach().float().abs().max().item():.6g} "
+                f"applied_gain={float(getattr(pipeline, 'ba_residual_scale', 1.0)) * guidance_gain:.3g}"
+            )
+            pipeline._ba_delta_diagnostic_logged = True
         if getattr(pipeline, "ba_cfg_composition", "legacy_guided") == "post_cfg_delta":
             noise_pred = compose_post_cfg_identity_delta(
                 photomaker_pred,
@@ -1120,6 +1144,9 @@ def run_branched_step(
                 residual_scale=float(getattr(pipeline, "ba_residual_scale", 1.0)),
                 do_classifier_free_guidance=bool(
                     getattr(pipeline, "do_classifier_free_guidance", False)
+                ),
+                scale_identity_delta_by_guidance=bool(
+                    getattr(pipeline, "ba_post_cfg_guidance_scale", False)
                 ),
             )
         else:
@@ -1473,6 +1500,7 @@ def build_pipeline_from_pretrained(
         ("ba_pm_identity_context_scale_overrides", None),
         ("ba_cfg_composition", "legacy_guided"),
         ("ba_residual_scale", 1.0),
+        ("ba_post_cfg_guidance_scale", False),
         ("ba_require_reference_face", False),
         ("disable_reference_spatial_branch", False),
     ):

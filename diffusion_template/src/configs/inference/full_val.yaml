@@ -47,6 +47,7 @@ model:
   merge_start_step: 10
   branched_attn_start_step: 15
   num_inference_steps: 50
+  ba_post_cfg_guidance_scale: true
 
 pipeline:
   _target_: src.pipelines.photomaker_branched_clean.PhotomakerBranchedPipeline.from_pretrained

@@ -58,6 +58,7 @@ def _apply_saved_ba_architecture(cfg, checkpoint) -> None:
         "ba_pm_identity_context_scale_overrides",
         "ba_cfg_composition",
         "ba_residual_scale",
+        "ba_post_cfg_guidance_scale",
         "ba_require_reference_face",
         "ba_strict_checkpoint_restore",
         "ba_uncond_face_fix",
@@ -71,6 +72,18 @@ def _apply_saved_ba_architecture(cfg, checkpoint) -> None:
     for key in model_keys:
         if "model" in saved and key in saved.model:
             cfg.model[key] = saved.model[key]
+    if (
+        str(getattr(cfg.model, "ba_cfg_composition", "legacy_guided")).lower()
+        == "post_cfg_delta"
+        and (
+            "model" not in saved
+            or "ba_post_cfg_guidance_scale" not in saved.model
+        )
+    ):
+        # Existing N34-N38 checkpoints predate the explicit compatibility
+        # toggle. Use the corrected conditional-CFG semantics by default; a CLI
+        # override is merged again after this function and can restore false.
+        cfg.model.ba_post_cfg_guidance_scale = True
     if "pipeline" in saved and "face_embed_strategy" in saved.pipeline:
         strategy = saved.pipeline.face_embed_strategy
         cfg.pipeline.face_embed_strategy = strategy

@@ -31,7 +31,7 @@ model:
     up_blocks.0.attentions.2: 0.5
 
   # The final PM prediction is still the external baseline and BA is merged only
-  # inside the hard target bbox, after CFG.
+  # inside the hard target bbox, after CFG. N34 enables guidance-scaled BA delta.
   ba_cfg_composition: post_cfg_delta
   ba_residual_scale: 1.0
 
