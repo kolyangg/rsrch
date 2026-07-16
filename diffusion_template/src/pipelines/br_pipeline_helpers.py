@@ -926,6 +926,10 @@ def select_mode_and_prompts(
         b = max(sm, bs)
         if i < a:
             mode = "NO_ID"
+        elif sm == bs:
+            # Both identity paths start together. The previous fall-through
+            # treated equality like bs < sm and selected PHOTOMAKER forever.
+            mode = "BOTH" if bsm == "both" else "BRANCHED"
         elif sm < bs:
             mode = "PHOTOMAKER" if i < b else ("BOTH" if bsm == "both" else "BRANCHED")
         else:

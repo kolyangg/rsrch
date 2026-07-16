@@ -5,7 +5,15 @@ defaults:
 # N37: canonical-aligned memory comparison. Preserve the two frozen, unpooled
 # QFormer tokens from the aligned face, then append eight trainable face-part
 # tokens built from the same canonical reference.
+pipeline:
+  # Explicitly retain N36's staged PM-at-10, BOTH-at-15 schedule.
+  photomaker_start_step: 10
+  branched_attn_start_step: 15
+  branched_start_mode: both
+
 model:
+  photomaker_start_step: 10
+  branched_attn_start_step: 15
   ba_identity_token_count: 10
   ba_identity_memory_mode: qformer_plus_canonical_parts
   ba_identity_image_mode: full_reference

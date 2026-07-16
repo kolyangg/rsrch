@@ -5,6 +5,12 @@ defaults:
 # N36: make BA the local identity owner while PhotoMaker remains the global
 # pose/composition/render baseline. Legacy behavior is restored by setting the
 # two identity-context scale toggles to 1 and the allowlist back to [up_blocks.1].
+pipeline:
+  # Keep the pipeline declaration consistent with model/validation_args.
+  photomaker_start_step: 10
+  branched_attn_start_step: 15
+  branched_start_mode: both
+
 model:
   # Six high-resolution up_blocks.1 sites plus ten late up_blocks.0 sites.
   # The latter receive a weaker gate and retain half of PhotoMaker identity.
@@ -38,8 +44,10 @@ model:
   ba_causal_preservation_weight: 0.1
   ba_causal_structure_weight: 0.2
 
-  # Begin BA together with PhotoMaker rather than five inference steps later.
-  branched_attn_start_step: 10
+  # Preserve the established schedule: PM establishes pose/render at step 10,
+  # then BA joins at step 15.
+  photomaker_start_step: 10
+  branched_attn_start_step: 15
 
 val_smoke_test: true
 val_smoke_test_limit: 24

@@ -78,7 +78,9 @@ Relative to N34/N35:
 - structure weight: 0.20 instead of 0.10;
 - wrong-reference, cross-identity, and preservation terms remain active.
 
-BA also begins at inference step 10 together with PhotoMaker, rather than waiting until step 15.
+The established staged denoising schedule is retained: PhotoMaker begins at inference step 10,
+then BA joins in `BOTH` mode at step 15. This gives PhotoMaker five steps to establish pose and
+global rendering before BA starts changing face identity.
 
 ## Three matched variants
 
