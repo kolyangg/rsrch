@@ -321,11 +321,13 @@ class BaseTrainer:
             )
             self.writer.add_scalar("general/epoch", epoch)
 
-        # An opt-in smoke test uses the normal validation loader but caps step 0.
-        # The complete loader remains untouched for subsequent validation epochs.
+        # An opt-in smoke test uses the normal validation loader but caps the
+        # first validation of this invocation. On resume, start_epoch is the
+        # first epoch after the loaded checkpoint, so validate that checkpoint
+        # before taking another optimizer step.
         run_initial_validation = bool(getattr(self.config, "validate_before_training", True))
         val_smoke_test = bool(getattr(self.config, "val_smoke_test", False))
-        if epoch == 1 and (run_initial_validation or val_smoke_test):
+        if epoch == self.start_epoch and (run_initial_validation or val_smoke_test):
             self.accelerator.wait_for_everyone()
             smoke_limit = (
                 int(getattr(self.config, "val_smoke_test_limit", 24))

@@ -123,29 +123,35 @@ The focused test passes under the `photomaker` conda environment.
 Do not discard the N38 epoch-3 checkpoint. Stop any still-running N36/N37/N38 process because
 an already-running Python process retains the old scheduling code.
 
-To continue N38 from epoch 3 using the corrected code:
+To continue N38 from epoch 3 using the corrected code and validate the loaded
+checkpoint before any new optimizer step:
 
 ```bash
+CUDA_VISIBLE_DEVICES=2,3 MASTER_PORT=29538 \
 bash serv_new_runs/start_ba_identity_owner_cropped_qformer_2gpu_N38.sh \
+  full_step0_val \
   continue_run=true \
   saved_checkpoint=checkpoint-epoch3.pth
 ```
 
-This resumes the optimizer and scheduler and produces the first corrected full validation
-after epoch 4.
+This resumes the optimizer and scheduler, runs the corrected 96-image validation at
+step 3000, and only then starts epoch 4.
 
-For an immediate corrected step-0 validation using the learned epoch-3 weights with a fresh
-optimizer/run name:
+The original initial-validation condition was `epoch == 1`, which silently skipped
+`full_step0_val` on resumed runs because an epoch-3 checkpoint starts at epoch 4.
+It now checks `epoch == self.start_epoch`, preserving fresh-run behavior while also
+validating a resumed checkpoint at the start of the new invocation.
+
+N36 can run concurrently on the other two GPUs:
 
 ```bash
-RUN_NAME=ba_identity_owner_cropped_qformer_2gpu_N38_validate_fix \
-bash serv_new_runs/start_ba_identity_owner_cropped_qformer_2gpu_N38.sh \
+CUDA_VISIBLE_DEVICES=0,1 MASTER_PORT=29536 \
+bash serv_new_runs/start_ba_identity_owner_qformer_2gpu_N36.sh \
   full_step0_val \
-  trainer.from_pretrained=/absolute/path/to/weights-epoch3.pth
+  continue_run=true \
+  saved_checkpoint=checkpoint-epoch3.pth
 ```
 
-The full validation runs before new optimization. The process can be stopped after that
-validation if the purpose is only to audit the existing checkpoint.
-
-For N36, apply the same procedure with its own latest checkpoint. For N37, update the code
-before launching or resuming it.
+Both commands require the checkpoint under the matching default run directory in
+`saved/`. Do not override `RUN_NAME` when resuming these checkpoints. For N37, apply
+the same procedure with its own matching run directory and checkpoint.
