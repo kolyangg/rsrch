@@ -177,3 +177,19 @@ microbatch no longer shortens an epoch's successful-update budget.
 
 The interactive explorer contains all six implemented configs and links each
 clickable NN1 block to the corresponding config, launcher, and source code.
+
+## NN1d–NN1f validation-start crash fix
+
+The first NN1d, NN1e, and NN1f launches failed while constructing the
+alternate-base validation model, before any training update. The training
+model received seven top-level BA runtime settings through `train.py`, but the
+temporary validation model was instantiated from `config.model` without those
+settings. In particular, `train_ba_only` fell back from `true` to `false`, so
+all validation BA processors were marked trainable. This contradicted the
+frozen-CA setting inherited by NN1d–NN1f; NN1f's reference-K/V-only allowlist
+would have been inconsistent for the same reason.
+
+`BaseTrainer` now copies the actual training model's BA runtime constructor
+settings into the temporary validation model. The model topology and
+trainability manifest therefore match before strict checkpoint transfer.
+NN1e/NN1f identity-loss code was not involved in these crashes.

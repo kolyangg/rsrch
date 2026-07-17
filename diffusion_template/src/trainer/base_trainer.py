@@ -511,7 +511,29 @@ class BaseTrainer:
                 prev_model_base = getattr(self.config.model, "pretrained_model_name_or_path", None)
                 try:
                     self.config.model.pretrained_model_name_or_path = val_pretrained
-                    _val_model = instantiate(self.config.model, device=self.device)
+                    try:
+                        train_model = self.accelerator.unwrap_model(self.model)
+                    except Exception:
+                        train_model = self.model
+                    ba_runtime_keys = (
+                        "train_ba_only",
+                        "ba_train_top_k",
+                        "ba_patch_top_k",
+                        "non_ba_train",
+                        "train_ba_all_steps",
+                        "ba_weights_split",
+                        "use_attn_v2",
+                    )
+                    ba_runtime_kwargs = {
+                        key: getattr(train_model, key)
+                        for key in ba_runtime_keys
+                        if hasattr(train_model, key)
+                    }
+                    _val_model = instantiate(
+                        self.config.model,
+                        device=self.device,
+                        **ba_runtime_kwargs,
+                    )
                     setattr(_val_model, "strict_face_routing", bool(getattr(self.config, "strict_face_routing", False)))
                     # Ensure adapters are initialized before loading LoRA weights
                     if hasattr(_val_model, "prepare_for_training"):
