@@ -50,6 +50,9 @@ No package installation, build step, or external web resource is required.
 - Enable **Highlight differences** to treat the left run as the baseline and
   mark changed configuration fields, architecture blocks, connections, and
   Q/K/V processor routes on the right.
+- Click any right-side element while difference mode is enabled to see exact
+  left → right values, an effective-config `-`/`+` diff, and a line-level diff
+  of the element's linked code snippets when those snippets differ.
 - Click a diagram block to see its role, run-specific facts, and relevant code.
 - Click an arrow to inspect the implementation of that connection.
 - Use `⇄ Swap` to reverse the comparison.
@@ -90,12 +93,18 @@ text diff. It compares:
 - PM/BA epsilon composition;
 - denoising schedule;
 - training objective;
-- recorded face-MAE and identity metrics.
 
 This avoids highlighting an unchanged block merely because two run names or
-descriptions use different wording. The legend above the diagrams lists every
-changed semantic category. Selecting the same run on both sides produces no
-highlights.
+descriptions, experiment status, or recorded metrics use different wording or
+availability. A block is highlighted only when its
+modeled forward behavior or an effective configuration represented by that
+block changes. The legend above the diagrams lists every changed semantic
+category. Selecting the same run on both sides produces no highlights.
+
+The inspector distinguishes source changes from configuration changes. If two
+runs execute the same forward implementation with different trainability or
+settings, it reports that the linked forward snippet is unchanged and shows the
+effective-config diff instead of manufacturing a source-code difference.
 
 ## Branch-aware source links
 

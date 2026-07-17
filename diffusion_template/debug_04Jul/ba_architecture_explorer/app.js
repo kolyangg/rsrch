@@ -1317,125 +1317,189 @@ function detailFor(config, key) {
   };
 }
 
+function topologyValue(config) {
+  return config.topology === "legacy_spatial"
+    ? "full spatial doubled [target, reference] BA"
+    : "compact target-face residual BA";
+}
+
+function selfTrainingValue(config) {
+  if (config.topology !== "legacy_spatial") {
+    return "standard self-attention; BranchedAttnProcessor absent";
+  }
+  if (String(config.weightMode || "").startsWith("ref_only")) {
+    return "BranchedAttnProcessor active; reference clones train, target/noise frozen";
+  }
+  return "BranchedAttnProcessor active; reference and target/noise clones train";
+}
+
+function crossTrainingValue(config) {
+  if (config.topology !== "legacy_spatial") {
+    return "target-face residual BranchedCrossAttnProcessor weights train";
+  }
+  return config.sites.caTrainable === false
+    ? "BranchedCrossAttnProcessor forward active; cloned weights frozen"
+    : "BranchedCrossAttnProcessor forward active; cloned weights train";
+}
+
+function objectiveOptimizerValue(config) {
+  return detailFor(config, "objective").facts?.Optimizer || "not recorded";
+}
+
 const COMPARISON_GROUPS = [
   {
-    id: "implementation",
-    label: "run status / implementation",
-    keys: ["history"],
-    signature: (config) => [
-      config.family,
-      config.status,
-      config.statusLabel,
-      config.sourceCommit || null,
-    ],
-  },
-  {
     id: "memory",
-    label: "reference / identity memory",
+    label: "identity representation",
     keys: ["reference", "memory", "memoryFlow"],
-    signature: (config) => [config.topology, config.memory],
+    fields: [
+      { label: "Representation", codeName: "identity_memory", value: (config) => config.memory.label },
+      {
+        label: "Tokenization",
+        codeName: "identity_tokens",
+        value: (config) =>
+          config.memory.tokens == null ? "full spatial latent grid" : `${config.memory.tokens} tokens`,
+      },
+    ],
   },
   {
     id: "topology",
-    label: "U-Net and processor topology",
+    label: "processor topology",
     keys: [
-      "target",
       "baPass",
       "selfAttention",
       "standardSelfAttention",
+      "crossAttention",
       "residual",
       "residualFlow",
+      "mask",
+      "maskFlow",
     ],
-    signature: (config) => config.topology || "compact_residual",
+    fields: [
+      { label: "Topology", codeName: "ba_topology", value: topologyValue },
+    ],
   },
   {
     id: "prompt-context",
-    label: "PhotoMaker / face prompt context",
+    label: "prompt context",
     keys: ["prompt", "facePrompt", "pmFlow"],
-    signature: (config) => [config.topology, config.pmContext],
-  },
-  {
-    id: "self-training",
-    label: "branched self-attention training",
-    keys: ["selfAttention", "trainFlow"],
-    signature: (config) => [
-      config.topology,
-      config.weightMode || null,
-      config.sites.caTrainable ?? null,
+    fields: [
+      {
+        label: "Prompt context",
+        codeName: "pm_context",
+        value: (config) => config.pmContext,
+      },
     ],
   },
   {
-    id: "cross-route",
-    label: "branched cross-attention route",
-    keys: ["facePrompt", "crossAttention", "residual", "residualFlow"],
-    signature: (config) => [
-      config.topology,
-      config.pmContext,
-      config.sites.count,
-      config.sites.effective,
-      config.sites.caTrainable ?? null,
+    id: "self-training",
+    label: "self-attention trainability",
+    keys: ["selfAttention", "trainFlow"],
+    fields: [
+      {
+        label: "Self-attention",
+        codeName: "self_attention_training",
+        value: selfTrainingValue,
+      },
+    ],
+  },
+  {
+    id: "cross-training",
+    label: "cross-attention trainability",
+    keys: ["crossAttention", "sites"],
+    fields: [
+      {
+        label: "Cross-attention",
+        codeName: "cross_attention_training",
+        value: crossTrainingValue,
+      },
     ],
   },
   {
     id: "sites",
-    label: "active attention sites / gates",
-    keys: ["sites", "baPass"],
-    signature: (config) => [
-      config.topology,
-      config.sites.count,
-      config.sites.effective,
-      config.sites.label,
-      config.sites.detail,
-      config.sites.caTrainable ?? null,
+    label: "active sites / gates",
+    keys: ["sites", "baPass", "residual", "residualFlow"],
+    fields: [
+      {
+        label: "Active CA sites",
+        codeName: "active_ca_sites",
+        value: (config) => `${config.sites.count} / 70`,
+      },
+      {
+        label: "Effective gated sites",
+        codeName: "effective_ca_sites",
+        value: (config) => String(config.sites.effective),
+      },
     ],
   },
   {
-    id: "mask",
-    label: "face-mask routing",
-    keys: ["mask", "maskFlow"],
-    signature: (config) => config.topology || "compact_residual",
-  },
-  {
     id: "composition",
-    label: "PhotoMaker / BA composition",
+    label: "PM / BA composition",
     keys: ["pmPass", "compose", "output", "pmFlow"],
-    signature: (config) => config.composition,
+    fields: [
+      {
+        label: "Composition",
+        codeName: "epsilon_composition",
+        value: (config) => config.composition,
+      },
+    ],
   },
   {
     id: "schedule",
     label: "denoising schedule",
     keys: ["scheduleFlow", "output"],
-    signature: (config) => config.schedule,
+    fields: [
+      {
+        label: "Schedule",
+        codeName: "denoising_schedule",
+        value: (config) => config.schedule,
+      },
+    ],
   },
   {
     id: "objective",
-    label: "training objective",
+    label: "training objective / optimizer",
     keys: ["objective", "trainFlow"],
-    signature: (config) => [config.objective, config.objectiveShort],
-  },
-  {
-    id: "face-metric",
-    label: "face-MAE result",
-    keys: [],
-    signature: (config) => [config.faceMae, config.metricStep],
-  },
-  {
-    id: "id-metric",
-    label: "identity-similarity result",
-    keys: [],
-    signature: (config) => [config.idScore, config.metricStep],
+    fields: [
+      {
+        label: "Objective",
+        codeName: "training_objective",
+        value: (config) => config.objective,
+      },
+      {
+        label: "Optimizer",
+        codeName: "optimizer",
+        value: objectiveOptimizerValue,
+      },
+    ],
   },
 ];
 
 function comparisonDifferences(left, right) {
-  const changedGroups = COMPARISON_GROUPS.filter(
-    (group) =>
-      JSON.stringify(group.signature(left)) !== JSON.stringify(group.signature(right)),
-  );
+  const changedGroups = [];
+  const byKey = new Map();
+
+  COMPARISON_GROUPS.forEach((group) => {
+    const changes = group.fields
+      .map((field) => ({
+        label: field.label,
+        codeName: field.codeName,
+        left: String(field.value(left)),
+        right: String(field.value(right)),
+      }))
+      .filter((change) => change.left !== change.right);
+    if (changes.length === 0) return;
+
+    changedGroups.push({ ...group, changes });
+    group.keys.forEach((key) => {
+      const existing = byKey.get(key) || [];
+      byKey.set(key, [...existing, ...changes]);
+    });
+  });
+
   return {
     changedGroups,
-    groupIds: new Set(changedGroups.map((group) => group.id)),
-    keys: new Set(changedGroups.flatMap((group) => group.keys)),
+    keys: new Set(byKey.keys()),
+    byKey,
   };
 }
 
@@ -1783,22 +1847,22 @@ function renderCard(cardId, configId) {
       <h2>${escapeHtml(config.title)}</h2>
       <p>${escapeHtml(config.subtitle)}</p>
     </div>
-    <span class="status ${escapeHtml(config.status)}" data-compare-group="implementation">${escapeHtml(config.statusLabel)}</span>`;
+    <span class="status ${escapeHtml(config.status)}">${escapeHtml(config.statusLabel)}</span>`;
   card.querySelector(".metrics-row").innerHTML = [
     ["Memory", config.memory.label, "memory"],
     ["BA attention sites", siteMetric, "sites"],
-    ["Face MAE vs PM", faceMae, "face-metric"],
-    ["Mean ID sim", idScore, "id-metric"],
+    ["Face MAE vs PM", faceMae, null],
+    ["Mean ID sim", idScore, null],
   ]
     .map(
-      ([label, value, group]) =>
-        `<div class="metric" data-compare-group="${group}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
+      ([label, value, key]) =>
+        `<div class="metric"${key ? ` data-compare-key="${key}"` : ""}><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
     )
     .join("");
   card.querySelector(".diagram-mount").innerHTML = `
     ${renderSvg(config, cardId)}
     <section class="mechanism-panel" aria-label="${escapeHtml(config.short)} attention processor details">
-      <div class="mechanism-heading" data-compare-group="topology self-training cross-route sites">
+      <div class="mechanism-heading" data-compare-keys="baPass selfAttention standardSelfAttention crossAttention residual sites">
         <div>
           <span>Processor internals</span>
           <strong>${
@@ -1947,15 +2011,15 @@ function applyDifferenceMode(leftId, rightId) {
   rightCard.querySelectorAll("[data-inspect]").forEach((element) => {
     element.classList.toggle("is-different", differences.keys.has(element.dataset.inspect));
   });
-  rightCard.querySelectorAll("[data-compare-group]").forEach((element) => {
-    const groups = element.dataset.compareGroup.split(/\s+/);
+  rightCard.querySelectorAll("[data-compare-key], [data-compare-keys]").forEach((element) => {
+    const keys = (element.dataset.compareKeys || element.dataset.compareKey).split(/\s+/);
     element.classList.toggle(
       "is-different",
-      groups.some((group) => differences.groupIds.has(group)),
+      keys.some((key) => differences.keys.has(key)),
     );
   });
 
-  const sitesDiffer = differences.groupIds.has("sites");
+  const sitesDiffer = differences.keys.has("sites");
   rightCard.querySelectorAll(".site-chip, .site-chip-text").forEach((element) => {
     element.classList.toggle("is-different", sitesDiffer);
   });
@@ -1966,11 +2030,161 @@ function applyDifferenceMode(leftId, rightId) {
   if (count === 0) {
     title.textContent = "No modeled differences";
     detail.textContent =
-      "The selected left and right records have the same architecture, configuration, and recorded metrics.";
+      "The selected left and right records have the same modeled architecture and effective configuration.";
   } else {
     title.textContent = `${count} changed ${count === 1 ? "category" : "categories"} on the right`;
     detail.textContent = differences.changedGroups.map((group) => group.label).join(" · ");
   }
+}
+
+function diffLines(leftText, rightText) {
+  const left = String(leftText || "").split("\n");
+  const right = String(rightText || "").split("\n");
+  const lengths = Array.from({ length: left.length + 1 }, () =>
+    Array(right.length + 1).fill(0),
+  );
+
+  for (let i = left.length - 1; i >= 0; i -= 1) {
+    for (let j = right.length - 1; j >= 0; j -= 1) {
+      lengths[i][j] =
+        left[i] === right[j]
+          ? lengths[i + 1][j + 1] + 1
+          : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
+    }
+  }
+
+  const lines = [];
+  let i = 0;
+  let j = 0;
+  while (i < left.length && j < right.length) {
+    if (left[i] === right[j]) {
+      lines.push({ type: "same", text: left[i] });
+      i += 1;
+      j += 1;
+    } else if (lengths[i + 1][j] >= lengths[i][j + 1]) {
+      lines.push({ type: "remove", text: left[i] });
+      i += 1;
+    } else {
+      lines.push({ type: "add", text: right[j] });
+      j += 1;
+    }
+  }
+  while (i < left.length) {
+    lines.push({ type: "remove", text: left[i] });
+    i += 1;
+  }
+  while (j < right.length) {
+    lines.push({ type: "add", text: right[j] });
+    j += 1;
+  }
+  return lines;
+}
+
+function renderDiffLines(lines) {
+  return lines
+    .map((line) => {
+      const prefix = line.type === "add" ? "+" : line.type === "remove" ? "−" : " ";
+      return `<span class="code-diff-line ${line.type}"><b>${prefix}</b>${escapeHtml(line.text)}</span>`;
+    })
+    .join("");
+}
+
+function relevantSnippetDiffs(leftDetail, rightDetail) {
+  const leftEntries = leftDetail.code || [];
+  const rightEntries = rightDetail.code || [];
+  const count = Math.max(leftEntries.length, rightEntries.length);
+  const diffs = [];
+
+  for (let index = 0; index < count; index += 1) {
+    const left = leftEntries[index] || null;
+    const right = rightEntries[index] || null;
+    const leftSnippet = left?.snippet || "";
+    const rightSnippet = right?.snippet || "";
+    const sameSource =
+      left?.path === right?.path &&
+      left?.line === right?.line &&
+      leftSnippet === rightSnippet;
+    if (sameSource) continue;
+    diffs.push({ left, right, lines: diffLines(leftSnippet, rightSnippet) });
+  }
+  return diffs;
+}
+
+function renderInspectorComparison(side, key) {
+  const differencePanel = document.getElementById("inspector-difference");
+  const codeDiffPanel = document.getElementById("inspector-code-diff");
+  const isRightComparison = differenceToggle.checked && side === "right";
+  differencePanel.hidden = !isRightComparison;
+  codeDiffPanel.hidden = !isRightComparison;
+  if (!isRightComparison) return;
+
+  const leftId = leftSelect.value;
+  const rightId = rightSelect.value;
+  const left = CONFIGS[leftId];
+  const right = CONFIGS[rightId];
+  const differences = comparisonDifferences(left, right);
+  const changes = differences.byKey.get(key) || [];
+  const differenceLabel = document.getElementById("inspector-difference-label");
+  const differenceBody = document.getElementById("inspector-difference-body");
+  const codeDiffBody = document.getElementById("inspector-code-diff-body");
+
+  differenceLabel.textContent = `Right compared with ${left.short}`;
+  if (changes.length === 0) {
+    differenceBody.innerHTML = `
+      <p class="no-element-change">
+        No modeled forward-path or effective-config change for this element.
+      </p>`;
+    codeDiffBody.innerHTML = `
+      <p class="code-diff-note">No relevant code or effective-config diff for this element.</p>`;
+    return;
+  }
+
+  differenceBody.innerHTML = changes
+    .map(
+      (change) => `
+        <div class="element-change">
+          <span>${escapeHtml(change.label)}</span>
+          <del>${escapeHtml(change.left)}</del>
+          <ins>${escapeHtml(change.right)}</ins>
+        </div>`,
+    )
+    .join("");
+
+  const effectiveLines = changes.flatMap((change) => [
+    { type: "remove", text: `${change.codeName} = ${JSON.stringify(change.left)}` },
+    { type: "add", text: `${change.codeName} = ${JSON.stringify(change.right)}` },
+  ]);
+  const leftDetail = detailFor(left, key);
+  const rightDetail = detailFor(right, key);
+  const snippetDiffs = relevantSnippetDiffs(leftDetail, rightDetail);
+  const snippetHtml = snippetDiffs
+    .map((diff) => {
+      const leftSource = diff.left
+        ? `${diff.left.path.replace("../../", "")}:${diff.left.line}`
+        : "(no left snippet)";
+      const rightSource = diff.right
+        ? `${diff.right.path.replace("../../", "")}:${diff.right.line}`
+        : "(no right snippet)";
+      return `
+        <article class="code-diff-card">
+          <header>
+            <span>${escapeHtml(left.short)} · ${escapeHtml(leftSource)}</span>
+            <span>${escapeHtml(right.short)} · ${escapeHtml(rightSource)}</span>
+          </header>
+          <pre><code>${renderDiffLines(diff.lines)}</code></pre>
+        </article>`;
+    })
+    .join("");
+
+  codeDiffBody.innerHTML = `
+    <article class="code-diff-card effective-config-diff">
+      <header><span>Effective configuration</span></header>
+      <pre><code>${renderDiffLines(effectiveLines)}</code></pre>
+    </article>
+    ${
+      snippetHtml ||
+      '<p class="code-diff-note">The linked forward snippet is unchanged; this element differs through effective configuration shown above.</p>'
+    }`;
 }
 
 function renderAll() {
@@ -1983,13 +2197,14 @@ function renderAll() {
   updateUrl(left, right);
 }
 
-function openInspector(configId, key) {
+function openInspector(configId, key, side = null) {
   const config = CONFIGS[configId];
   const detail = detailFor(config, key);
   const inspector = document.getElementById("inspector");
   document.getElementById("inspector-run").textContent = `${config.short} · ${config.title}`;
   document.getElementById("inspector-title").textContent = detail.title;
   document.getElementById("inspector-description").textContent = detail.description;
+  renderInspectorComparison(side, key);
   document.getElementById("inspector-facts").innerHTML = Object.entries(detail.facts || {})
     .map(
       ([label, value]) =>
@@ -2065,7 +2280,8 @@ document.querySelector(".diagram-grid").addEventListener("click", (event) => {
   const target = event.target.closest("[data-inspect]");
   if (!target) return;
   const card = target.closest(".diagram-card");
-  openInspector(card.dataset.config, target.dataset.inspect);
+  const side = card.id === "right-card" ? "right" : "left";
+  openInspector(card.dataset.config, target.dataset.inspect, side);
 });
 document.querySelector(".diagram-grid").addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
@@ -2073,7 +2289,8 @@ document.querySelector(".diagram-grid").addEventListener("keydown", (event) => {
   if (!target) return;
   event.preventDefault();
   const card = target.closest(".diagram-card");
-  openInspector(card.dataset.config, target.dataset.inspect);
+  const side = card.id === "right-card" ? "right" : "left";
+  openInspector(card.dataset.config, target.dataset.inspect, side);
 });
 document.querySelector("#config-matrix tbody").addEventListener("click", (event) => {
   const row = event.target.closest("[data-config]");
