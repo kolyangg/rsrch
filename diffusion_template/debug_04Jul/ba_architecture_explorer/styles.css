@@ -266,6 +266,10 @@ select {
   color: var(--mask);
 }
 
+.status.proposed {
+  color: var(--train);
+}
+
 .metrics-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

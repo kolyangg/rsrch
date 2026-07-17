@@ -1397,7 +1397,6 @@ class CosmicLargeTrain(BaseDataset):
         prompt = self._build_prompt(img_data)
         instance_data["prompts"] = prompt
         instance_data["prompt"] = prompt
-        instance_data["identity_id"] = str(path)
 
         instance_data["bbox"] = bbox
         instance_data["face_bbox"] = deepcopy(bbox)

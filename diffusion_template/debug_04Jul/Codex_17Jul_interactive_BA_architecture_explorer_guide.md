@@ -8,20 +8,21 @@ Open:
 
 `debug_04Jul/ba_architecture_explorer/index.html`
 
-The initial comparison is N32 versus N38:
+The initial comparison is N3a versus the proposed NN1b:
 
-- N32 is the selected promising pre-N34 run because its branch is visibly
-  active, localized, and artifact-safe.
-- N38 is the selected N36-N38 representative because it has the best latest ID
-  score of that family and the simplest controlled memory change.
+- N3a is the runnable full-spatial branched-attention baseline now restored on
+  `main_clean`.
+- NN1b is the recommended architecture-preserving stability proposal: both
+  branched processors remain active, but branched cross-attention weights are
+  frozen.
 
 The selectors also support:
 
 - the original pre-numbered `cosm_new1` spatial run;
 - N1 / N2 (`start_ba_ref_only_vast_N1.sh`, whose Comet run name is
   `ba_refonly_N2`);
-- N3a;
-- N31, N33, N36, and N37.
+- NN1a, NN1b, and NN1c as explicitly unimplemented proposals;
+- N31, N32, N33, N36, N37, and N38 as historical post-N3a experiments.
 
 ## Recommended way to open it
 
@@ -51,7 +52,7 @@ No package installation, build step, or external web resource is required.
 - Use `⇄ Swap` to reverse the comparison.
 - Click a row in the all-runs table to load it into the right diagram.
 - The selected pair is stored in URL parameters:
-  `?left=N32&right=N38`.
+  `?left=N3a&right=NN1b`.
 - `Enter` and `Space` activate focused diagram elements; `Escape` closes the
   inspector.
 
@@ -69,13 +70,28 @@ This distinction is important because N36-N38 are called "identity owner" in
 their configs, but PhotoMaker still owns the absolute prediction in their
 post-CFG composition.
 
+## Branch-aware source links
+
+The repository is intentionally split:
+
+- local links for Initial, N1/N2, N3a, and NN1 proposals resolve against
+  `main_clean`, whose active model surface is the runnable N3a baseline;
+- N31-N38 model and launcher links open the corresponding files on the pushed
+  `main_clean_exp` GitHub branch, because those implementations are not part of
+  the active N3a baseline;
+- NN1 proposal links open
+  `Jul_new_exp/2026-07-17_NN1_architecture_and_experiment_options.md`.
+
+The archived N31-N38 launchers/configs under
+`Jul_new_exp/archived_post_n3a_examples/` are documentary examples only.
+
 ## Historical reconstruction: Initial, N1/N2, and N3a
 
-The early topology cannot be reconstructed reliably from current effective
-configs alone. Current `attn_processor_cleanest.py` retains the legacy
-`BranchedAttnProcessor` and `BranchedCrossAttnProcessor` forward paths, so it is
-useful for readable local links. However, current runtime code also contains
-later target-residual, allowlist, gating, and post-CFG composition modes.
+The active `main_clean` model/training/runtime surface is restored exactly to
+the runnable N3a commit `e42c966`. Commit `2157ead` remains useful as the
+earlier topology anchor, but it predates N3a's complete launcher, optimizer
+grouping, unconditional face-prompt fix, and post-validation processor
+reattachment.
 
 The explorer therefore uses three evidence layers:
 
@@ -109,13 +125,14 @@ The key historical distinction is structural:
 
 ### Which branched processors are actually active?
 
-The processor class names remain in the current source, but that does not mean
-both are installed for every configuration:
+The processor class names existing somewhere in Git history does not mean both
+were installed for every configuration:
 
 - Initial, N1/N2, and N3a install `BranchedAttnProcessor` at all 70 `attn1`
   self-attention sites and `BranchedCrossAttnProcessor` at all 70 `attn2`
   cross-attention sites.
-- N31–N38 inherit `model.ba_sa_mode: standard` from
+- In the `main_clean_exp` implementation, N31–N38 inherit
+  `model.ba_sa_mode: standard` from
   `one_id_ba_idtoken_ca_residual_N28.yaml`. In
   `patch_unet_attention_processors`, this sets `disable_sa`, and every `attn1`
   slot retains its original processor. `BranchedAttnProcessor` is therefore
@@ -138,6 +155,21 @@ objectives.
 The detailed SVGs deliberately follow the visual grammar of
 `/home/kolyangg/rsrch/_ba_scheme/ba_original_plan.pdf`: explicit `Q`, `K`, and
 `V` projection blocks, attention outputs, mask multiplication, and merge arrows.
+
+## Proposed NN1 records
+
+NN1a/b/c are visualization and design records only. No NN1 launcher, Hydra
+config, identity-loss backport, or model change has been created.
+
+- NN1a: exact N3a two-GPU DDP parity control; branched SA and CA both train.
+- NN1b: full spatial BA with branched SA training and branched CA
+  forward-active but frozen.
+- NN1c: NN1b plus a proposed decoded reference-identity loss at `t <= 400`.
+
+All three retain the doubled `[target, reference]` U-Net batch, all 70
+`BranchedAttnProcessor` sites, all 70 `BranchedCrossAttnProcessor` sites, full
+reference-grid K/V, and direct target-half epsilon output. This is the main
+architectural boundary the visualization is intended to protect.
 
 ## Files
 
@@ -163,7 +195,7 @@ N39: {
   subtitle: "One-sentence result or experiment intent.",
   family: "pre-N34",
   topology: "compact_residual", // omit for compact residual; use legacy_spatial only with evidence
-  status: "active", // active | mixed | failed
+  status: "active", // active | mixed | failed | proposed
   statusLabel: "Anchor run",
 
   memory: {

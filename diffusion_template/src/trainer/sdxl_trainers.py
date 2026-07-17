@@ -7,10 +7,6 @@ from omegaconf import OmegaConf  # --- MODIFIED For training integration ---
 DEBUG_LOG_DEBUG_IMAGES = os.environ.get("PM_DEBUG_IMAGES", "1") not in {"0", "false", "False", ""}
 
 from src.metrics.tracker import MetricTracker
-from src.loss.diffusion_loss import identity_dependence_ranking_loss
-from src.model.photomaker_branched.lora2_helpers import (
-    InvalidIdentityConditioningSample,
-)
 from src.trainer.base_trainer import BaseTrainer
 
 
@@ -244,43 +240,6 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         super().__init__(*args, **kwargs)
         self.masked_loss_step = masked_loss_step
 
-    def _id_loss_weight_value(self) -> float:
-        """Weight for the ID loss, read once from the (unwrapped) model's id_loss_weight."""
-        w = getattr(self, "_id_loss_weight_cached", None)
-        if w is None:
-            try:
-                m = self.accelerator.unwrap_model(self.model)
-            except Exception:
-                m = self.model
-            w = float(getattr(m, "id_loss_weight", 0.0))
-            self._id_loss_weight_cached = w
-        return w
-
-    def _identity_dependence_config(self):
-        cached = getattr(self, "_identity_dependence_config_cached", None)
-        if cached is None:
-            try:
-                model = self.accelerator.unwrap_model(self.model)
-            except Exception:
-                model = self.model
-            cached = (
-                float(getattr(model, "ba_identity_dependence_weight", 0.0)),
-                float(getattr(model, "ba_identity_dependence_margin", 0.0)),
-            )
-            self._identity_dependence_config_cached = cached
-        return cached
-
-    def _causal_identity_weight_value(self) -> float:
-        cached = getattr(self, "_causal_identity_weight_cached", None)
-        if cached is None:
-            try:
-                model = self.accelerator.unwrap_model(self.model)
-            except Exception:
-                model = self.model
-            cached = float(getattr(model, "ba_causal_identity_weight", 0.0))
-            self._causal_identity_weight_cached = cached
-        return cached
-
     def _update_ba_weight_norms(self, train_metrics):
         """Drift canary: L2 norm of branched-processor lora_B weights per group.
 
@@ -293,28 +252,10 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             unwrapped = self.accelerator.unwrap_model(self.model)
         except Exception:
             unwrapped = self.model
-        sums = {
-            "sa_ref": 0.0,
-            "sa_noise": 0.0,
-            "ca_ref": 0.0,
-            "ca_noise": 0.0,
-            "ca_target_id": 0.0,
-            "face_delta": 0.0,
-        }
-        face_gates = []
+        sums = {"sa_ref": 0.0, "sa_noise": 0.0, "ca_ref": 0.0, "ca_noise": 0.0}
         with torch.no_grad():
             for name, p in unwrapped.named_parameters():
-                if ".processor." not in name:
-                    continue
-                if name.endswith("face_residual_gate"):
-                    continue
-                if ".face_delta_out.up.weight" in name:
-                    sums["face_delta"] += float(p.detach().float().pow(2).sum().item())
-                    continue
-                if "lora_B" not in name:
-                    continue
-                if ".attn2.processor.target_id_to_" in name:
-                    sums["ca_target_id"] += float(p.detach().float().pow(2).sum().item())
+                if ".processor." not in name or "lora_B" not in name:
                     continue
                 if ".attn1.processor." in name:
                     kind = "sa"
@@ -329,39 +270,14 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 else:
                     continue
                 sums[f"{kind}_{branch}"] += float(p.detach().float().pow(2).sum().item())
-            for proc in getattr(unwrapped, "_branched_attn_processors_train", {}).values():
-                if not isinstance(proc, torch.nn.Module):
-                    continue
-                if hasattr(proc, "effective_face_residual_gate"):
-                    gate = proc.effective_face_residual_gate()
-                    face_gates.append(float(gate.detach().float().mean().item()))
         for group, sq_sum in sums.items():
             train_metrics.update(f"ba_norm/{group}", sq_sum ** 0.5)
-        resampler_sq = sum(
-            float(p.detach().float().pow(2).sum().item())
-            for name, p in unwrapped.named_parameters()
-            if name.startswith("ba_identity_resampler.") and p.requires_grad
-        )
-        if resampler_sq:
-            train_metrics.update("ba_norm/identity_resampler", resampler_sq ** 0.5)
-        if face_gates:
-            train_metrics.update("ba_gate/face_residual_mean", sum(face_gates) / len(face_gates))
-            train_metrics.update("ba_gate/face_residual_min", min(face_gates))
-            train_metrics.update("ba_gate/face_residual_max", max(face_gates))
         
     def process_batch(self, batch, train_metrics: MetricTracker):
         ### 25 APR - ADD GRAD ACCUM ###
         accum_steps = int(getattr(self, "grad_accum_steps", 1))
         is_accum_start = batch["batch_idx"] % accum_steps == 0
         is_accum_end = (batch["batch_idx"] + 1) % accum_steps == 0
-        if self.is_train and bool(
-            getattr(self, "_skip_invalid_accum_until_boundary", False)
-        ):
-            if is_accum_end:
-                self._skip_invalid_accum_until_boundary = False
-            batch["skip_batch"] = True
-            batch["loss"] = torch.zeros((), device=self.device)
-            return batch
         if self.is_train and is_accum_start:
             self.optimizer.zero_grad()
         ### 25 APR - ADD GRAD ACCUM ###
@@ -372,30 +288,6 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         output = None
         try:
             output = self.model(**batch, do_cfg=do_cfg)
-        except InvalidIdentityConditioningSample as exc:
-            try:
-                unwrapped = self.accelerator.unwrap_model(self.model)
-            except Exception:
-                unwrapped = self.model
-            if not bool(
-                getattr(unwrapped, "ba_skip_invalid_identity_samples", False)
-            ):
-                raise
-            self.optimizer.zero_grad(set_to_none=True)
-            self._ba_active_in_accum = False
-            self._skip_invalid_accum_until_boundary = not is_accum_end
-            rank = int(getattr(self.accelerator, "process_index", 0))
-            msg = (
-                f"[INVALID_IDENTITY_SKIP] time={time.strftime('%Y-%m-%d %H:%M:%S')} "
-                f"rank={rank} batch_idx={batch.get('batch_idx')} reason={exc}"
-            )
-            if self.logger is not None:
-                self.logger.warning(msg)
-            else:
-                print(msg, flush=True)
-            batch["skip_batch"] = True
-            batch["loss"] = torch.zeros((), device=self.device)
-            return batch
         except RuntimeError as exc:
             if "out of memory" not in str(exc).lower():
                 raise
@@ -434,94 +326,16 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         )
         all_losses = self.criterion(**batch)
         batch.update(all_losses)
-
-        # ID loss (identity-supervised training). The model returns 'id_loss' only on gated steps
-        # (use_id_loss + low-noise timestep). Add it weighted to the total before backward and log
-        # it. When disabled it is absent -> no-op.
-        id_loss = batch.get("id_loss", None)
-        if id_loss is not None and torch.is_tensor(id_loss):
-            if torch.isfinite(id_loss):
-                w = self._id_loss_weight_value()
-                if w != 0.0:
-                    batch["loss"] = batch["loss"] + w * id_loss
-                train_metrics.update("id_loss", float(id_loss.detach().item()))
-            else:
-                msg = f"[ID_LOSS] non-finite id_loss at batch_idx={batch.get('batch_idx')}, skipped"
-                (self.logger.warning(msg) if self.logger is not None else print(msg))
-
-        causal_identity_loss = batch.get("causal_identity_loss")
-        if causal_identity_loss is not None and torch.is_tensor(causal_identity_loss):
-            if not torch.isfinite(causal_identity_loss):
-                raise RuntimeError("Causal identity loss became non-finite")
-            weight = self._causal_identity_weight_value()
-            batch["loss"] = batch["loss"] + weight * causal_identity_loss
-            train_metrics.update(
-                "causal_identity/loss",
-                float(causal_identity_loss.detach().item()),
-            )
-            for key in (
-                "correct_gain",
-                "wrong_gain",
-                "correct_similarity",
-                "wrong_similarity",
-                "preservation",
-                "structure",
-            ):
-                value = batch.get(f"causal_identity_{key}")
-                if value is not None and torch.is_tensor(value):
-                    train_metrics.update(
-                        f"causal_identity/{key}",
-                        float(value.detach().item()),
-                    )
-
-        wrong_identity_pred = batch.get("wrong_identity_pred")
-        if wrong_identity_pred is not None:
-            dependence_weight, dependence_margin = self._identity_dependence_config()
-            dependence_loss, correct_face_loss, wrong_face_loss = identity_dependence_ranking_loss(
-                batch["model_pred"],
-                wrong_identity_pred,
-                batch["target"],
-                batch["face_bbox"],
-                margin=dependence_margin,
-            )
-            if not torch.isfinite(dependence_loss):
-                raise RuntimeError("Identity-dependence loss became non-finite")
-            batch["loss"] = batch["loss"] + dependence_weight * dependence_loss
-            train_metrics.update("identity_dependence/loss", float(dependence_loss.detach().item()))
-            train_metrics.update(
-                "identity_dependence/wrong_minus_correct",
-                float((wrong_face_loss - correct_face_loss).detach().item()),
-            )
-
+        
         if self.is_train:
             assert torch.isfinite(batch["loss"]) # sum of all losses is always called loss
             ### 25 APR - ADD GRAD ACCUM ###
             self.accelerator.backward(batch["loss"] / accum_steps)
-            unwrapped_model = self.accelerator.unwrap_model(self.model)
-            ba_active = bool(getattr(unwrapped_model, "_ba_active_this_batch", False))
-            self._ba_active_in_accum = bool(getattr(self, "_ba_active_in_accum", False)) or ba_active
             if is_accum_end:
-                if (
-                    bool(getattr(unwrapped_model, "ba_skip_inactive_optimizer_decay", False))
-                    and not self._ba_active_in_accum
-                ):
-                    processors = getattr(unwrapped_model, "_branched_attn_processors_train", {}).values()
-                    for proc in processors:
-                        if not isinstance(proc, torch.nn.Module):
-                            continue
-                        for param in proc.parameters():
-                            if param.requires_grad:
-                                param.grad = None
-                    resampler = getattr(unwrapped_model, "ba_identity_resampler", None)
-                    if isinstance(resampler, torch.nn.Module):
-                        for param in resampler.parameters():
-                            if param.requires_grad:
-                                param.grad = None
                 self._clip_grad_norm()
                 self.optimizer.step()
                 if self.lr_scheduler is not None:
                     self.lr_scheduler.step()
-                self._ba_active_in_accum = False
             ### 25 APR - ADD GRAD ACCUM ###
 
             # Branched-attention drift canary, logged on the same cadence as

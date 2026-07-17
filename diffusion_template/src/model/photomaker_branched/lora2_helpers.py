@@ -1,172 +1,14 @@
 from __future__ import annotations
 
-import hashlib
-import os
 from typing import Sequence
 
 import numpy as np
 import torch
 
-from .branched_runtime import (
-    hard_epsilon_merge,
-    patch_unet_attention_processors,
-    select_branched_processor_names,
-    target_face_predict,
-    two_branch_predict,
-)
+from .branched_runtime import patch_unet_attention_processors, select_branched_processor_names, two_branch_predict
 from .insightface_package import analyze_faces
-from .identity_memory import (
-    bbox_normalized_reference,
-    canonical_aligned_reference,
-    canonical_face_part_features,
-    reference_bbox_to_clip_patch_mask,
-)
 
 from copy import deepcopy
-
-
-class InvalidIdentityConditioningSample(ValueError):
-    """A sample cannot provide the face evidence required by BA training."""
-
-
-def _face_field(face, name, default=None):
-    if hasattr(face, name):
-        return getattr(face, name)
-    try:
-        return face[name]
-    except Exception:
-        return default
-
-
-def _select_face_for_bbox(faces, bbox):
-    if not faces:
-        return None
-    if bbox is None or len(bbox) < 4:
-        return faces[0]
-    target_cx = 0.5 * (float(bbox[0]) + float(bbox[2]))
-    target_cy = 0.5 * (float(bbox[1]) + float(bbox[3]))
-
-    def _distance(face):
-        face_bbox = _face_field(face, "bbox")
-        if face_bbox is None or len(face_bbox) < 4:
-            return float("inf")
-        cx = 0.5 * (float(face_bbox[0]) + float(face_bbox[2]))
-        cy = 0.5 * (float(face_bbox[1]) + float(face_bbox[3]))
-        return (cx - target_cx) ** 2 + (cy - target_cy) ** 2
-
-    return min(faces, key=_distance)
-
-
-def _target_tensor_to_bgr(image: torch.Tensor) -> np.ndarray:
-    image = image.detach().float().cpu().clamp(-1.0, 1.0)
-    rgb = ((image + 1.0) * 127.5).round().byte().permute(1, 2, 0).numpy()
-    return rgb[:, :, ::-1]
-
-
-def _valid_face_embedding(face) -> bool:
-    embedding = _face_field(face, "embedding")
-    if embedding is None:
-        return False
-    embedding = np.asarray(embedding)
-    return embedding.size == 512 and bool(np.isfinite(embedding).all())
-
-
-def _valid_face_landmarks(face) -> bool:
-    landmarks = _face_field(face, "kps")
-    if landmarks is None:
-        return False
-    landmarks = np.asarray(landmarks)
-    return landmarks.shape == (5, 2) and bool(np.isfinite(landmarks).all())
-
-
-def _detect_face_with_bbox_fallback(
-    face_analyzer,
-    image_bgr: np.ndarray,
-    bbox,
-    *,
-    require_embedding: bool = False,
-    require_landmarks: bool = False,
-    crop_padding: float = 0.35,
-):
-    """Detect on the full image, then retry on the known face bbox."""
-
-    def _usable(face) -> bool:
-        return (
-            face is not None
-            and (not require_embedding or _valid_face_embedding(face))
-            and (not require_landmarks or _valid_face_landmarks(face))
-        )
-
-    face = _select_face_for_bbox(analyze_faces(face_analyzer, image_bgr), bbox)
-    if _usable(face):
-        landmarks = _face_field(face, "kps")
-        return face, None if landmarks is None else np.asarray(landmarks, dtype=np.float32), False
-
-    if bbox is None or len(bbox) < 4:
-        return None, None, False
-    image_h, image_w = image_bgr.shape[:2]
-    x0, y0, x1, y1 = (float(value) for value in bbox[:4])
-    if x1 <= x0 or y1 <= y0:
-        return None, None, False
-    pad_x = (x1 - x0) * max(0.0, float(crop_padding))
-    pad_y = (y1 - y0) * max(0.0, float(crop_padding))
-    left = max(0, int(np.floor(x0 - pad_x)))
-    top = max(0, int(np.floor(y0 - pad_y)))
-    right = min(image_w, int(np.ceil(x1 + pad_x)))
-    bottom = min(image_h, int(np.ceil(y1 + pad_y)))
-    if right <= left or bottom <= top:
-        return None, None, False
-
-    crop = np.ascontiguousarray(image_bgr[top:bottom, left:right])
-    crop_bbox = [x0 - left, y0 - top, x1 - left, y1 - top]
-    face = _select_face_for_bbox(analyze_faces(face_analyzer, crop), crop_bbox)
-    if not _usable(face):
-        return None, None, False
-    landmarks = _face_field(face, "kps")
-    if landmarks is not None:
-        landmarks = np.asarray(landmarks, dtype=np.float32) + np.asarray(
-            [left, top], dtype=np.float32
-        )
-    return face, landmarks, True
-
-
-def _raise_if_any_rank_has_invalid_identity(model, local_failures) -> None:
-    """Make an invalid-sample skip collective-safe before later BA collectives."""
-    failed = torch.tensor(
-        [1 if local_failures else 0],
-        device=model.device,
-        dtype=torch.int32,
-    )
-    if torch.distributed.is_available() and torch.distributed.is_initialized():
-        torch.distributed.all_reduce(failed, op=torch.distributed.ReduceOp.MAX)
-    if not bool(failed.item()):
-        return
-
-    rank = (
-        torch.distributed.get_rank()
-        if torch.distributed.is_available() and torch.distributed.is_initialized()
-        else 0
-    )
-    for failure in local_failures:
-        print(f"[BA INVALID IDENTITY] rank={rank} {failure}", flush=True)
-    raise InvalidIdentityConditioningSample(
-        "At least one distributed rank has an invalid identity-conditioning sample"
-    )
-
-
-def _cast_trainable_ba_params_to_fp32(model) -> None:
-    if str(getattr(model, "ba_trainable_dtype", "model")).lower() != "fp32":
-        return
-    with torch.no_grad():
-        for proc in getattr(model, "_branched_attn_processors_train", {}).values():
-            if not isinstance(proc, torch.nn.Module):
-                continue
-            for param in proc.parameters():
-                if param.requires_grad and param.dtype != torch.float32:
-                    param.data = param.data.float()
-        resampler = getattr(model, "ba_identity_resampler", None)
-        if isinstance(resampler, torch.nn.Module):
-            resampler.float()
 
 
 def configure_branched_trainables(model) -> None:
@@ -176,18 +18,12 @@ def configure_branched_trainables(model) -> None:
     mode = (getattr(model, "branched_attn_weight_mode", "shared") or "shared").lower()
     new_weight_kind = (getattr(model, "branched_attn_new_weight_kind", "full") or "full").lower()
     train_ca = bool(getattr(model, "train_branched_ca_lora", True))
-    ca_train_mode = str(getattr(model, "ba_ca_train_mode", "all") or "all").lower()
     ba_train_top_k = float(getattr(model, "ba_train_top_k", 1.0))
     non_ba_train = bool(getattr(model, "non_ba_train", False))
-    train_sa_id_embed_proj = bool(getattr(model, "ba_train_sa_id_embed_proj", False))
-    sa_mode = str(getattr(model, "ba_sa_mode", "legacy") or "legacy").lower()
-    ca_mode = str(getattr(model, "ba_ca_mode", "legacy_ref_branch") or "legacy_ref_branch").lower()
     if mode not in {"shared", "ref_only", "noise_and_ref"}:
         raise ValueError(f"Unknown branched_attn_weight_mode: {mode}")
     if new_weight_kind not in {"full", "lora"}:
         raise ValueError(f"Unknown branched_attn_new_weight_kind: {new_weight_kind}")
-    if ca_train_mode not in {"all", "ref_only", "noise_only", "target_face"}:
-        raise ValueError(f"Unknown ba_ca_train_mode: {ca_train_mode}")
 
     patched_proc_names = tuple(getattr(model, "_ba_patched_processor_names", ()))
     candidate_proc_names = list(patched_proc_names or model.unet.attn_processors.keys())
@@ -213,20 +49,12 @@ def configure_branched_trainables(model) -> None:
 
     for name, p in model.unet.named_parameters():
         is_non_ba_attn = bool(non_ba_attn_prefixes) and name.startswith(non_ba_attn_prefixes)
-        is_selected_proc = bool(selected_proc_prefixes) and name.startswith(selected_proc_prefixes)
-        if sa_mode == "pm_face_residual":
-            if is_selected_proc and (
-                ".attn1.processor.ref_to_k." in name
-                or ".attn1.processor.ref_to_v." in name
-                or ".attn1.processor.face_delta_out." in name
-                or name.endswith(".attn1.processor.face_residual_gate")
-            ) and (new_weight_kind == "full" or "lora_" in name or "face_delta_out." in name or name.endswith("face_residual_gate")):
-                p.requires_grad_(True)
-        elif mode == "shared":
+        if mode == "shared":
             is_selected_attn = bool(selected_attn_prefixes) and name.startswith(selected_attn_prefixes)
             if is_selected_attn and ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn1." in name:
                 p.requires_grad_(True)
         else:
+            is_selected_proc = bool(selected_proc_prefixes) and name.startswith(selected_proc_prefixes)
             if is_selected_proc and ".attn1.processor.ref_to_" in name and (
                 new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
             ):
@@ -235,40 +63,22 @@ def configure_branched_trainables(model) -> None:
                 new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
             ):
                 p.requires_grad_(True)
-            elif is_selected_proc and train_sa_id_embed_proj and ".attn1.processor.id_to_hidden." in name:
-                p.requires_grad_(True)
-            elif is_selected_proc and ".attn1.processor.face_fusion_logit" in name:
-                p.requires_grad_(True)
 
         if non_ba_train and is_non_ba_attn and ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name:
             p.requires_grad_(True)
 
         if train_ca:
-            if ca_mode == "target_face_residual":
-                if is_selected_proc and (
-                    ".attn2.processor.target_id_to_k." in name
-                    or ".attn2.processor.target_id_to_v." in name
-                    or ".attn2.processor.face_delta_out." in name
-                    or name.endswith(".attn2.processor.face_residual_gate")
-                    or name.endswith(".attn2.processor.id_token_basis")
-                ) and (
-                    new_weight_kind == "full"
-                    or "lora_" in name
-                    or ".face_delta_out." in name
-                    or name.endswith("face_residual_gate")
-                    or name.endswith("id_token_basis")
-                ):
-                    p.requires_grad_(True)
-            elif mode == "shared":
+            if mode == "shared":
                 is_selected_attn = bool(selected_attn_prefixes) and name.startswith(selected_attn_prefixes)
                 if is_selected_attn and ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn2." in name:
                     p.requires_grad_(True)
             else:
-                if is_selected_proc and ca_train_mode in {"all", "ref_only"} and ".attn2.processor.ref_to_" in name and (
+                is_selected_proc = bool(selected_proc_prefixes) and name.startswith(selected_proc_prefixes)
+                if is_selected_proc and ".attn2.processor.ref_to_" in name and (
                     new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
                 ):
                     p.requires_grad_(True)
-                elif is_selected_proc and ca_train_mode in {"all", "noise_only"} and mode == "noise_and_ref" and ".attn2.processor.noise_to_" in name and (
+                elif is_selected_proc and mode == "noise_and_ref" and ".attn2.processor.noise_to_" in name and (
                     new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
                 ):
                     p.requires_grad_(True)
@@ -292,8 +102,6 @@ def install_branched_processors_for_training(model) -> None:
 
         if hasattr(model.unet, "attn_processors"):
             for proc in model.unet.attn_processors.values():
-                if not isinstance(proc, torch.nn.Module):
-                    continue
                 for p in proc.parameters():
                     p.requires_grad_(True)
 
@@ -315,16 +123,8 @@ def install_branched_processors_for_training(model) -> None:
                         proc.id_to_hidden.weight.mul_(0.1)
 
         configure_branched_trainables(model)
-        _cast_trainable_ba_params_to_fp32(model)
-        if int(os.environ.get("LOCAL_RANK", "0")) == 0:
-            selected = tuple(getattr(model, "_ba_trainable_processor_names", ()))
-            print(
-                f"[BA Architecture] selected_processors={len(selected)} "
-                f"allowlist={getattr(model, 'ba_ca_layer_allowlist', None)} "
-                f"trainable_dtype={getattr(model, 'ba_trainable_dtype', 'model')}"
-            )
     except Exception as e:
-        raise RuntimeError("Failed to install branched attention processors") from e
+        print(f"[PhotomakerBranchedLora] exception while installing branched processors: {e}")
 
 
 def prepare_branched_training_inputs(
@@ -334,10 +134,8 @@ def prepare_branched_training_inputs(
     ref_images: Sequence[Sequence],
     face_bbox: Sequence[Sequence[float]],
     face_bbox_ref: Sequence[Sequence[float]] | None = None,
-    identity_ids: Sequence[str] | None = None,
     pixel_values: torch.Tensor,
     noisy_latents: torch.Tensor,
-    collect_identity_metadata: bool = False,
 ):
     """
     Build all branched-training tensors from prompts/references/bboxes.
@@ -351,24 +149,9 @@ def prepare_branched_training_inputs(
     ref_mask_list = []
     ref_latents_list = []
     pm_feature_list = []
-    patch_feature_list = []
-    patch_mask_list = []
-    patch_identity_list = []
-    canonical_part_list = []
-    canonical_identity_list = []
-    canonical_qformer_list = []
-    identity_selector_list = []
-    reference_landmarks = []
-    target_landmarks = []
-    identity_failures = []
 
     image_h, image_w = pixel_values.shape[-2:]
     latent_h, latent_w = noisy_latents.shape[-2:]
-    needs_spatial_reference = not bool(getattr(model, "disable_reference_spatial_branch", False))
-    needs_id_features = (
-        model.face_embed_strategy == "id_embeds"
-        or str(getattr(model, "ba_ca_mode", "legacy_ref_branch")) == "target_face_residual"
-    )
 
     for i, (prompt, refs, bbox) in enumerate(zip(prompts, ref_images, face_bbox)):
         refs = refs if isinstance(refs, (list, tuple)) else [refs]
@@ -391,61 +174,17 @@ def prepare_branched_training_inputs(
 
             prompt_for_id = prompt_embeds.to(dtype=model.id_encoder.dtype)
             id_embed_list = []
-            ref_face = None
             for ref in refs:
                 img_np = np.array(ref.convert("RGB"))[:, :, ::-1]
-                if bool(getattr(model, "ba_reference_face_bbox_fallback", False)):
-                    ref_face, ref_kps, used_bbox_fallback = _detect_face_with_bbox_fallback(
-                        model.face_analyzer,
-                        img_np,
-                        ref_bbox,
-                        require_embedding=True,
-                    )
-                    if used_bbox_fallback:
-                        recovered = int(
-                            getattr(model, "_ba_reference_face_bbox_recoveries", 0)
-                        ) + 1
-                        model._ba_reference_face_bbox_recoveries = recovered
-                        if recovered <= 3 and int(os.environ.get("LOCAL_RANK", "0")) == 0:
-                            print(
-                                "[BA Reference Face] recovered detection from bbox crop "
-                                f"count={recovered}",
-                                flush=True,
-                            )
+                faces = analyze_faces(model.face_analyzer, img_np)
+                if faces:
+                    embedding = torch.from_numpy(faces[0]["embedding"]).float()
                 else:
-                    faces = analyze_faces(model.face_analyzer, img_np)
-                    ref_face = _select_face_for_bbox(faces, ref_bbox)
-                    ref_kps = None if ref_face is None else _face_field(ref_face, "kps")
-                if ref_face is not None:
-                    embedding = torch.from_numpy(
-                        np.asarray(_face_field(ref_face, "embedding"))
-                    ).float()
-                else:
-                    if bool(getattr(model, "ba_require_reference_face", False)):
-                        identity = (
-                            identity_ids[i]
-                            if identity_ids is not None and i < len(identity_ids)
-                            else "unknown"
-                        )
-                        digest = hashlib.sha1(
-                            np.ascontiguousarray(img_np).tobytes()
-                        ).hexdigest()[:12]
-                        identity_failures.append(
-                            "reference_face_missing "
-                            f"sample={i} identity={identity} bbox={list(ref_bbox)} "
-                            f"image_size={tuple(ref.convert('RGB').size)} sha1={digest}"
-                        )
                     embedding = torch.zeros(512, dtype=torch.float32)
                 id_embed_list.append(embedding)
-            reference_landmarks.append(
-                None if ref_kps is None else np.asarray(ref_kps, dtype=np.float32)
-            )
 
-            id_embeds_fp32 = torch.stack(id_embed_list, dim=0).unsqueeze(0).to(
-                device=model.device, dtype=torch.float32
-            )
-            id_embeds = id_embeds_fp32.to(dtype=model.id_encoder.dtype)
-            identity_selector_list.append(id_embeds_fp32[:, 0])
+            id_embeds = torch.stack(id_embed_list, dim=0).unsqueeze(0)
+            id_embeds = id_embeds.to(device=model.device, dtype=model.id_encoder.dtype)
 
             prompt_embeds = model.id_encoder(
                 id_pixel_values,
@@ -454,108 +193,29 @@ def prepare_branched_training_inputs(
                 id_embeds,
             )
 
-            if needs_spatial_reference:
-                ref = refs[0]
-                reference_latent = model._encode_reference_latent(ref, target_shape=(latent_h, latent_w))
-                if isinstance(ref, torch.Tensor):
-                    ref_h, ref_w = ref.shape[-2:]
-                else:
-                    ref_w, ref_h = ref.size
-                ref_mask = model._bbox_to_ref_mask(
-                    ref_bbox,
-                    latent_shape=(latent_h, latent_w),
-                    image_shape=(ref_h, ref_w),
-                )
+            ref = refs[0]
+            reference_latent = model._encode_reference_latent(ref, target_shape=(latent_h, latent_w))
+            if isinstance(ref, torch.Tensor):
+                ref_h, ref_w = ref.shape[-2:]
+            else:
+                ref_w, ref_h = ref.size
+            ref_mask = model._bbox_to_ref_mask(
+                ref_bbox,
+                latent_shape=(latent_h, latent_w),
+                image_shape=(ref_h, ref_w),
+            )
 
-            if needs_id_features:
-                feature_pixels = id_pixel_values
-                if getattr(model, "ba_identity_image_mode", "full_reference") == "bbox_normalized":
-                    cropped_refs = [
-                        bbox_normalized_reference(
-                            ref,
-                            ref_bbox,
-                            padding=getattr(model, "ba_identity_crop_padding", 0.10),
-                        )
-                        for ref in refs
-                    ]
-                    feature_pixels = model.id_image_processor(
-                        cropped_refs, return_tensors="pt"
-                    ).pixel_values.unsqueeze(0).to(model.device, dtype=model.id_encoder.dtype)
-                memory_mode = getattr(model, "ba_identity_memory_mode", "mean_plus_basis")
-                if memory_mode == "face_patch_resampler":
-                    if getattr(model, "ba_identity_resampler", None) is None:
-                        raise RuntimeError("face_patch_resampler is enabled without a resampler module")
-                    pixels = feature_pixels.to(device=model.device, dtype=model.id_encoder.dtype)
-                    vision_hidden = model.id_encoder.vision_model(pixels.flatten(0, 1))[0]
-                    patches = vision_hidden[:, 1:]
-                    patch_mask = reference_bbox_to_clip_patch_mask(
-                        refs[0],
-                        ref_bbox,
-                        processed_height=int(pixels.shape[-2]),
-                        processed_width=int(pixels.shape[-1]),
-                        patch_size=int(model.id_encoder.config.patch_size),
-                        padding=getattr(model, "ba_identity_patch_padding", 0.0),
-                    )
-                    if patch_mask.numel() != patches.shape[1]:
-                        raise RuntimeError(
-                            f"Reference patch mask has {patch_mask.numel()} entries, "
-                            f"but CLIP returned {patches.shape[1]} patches"
-                        )
-                    patch_feature_list.append(patches.to(device=model.device, dtype=model.unet.dtype))
-                    patch_mask_list.append(patch_mask[None].to(device=model.device))
-                    patch_identity_list.append(
-                        id_embeds[:, 0].to(device=model.device, dtype=model.unet.dtype)
-                    )
-                elif memory_mode in {
-                    "canonical_face_parts", "qformer_plus_canonical_parts"
-                }:
-                    if getattr(model, "ba_identity_resampler", None) is None:
-                        raise RuntimeError(
-                            f"{memory_mode} is enabled without a resampler module"
-                        )
-                    aligned_ref = canonical_aligned_reference(
-                        refs[0],
-                        landmarks=reference_landmarks[-1],
-                        bbox=ref_bbox,
-                        image_size=int(getattr(model, "ba_identity_canonical_size", 224)),
-                        fallback_padding=getattr(model, "ba_identity_crop_padding", 0.10),
-                    )
-                    canonical_pixels = model.id_image_processor(
-                        [aligned_ref], return_tensors="pt"
-                    ).pixel_values.to(device=model.device, dtype=model.id_encoder.dtype)
-                    vision_hidden = model.id_encoder.vision_model(canonical_pixels)[0]
-                    patches = vision_hidden[:, 1:]
-                    patch_size = int(model.id_encoder.config.patch_size)
-                    grid_h = int(canonical_pixels.shape[-2]) // patch_size
-                    grid_w = int(canonical_pixels.shape[-1]) // patch_size
-                    canonical_part_list.append(
-                        canonical_face_part_features(
-                            patches,
-                            grid_height=grid_h,
-                            grid_width=grid_w,
-                        )
-                    )
-                    canonical_identity_list.append(id_embeds_fp32[:, 0])
-                    canonical_qformer_list.append(
-                        model.id_encoder.qformer_perceiver(
-                            id_embeds[:, 0].to(dtype=vision_hidden.dtype),
-                            vision_hidden,
-                        )
-                    )
-                else:
-                    feature_reduce = "tokens" if memory_mode == "qformer_tokens" else "mean"
-                    pm_features = model.id_encoder.extract_id_features(
-                        feature_pixels.to(device=model.device, dtype=model.id_encoder.dtype),
-                        id_embeds=id_embeds,
-                        class_tokens_mask=class_tokens_mask,
-                        reduce=feature_reduce,
-                    )
-                    pm_feature_list.append(pm_features.to(device=model.device, dtype=model.unet.dtype))
+            if model.face_embed_strategy == "id_embeds":
+                pm_features = model.id_encoder.extract_id_features(
+                    id_pixel_values.to(device=model.device, dtype=model.id_encoder.dtype),
+                    id_embeds=id_embeds,
+                    class_tokens_mask=class_tokens_mask,
+                )
+                pm_feature_list.append(pm_features.to(device=model.device, dtype=model.unet.dtype))
 
         class_tokens_mask_list.append(class_tokens_mask)
-        if needs_spatial_reference:
-            ref_latents_list.append(reference_latent)
-            ref_mask_list.append(ref_mask)
+        ref_latents_list.append(reference_latent)
+        ref_mask_list.append(ref_mask)
         mask_list.append(
             model._bbox_to_mask(
                 bbox,
@@ -565,111 +225,32 @@ def prepare_branched_training_inputs(
         )
         prompt_embeds_list.append(prompt_embeds)
         pooled_prompt_embeds_list.append(pooled_prompt_embeds)
-        if collect_identity_metadata:
-            target_bgr = _target_tensor_to_bgr(pixel_values[i])
-            if bool(getattr(model, "ba_reference_face_bbox_fallback", False)):
-                target_face, target_kps, _ = _detect_face_with_bbox_fallback(
-                    model.face_analyzer,
-                    target_bgr,
-                    bbox,
-                    require_landmarks=bool(
-                        getattr(model, "ba_causal_require_landmarks", False)
-                    ),
-                )
-            else:
-                target_faces = analyze_faces(model.face_analyzer, target_bgr)
-                target_face = _select_face_for_bbox(target_faces, bbox)
-                target_kps = (
-                    None if target_face is None else _face_field(target_face, "kps")
-                )
-            if target_kps is None and bool(getattr(model, "ba_causal_require_landmarks", False)):
-                identity = (
-                    identity_ids[i]
-                    if identity_ids is not None and i < len(identity_ids)
-                    else "unknown"
-                )
-                identity_failures.append(
-                    "target_landmarks_missing "
-                    f"sample={i} identity={identity} bbox={list(bbox)}"
-                )
-            target_landmarks.append(
-                None if target_kps is None else np.asarray(target_kps, dtype=np.float32)
-            )
-
-    if (
-        bool(getattr(model, "ba_require_reference_face", False))
-        or (
-            collect_identity_metadata
-            and bool(getattr(model, "ba_causal_require_landmarks", False))
-        )
-    ):
-        _raise_if_any_rank_has_invalid_identity(model, identity_failures)
 
     prompt_embeds = torch.cat(prompt_embeds_list, dim=0).to(device=model.device, dtype=model.unet.dtype)
     pooled_prompt_embeds = torch.cat(pooled_prompt_embeds_list, dim=0).to(device=model.device, dtype=model.unet.dtype)
     class_tokens_mask = torch.cat(class_tokens_mask_list, dim=0).to(device=model.device)
 
-    extracted_id_features = None
-    identity_output_dtype = (
-        torch.float32
-        if str(getattr(model, "ba_trainable_dtype", "model")).lower() == "fp32"
-        else model.unet.dtype
-    )
-    if canonical_part_list:
-        canonical_tokens = model.ba_identity_resampler(
-            torch.cat(canonical_part_list, dim=0),
-            torch.cat(canonical_identity_list, dim=0),
-            torch.cat(canonical_qformer_list, dim=0),
-        ).to(dtype=identity_output_dtype)
-        if getattr(model, "ba_identity_memory_mode", "") == "qformer_plus_canonical_parts":
-            qformer_tokens = torch.cat(canonical_qformer_list, dim=0).to(
-                device=model.device, dtype=identity_output_dtype
-            )
-            extracted_id_features = torch.cat([qformer_tokens, canonical_tokens], dim=1)
-        else:
-            extracted_id_features = canonical_tokens
-    elif patch_feature_list:
-        extracted_id_features = model.ba_identity_resampler(
-            torch.cat(patch_feature_list, dim=0),
-            torch.cat(patch_identity_list, dim=0),
-            torch.cat(patch_mask_list, dim=0),
-        ).to(dtype=identity_output_dtype)
-    elif pm_feature_list:
-        extracted_id_features = torch.cat(pm_feature_list, dim=0)
-
-    id_features = (
-        extracted_id_features
-        if str(getattr(model, "ba_ca_mode", "legacy_ref_branch")) == "target_face_residual"
-        else None
-    )
+    id_features = None
     if model.face_embed_strategy == "face":
         face_prompt_text = ["a close-up human face laughing hard"] * prompt_embeds.shape[0]
         face_prompt_embeds, _ = model.encode_prompt(face_prompt_text, do_cfg=False)
         face_prompt_embeds = face_prompt_embeds.to(device=model.device, dtype=model.unet.dtype)
     elif model.face_embed_strategy == "id_embeds":
-        if extracted_id_features is None:
+        if not pm_feature_list:
             raise ValueError("id_embeds strategy requires PM features in training forward.")
-        id_features = extracted_id_features
+        id_features = torch.cat(pm_feature_list, dim=0)
         seq_len = prompt_embeds.shape[1]
         dim = prompt_embeds.shape[2]
-        prompt_id_features = id_features.mean(dim=1) if id_features.ndim == 3 else id_features
-        face_prompt_embeds = prompt_id_features.unsqueeze(1).expand(-1, seq_len, dim).contiguous()
+        face_prompt_embeds = id_features.unsqueeze(1).expand(-1, seq_len, dim).contiguous()
     else:
         face_prompt_embeds = prompt_embeds
 
     mask4 = torch.cat(mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
-    if needs_spatial_reference:
-        mask4_ref = torch.cat(ref_mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
-        reference_latents = torch.cat(ref_latents_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
-    else:
-        mask4_ref = mask4
-        reference_latents = None
+    mask4_ref = torch.cat(ref_mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
+    reference_latents = torch.cat(ref_latents_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
 
     model._ref_latents_all = reference_latents
     model._face_prompt_embeds = prompt_embeds
-    model._ba_identity_selector_features = torch.cat(identity_selector_list, dim=0)
-    model._ba_reference_landmarks = reference_landmarks
-    model._ba_target_landmarks = target_landmarks if collect_identity_metadata else None
     model.do_classifier_free_guidance = False
     if hasattr(model, "_ref_noise"):
         delattr(model, "_ref_noise")
@@ -695,201 +276,30 @@ def run_branched_forward_pass(
     added_cond_kwargs: dict,
     mask4: torch.Tensor,
     mask4_ref: torch.Tensor,
-    reference_latents: torch.Tensor | None,
+    reference_latents: torch.Tensor,
     face_prompt_embeds: torch.Tensor,
     class_tokens_mask: torch.Tensor,
     id_features: torch.Tensor | None,
-    photomaker_pred: torch.Tensor | None = None,
-    return_photomaker_pred: bool = False,
-) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor | None]:
-    """Run the selected BA architecture and optionally hard-merge it with PhotoMaker."""
-    preservation_mode = str(getattr(model, "ba_pm_preservation_mode", "none") or "none").lower()
-    if preservation_mode == "hard_epsilon_merge" and photomaker_pred is None:
-        set_branched_training_mode(model, branched_active=False)
-        try:
-            with torch.no_grad():
-                photomaker_pred = model.unet(
-                    noisy_latents,
-                    timesteps,
-                    encoder_hidden_states=prompt_embeds,
-                    added_cond_kwargs=added_cond_kwargs,
-                    return_dict=False,
-                )[0]
-        finally:
-            set_branched_training_mode(model, branched_active=True)
-
-    set_branched_training_mode(model, branched_active=True)
-    if str(getattr(model, "ba_ca_mode", "legacy_ref_branch")) == "target_face_residual":
-        if id_features is None:
-            raise ValueError("target_face_residual training requires PhotoMaker identity features")
-        noise_pred = target_face_predict(
-            model,
-            noisy_latents,
-            timesteps,
-            prompt_embeds,
-            added_cond_kwargs,
-            mask4,
-            id_features,
-            class_tokens_mask=class_tokens_mask,
-        )
-    else:
-        if reference_latents is None:
-            raise ValueError("Spatial branched attention requires reference latents")
-        noise_pred, _, _ = two_branch_predict(
-            pipeline=model,
-            latent_model_input=noisy_latents,
-            t=timesteps,
-            prompt_embeds=prompt_embeds,
-            added_cond_kwargs=added_cond_kwargs,
-            mask4=mask4,
-            mask4_ref=mask4_ref,
-            reference_latents=reference_latents,
-            face_prompt_embeds=face_prompt_embeds,
-            class_tokens_mask=class_tokens_mask,
-            face_embed_strategy=model.face_embed_strategy,
-            id_embeds=id_features if model.face_embed_strategy == "id_embeds" else None,
-            step_idx=0,
-            scale=1.0,
-            timestep_cond=None,
-        )
-    if photomaker_pred is not None:
-        noise_pred = hard_epsilon_merge(photomaker_pred, noise_pred, mask4)
-    model._ba_active_this_batch = True
-    if return_photomaker_pred:
-        return noise_pred, photomaker_pred
+) -> torch.Tensor:
+    """Run branched two-branch prediction and return merged noise prediction."""
+    noise_pred, _, _ = two_branch_predict(
+        pipeline=model,
+        latent_model_input=noisy_latents,
+        t=timesteps,
+        prompt_embeds=prompt_embeds,
+        added_cond_kwargs=added_cond_kwargs,
+        mask4=mask4,
+        mask4_ref=mask4_ref,
+        reference_latents=reference_latents,
+        face_prompt_embeds=face_prompt_embeds,
+        class_tokens_mask=class_tokens_mask,
+        face_embed_strategy=model.face_embed_strategy,
+        id_embeds=id_features if model.face_embed_strategy == "id_embeds" else None,
+        step_idx=0,
+        scale=1.0,
+        timestep_cond=None,
+    )
     return noise_pred
-
-
-def set_branched_training_mode(model, *, branched_active: bool) -> None:
-    """Swap processor sets without rebuilding optimizer-owned BA modules."""
-    attr = "_branched_attn_processors_train" if branched_active else "_original_attn_processors"
-    target = getattr(model, attr, None)
-    if not target:
-        raise RuntimeError(f"Cannot select training attention mode: {attr} is unavailable")
-
-    current = model.unet.attn_processors
-    if all(current.get(name) is proc for name, proc in target.items()):
-        return
-    model.unet.set_attn_processor(dict(target))
-
-
-def attach_inactive_branched_params(model, output: torch.Tensor) -> torch.Tensor:
-    """Keep intentionally inactive BA params in the graph with exactly zero gradients."""
-    processors = getattr(model, "_branched_attn_processors_train", {}).values()
-    params = []
-    seen = set()
-    for proc in processors:
-        if not isinstance(proc, torch.nn.Module):
-            continue
-        for param in proc.parameters():
-            if param.requires_grad and id(param) not in seen:
-                seen.add(id(param))
-                params.append(param)
-    resampler = getattr(model, "ba_identity_resampler", None)
-    if isinstance(resampler, torch.nn.Module):
-        for param in resampler.parameters():
-            if param.requires_grad and id(param) not in seen:
-                seen.add(id(param))
-                params.append(param)
-    if not params:
-        return output
-
-    anchor = sum((param.reshape(-1)[0].float() * 0.0 for param in params), output.new_zeros(()).float())
-    return output + anchor.to(device=output.device, dtype=output.dtype)
-
-
-def select_wrong_identity_features(
-    identity_features: torch.Tensor,
-    *,
-    global_negatives: bool,
-    selector_features: torch.Tensor | None = None,
-    identity_ids: Sequence[str] | None = None,
-    strategy: str = "least_similar",
-    target_similarity: float = 0.30,
-    return_indices: bool = False,
-) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-    """Select a confidently different frozen identity memory for each sample."""
-    if identity_features.ndim not in {2, 3}:
-        raise ValueError(
-            f"Identity features must be [B,D] or [B,T,D], got {tuple(identity_features.shape)}"
-        )
-    local = identity_features.detach()
-    candidates = local
-    selector_local = (selector_features if selector_features is not None else local).detach()
-    selector_candidates = selector_local
-    local_id_hashes = None
-    candidate_id_hashes = None
-    if identity_ids is not None:
-        if len(identity_ids) != local.shape[0]:
-            raise ValueError("identity_ids length must match the local identity batch")
-        local_id_hashes = torch.tensor(
-            [
-                int.from_bytes(hashlib.sha1(str(value).encode("utf-8")).digest()[:8], "little")
-                & ((1 << 63) - 1)
-                for value in identity_ids
-            ],
-            device=local.device,
-            dtype=torch.long,
-        )
-        candidate_id_hashes = local_id_hashes
-    rank = 0
-    if (
-        global_negatives
-        and torch.distributed.is_available()
-        and torch.distributed.is_initialized()
-    ):
-        world = torch.distributed.get_world_size()
-        rank = torch.distributed.get_rank()
-        gathered = [torch.empty_like(local) for _ in range(world)]
-        torch.distributed.all_gather(gathered, local)
-        candidates = torch.cat(gathered, dim=0)
-        gathered_selector = [torch.empty_like(selector_local) for _ in range(world)]
-        torch.distributed.all_gather(gathered_selector, selector_local)
-        selector_candidates = torch.cat(gathered_selector, dim=0)
-        if local_id_hashes is not None:
-            gathered_hashes = [torch.empty_like(local_id_hashes) for _ in range(world)]
-            torch.distributed.all_gather(gathered_hashes, local_id_hashes)
-            candidate_id_hashes = torch.cat(gathered_hashes, dim=0)
-
-    if candidates.shape[0] < 2:
-        raise ValueError("Wrong-reference supervision requires a total batch size of at least two")
-    local_repr = torch.nn.functional.normalize(selector_local.float().flatten(1), dim=-1)
-    candidate_repr = torch.nn.functional.normalize(selector_candidates.float().flatten(1), dim=-1)
-    similarities = local_repr @ candidate_repr.T
-    own_indices = rank * local.shape[0] + torch.arange(local.shape[0], device=local.device)
-    invalid = torch.zeros_like(similarities, dtype=torch.bool)
-    invalid[torch.arange(local.shape[0], device=local.device), own_indices] = True
-    if local_id_hashes is not None and candidate_id_hashes is not None:
-        invalid |= local_id_hashes[:, None] == candidate_id_hashes[None, :]
-
-    strategy = str(strategy or "least_similar").lower()
-    if strategy == "least_similar":
-        scores = similarities.masked_fill(invalid, float("inf"))
-    elif strategy == "semi_hard":
-        scores = (similarities - float(target_similarity)).abs().masked_fill(
-            invalid, float("inf")
-        )
-    else:
-        raise ValueError(f"Unknown negative-selection strategy: {strategy}")
-
-    no_valid = torch.isinf(scores).all(dim=1)
-    if bool(no_valid.any()):
-        if local_id_hashes is not None:
-            raise ValueError(
-                "No different identity_id is available for wrong-reference supervision"
-            )
-        fallback_invalid = torch.zeros_like(invalid)
-        fallback_invalid[
-            torch.arange(local.shape[0], device=local.device), own_indices
-        ] = True
-        fallback = (similarities - float(target_similarity)).abs().masked_fill(
-            fallback_invalid, float("inf")
-        )
-        scores[no_valid] = fallback[no_valid]
-
-    wrong_indices = scores.argmin(dim=1)
-    wrong = candidates.index_select(0, wrong_indices)
-    return (wrong, wrong_indices) if return_indices else wrong
 
 
 def ensure_branched_after_eval(model) -> None:

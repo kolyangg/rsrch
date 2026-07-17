@@ -17,9 +17,6 @@ pose_adapt_ratio: 0
 # pose_adapt_ratio: 0.25
 # ca_mixing_for_face: true
 ca_mixing_for_face: false
-ba_face_fusion_mode: legacy
-ba_face_fusion_gate_init: 0.25
-ba_face_fusion_gate_max: 1.0
 # face_embed_strategy: id_embeds
 # face_embed_strategy: id # id = use original PM embeddings
 face_embed_strategy: id

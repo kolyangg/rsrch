@@ -3,7 +3,6 @@ branched_new.py - Simplified branched attention implementation with cross-attent
 """
 
 import math
-import fnmatch
 import torch
 import torch.nn.functional as F
 from typing import Optional, Dict, Any, Tuple, Sequence
@@ -11,45 +10,6 @@ import os
 from PIL import Image
 
 from .debug_helpers import save_debug_images
-
-
-def processor_name_matches_allowlist(
-    name: str,
-    allowlist: Optional[Sequence[str]],
-) -> bool:
-    """Match processor names by prefix or shell-style wildcard."""
-    if allowlist is None:
-        return True
-    patterns = [str(item).strip() for item in allowlist if str(item).strip()]
-    if not patterns:
-        return True
-    return any(
-        fnmatch.fnmatch(name, pattern) if any(ch in pattern for ch in "*?[]")
-        else name.startswith(pattern)
-        for pattern in patterns
-    )
-
-
-def resolve_processor_override(
-    name: str,
-    overrides,
-    default: float,
-) -> float:
-    """Resolve the first prefix/wildcard override for an attention processor."""
-    if not overrides:
-        return float(default)
-    for pattern, value in overrides.items():
-        pattern = str(pattern).strip()
-        if not pattern:
-            continue
-        matches = (
-            fnmatch.fnmatch(name, pattern)
-            if any(ch in pattern for ch in "*?[]")
-            else name.startswith(pattern)
-        )
-        if matches:
-            return float(value)
-    return float(default)
 
 
 def select_branched_processor_names(
@@ -91,12 +51,8 @@ def patch_unet_attention_processors(
     """
     Patch UNet with branched attention processors for both self and cross attention.
     """
-    disable_sa = bool(getattr(pipeline, "disable_branched_sa", False)) or (
-        str(getattr(pipeline, "ba_sa_mode", "legacy")).lower() == "standard"
-    )
-    disable_ca = bool(getattr(pipeline, "disable_branched_ca", False)) or (
-        str(getattr(pipeline, "ba_ca_mode", "legacy_ref_branch")).lower() == "standard"
-    )
+    disable_sa = bool(getattr(pipeline, "disable_branched_sa", False))
+    disable_ca = bool(getattr(pipeline, "disable_branched_ca", False))
 
     # Default to legacy (v1) when flag is not provided.
     use_attn_v2 = bool(getattr(pipeline, "use_attn_v2", False))
@@ -130,38 +86,14 @@ def patch_unet_attention_processors(
         return mod
 
 
-    def _apply_runtime_flags(proc, pipe, proc_name):
-        # Keep old behavior unless ba_enable_runtime_sa_knobs is explicitly enabled.
-        for k in (
-            "ba_enable_runtime_sa_knobs",
-            "pose_adapt_ratio",
-            "ca_mixing_for_face",
-            "id_alpha",
-            "use_id_embeds",
-            "ba_face_fusion_mode",
-            "ba_face_fusion_gate_init",
-            "ba_face_fusion_gate_max",
-            "ba_sa_mode",
-            "ba_face_kv_mode",
-            "ba_face_roi_size",
-            "ba_ca_mode",
-            "ba_identity_token_count",
-            "ba_identity_memory_mode",
-            "ba_hard_mask_resize",
-            "ba_face_gate_mode",
-            "ba_face_gate_init",
-            "ba_face_gate_max",
-        ):
-            if hasattr(pipe, k):
-                setattr(proc, k, getattr(pipe, k))
-        if hasattr(proc, "ba_pm_identity_context_scale"):
-            proc.ba_pm_identity_context_scale = resolve_processor_override(
-                proc_name,
-                getattr(pipe, "ba_pm_identity_context_scale_overrides", None),
-                float(getattr(pipe, "ba_pm_identity_context_scale", 1.0)),
-            )
-        if hasattr(proc, "configure_face_fusion"):
-            proc.configure_face_fusion()
+    def _apply_runtime_flags(proc, pipe):
+        # propagate key runtime knobs from model/pipeline onto processors
+        # for k in ("pose_adapt_ratio", "ca_mixing_for_face", "train_branch_mode", "id_alpha", "use_id_embeds"):
+        #     if hasattr(pipe, k):
+        #         setattr(proc, k, getattr(pipe, k))
+        
+        # Keep only static toggles on processor instances.
+        # Per-step runtime knobs are passed via UNet cross_attention_kwargs
 
         # Optional toggle for per-branch BA-specific adapters.
         if hasattr(pipe, "ba_weights_split"):
@@ -176,31 +108,10 @@ def patch_unet_attention_processors(
     # Ensure masks are non-None to avoid runtime errors
     B = (mask.shape[0] if mask is not None else mask_ref.shape[0])
     dev, dt = pipeline.device, pipeline.unet.dtype
-    identity_dtype = (
-        torch.float32
-        if str(getattr(pipeline, "ba_trainable_dtype", "model")).lower() == "fp32"
-        else dt
-    )
     _mask  = mask     if mask     is not None else torch.zeros(B, 1,  mask_ref.shape[-2], mask_ref.shape[-1], device=dev, dtype=dt)
     _mref  = mask_ref if mask_ref is not None else _mask
     # Always provide id_embeds so processor-local weights participate on every rank
-    if id_embeds is not None:
-        _idem = id_embeds.to(dev, identity_dtype)
-    elif getattr(pipeline, "ba_identity_memory_mode", "mean_plus_basis") in {
-        "qformer_tokens",
-        "face_patch_resampler",
-        "canonical_face_parts",
-        "qformer_plus_canonical_parts",
-    }:
-        _idem = torch.zeros(
-            B,
-            int(getattr(pipeline, "ba_identity_token_count", 2)),
-            2048,
-            device=dev,
-            dtype=identity_dtype,
-        )
-    else:
-        _idem = torch.zeros(B, 2048, device=dev, dtype=identity_dtype)
+    _idem = id_embeds.to(dev, dt) if id_embeds is not None else torch.zeros(B, 2048, device=dev, dtype=dt)   
 
     ba_patch_top_k = float(getattr(pipeline, "ba_patch_top_k", 1.0))
     patchable_sa_names = select_branched_processor_names(
@@ -211,7 +122,6 @@ def patch_unet_attention_processors(
         param_name="ba_patch_top_k",
     )
     patchable_sa_name_set = set(patchable_sa_names)
-    ca_allowlist = getattr(pipeline, "ba_ca_layer_allowlist", None)
 
     if not has_branched:
         # Create new processors
@@ -251,16 +161,12 @@ def patch_unet_attention_processors(
                         branched_attn_lora_rank=int(
                             getattr(pipeline, "branched_attn_lora_rank", getattr(pipeline, "lora_rank", 16))
                         ),
-                        ba_sa_mode=getattr(pipeline, "ba_sa_mode", "legacy"),
-                        ba_face_kv_mode=getattr(pipeline, "ba_face_kv_mode", "zero_masked_full"),
-                        ba_face_roi_size=int(getattr(pipeline, "ba_face_roi_size", 4)),
-                        ba_hard_mask_resize=getattr(pipeline, "ba_hard_mask_resize", "legacy_threshold"),
                     )
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
                     proc = proc.to(pipeline.device, dtype=pipeline.unet.dtype)
                     proc.set_masks(_mask, _mref)
                     setattr(proc, "strict_face_routing", bool(getattr(pipeline, "strict_face_routing", False)))
-                    _apply_runtime_flags(proc, pipeline, name)
+                    _apply_runtime_flags(proc, pipeline)
 
                     # Wire id_embeds (zeros if missing); whether they are used is controlled by use_id_embeds
                     proc.id_embeds = _idem
@@ -269,7 +175,7 @@ def patch_unet_attention_processors(
                     patched_proc_names.append(name)
                 
             elif name.endswith("attn2.processor"):
-                if disable_ca or not processor_name_matches_allowlist(name, ca_allowlist):
+                if disable_ca:
                     # Keep original cross-attn processor; no branched CA.
                     new_procs[name] = pipeline._original_attn_processors[name]
                 else:
@@ -277,16 +183,6 @@ def patch_unet_attention_processors(
                     num_tokens = 77  # Standard CLIP token count
                     if hasattr(pipeline, 'tokenizer_2'):
                         num_tokens = pipeline.tokenizer_2.model_max_length
-                    gate_init = resolve_processor_override(
-                        name,
-                        getattr(pipeline, "ba_face_gate_init_overrides", None),
-                        float(getattr(pipeline, "ba_face_gate_init", 1.0)),
-                    )
-                    pm_identity_context_scale = resolve_processor_override(
-                        name,
-                        getattr(pipeline, "ba_pm_identity_context_scale_overrides", None),
-                        float(getattr(pipeline, "ba_pm_identity_context_scale", 1.0)),
-                    )
 
                     proc = BranchedCrossAttnProcessor(
                         hidden_size=hidden_size,
@@ -298,30 +194,16 @@ def patch_unet_attention_processors(
                         branched_attn_lora_rank=int(
                             getattr(pipeline, "branched_attn_lora_rank", getattr(pipeline, "lora_rank", 16))
                         ),
-                        ba_ca_mode=getattr(pipeline, "ba_ca_mode", "legacy_ref_branch"),
-                        ba_identity_token_count=int(getattr(pipeline, "ba_identity_token_count", 4)),
-                        ba_identity_memory_mode=getattr(
-                            pipeline, "ba_identity_memory_mode", "mean_plus_basis"
-                        ),
-                        ba_hard_mask_resize=getattr(pipeline, "ba_hard_mask_resize", "legacy_threshold"),
-                        ba_face_gate_mode=getattr(pipeline, "ba_face_gate_mode", "legacy_scalar"),
-                        ba_face_gate_init=gate_init,
-                        ba_face_gate_max=float(getattr(pipeline, "ba_face_gate_max", 1.0)),
-                        ba_pm_identity_context_scale=pm_identity_context_scale,
                     ).to(pipeline.device, dtype=pipeline.unet.dtype)
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
-                    if proc.ba_ca_mode == "legacy_ref_branch":
-                        setattr(proc, "equalize_face_kv", True)
-                        setattr(proc, "equalize_clip", (1/3, 8.0))
+                    # enable KV equalizer for face branch
+                    setattr(proc, "equalize_face_kv", True)
+                    setattr(proc, "equalize_clip", (1/3, 8.0))
                     setattr(proc, "strict_face_routing", bool(getattr(pipeline, "strict_face_routing", False)))
                     proc.set_masks(_mask, _mref)
-                    _apply_runtime_flags(proc, pipeline, name)
-                    if proc.ba_ca_mode == "target_face_residual":
-                        proc.id_embeds = _idem
-                        proc.class_tokens_mask = class_tokens_mask
-                        proc.pm_text_only_embeds = getattr(
-                            pipeline, "_ba_text_only_prompt_embeds", None
-                        )
+                    # Keep CA path consistent too (even if CA doesn’t always consume id_embeds)
+                    proc.id_embeds = _idem
+                    proc.class_tokens_mask = class_tokens_mask
 
                     new_procs[name] = proc
                     patched_proc_names.append(name)
@@ -334,111 +216,20 @@ def patch_unet_attention_processors(
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
     else:
         patched_proc_names: list[str] = []
-        # Update runtime context without rebuilding optimizer-owned processors.
+        # Update masks on existing processors
         for name, proc in pipeline.unet.attn_processors.items():
             if isinstance(proc, (BranchedAttnProcessor, BranchedCrossAttnProcessor)):
                 patched_proc_names.append(name)
+                # proc.set_masks(mask, mask_ref)
                 proc.set_masks(_mask, _mref)
-                _apply_runtime_flags(proc, pipeline, name)
+                _apply_runtime_flags(proc, pipeline)
+
+                # (Re)apply id_embeds (zeros if missing); actual usage is gated by use_id_embeds
                 if hasattr(proc, "id_embeds"):
                     proc.id_embeds = _idem
                 if hasattr(proc, "class_tokens_mask"):
                     proc.class_tokens_mask = class_tokens_mask
-                if hasattr(proc, "pm_text_only_embeds"):
-                    proc.pm_text_only_embeds = getattr(
-                        pipeline, "_ba_text_only_prompt_embeds", None
-                    )
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
-
-
-def hard_epsilon_merge(
-    photomaker_pred: torch.Tensor,
-    branched_pred: torch.Tensor,
-    hard_mask: torch.Tensor,
-) -> torch.Tensor:
-    """Use the BA prediction only inside the hard latent bbox."""
-    if photomaker_pred.shape != branched_pred.shape:
-        raise ValueError(
-            f"Prediction shape mismatch: PM={tuple(photomaker_pred.shape)}, "
-            f"BA={tuple(branched_pred.shape)}"
-        )
-    mask = hard_mask[:, :1].to(device=branched_pred.device, dtype=branched_pred.dtype)
-    if mask.shape[-2:] != branched_pred.shape[-2:]:
-        mask = F.interpolate(mask, size=branched_pred.shape[-2:], mode="nearest")
-    mask = (mask > 0).to(dtype=branched_pred.dtype)
-    if mask.shape[0] != branched_pred.shape[0]:
-        if mask.shape[0] <= 0 or branched_pred.shape[0] % mask.shape[0] != 0:
-            raise ValueError(
-                f"Mask batch {mask.shape[0]} does not match prediction batch {branched_pred.shape[0]}"
-            )
-        mask = mask.repeat((branched_pred.shape[0] // mask.shape[0], 1, 1, 1))
-    return photomaker_pred * (1.0 - mask) + branched_pred * mask
-
-
-def compose_post_cfg_identity_delta(
-    photomaker_pred: torch.Tensor,
-    branched_pred: torch.Tensor,
-    hard_mask: torch.Tensor,
-    *,
-    guidance_scale: float,
-    residual_scale: float,
-    do_classifier_free_guidance: bool,
-    scale_identity_delta_by_guidance: bool = False,
-) -> torch.Tensor:
-    """Apply the conditional BA correction once, outside text CFG."""
-    if do_classifier_free_guidance:
-        if photomaker_pred.shape[0] % 2 != 0 or branched_pred.shape[0] != photomaker_pred.shape[0]:
-            raise ValueError("post_cfg_delta requires matching even CFG batches")
-        pm_uncond, pm_cond = photomaker_pred.chunk(2)
-        _, ba_cond = branched_pred.chunk(2)
-        merged_cond = hard_epsilon_merge(pm_cond, ba_cond, hard_mask)
-        delta_cond = merged_cond - pm_cond
-        guided = pm_uncond + float(guidance_scale) * (pm_cond - pm_uncond)
-        identity_gain = (
-            float(guidance_scale) if scale_identity_delta_by_guidance else 1.0
-        )
-        guided = guided + float(residual_scale) * identity_gain * delta_cond
-        # The caller's unchanged CFG block maps two identical halves back to `guided`.
-        return torch.cat([guided, guided], dim=0)
-
-    merged = hard_epsilon_merge(photomaker_pred, branched_pred, hard_mask)
-    return photomaker_pred + float(residual_scale) * (merged - photomaker_pred)
-
-
-def target_face_predict(
-    pipeline,
-    latent_model_input: torch.Tensor,
-    t: torch.Tensor,
-    prompt_embeds: torch.Tensor,
-    added_cond_kwargs: Dict[str, Any],
-    mask4: torch.Tensor,
-    id_embeds: torch.Tensor,
-    class_tokens_mask: Optional[torch.Tensor] = None,
-    timestep_cond: Optional[torch.Tensor] = None,
-) -> torch.Tensor:
-    """Run an undoubled target pass with direct ID-token face cross-attention."""
-    patch_unet_attention_processors(
-        pipeline,
-        mask4,
-        mask4,
-        scale=1.0,
-        id_embeds=id_embeds,
-        class_tokens_mask=class_tokens_mask,
-    )
-    cross_attention_kwargs = getattr(
-        pipeline,
-        "cross_attention_kwargs",
-        getattr(pipeline, "_cross_attention_kwargs", None),
-    )
-    return pipeline.unet(
-        latent_model_input,
-        t,
-        encoder_hidden_states=prompt_embeds,
-        timestep_cond=timestep_cond,
-        cross_attention_kwargs=cross_attention_kwargs,
-        added_cond_kwargs=added_cond_kwargs,
-        return_dict=False,
-    )[0]
 
 def encode_face_prompt(
     pipeline,

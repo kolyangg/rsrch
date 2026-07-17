@@ -8,21 +8,12 @@ from tqdm.auto import tqdm
 
 from src.datasets.data_utils import inf_loop
 from src.metrics.tracker import MetricTracker
-from src.model.photomaker_branched.config_utils import branched_model_runtime_kwargs
 from src.utils.io_utils import ROOT_PATH
 from hydra.utils import instantiate
 
 import os
 import time
 
-
-def _configure_validation_vae_slicing(pipe, enabled: bool) -> None:
-    if not enabled:
-        return
-    vae = getattr(pipe, "vae", None)
-    if vae is None or not hasattr(vae, "enable_slicing"):
-        raise RuntimeError("Validation VAE does not support sliced decoding")
-    vae.enable_slicing()
 
 
 class BaseTrainer:
@@ -173,8 +164,6 @@ class BaseTrainer:
         # (initial validation, barriers) can desynchronize collectives.
         self._sync_start_epoch()
 
-    def _optimizer_step_from_microsteps(self, microsteps: int) -> int:
-        return int(microsteps) // max(1, int(getattr(self, "grad_accum_steps", 1)))
 
     def train(self):
         """
@@ -207,9 +196,6 @@ class BaseTrainer:
                 "_face_mask_ref",
                 "_face_mask_t",
                 "_face_mask_t_ref",
-                "_ba_identity_selector_features",
-                "_ba_reference_landmarks",
-                "_ba_target_landmarks",
             ):
                 if hasattr(obj, attr):
                     try:
@@ -317,31 +303,13 @@ class BaseTrainer:
         self.train_metrics.reset()
 
         if self.accelerator.is_main_process:
-            self.writer.set_step(
-                self._optimizer_step_from_microsteps((epoch - 1) * self.epoch_len)
-            )
+            self.writer.set_step((epoch - 1) * self.epoch_len)
             self.writer.add_scalar("general/epoch", epoch)
 
-        # An opt-in smoke test uses the normal validation loader but caps the
-        # first validation of this invocation. On resume, start_epoch is the
-        # first epoch after the loaded checkpoint, so validate that checkpoint
-        # before taking another optimizer step.
-        run_initial_validation = bool(getattr(self.config, "validate_before_training", True))
-        val_smoke_test = bool(getattr(self.config, "val_smoke_test", False))
-        if epoch == self.start_epoch and (run_initial_validation or val_smoke_test):
+        if epoch == 1:
             self.accelerator.wait_for_everyone()
-            smoke_limit = (
-                int(getattr(self.config, "val_smoke_test_limit", 24))
-                if val_smoke_test
-                else None
-            )
             for part, dataloader in self.evaluation_dataloaders.items():
-                val_logs = self._evaluation_epoch(
-                    epoch - 1,
-                    part,
-                    dataloader,
-                    max_samples=smoke_limit,
-                )
+                val_logs = self._evaluation_epoch(epoch - 1, part, dataloader)
                 if self.accelerator.is_main_process:
                     logs.update(**{f"{part}/{name}": value for name, value in val_logs.items()})
             self.is_train = True
@@ -416,11 +384,7 @@ class BaseTrainer:
             # log current results
             if batch_idx % self.log_step == 0:
                 if self.accelerator.is_main_process:
-                    self.writer.set_step(
-                        self._optimizer_step_from_microsteps(
-                            (epoch - 1) * self.epoch_len + batch_idx
-                        )
-                    )
+                    self.writer.set_step((epoch - 1) * self.epoch_len + batch_idx)
                     self.logger.debug(
                         "Train Epoch: {} {} Reduced Loss: {:.6f}".format(
                             epoch, self._progress(batch_idx), batch["loss"].item()
@@ -468,7 +432,7 @@ class BaseTrainer:
 
         return logs
 
-    def _evaluation_epoch(self, epoch, part, dataloader, max_samples=None):
+    def _evaluation_epoch(self, epoch, part, dataloader):
         """
         Evaluate model on the partition after training for an epoch.
 
@@ -487,10 +451,7 @@ class BaseTrainer:
             metric.to_cuda()
 
         if self.writer is not None:
-            self.writer.set_step(
-                self._optimizer_step_from_microsteps(epoch * self.epoch_len),
-                part,
-            )
+            self.writer.set_step(epoch * self.epoch_len, part)
         prev_time = time.time()
         with torch.no_grad():
             # Optionally swap to an alternate base model for validation only
@@ -531,22 +492,8 @@ class BaseTrainer:
                 prev_model_base = getattr(self.config.model, "pretrained_model_name_or_path", None)
                 try:
                     self.config.model.pretrained_model_name_or_path = val_pretrained
-                    _val_model = instantiate(
-                        self.config.model,
-                        device=self.device,
-                        **branched_model_runtime_kwargs(self.config),
-                    )
+                    _val_model = instantiate(self.config.model, device=self.device)
                     setattr(_val_model, "strict_face_routing", bool(getattr(self.config, "strict_face_routing", False)))
-                    setattr(
-                        _val_model,
-                        "disable_branched_sa",
-                        bool(getattr(self.config, "disable_branched_sa", False)),
-                    )
-                    setattr(
-                        _val_model,
-                        "disable_branched_ca",
-                        bool(getattr(self.config, "disable_branched_ca", False)),
-                    )
                     # Ensure adapters are initialized before loading LoRA weights
                     if hasattr(_val_model, "prepare_for_training"):
                         _val_model.prepare_for_training()
@@ -571,40 +518,14 @@ class BaseTrainer:
                         if train_unet is not None and val_unet is not None:
                             t_procs = getattr(train_unet, "attn_processors", {})
                             v_procs = getattr(val_unet, "attn_processors", {})
-                            expected_names = set(
-                                getattr(
-                                    self.accelerator.unwrap_model(self.model),
-                                    "_ba_patched_processor_names",
-                                    (),
-                                )
-                            )
-                            copied_names = set()
-                            copy_errors = {}
-                            for name in expected_names:
-                                t_proc = t_procs.get(name)
+                            for name, t_proc in t_procs.items():
                                 v_proc = v_procs.get(name)
-                                if t_proc is None or v_proc is None:
-                                    copy_errors[name] = "processor missing"
+                                if v_proc is None:
                                     continue
                                 try:
                                     v_proc.load_state_dict(t_proc.state_dict(), strict=False)
-                                    copied_names.add(name)
-                                except Exception as exc:
-                                    copy_errors[name] = str(exc)
-                            if (
-                                bool(getattr(_val_model, "ba_strict_checkpoint_restore", False))
-                                and copied_names != expected_names
-                            ):
-                                raise RuntimeError(
-                                    "Validation BA processor transfer incomplete: "
-                                    f"copied={len(copied_names)}/{len(expected_names)}, "
-                                    f"errors={copy_errors}"
-                                )
-                            if self.accelerator.is_main_process:
-                                print(
-                                    "[BA Validation] copied trained processors "
-                                    f"{len(copied_names)}/{len(expected_names)}"
-                                )
+                                except Exception:
+                                    continue
                     # Move the temporary validation model to the active device (GPU)
                     try:
                         _val_model.to(self.device)
@@ -652,19 +573,7 @@ class BaseTrainer:
                     if hasattr(self.model, attr):
                         setattr(self.pipe, attr, getattr(self.model, attr))
 
-            _configure_validation_vae_slicing(
-                self.pipe,
-                bool(getattr(self.config, "validation_enable_vae_slicing", False)),
-            )
-
-            dataset_total = len(dataloader.dataset) if hasattr(dataloader, "dataset") else len(dataloader)
-            total_images = min(dataset_total, int(max_samples)) if max_samples is not None else dataset_total
-            world_size = int(getattr(self.accelerator, "num_processes", 1))
-            local_max_samples = (
-                (int(max_samples) + world_size - 1) // world_size
-                if max_samples is not None
-                else None
-            )
+            total_images = len(dataloader.dataset) if hasattr(dataloader, "dataset") else len(dataloader)
             if hasattr(self, 'pipe'):
                 for attr in ('_call_debug_counter', '_current_debug_idx', '_current_debug_total'):
                     if hasattr(self.pipe, attr):
@@ -686,22 +595,12 @@ class BaseTrainer:
                 self._val_generation_dir = None
             if self.accelerator.is_main_process:
                 print(f"[DebugImage] total validation images: {total_images}")  # always show total
-            processed_samples = 0
-            progress_total = len(dataloader)
-            if local_max_samples is not None:
-                loader_batch_size = int(getattr(dataloader, "batch_size", 1) or 1)
-                progress_total = min(
-                    progress_total,
-                    (local_max_samples + loader_batch_size - 1) // loader_batch_size,
-                )
             for batch_idx, batch in tqdm(
                 enumerate(dataloader),
                 desc=f"{part}_rank{self.accelerator.process_index}",
-                total=progress_total,
+                total=len(dataloader),
                 disable=not self.accelerator.is_local_main_process,
             ):
-                if local_max_samples is not None and processed_samples >= local_max_samples:
-                    break
                 if self.accelerator.is_main_process:
                     print(f"[DebugImage] validation image {batch_idx:02d}/{total_images:02d}")  # always show current id
                 batch["debug_idx"] = batch_idx  # --- MODIFIED For training integration ---
@@ -712,12 +611,6 @@ class BaseTrainer:
                 batch = self.process_evaluation_batch(
                     batch,
                     eval_metrics=self.evaluation_metrics,
-                )
-                batch_prompts = batch.get("prompt", [])
-                processed_samples += (
-                    len(batch_prompts)
-                    if isinstance(batch_prompts, (list, tuple))
-                    else 1
                 )
                 process_time = time.time() - process_start
                 prev_time = time.time()
@@ -988,8 +881,6 @@ class BaseTrainer:
                 'model_best.pth'(do not duplicate the checkpoint as
                 checkpoint-epochEpochNumber.pth)
         """
-        if not self.accelerator.is_main_process:
-            return
         arch = type(self.accelerator.unwrap_model(self.model)).__name__
         state = {
             "arch": arch,
@@ -1007,8 +898,6 @@ class BaseTrainer:
         torch.save(state, filename)
 
     def _save_weights_only_checkpoint(self, epoch):
-        if not self.accelerator.is_main_process:
-            return
         state = self.accelerator.unwrap_model(self.model).get_state_dict()
         filename = str(self.checkpoint_dir / f"weights-epoch{epoch}.pth")
         if self.accelerator.is_main_process:
@@ -1030,11 +919,7 @@ class BaseTrainer:
         resume_path = str(resume_path)
         if self.accelerator.is_main_process:
             self.logger.info(f"Loading checkpoint: {resume_path} ...")
-        # Training checkpoints contain optimizer state and OmegaConf config objects,
-        # so they cannot use PyTorch 2.6's weights-only default.
-        checkpoint = torch.load(
-            resume_path, map_location=self.device, weights_only=False
-        )
+        checkpoint = torch.load(resume_path, self.device)
         self.start_epoch = checkpoint["epoch"] + 1
 
         # load architecture params from checkpoint.
@@ -1082,9 +967,7 @@ class BaseTrainer:
                 self.logger.info(f"Loading model weights from: {pretrained_path} ...")
         else:
             print(f"Loading model weights from: {pretrained_path} ...")
-        checkpoint = torch.load(
-            pretrained_path, map_location=self.device, weights_only=False
-        )
+        checkpoint = torch.load(pretrained_path, self.device)
 
         if checkpoint.get("state_dict") is not None:
             self.accelerator.unwrap_model(self.model).load_state_dict_(checkpoint["state_dict"])

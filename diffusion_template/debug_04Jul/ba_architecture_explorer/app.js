@@ -3,6 +3,10 @@
 const PRE_N34 = "3c06eed7bb11744d87e2b816dc3a889808f051ba";
 const LEGACY_SPATIAL = "2157eada14824d14019e80f9416e6d736c837306";
 const N3A_COMMIT = "e42c966";
+const EXP_SOURCE_ROOT =
+  "https://github.com/kolyangg/rsrch/blob/main_clean_exp/diffusion_template";
+const NN1_PROPOSAL =
+  "../../Jul_new_exp/2026-07-17_NN1_architecture_and_experiment_options.md";
 
 const code = (path, line, snippet, label = "Open source") => ({
   path,
@@ -299,7 +303,7 @@ const CONFIGS = {
     family: "legacy spatial",
     topology: "legacy_spatial",
     status: "failed",
-    statusLabel: "Active · destructive",
+    statusLabel: "Historical · destructive",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -327,6 +331,123 @@ const CONFIGS = {
       objective: "masked_alternating",
       optimizer: "LR 5e-5 · noise LR 1.25e-5 · clip 1.0 · weight decay 1e-2",
       result: "96-image ID 0.171; face MAE vs PM 0.206 at 10k",
+    }),
+  },
+  NN1a: {
+    short: "NN1a",
+    title: "Exact N3a two-GPU control",
+    subtitle:
+      "Proposed reproducibility control: preserve the complete N3a forward and optimizer contract while changing only execution to two-GPU DDP.",
+    family: "NN1 proposal",
+    topology: "legacy_spatial",
+    status: "proposed",
+    statusLabel: "Proposal · not implemented",
+    sourceCommit: N3A_COMMIT,
+    memory: {
+      label: "Full noised reference latent",
+      detail: "Exact N3a spatial reference grid with crop jitter",
+      tokens: null,
+    },
+    sites: legacySites("noise_and_ref", 0.25, true),
+    weightMode: "noise_and_ref · SA/CA train · noise LR ×0.25",
+    pmContext: "Target prompt + ID-only reference-half prompt",
+    composition: "One doubled BA U-Net pass; target half returned directly",
+    compositionShort: "exact N3a spatial pass",
+    objective: "Masked alternating diffusion MSE",
+    objectiveShort: "N3a masked alternating",
+    schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    faceMae: null,
+    idScore: null,
+    metricStep: "not run",
+    architectureNote:
+      "This is a parity gate, not the expected winner: NN1b/c should not be interpreted until NN1a reproduces N3a startup counts and step-zero behavior.",
+    details: proposedNnDetails("NN1a", {
+      line: 50,
+      trainCa: true,
+      weightMode: "noise_and_ref · target/noise clone LR ×0.25",
+      objective: "masked_alternating",
+      optimizer: "LR 5e-5 · noise LR 1.25e-5 · clip 1.0 · weight decay 1e-2",
+      purpose: "Exact N3a forward and training control on two DDP processes",
+      objectiveDescription:
+        "Replay N3a's masked-alternating diffusion objective without an architectural change. Its purpose is to verify repository and DDP parity before testing improvements.",
+    }),
+  },
+  NN1b: {
+    short: "NN1b",
+    title: "Stable full-BA self-attention training",
+    subtitle:
+      "Proposed stability anchor: both branched processors remain active, while only the spatial self-attention clones train.",
+    family: "NN1 proposal",
+    topology: "legacy_spatial",
+    status: "proposed",
+    statusLabel: "Recommended · not implemented",
+    sourceCommit: N3A_COMMIT,
+    memory: {
+      label: "Full noised reference latent",
+      detail: "N3a spatial reference grid without crop jitter",
+      tokens: null,
+    },
+    sites: legacySites("noise_and_ref", 0.1, false),
+    weightMode: "SA noise_and_ref · CA active/frozen",
+    pmContext: "Target prompt + ID-only reference-half prompt",
+    composition: "One doubled BA U-Net pass; target half returned directly",
+    compositionShort: "full BA · frozen CA weights",
+    objective: "Blended full-image and face diffusion MSE",
+    objectiveShort: "blended masked λface 0.15",
+    schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    faceMae: null,
+    idScore: null,
+    metricStep: "not run",
+    architectureNote:
+      "This carries forward N11's strongest stability lesson without removing BranchedCrossAttnProcessor from the forward path.",
+    details: proposedNnDetails("NN1b", {
+      line: 77,
+      trainCa: false,
+      weightMode: "noise_and_ref for SA · CA forward active with frozen weights",
+      objective: "blended_masked · λface 0.15",
+      optimizer: "LR 1e-4 · noise LR 1e-5 · clip 1.0 · weight decay 1e-3",
+      purpose: "Architecture-preserving stability anchor based on N11",
+      objectiveDescription:
+        "Use blended full-image and face diffusion MSE while training only branched self-attention clones. Cross-attention still splits target/reference prompts at all 70 sites, but its cloned weights are frozen.",
+    }),
+  },
+  NN1c: {
+    short: "NN1c",
+    title: "Stable full BA plus identity supervision",
+    subtitle:
+      "Proposed highest-upside option: NN1b's stable full BA route plus a small low-timestep decoded identity loss.",
+    family: "NN1 proposal",
+    topology: "legacy_spatial",
+    status: "proposed",
+    statusLabel: "Highest upside · not implemented",
+    sourceCommit: N3A_COMMIT,
+    memory: {
+      label: "Full noised reference latent",
+      detail: "N3a spatial reference grid without crop jitter",
+      tokens: null,
+    },
+    sites: legacySites("noise_and_ref", 0.1, false),
+    weightMode: "SA noise_and_ref · CA active/frozen",
+    pmContext: "Target prompt + ID-only reference-half prompt",
+    composition: "One doubled BA U-Net pass; target half returned directly",
+    compositionShort: "full BA · frozen CA weights",
+    objective: "Blended diffusion MSE + decoded reference identity loss",
+    objectiveShort: "blended + ID 0.1 at t≤400",
+    schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    faceMae: null,
+    idScore: null,
+    metricStep: "not run",
+    architectureNote:
+      "NN1c changes supervision, not attention math; the identity-loss plumbing is explicitly deferred until the experiment family is approved.",
+    details: proposedNnDetails("NN1c", {
+      line: 100,
+      trainCa: false,
+      weightMode: "noise_and_ref for SA · CA forward active with frozen weights",
+      objective: "blended_masked + decoded ID 0.1 at t≤400",
+      optimizer: "NN1b optimizer · identity target from trusted reference",
+      purpose: "NN1b plus identity-directed supervision",
+      objectiveDescription:
+        "Keep NN1b's full branched-attention forward and add a flag-gated decoded face identity loss of 0.1 only for t≤400. No compact memory, residual route, allowlist, or alternate epsilon composition is introduced.",
     }),
   },
   N31: {
@@ -639,34 +760,54 @@ const CONFIGS = {
   },
 };
 
-function legacySites(weightMode, noiseLrScale = null) {
+function legacySites(weightMode, noiseLrScale = null, caTrainable = true) {
   const training =
     weightMode === "ref_only"
       ? "reference-side clones train; target/noise projections stay at base"
       : noiseLrScale == null
         ? "reference and target/noise clones train at the same LR"
         : `reference clones train at base LR; target/noise clones at ×${noiseLrScale}`;
+  const caTraining = caTrainable
+    ? "branched CA weights train"
+    : "branched CA forward remains active; its weights are frozen";
   return {
     count: 70,
     effective: 70,
+    caTrainable,
     label: "70 SA + 70 CA sites",
     matrixLabel: "70 / 70 (+70 SA)",
-    effectiveLabel: weightMode === "ref_only" ? "70 ref-side" : "70 spatial",
-    detail: `All SDXL attn1 and attn2 processors · ${training}`,
+    metricLabel: caTrainable ? "70 SA + 70 CA" : "70 SA train + 70 CA active/frozen",
+    diagramLabel: caTrainable
+      ? "70 SA + 70 CA processors"
+      : "70 SA train · 70 CA active/frozen",
+    effectiveLabel:
+      weightMode === "ref_only"
+        ? "70 ref-side"
+        : caTrainable
+          ? "70 spatial"
+          : "70 SA train · CA frozen",
+    detail: `All SDXL attn1 and attn2 processors · ${training} · ${caTraining}`,
   };
 }
 
 function legacyDetails(run, evidence) {
   const namingFacts = evidence.naming ? { Naming: evidence.naming } : {};
+  const isProposal = Boolean(evidence.proposal);
+  const caTrainable = evidence.trainCa !== false;
+  const caTraining = caTrainable ? "Trainable" : "Forward active; weights frozen";
   return {
     history: {
-      title: `${run}: historical source reconstruction`,
-      description:
-        "The current processor still contains the legacy spatial forward, but current runtime assembly has accumulated later residual, allowlist, and composition modes. Commit 2157ead is therefore needed to establish the exact doubled-latent contract. The run launcher and later findings establish the run-specific optimizer and loss.",
+      title: isProposal
+        ? `${run}: proposal source and implementation status`
+        : `${run}: source reconstruction`,
+      description: isProposal
+        ? "This is a visualized proposal only. It is grounded in the runnable N3a source now active on main_clean and the dated NN1 design document; no NN1 code, Hydra config, or launcher exists yet."
+        : "main_clean now contains the runnable N3a-era spatial BA implementation. Commit 2157ead anchors the original doubled-latent topology; the run commit and launcher establish each historical optimizer and loss variant.",
       facts: {
         "Core topology": LEGACY_SPATIAL.slice(0, 8),
         "Run evidence": evidence.sourceCommit,
-        "Current descendant": "Legacy forward still present",
+        "main_clean baseline": N3A_COMMIT,
+        Status: isProposal ? "Not implemented" : "Historical run",
         ...namingFacts,
       },
       code: [
@@ -696,9 +837,9 @@ function legacyDetails(run, evidence) {
       code: [
         code(
           "../../src/model/photomaker_branched/branched_runtime.py",
-          612,
+          403,
           `ref_noised = pipeline.scheduler.add_noise(\n    reference_latents,\n    pipeline._ref_noise[:reference_latents.shape[0]],\n    t_ref,\n)\nref_noised = pipeline.scheduler.scale_model_input(ref_noised, t_ref)`,
-          "Open current legacy descendant",
+          "Open N3a runtime",
         ),
       ],
     },
@@ -714,9 +855,9 @@ function legacyDetails(run, evidence) {
       code: [
         code(
           "../../src/model/photomaker_branched/branched_runtime.py",
-          626,
+          417,
           `# Create branched batch: [generation B, reference B].\nbatched_latents = torch.cat([latent_model_input, ref_noised], dim=0)\nt_batched = torch.cat([t_gen, t_ref], dim=0)`,
-          "Open current legacy descendant",
+          "Open N3a runtime",
         ),
       ],
     },
@@ -728,9 +869,9 @@ function legacyDetails(run, evidence) {
       code: [
         code(
           "../../src/model/photomaker_branched/attn_processor_cleanest.py",
-          462,
+          240,
           `noise_hidden = hidden_states[:batch_size]\nref_hidden = hidden_states[batch_size:]\nquery = self._q_noise(attn, noise_hidden)`,
-          "Open current legacy descendant",
+          "Open BranchedAttnProcessor",
         ),
       ],
     },
@@ -742,9 +883,9 @@ function legacyDetails(run, evidence) {
       code: [
         code(
           "../../src/model/photomaker_branched/attn_processor_cleanest.py",
-          1178,
+          690,
           `# target/background half\nkey_bg = self._k_noise(attn, gen_prompt)\nvalue_bg = self._v_noise(attn, gen_prompt)\nhidden_bg = scaled_dot_product_attention(q_bg, key_bg, value_bg)`,
-          "Open current legacy descendant",
+          "Open BranchedCrossAttnProcessor",
         ),
       ],
     },
@@ -756,15 +897,15 @@ function legacyDetails(run, evidence) {
       code: [
         code(
           "../../src/model/photomaker_branched/branched_runtime.py",
-          685,
+          476,
           `face_prompt_mode = getattr(pipeline, "ba_face_prompt_mode", "id_only")\n...\nmasked_face_prompt_embeds = face_prompt_embeds * class_token_mask * id_scale`,
-          "Open current legacy descendant",
+          "Open N3a face-prompt runtime",
         ),
         code(
           "../../src/model/photomaker_branched/attn_processor_cleanest.py",
-          1188,
+          700,
           `# reference half\nkey_ref = self._k_ref(attn, face_prompt)\nvalue_ref = self._v_ref(attn, face_prompt)\nhidden_ref = scaled_dot_product_attention(q_ref, key_ref, value_ref)`,
-          "Open current legacy descendant",
+          "Open BranchedCrossAttnProcessor",
         ),
       ],
     },
@@ -780,9 +921,9 @@ function legacyDetails(run, evidence) {
       code: [
         code(
           "../../src/model/photomaker_branched/attn_processor_cleanest.py",
-          552,
+          327,
           `ref_mask = self._prepare_mask(self.mask_ref, seq_len, ref_batch_size)\nnoise_face_hidden = noise_hidden * target_mask\nref_face_hidden = ref_hidden * ref_mask`,
-          "Open current legacy descendant",
+          "Open BranchedAttnProcessor masks",
         ),
       ],
     },
@@ -798,9 +939,9 @@ function legacyDetails(run, evidence) {
       code: [
         code(
           "../../src/model/photomaker_branched/branched_runtime.py",
-          803,
+          595,
           `noise_pred = pipeline.unet(\n    batched_latents,\n    t_batched,\n    encoder_hidden_states=torch.cat([prompt_embeds, face_prompt_embeds]),\n)[0]`,
-          "Open current legacy descendant",
+          "Open N3a doubled U-Net call",
         ),
       ],
     },
@@ -817,29 +958,34 @@ function legacyDetails(run, evidence) {
       code: [
         code(
           "../../src/model/photomaker_branched/attn_processor_cleanest.py",
-          560,
+          336,
           `ref_face_hidden = ref_hidden * ref_mask\nface_hidden_mixed = ref_face_hidden  # pose ratio 0\nq_face = target_q * target_mask\nhidden_face = attention(q_face, K(ref_face), V(ref_face))`,
-          "Open current legacy descendant",
+          "Open BranchedAttnProcessor face path",
         ),
         code(
           "../../src/model/photomaker_branched/attn_processor_cleanest.py",
-          655,
+          384,
           `merged = hidden_bg * (1 - target_mask) + hidden_face * target_mask\nhidden_states = torch.cat([merged, hidden_ref], dim=0)`,
-          "Open current legacy descendant",
+          "Open BranchedAttnProcessor merge",
         ),
       ],
     },
     crossAttention: {
       title: `${run}: split cross-attention`,
       description:
-        "All cross-attention sites process the target half with the generation prompt and the reference half with the face prompt. Cross-attention does not itself add a target-face residual; it conditions the two spatial streams that self-attention later couples.",
-      facts: { Sites: "70 / 70 attn2", Target: "Generation prompt", Reference: "Face prompt" },
+        `All cross-attention sites process the target half with the generation prompt and the reference half with the face prompt. Cross-attention does not itself add a target-face residual; it conditions the two spatial streams that self-attention later couples. CA training state: ${caTraining.toLowerCase()}.`,
+      facts: {
+        Sites: "70 / 70 attn2",
+        Target: "Generation prompt",
+        Reference: "Face prompt",
+        "CA weights": caTraining,
+      },
       code: [
         code(
           "../../src/model/photomaker_branched/attn_processor_cleanest.py",
-          1178,
+          690,
           `hidden_bg = attention(Q(target), K(gen_prompt), V(gen_prompt))\nhidden_ref = attention(Q(reference), K(face_prompt), V(face_prompt))\nhidden_states = torch.cat([hidden_bg, hidden_ref], dim=0)`,
-          "Open current legacy descendant",
+          "Open BranchedCrossAttnProcessor",
         ),
       ],
     },
@@ -850,14 +996,15 @@ function legacyDetails(run, evidence) {
       facts: {
         "Self-attention": "70 / 70",
         "Cross-attention": "70 / 70",
+        "CA weights": caTraining,
         "Weight mode": evidence.weightMode,
       },
       code: [
         code(
           evidence.launcher,
           evidence.launcherLine,
-          `branched_attn_weight_mode=${evidence.weightMode}\ntrain_branched_ca_lora=true\nba_patch_top_k=1.0\nba_train_top_k=1.0`,
-          "Open run launcher",
+          `branched_attn_weight_mode=${evidence.weightMode}\ntrain_branched_ca_lora=${caTrainable}\nba_patch_top_k=1.0\nba_train_top_k=1.0`,
+          isProposal ? "Open proposal" : "Open run launcher",
         ),
       ],
     },
@@ -873,9 +1020,9 @@ function legacyDetails(run, evidence) {
       code: [
         code(
           "../../src/model/photomaker_branched/branched_runtime.py",
-          838,
+          629,
           `noise_pred_merged = noise_pred[:batch_size]\n...\nreturn noise_pred_merged, noise_face, noise_bg`,
-          "Open current legacy descendant",
+          "Open N3a target-half return",
         ),
       ],
     },
@@ -887,9 +1034,9 @@ function legacyDetails(run, evidence) {
       code: [
         code(
           "../../src/pipelines/br_pipeline_helpers.py",
-          1006,
+          1025,
           `if branched_active:\n    noise_pred, _, _ = run_branched_step(...)\nelse:\n    noise_pred = pipeline.unet(...)[0]`,
-          "Open current runtime descendant",
+          "Open N3a validation route",
         ),
       ],
     },
@@ -907,7 +1054,7 @@ function legacyDetails(run, evidence) {
           evidence.launcher,
           evidence.launcherLine,
           `loss_kind=${evidence.objective}\n# ${evidence.optimizer}`,
-          "Open run launcher",
+          isProposal ? "Open proposal" : "Open run launcher",
         ),
       ],
     },
@@ -919,9 +1066,9 @@ function legacyDetails(run, evidence) {
       code: [
         code(
           "../../src/model/photomaker_branched/branched_runtime.py",
-          612,
+          403,
           `ref_noised = scheduler.add_noise(reference_latents, ref_noise, t_ref)`,
-          "Open current legacy descendant",
+          "Open N3a runtime",
         ),
       ],
     },
@@ -933,9 +1080,9 @@ function legacyDetails(run, evidence) {
       code: [
         code(
           "../../src/model/photomaker_branched/attn_processor_cleanest.py",
-          594,
+          336,
           `q_face = q * target_mask\nhidden_face = attention(q_face, K(ref_face_hidden), V(ref_face_hidden))`,
-          "Open current legacy descendant",
+          "Open BranchedAttnProcessor",
         ),
       ],
     },
@@ -947,9 +1094,9 @@ function legacyDetails(run, evidence) {
       code: [
         code(
           "../../src/model/photomaker_branched/attn_processor_cleanest.py",
-          552,
+          327,
           `target_mask = self._prepare_mask(self.mask, ...)\nref_mask = self._prepare_mask(self.mask_ref, ...)`,
-          "Open current legacy descendant",
+          "Open BranchedAttnProcessor masks",
         ),
       ],
     },
@@ -961,9 +1108,9 @@ function legacyDetails(run, evidence) {
       code: [
         code(
           "../../src/model/photomaker_branched/attn_processor_cleanest.py",
-          1178,
+          690,
           `hidden_bg = attention(Q(target), K(gen_prompt), V(gen_prompt))`,
-          "Open current legacy descendant",
+          "Open BranchedCrossAttnProcessor",
         ),
       ],
     },
@@ -996,6 +1143,50 @@ function legacyDetails(run, evidence) {
       ],
     },
   };
+}
+
+function proposedNnDetails(run, evidence) {
+  const details = legacyDetails(run, {
+    sourceCommit: N3A_COMMIT,
+    launcher: NN1_PROPOSAL,
+    launcherLine: evidence.line,
+    weightMode: evidence.weightMode,
+    objective: evidence.objective,
+    optimizer: evidence.optimizer,
+    result: "Proposal only; no checkpoint or metric exists",
+    proposal: true,
+    trainCa: evidence.trainCa,
+  });
+
+  details.history.code = [
+    code(
+      NN1_PROPOSAL,
+      evidence.line,
+      `# ${run}: ${evidence.purpose}\n# Architecture proposal only; implementation awaits approval.`,
+      "Open NN1 proposal",
+    ),
+    code(
+      "../../Jul_new_exp/2026-07-17_branch_split_and_recovery.md",
+      1,
+      `main_clean      = runnable N3a behavioral baseline\nmain_clean_exp  = complete post-N3a experimental implementation`,
+      "Open branch and recovery contract",
+    ),
+  ];
+  details.objective.description = evidence.objectiveDescription;
+  details.objective.facts = {
+    Status: "Proposed; not implemented",
+    Objective: evidence.objective,
+    Optimizer: evidence.optimizer,
+  };
+  details.objective.code = [
+    code(
+      NN1_PROPOSAL,
+      evidence.line,
+      `# ${evidence.purpose}\nloss=${evidence.objective}\n# ${evidence.optimizer}`,
+      "Open proposed experiment",
+    ),
+  ];
+  return details;
 }
 
 function allSiteDetail(run) {
@@ -1197,6 +1388,11 @@ function renderSvg(config, panelId) {
 
 function renderLegacyOverviewSvg(config, panelId) {
   const markerId = `arrow-${panelId}`;
+  const caSubtitle =
+    config.sites.caTrainable === false
+      ? "forward active · cloned weights frozen"
+      : "target↔gen · reference↔face";
+  const siteLabel = config.sites.diagramLabel || "70 SA + 70 CA processors";
   return `
   <svg class="architecture-svg" viewBox="0 0 920 650" aria-label="${escapeHtml(config.short)} legacy spatial architecture overview">
     <defs>${markerDefs(markerId)}</defs>
@@ -1231,9 +1427,9 @@ function renderLegacyOverviewSvg(config, panelId) {
     </g>
     ${node(436, 128, 240, 58, "baPass", ["Target + reference streams"], "one absolute BA prediction", "")}
     ${node(436, 232, 240, 90, "selfAttention", ["Branched self-attention"], "Qtarget face → K/Vreference face", "ba")}
-    ${node(436, 357, 240, 72, "crossAttention", ["Split cross-attention"], "target↔gen · reference↔face", "pm")}
-    <rect class="site-chip" x="471" y="444" width="170" height="24" rx="12"></rect>
-    <text class="site-chip-text" x="556" y="460">70 SA + 70 CA processors</text>
+    ${node(436, 357, 240, 72, "crossAttention", ["Split cross-attention"], caSubtitle, "pm")}
+    <rect class="site-chip" x="436" y="444" width="240" height="24" rx="12"></rect>
+    <text class="site-chip-text" x="556" y="460">${escapeHtml(siteLabel)}</text>
 
     ${node(730, 220, 170, 80, "compose", ["Return target", "epsilon half"], "no outer PM merge", "ba")}
     ${node(730, 372, 170, 76, "output", ["CFG → scheduler", "0–9 text · 10–14 PM", "15–49 spatial BA"], "", "output")}
@@ -1306,6 +1502,10 @@ function renderMechanismSvg(config, panelId) {
 
 function renderLegacyMechanismSvg(config, panelId) {
   const markerId = `mechanism-${panelId}`;
+  const caTrainingText =
+    config.sites.caTrainable === false
+      ? "CA forward active at all 70 sites; weights frozen."
+      : "CA forward active and trainable at all 70 sites.";
   return `
   <svg class="mechanism-svg" viewBox="0 0 920 840" aria-label="${escapeHtml(config.short)} detailed branched self and cross attention">
     <defs>${markerDefs(markerId)}</defs>
@@ -1358,7 +1558,7 @@ function renderLegacyMechanismSvg(config, panelId) {
 
     <line class="mechanism-divider" x1="24" y1="444" x2="896" y2="444"></line>
     <text class="mechanism-title" x="24" y="478">B · BranchedCrossAttnProcessor — split target/reference cross-attention at every attn2 site</text>
-    <text class="mechanism-note" x="24" y="502">The face prompt conditions the reference stream; identity reaches the target through the spatial SA transfer above.</text>
+    <text class="mechanism-note" x="24" y="502">Face prompt → reference stream; identity reaches target through spatial SA. ${escapeHtml(caTrainingText)}</text>
 
     ${node(24, 528, 154, 58, "target", ["target_hidden"], "", "pm")}
     ${node(24, 606, 154, 58, "prompt", ["generation prompt"], "", "pm")}
@@ -1452,7 +1652,7 @@ function renderCard(cardId, configId) {
     : "not available";
   const siteMetric =
     config.topology === "legacy_spatial"
-      ? `${config.sites.count} SA + ${config.sites.count} CA`
+      ? config.sites.metricLabel || `${config.sites.count} SA + ${config.sites.count} CA`
       : `${config.sites.count} / 70 CA`;
   card.dataset.config = configId;
   card.querySelector(".card-header").innerHTML = `
@@ -1501,6 +1701,9 @@ function renderSummary(leftId, rightId) {
   const pmSitesRight = 70 - right.sites.count;
   const includesLegacy =
     left.topology === "legacy_spatial" || right.topology === "legacy_spatial";
+  const bothLegacy =
+    left.topology === "legacy_spatial" && right.topology === "legacy_spatial";
+  const includesProposal = left.status === "proposed" || right.status === "proposed";
   const routeCopy = includesLegacy
     ? `${left.short}: ${
         left.topology === "legacy_spatial" ? "full reference grid" : "compact identity memory"
@@ -1509,7 +1712,9 @@ function renderSummary(leftId, rightId) {
       }`
     : `${left.short} ${left.sites.effective} → ${right.short} ${right.sites.effective}`;
   const routeExplanation = includesLegacy
-    ? "Legacy runs carry reference coordinates through a second U-Net stream; newer runs expose only compact K/V memory."
+    ? bothLegacy
+      ? "Both retain the full reference-coordinate stream and the original doubled-latent branched-attention topology."
+      : "The spatial run carries reference coordinates through a second U-Net stream; the compact run exposes only identity K/V memory."
     : `Right has ${(siteRatio * 100).toFixed(0)}% of the left configuration's unit-gate site equivalents.`;
   const pmAuthority = includesLegacy
     ? `${left.short}: ${
@@ -1519,7 +1724,9 @@ function renderSummary(leftId, rightId) {
       }`
     : `${pmSitesLeft} vs ${pmSitesRight}`;
   const pmExplanation = includesLegacy
-    ? "The legacy target half is returned directly; compact-residual runs explicitly compose BA with an ordinary PhotoMaker prediction."
+    ? bothLegacy
+      ? "Both return the target half of one doubled BA pass directly; neither protects an independent PhotoMaker epsilon baseline."
+      : "The spatial target half is returned directly; the compact-residual run explicitly composes BA with an ordinary PhotoMaker prediction."
     : `${left.short} left / ${right.short} right. Untouched sites retain full PhotoMaker context.`;
   document.getElementById("comparison-summary").innerHTML = `
     <div class="comparison-fact">
@@ -1537,7 +1744,9 @@ function renderSummary(leftId, rightId) {
       <p>${
         comparableMae
           ? "Same-seed target-face RGB MAE relative to the PhotoMaker baseline."
-          : "Historical 24-image runs are intentionally not mixed with the later 96-image MAE protocol."
+          : includesProposal
+            ? "A proposed configuration has no checkpoint or validation metric yet."
+            : "Runs without the same fixed-set MAE protocol are not compared numerically."
       }</p>
     </div>
     <div class="comparison-fact">
@@ -1597,8 +1806,8 @@ function updateUrl(left, right) {
 }
 
 function renderAll() {
-  const left = CONFIGS[leftSelect.value] ? leftSelect.value : "N32";
-  const right = CONFIGS[rightSelect.value] ? rightSelect.value : "N38";
+  const left = CONFIGS[leftSelect.value] ? leftSelect.value : "N3a";
+  const right = CONFIGS[rightSelect.value] ? rightSelect.value : "NN1b";
   renderCard("left-card", left);
   renderCard("right-card", right);
   renderSummary(left, right);
@@ -1620,11 +1829,21 @@ function openInspector(configId, key) {
     .join("");
   document.getElementById("inspector-code").innerHTML = (detail.code || [])
     .map((entry) => {
-      const href = `${entry.path}#L${entry.line}`;
+      const belongsToExpBranch =
+        config.topology !== "legacy_spatial" &&
+        (entry.path.startsWith("../../src/") ||
+          entry.path.startsWith("../../serv_new_runs/"));
+      const sourcePath = belongsToExpBranch
+        ? `${EXP_SOURCE_ROOT}/${entry.path.replace("../../", "")}`
+        : entry.path;
+      const displayPath = belongsToExpBranch
+        ? `main_clean_exp:${entry.path.replace("../../", "")}`
+        : entry.path.replace("../../", "");
+      const href = `${sourcePath}#L${entry.line}`;
       return `
         <article class="code-card">
           <header>
-            <span>${escapeHtml(entry.path.replace("../../", ""))}:${entry.line}</span>
+            <span>${escapeHtml(displayPath)}:${entry.line}</span>
             <a href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${escapeHtml(entry.label)} ↗</a>
           </header>
           <pre><code>${escapeHtml(entry.snippet)}</code></pre>
@@ -1646,8 +1865,8 @@ function closeInspector() {
 populateSelect(leftSelect);
 populateSelect(rightSelect);
 const params = new URLSearchParams(window.location.search);
-leftSelect.value = CONFIGS[params.get("left")] ? params.get("left") : "N32";
-rightSelect.value = CONFIGS[params.get("right")] ? params.get("right") : "N38";
+leftSelect.value = CONFIGS[params.get("left")] ? params.get("left") : "N3a";
+rightSelect.value = CONFIGS[params.get("right")] ? params.get("right") : "NN1b";
 renderMatrix();
 renderAll();
 
@@ -1660,8 +1879,8 @@ document.getElementById("swap-configs").addEventListener("click", () => {
   renderAll();
 });
 document.getElementById("reset-view").addEventListener("click", () => {
-  leftSelect.value = "N32";
-  rightSelect.value = "N38";
+  leftSelect.value = "N3a";
+  rightSelect.value = "NN1b";
   renderAll();
 });
 document.getElementById("close-inspector").addEventListener("click", closeInspector);

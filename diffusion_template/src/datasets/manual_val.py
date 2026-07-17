@@ -24,7 +24,6 @@ class ManualPhotoMakerValDataset(Dataset):
         seeds: Sequence[int] = (0, 1, 2),
         limit: int | None = None,
         instance_transforms=None,
-        restrict_ids_to_gen_bbox: bool = False,
     ):
         self.images_dir = Path(images_dir)
         self.prompts_path = Path(prompts_path)
@@ -95,19 +94,6 @@ class ManualPhotoMakerValDataset(Dataset):
                 self._bbox_gen_json = json.load(fh)
         else:
             self._bbox_gen_json = None
-
-        # Optional: restrict the identity set to those that have a generation-bbox entry
-        # (e.g. the pm96 8-identity set). Avoids enumerating extra identities that happen to
-        # have a reference image but no gen bbox -> keeps the full set at exactly 8 ids x N prompts.
-        if restrict_ids_to_gen_bbox and self._bbox_gen_json:
-            allowed = {Path(k).stem.rsplit("_", 1)[-1] for k in self._bbox_gen_json.keys()}
-            filtered = [p for p in self.images if p.stem in allowed]
-            if not filtered:
-                raise ValueError(
-                    "restrict_ids_to_gen_bbox=True left no images: none of the reference stems "
-                    f"in {self.images_dir} match gen-bbox identities {sorted(allowed)}."
-                )
-            self.images = filtered
 
         self.samples = []
         for image_path in self.images:

@@ -24,76 +24,6 @@ def _ensure_dir(p: Path):
     return p
 
 
-def _apply_saved_ba_architecture(cfg, checkpoint) -> None:
-    """Restore architecture switches that are not encoded by tensor shapes alone."""
-    if not checkpoint:
-        return
-    saved_config_path = Path(str(checkpoint)).expanduser().resolve().parent / "config.yaml"
-    if not saved_config_path.is_file():
-        return
-    saved = OmegaConf.load(saved_config_path)
-    model_keys = (
-        "ba_sa_mode",
-        "ba_face_kv_mode",
-        "ba_face_roi_size",
-        "ba_ca_mode",
-        "ba_ca_train_mode",
-        "ba_identity_token_count",
-        "ba_identity_memory_mode",
-        "ba_identity_image_mode",
-        "ba_identity_crop_padding",
-        "ba_identity_patch_padding",
-        "ba_identity_resampler_hidden_dim",
-        "ba_identity_canonical_size",
-        "ba_pm_preservation_mode",
-        "ba_hard_mask_resize",
-        "ba_target_mask_fail_closed",
-        "ba_ca_layer_allowlist",
-        "ba_trainable_dtype",
-        "ba_face_gate_mode",
-        "ba_face_gate_init",
-        "ba_face_gate_max",
-        "ba_face_gate_init_overrides",
-        "ba_pm_identity_context_scale",
-        "ba_pm_identity_context_scale_overrides",
-        "ba_cfg_composition",
-        "ba_residual_scale",
-        "ba_post_cfg_guidance_scale",
-        "ba_require_reference_face",
-        "ba_strict_checkpoint_restore",
-        "ba_uncond_face_fix",
-        "ba_face_prompt_mode",
-        "use_id_embeds",
-        "disable_reference_spatial_branch",
-        "branched_attn_weight_mode",
-        "branched_attn_new_weight_kind",
-        "train_branched_ca_lora",
-    )
-    for key in model_keys:
-        if "model" in saved and key in saved.model:
-            cfg.model[key] = saved.model[key]
-    if (
-        str(getattr(cfg.model, "ba_cfg_composition", "legacy_guided")).lower()
-        == "post_cfg_delta"
-        and (
-            "model" not in saved
-            or "ba_post_cfg_guidance_scale" not in saved.model
-        )
-    ):
-        # Existing N34-N38 checkpoints predate the explicit compatibility
-        # toggle. Use the corrected conditional-CFG semantics by default; a CLI
-        # override is merged again after this function and can restore false.
-        cfg.model.ba_post_cfg_guidance_scale = True
-    if "pipeline" in saved and "face_embed_strategy" in saved.pipeline:
-        strategy = saved.pipeline.face_embed_strategy
-        cfg.pipeline.face_embed_strategy = strategy
-        cfg.model.face_embed_strategy = strategy
-        cfg.validation_args.face_embed_strategy = strategy
-    for key in ("disable_branched_sa", "disable_branched_ca"):
-        if key in saved:
-            cfg[key] = saved[key]
-
-
 def _iter_named_images(images, prompt: str, ref_stem: str):
     base = f"{prompt[:10]}_{ref_stem}"
     if isinstance(images, list):
@@ -132,12 +62,8 @@ def main():
         raise FileNotFoundError(f"Config not found: {cfg_path}")
     cfg = OmegaConf.load(str(cfg_path))
     OmegaConf.set_struct(cfg, False)
-    cli_cfg = OmegaConf.from_dotlist(overrides) if overrides else None
-    if cli_cfg is not None:
-        cfg = OmegaConf.merge(cfg, cli_cfg)
-    _apply_saved_ba_architecture(cfg, getattr(cfg, "saved_checkpoint", None))
-    if cli_cfg is not None:
-        cfg = OmegaConf.merge(cfg, cli_cfg)
+    if overrides:
+        cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(overrides))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Match torch dtype choice with PhotoMaker (bf16 if supported, else fp16) (Alligned with PhotoMaker)
@@ -185,8 +111,6 @@ def main():
         try:
             model.prepare_for_training()
         except Exception:
-            if bool(getattr(cfg.model, "ba_strict_checkpoint_restore", False)):
-                raise
             # Some models may not require this; continue if it fails harmlessly
             pass
     # Move full module tree to target device for single-GPU inference
