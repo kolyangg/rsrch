@@ -7,6 +7,34 @@ const EXP_SOURCE_ROOT =
   "https://github.com/kolyangg/rsrch/blob/main_clean_exp/diffusion_template";
 const NN1_PROPOSAL =
   "../../Jul_new_exp/2026-07-17_NN1a_NN1f_approval_stage_experiment_plan.md";
+const NN1_IMPLEMENTATION =
+  "../../Jul_new_exp/2026-07-17_NN1a_NN1f_implementation_and_launch_guide.md";
+const NN1_FILES = {
+  NN1a: {
+    config: "../../src/configs/one_id_ba_NN1a_n3a_replay.yaml",
+    launcher: "../../jul_serv_runs/start_ba_NN1a_n3a_replay_1gpu.sh",
+  },
+  NN1b: {
+    config: "../../src/configs/one_id_ba_NN1b_schedule_matched.yaml",
+    launcher: "../../jul_serv_runs/start_ba_NN1b_schedule_matched_1gpu.sh",
+  },
+  NN1c: {
+    config: "../../src/configs/one_id_ba_NN1c_masked_id_prompt.yaml",
+    launcher: "../../jul_serv_runs/start_ba_NN1c_masked_id_prompt_1gpu.sh",
+  },
+  NN1d: {
+    config: "../../src/configs/one_id_ba_NN1d_frozen_ca.yaml",
+    launcher: "../../jul_serv_runs/start_ba_NN1d_frozen_ca_1gpu.sh",
+  },
+  NN1e: {
+    config: "../../src/configs/one_id_ba_NN1e_frozen_ca_id_loss.yaml",
+    launcher: "../../jul_serv_runs/start_ba_NN1e_frozen_ca_id_loss_1gpu.sh",
+  },
+  NN1f: {
+    config: "../../src/configs/one_id_ba_NN1f_ref_kv_id_loss.yaml",
+    launcher: "../../jul_serv_runs/start_ba_NN1f_ref_kv_id_loss_1gpu.sh",
+  },
+};
 
 const code = (path, line, snippet, label = "Open source") => ({
   path,
@@ -338,10 +366,10 @@ const CONFIGS = {
     title: "Guarded N3a one-GPU replay",
     subtitle:
       "N3a forward, objective, optimizer, augmentation, and all-timestep training with strict correctness guards 1–4.",
-    family: "NN1 proposal",
+    family: "NN1 ready",
     topology: "legacy_spatial",
-    status: "proposed",
-    statusLabel: "Control · awaits approval",
+    status: "ready",
+    statusLabel: "Control · ready to run",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -362,7 +390,7 @@ const CONFIGS = {
     metricStep: "not run",
     architectureNote:
       "The guards reject silent installation, invalid masks/identities, and incomplete processor restores without changing valid N3a forward math.",
-    details: proposedNnDetails("NN1a", {
+    details: nn1Details("NN1a", {
       line: 126,
       trainCa: true,
       weightMode: "noise_and_ref · target/noise clone LR ×0.25",
@@ -379,10 +407,10 @@ const CONFIGS = {
     title: "Schedule-matched full BA",
     subtitle:
       "Audit issue 5 in isolation: sample only the inference region in which the doubled spatial BA path is active.",
-    family: "NN1 proposal",
+    family: "NN1 ready",
     topology: "legacy_spatial",
-    status: "proposed",
-    statusLabel: "Issue 5 · awaits approval",
+    status: "ready",
+    statusLabel: "Issue 5 · ready to run",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -403,7 +431,7 @@ const CONFIGS = {
     metricStep: "not run",
     architectureNote:
       "Every counted optimizer step still runs the unchanged doubled BA forward; text-only/PM-only no-gradient windows are not counted.",
-    details: proposedNnDetails("NN1b", {
+    details: nn1Details("NN1b", {
       line: 145,
       trainCa: true,
       weightMode: "noise_and_ref · target/noise clone LR ×0.25",
@@ -420,10 +448,10 @@ const CONFIGS = {
     title: "Masked ID-only face prompt",
     subtitle:
       "Audit issue 6 in isolation: keep the ID-only prompt but mask non-ID tokens out of reference-half cross-attention.",
-    family: "NN1 proposal",
+    family: "NN1 ready",
     topology: "legacy_spatial",
-    status: "proposed",
-    statusLabel: "Issue 6 · awaits approval",
+    status: "ready",
+    statusLabel: "Issue 6 · ready to run",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -447,7 +475,7 @@ const CONFIGS = {
     metricStep: "not run",
     architectureNote:
       "Conditional reference CA gives probability mass only to the two ID tokens; target prompt and unconditional negative-prompt rows remain unchanged.",
-    details: proposedNnDetails("NN1c", {
+    details: nn1Details("NN1c", {
       line: 175,
       trainCa: true,
       weightMode: "noise_and_ref · target/noise clone LR ×0.25",
@@ -465,10 +493,10 @@ const CONFIGS = {
     title: "Full BA with frozen CA weights",
     subtitle:
       "N11 stability lesson in isolation: all split cross-attention remains active, but only branched spatial self-attention updates.",
-    family: "NN1 proposal",
+    family: "NN1 ready",
     topology: "legacy_spatial",
-    status: "proposed",
-    statusLabel: "Stability anchor · awaits approval",
+    status: "ready",
+    statusLabel: "Stability anchor · ready",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -489,7 +517,7 @@ const CONFIGS = {
     metricStep: "not run",
     architectureNote:
       "BranchedCrossAttnProcessor is not removed or replaced; only its cloned projection gradients are disabled.",
-    details: proposedNnDetails("NN1d", {
+    details: nn1Details("NN1d", {
       line: 204,
       trainCa: false,
       weightMode: "noise_and_ref for SA · CA forward active with frozen weights",
@@ -506,10 +534,10 @@ const CONFIGS = {
     title: "Frozen CA plus reference-ID loss",
     subtitle:
       "NN1d's stable full-BA route plus a low-noise decoded identity objective against the trusted reference face.",
-    family: "NN1 proposal",
+    family: "NN1 ready",
     topology: "legacy_spatial",
-    status: "proposed",
-    statusLabel: "Identity-directed · awaits approval",
+    status: "ready",
+    statusLabel: "Identity-directed · ready",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -530,7 +558,7 @@ const CONFIGS = {
     metricStep: "not run",
     architectureNote:
       "Identity supervision changes the training target, not the doubled spatial attention forward or PhotoMaker composition.",
-    details: proposedNnDetails("NN1e", {
+    details: nn1Details("NN1e", {
       line: 223,
       trainCa: false,
       weightMode: "noise_and_ref for SA · CA forward active with frozen weights",
@@ -547,10 +575,10 @@ const CONFIGS = {
     title: "Reference K/V-only identity learning",
     subtitle:
       "Brave full-BA option: preserve target queries/background and train only the reference K/V projections that feed target-face attention.",
-    family: "NN1 proposal",
+    family: "NN1 ready",
     topology: "legacy_spatial",
-    status: "proposed",
-    statusLabel: "Selective identity path · awaits approval",
+    status: "ready",
+    statusLabel: "Selective path · ready",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -572,7 +600,7 @@ const CONFIGS = {
     metricStep: "not run",
     architectureNote:
       "All 70 SA/CA processors remain active; optimizer ownership narrows to spatial reference K/V, leaving target Q and background K/V fixed.",
-    details: proposedNnDetails("NN1f", {
+    details: nn1Details("NN1f", {
       line: 252,
       trainCa: false,
       saTrainMode: "ref_kv_only",
@@ -1291,25 +1319,47 @@ function legacyDetails(run, evidence) {
   };
 }
 
-function proposedNnDetails(run, evidence) {
+function nn1Details(run, evidence) {
+  const files = NN1_FILES[run];
   const details = legacyDetails(run, {
     sourceCommit: N3A_COMMIT,
-    launcher: NN1_PROPOSAL,
-    launcherLine: evidence.line,
+    launcher: files.launcher,
+    launcherLine: 1,
     weightMode: evidence.weightMode,
     objective: evidence.objective,
     optimizer: evidence.optimizer,
-    result: "Proposal only; no checkpoint or metric exists",
-    proposal: true,
+    result: "Implementation and launcher are ready; no checkpoint or metric exists yet",
+    proposal: false,
     trainCa: evidence.trainCa,
   });
 
+  details.history.title = `${run}: implemented configuration and launcher`;
+  details.history.description =
+    "This NN1 variant is implemented on main_clean behind defaults-off model flags. Its launcher uses one GPU, batch 2, 10k optimizer steps, and fixed 96-image validation at step 0 and every 2k. No trained result is recorded yet.";
   details.history.code = [
+    code(
+      files.config,
+      1,
+      `# ${run}: ${evidence.purpose}\n# Composed Hydra experiment configuration.`,
+      "Open implemented config",
+    ),
+    code(
+      files.launcher,
+      1,
+      `# One-GPU launcher for ${run}\n# 10k optimizer steps; full validation at step 0 and every 2k.`,
+      "Open run launcher",
+    ),
+    code(
+      NN1_IMPLEMENTATION,
+      1,
+      `# Shared correctness guards, run matrix, launch commands, and rollback notes.`,
+      "Open implementation guide",
+    ),
     code(
       NN1_PROPOSAL,
       evidence.line,
-      `# ${run}: ${evidence.purpose}\n# Architecture proposal only; implementation awaits approval.`,
-      "Open NN1 proposal",
+      `# Approved architecture rationale for ${run}.`,
+      "Open approved design rationale",
     ),
     code(
       "../../Jul_new_exp/2026-07-17_branch_split_and_recovery.md",
@@ -1323,20 +1373,20 @@ function proposedNnDetails(run, evidence) {
     Execution: "One GPU · physical/effective batch 2",
     Budget: "10k optimizer steps · full validation every 2k",
     "Correctness guards": "Audit issues 1–4 enabled",
-    Approval: "No model code, config, or launcher created",
+    Status: "Implemented and configured; not run yet",
   };
   details.objective.description = evidence.objectiveDescription;
   details.objective.facts = {
-    Status: "Proposed; not implemented",
+    Status: "Implemented; no result yet",
     Objective: evidence.objective,
     Optimizer: evidence.optimizer,
   };
   details.objective.code = [
     code(
-      NN1_PROPOSAL,
-      evidence.line,
+      files.config,
+      1,
       `# ${evidence.purpose}\nloss=${evidence.objective}\n# ${evidence.optimizer}`,
-      "Open proposed experiment",
+      "Open experiment config",
     ),
   ];
 
@@ -1354,10 +1404,16 @@ function proposedNnDetails(run, evidence) {
     },
     code: [
       code(
-        NN1_PROPOSAL,
-        evidence.line,
+        files.config,
+        1,
         `# ${run}\ntraining_timestep_mode=${evidence.trainingSchedule}\n# inference: text 0–9 · PM 10–14 · BA 15–49`,
-        "Open proposed schedule",
+        "Open configured schedule",
+      ),
+      code(
+        "../../src/model/photomaker_branched/lora2.py",
+        410,
+        `if self.ba_train_timestep_mode == "inference_ba_region":\n    max_timestep_exclusive = max_timestep_inclusive + 1`,
+        "Open timestep sampler",
       ),
     ],
   };
@@ -1374,10 +1430,16 @@ function proposedNnDetails(run, evidence) {
       },
       code: [
         code(
-          NN1_PROPOSAL,
-          evidence.line,
+          files.config,
+          1,
           `model.ba_face_prompt_mode=id_only\nmodel.ba_face_prompt_attention_mask=true\n# conditional: allow ID-token positions only`,
-          "Open proposed face-prompt change",
+          "Open face-prompt config",
+        ),
+        code(
+          "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+          700,
+          `face_attention_mask.masked_fill_(~allowed_tokens[:, None, None, :], float("-inf"))`,
+          "Open token-mask implementation",
         ),
         ...details.facePrompt.code,
       ],
@@ -1398,10 +1460,16 @@ function proposedNnDetails(run, evidence) {
       },
       code: [
         code(
-          NN1_PROPOSAL,
-          evidence.line,
+          files.config,
+          1,
           `model.ba_sa_train_mode=ref_kv_only\n# train: BranchedAttnProcessor.ref_to_k / ref_to_v\n# freeze: noise_to_q/k/v and ref_to_q`,
-          "Open proposed selective trainability",
+          "Open selective trainability config",
+        ),
+        code(
+          "../../src/model/photomaker_branched/lora2_helpers.py",
+          185,
+          `if sa_train_mode == "ref_kv_only":\n    is_ref_projection = ".ref_to_k." in name or ".ref_to_v." in name`,
+          "Open optimizer ownership",
         ),
         ...details.selfAttention.code,
       ],
@@ -1417,10 +1485,10 @@ function proposedNnDetails(run, evidence) {
       },
       code: [
         code(
-          NN1_PROPOSAL,
-          evidence.line,
+          files.config,
+          1,
           `model.ba_sa_train_mode=ref_kv_only\nmodel.train_branched_ca_lora=false`,
-          "Open proposed optimizer ownership",
+          "Open optimizer ownership config",
         ),
       ],
     };

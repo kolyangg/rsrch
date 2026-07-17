@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Sequence
 
 import numpy as np
@@ -11,6 +12,166 @@ from .insightface_package import analyze_faces
 from copy import deepcopy
 
 
+class InvalidBranchedSampleError(RuntimeError):
+    """A data error that must reject the complete branched-attention microbatch."""
+
+    def __init__(self, reason: str, detail: str):
+        self.reason = str(reason)
+        super().__init__(f"{self.reason}: {detail}")
+
+
+def _reject_invalid_sample(model, reason: str, detail: str) -> None:
+    policy = str(getattr(model, "ba_invalid_sample_policy", "legacy") or "legacy").lower()
+    if policy == "skip_batch":
+        raise InvalidBranchedSampleError(reason, detail)
+    raise ValueError(f"{reason}: {detail}")
+
+
+def _validated_bbox(bbox, *, image_shape, label: str) -> tuple[float, float, float, float]:
+    if bbox is None:
+        raise ValueError(f"{label} is missing")
+    if torch.is_tensor(bbox):
+        values = bbox.detach().flatten().tolist()
+    else:
+        try:
+            values = list(bbox)
+        except TypeError as exc:
+            raise ValueError(f"{label} is not a sequence") from exc
+    if len(values) != 4:
+        raise ValueError(f"{label} has {len(values)} values; expected four")
+    x0, y0, x1, y1 = (float(value) for value in values)
+    if not all(math.isfinite(value) for value in (x0, y0, x1, y1)):
+        raise ValueError(f"{label} contains non-finite coordinates: {values[:4]}")
+    if x1 <= x0 or y1 <= y0:
+        raise ValueError(f"{label} is inverted or empty: {values[:4]}")
+    image_h, image_w = (int(image_shape[0]), int(image_shape[1]))
+    if image_h <= 0 or image_w <= 0:
+        raise ValueError(f"{label} has invalid image shape {image_shape}")
+    x0c, x1c = max(0.0, x0), min(float(image_w), x1)
+    y0c, y1c = max(0.0, y0), min(float(image_h), y1)
+    if x1c <= x0c or y1c <= y0c:
+        raise ValueError(
+            f"{label} is empty after clamping {values[:4]} to image {(image_h, image_w)}"
+        )
+    return x0, y0, x1, y1
+
+
+def _processor_trainable_manifest(model) -> dict[str, dict[str, int]]:
+    categories: dict[str, dict[str, int]] = {}
+    for name, parameter in model.unet.named_parameters():
+        if not parameter.requires_grad or ".processor." not in name:
+            continue
+        attention = "sa" if ".attn1.processor." in name else "ca" if ".attn2.processor." in name else "other"
+        branch = "ref" if ".ref_to_" in name else "noise" if ".noise_to_" in name else "other"
+        projection = "q" if "_to_q" in name else "k" if "_to_k" in name else "v" if "_to_v" in name else "other"
+        key = f"{attention}_{branch}_{projection}"
+        entry = categories.setdefault(key, {"tensors": 0, "parameters": 0})
+        entry["tensors"] += 1
+        entry["parameters"] += int(parameter.numel())
+    return categories
+
+
+def _assert_branched_installation(model) -> None:
+    processors = model.unet.attn_processors
+    sa_names = sorted(
+        name for name, proc in processors.items()
+        if name.endswith("attn1.processor") and proc.__class__.__name__ == "BranchedAttnProcessor"
+    )
+    ca_names = sorted(
+        name for name, proc in processors.items()
+        if name.endswith("attn2.processor") and proc.__class__.__name__ == "BranchedCrossAttnProcessor"
+    )
+    if len(sa_names) != 70 or len(ca_names) != 70:
+        raise RuntimeError(
+            "Strict BA installation expected 70 BranchedAttnProcessor and 70 "
+            f"BranchedCrossAttnProcessor instances, found SA={len(sa_names)}, CA={len(ca_names)}"
+        )
+
+    patched = tuple(sorted(getattr(model, "_ba_patched_processor_names", ())))
+    expected = tuple(sorted(sa_names + ca_names))
+    if patched != expected:
+        raise RuntimeError(
+            "Strict BA installation processor-name mismatch: "
+            f"patched={len(patched)}, expected={len(expected)}"
+        )
+
+    trainable_keys = tuple(
+        sorted(name for name, parameter in model.unet.named_parameters() if parameter.requires_grad)
+    )
+    trainable_processor_keys = tuple(name for name in trainable_keys if ".processor." in name)
+    if getattr(model, "train_ba_only", False) and not trainable_processor_keys:
+        raise RuntimeError("Strict BA installation found no trainable processor parameters")
+    if any(
+        ".processor." in name
+        and not any(name.startswith(f"{proc_name}.") for proc_name in expected)
+        for name in trainable_keys
+    ):
+        raise RuntimeError("Strict BA installation found trainable parameters outside patched processors")
+
+    train_ca = bool(getattr(model, "train_branched_ca_lora", True))
+    if not train_ca and any(".attn2.processor." in name for name in trainable_processor_keys):
+        raise RuntimeError("Cross-attention is configured frozen but has trainable processor parameters")
+
+    sa_train_mode = str(getattr(model, "ba_sa_train_mode", "all") or "all").lower()
+    manifest = _processor_trainable_manifest(model)
+    if sa_train_mode == "ref_kv_only":
+        invalid = [
+            name for name in trainable_processor_keys
+            if not (
+                ".attn1.processor.ref_to_k." in name
+                or ".attn1.processor.ref_to_v." in name
+            )
+        ]
+        if invalid:
+            raise RuntimeError(
+                "ref_kv_only selected but other processor parameters are trainable: "
+                + ", ".join(invalid[:5])
+            )
+        required_categories = {"sa_ref_k", "sa_ref_v"}
+    else:
+        mode = str(getattr(model, "branched_attn_weight_mode", "shared") or "shared").lower()
+        required_categories = set()
+        if mode in {"ref_only", "noise_and_ref"}:
+            required_categories.update({"sa_ref_q", "sa_ref_k", "sa_ref_v"})
+        if mode == "noise_and_ref":
+            required_categories.update({"sa_noise_q", "sa_noise_k", "sa_noise_v"})
+        if train_ca and mode in {"ref_only", "noise_and_ref"}:
+            required_categories.update({"ca_ref_q", "ca_ref_k", "ca_ref_v"})
+        if train_ca and mode == "noise_and_ref":
+            required_categories.update({"ca_noise_q", "ca_noise_k", "ca_noise_v"})
+    missing_categories = sorted(required_categories - set(manifest))
+    if missing_categories:
+        raise RuntimeError(
+            "Strict BA installation is missing expected trainable categories: "
+            + ", ".join(missing_categories)
+        )
+
+    model._ba_expected_processor_names = expected
+    model._ba_expected_trainable_keys = trainable_keys
+    model._ba_expected_trainable_processor_names = tuple(
+        sorted(
+            proc_name
+            for proc_name in expected
+            if any(name.startswith(f"{proc_name}.") for name in trainable_processor_keys)
+        )
+    )
+    print(
+        "[BA strict install] "
+        f"SA=70 CA=70 trainable_tensors={len(trainable_processor_keys)} "
+        f"trainable_parameters={sum(parameter.numel() for parameter in model.unet.parameters() if parameter.requires_grad)}"
+    )
+    print(
+        "[BA validity] rejection counters initialized: "
+        "target_bbox=0 reference_bbox=0 reference_recognition=0"
+    )
+    print(f"[BA strict install] processor names: {', '.join(expected)}")
+    for category, counts in sorted(manifest.items()):
+        print(
+            f"[BA strict install] {category}: "
+            f"tensors={counts['tensors']} parameters={counts['parameters']}"
+        )
+
+
 def configure_branched_trainables(model) -> None:
     if not getattr(model, "train_ba_only", False):
         return
@@ -20,10 +181,13 @@ def configure_branched_trainables(model) -> None:
     train_ca = bool(getattr(model, "train_branched_ca_lora", True))
     ba_train_top_k = float(getattr(model, "ba_train_top_k", 1.0))
     non_ba_train = bool(getattr(model, "non_ba_train", False))
+    sa_train_mode = str(getattr(model, "ba_sa_train_mode", "all") or "all").lower()
     if mode not in {"shared", "ref_only", "noise_and_ref"}:
         raise ValueError(f"Unknown branched_attn_weight_mode: {mode}")
     if new_weight_kind not in {"full", "lora"}:
         raise ValueError(f"Unknown branched_attn_new_weight_kind: {new_weight_kind}")
+    if sa_train_mode not in {"all", "ref_kv_only"}:
+        raise ValueError(f"Unknown ba_sa_train_mode: {sa_train_mode}")
 
     patched_proc_names = tuple(getattr(model, "_ba_patched_processor_names", ()))
     candidate_proc_names = list(patched_proc_names or model.unet.attn_processors.keys())
@@ -55,12 +219,24 @@ def configure_branched_trainables(model) -> None:
                 p.requires_grad_(True)
         else:
             is_selected_proc = bool(selected_proc_prefixes) and name.startswith(selected_proc_prefixes)
-            if is_selected_proc and ".attn1.processor.ref_to_" in name and (
+            is_ref_projection = ".attn1.processor.ref_to_" in name
+            if sa_train_mode == "ref_kv_only":
+                is_ref_projection = (
+                    ".attn1.processor.ref_to_k." in name
+                    or ".attn1.processor.ref_to_v." in name
+                )
+            if is_selected_proc and is_ref_projection and (
                 new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
             ):
                 p.requires_grad_(True)
-            elif is_selected_proc and mode == "noise_and_ref" and ".attn1.processor.noise_to_" in name and (
-                new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
+            elif (
+                sa_train_mode == "all"
+                and is_selected_proc
+                and mode == "noise_and_ref"
+                and ".attn1.processor.noise_to_" in name
+                and (
+                    new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
+                )
             ):
                 p.requires_grad_(True)
 
@@ -123,7 +299,11 @@ def install_branched_processors_for_training(model) -> None:
                         proc.id_to_hidden.weight.mul_(0.1)
 
         configure_branched_trainables(model)
+        if bool(getattr(model, "ba_correctness_guards", False)):
+            _assert_branched_installation(model)
     except Exception as e:
+        if bool(getattr(model, "ba_correctness_guards", False)):
+            raise RuntimeError("Failed to install strict branched-attention processors") from e
         print(f"[PhotomakerBranchedLora] exception while installing branched processors: {e}")
 
 
@@ -152,14 +332,61 @@ def prepare_branched_training_inputs(
 
     image_h, image_w = pixel_values.shape[-2:]
     latent_h, latent_w = noisy_latents.shape[-2:]
+    policy = str(getattr(model, "ba_invalid_sample_policy", "legacy") or "legacy").lower()
+    batch_size = len(prompts)
+    if policy != "legacy":
+        if face_bbox is None or len(face_bbox) != batch_size:
+            _reject_invalid_sample(
+                model,
+                "target_bbox",
+                f"expected {batch_size} target bboxes, got {0 if face_bbox is None else len(face_bbox)}",
+            )
+        if face_bbox_ref is None or len(face_bbox_ref) != batch_size:
+            _reject_invalid_sample(
+                model,
+                "reference_bbox",
+                f"expected {batch_size} reference bboxes, got "
+                f"{0 if face_bbox_ref is None else len(face_bbox_ref)}",
+            )
+        if len(ref_images) != batch_size:
+            _reject_invalid_sample(
+                model,
+                "reference_recognition",
+                f"expected {batch_size} reference-image groups, got {len(ref_images)}",
+            )
 
     for i, (prompt, refs, bbox) in enumerate(zip(prompts, ref_images, face_bbox)):
         refs = refs if isinstance(refs, (list, tuple)) else [refs]
         if len(refs) != 1:
             raise ValueError("Training batch must contain exactly one reference image per sample")
         if face_bbox_ref is None:
+            if policy != "legacy":
+                _reject_invalid_sample(model, "reference_bbox", "training batch is missing reference bboxes")
             raise ValueError("Training batch is missing reference bboxes")
         ref_bbox = face_bbox_ref[i]
+        ref = refs[0]
+        if isinstance(ref, torch.Tensor):
+            ref_h, ref_w = ref.shape[-2:]
+        else:
+            ref_w, ref_h = ref.size
+
+        if policy != "legacy":
+            try:
+                _validated_bbox(
+                    bbox,
+                    image_shape=(image_h, image_w),
+                    label=f"target bbox for sample {i}",
+                )
+            except ValueError as exc:
+                _reject_invalid_sample(model, "target_bbox", str(exc))
+            try:
+                _validated_bbox(
+                    ref_bbox,
+                    image_shape=(ref_h, ref_w),
+                    label=f"reference bbox for sample {i}",
+                )
+            except ValueError as exc:
+                _reject_invalid_sample(model, "reference_bbox", str(exc))
 
         prompt_embeds, pooled_prompt_embeds, class_tokens_mask = model.encode_prompt_with_trigger_word(
             prompt=prompt,
@@ -178,8 +405,37 @@ def prepare_branched_training_inputs(
                 img_np = np.array(ref.convert("RGB"))[:, :, ::-1]
                 faces = analyze_faces(model.face_analyzer, img_np)
                 if faces:
-                    embedding = torch.from_numpy(faces[0]["embedding"]).float()
+                    try:
+                        raw_embedding = faces[0]["embedding"]
+                    except (KeyError, TypeError):
+                        raw_embedding = getattr(faces[0], "embedding", None)
+                    if raw_embedding is None:
+                        if policy != "legacy":
+                            _reject_invalid_sample(
+                                model,
+                                "reference_recognition",
+                                f"InsightFace returned no recognition embedding for sample {i}",
+                            )
+                        embedding = torch.zeros(512, dtype=torch.float32)
+                    else:
+                        embedding = torch.from_numpy(raw_embedding).float()
+                        if policy != "legacy" and (
+                            embedding.numel() != 512
+                            or not torch.isfinite(embedding).all()
+                            or float(embedding.norm().item()) <= 0.0
+                        ):
+                            _reject_invalid_sample(
+                                model,
+                                "reference_recognition",
+                                f"InsightFace returned an invalid embedding for sample {i}",
+                            )
                 else:
+                    if policy != "legacy":
+                        _reject_invalid_sample(
+                            model,
+                            "reference_recognition",
+                            f"InsightFace found no reference face for sample {i}",
+                        )
                     embedding = torch.zeros(512, dtype=torch.float32)
                 id_embed_list.append(embedding)
 
@@ -193,17 +449,17 @@ def prepare_branched_training_inputs(
                 id_embeds,
             )
 
-            ref = refs[0]
             reference_latent = model._encode_reference_latent(ref, target_shape=(latent_h, latent_w))
-            if isinstance(ref, torch.Tensor):
-                ref_h, ref_w = ref.shape[-2:]
-            else:
-                ref_w, ref_h = ref.size
-            ref_mask = model._bbox_to_ref_mask(
-                ref_bbox,
-                latent_shape=(latent_h, latent_w),
-                image_shape=(ref_h, ref_w),
-            )
+            try:
+                ref_mask = model._bbox_to_ref_mask(
+                    ref_bbox,
+                    latent_shape=(latent_h, latent_w),
+                    image_shape=(ref_h, ref_w),
+                )
+            except ValueError as exc:
+                if policy != "legacy":
+                    _reject_invalid_sample(model, "reference_bbox", str(exc))
+                raise
 
             if model.face_embed_strategy == "id_embeds":
                 pm_features = model.id_encoder.extract_id_features(
@@ -216,13 +472,17 @@ def prepare_branched_training_inputs(
         class_tokens_mask_list.append(class_tokens_mask)
         ref_latents_list.append(reference_latent)
         ref_mask_list.append(ref_mask)
-        mask_list.append(
-            model._bbox_to_mask(
+        try:
+            target_mask = model._bbox_to_mask(
                 bbox,
                 latent_shape=(latent_h, latent_w),
                 image_shape=(image_h, image_w),
             )
-        )
+        except ValueError as exc:
+            if policy != "legacy":
+                _reject_invalid_sample(model, "target_bbox", str(exc))
+            raise
+        mask_list.append(target_mask)
         prompt_embeds_list.append(prompt_embeds)
         pooled_prompt_embeds_list.append(pooled_prompt_embeds)
 
@@ -248,6 +508,11 @@ def prepare_branched_training_inputs(
     mask4 = torch.cat(mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
     mask4_ref = torch.cat(ref_mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
     reference_latents = torch.cat(ref_latents_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
+    if bool(getattr(model, "ba_correctness_guards", False)):
+        if not torch.isfinite(mask4).all() or not bool((mask4 > 0).flatten(1).any(dim=1).all()):
+            _reject_invalid_sample(model, "target_bbox", "target mask is empty or non-finite after resize")
+        if not torch.isfinite(mask4_ref).all() or not bool((mask4_ref > 0).flatten(1).any(dim=1).all()):
+            _reject_invalid_sample(model, "reference_bbox", "reference mask is empty or non-finite after resize")
 
     model._ref_latents_all = reference_latents
     model._face_prompt_embeds = prompt_embeds
@@ -330,3 +595,19 @@ def ensure_branched_after_eval(model) -> None:
         id_embeds=idem,
         class_tokens_mask=None,
     )
+    if bool(getattr(model, "ba_strict_processor_restore", False)):
+        current = model.unet.attn_processors
+        missing = sorted(set(trained_procs or {}) - set(current))
+        detached = sorted(
+            name
+            for name, proc in (trained_procs or {}).items()
+            if current.get(name) is not proc
+        )
+        expected = set(getattr(model, "_ba_expected_processor_names", ()))
+        actual = set(getattr(model, "_ba_patched_processor_names", ()))
+        if missing or detached or (expected and actual != expected):
+            raise RuntimeError(
+                "Strict BA processor restore failed: "
+                f"missing={missing[:3]}, detached={detached[:3]}, "
+                f"expected_names={len(expected)}, actual_names={len(actual)}"
+            )

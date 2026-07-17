@@ -1,0 +1,8 @@
+defaults:
+  - one_id_ba_NN1a_n3a_replay
+  - _self_
+
+# Audit issue 6: remove non-ID zero-token softmax sinks in reference-half CA.
+model:
+  ba_face_prompt_attention_mask: true
+

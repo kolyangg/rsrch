@@ -8,7 +8,7 @@ Open:
 
 `debug_04Jul/ba_architecture_explorer/index.html`
 
-The initial comparison is N3a versus the proposed NN1a:
+The initial comparison is N3a versus the runnable NN1a:
 
 - N3a is the runnable full-spatial branched-attention baseline now restored on
   `main_clean`.
@@ -21,7 +21,7 @@ The selectors also support:
 - the original pre-numbered `cosm_new1` spatial run;
 - N1 / N2 (`start_ba_ref_only_vast_N1.sh`, whose Comet run name is
   `ba_refonly_N2`);
-- NN1a through NN1f as explicitly unimplemented one-GPU proposals;
+- NN1a through NN1f as implemented one-GPU configurations awaiting results;
 - N31, N32, N33, N36, N37, and N38 as historical post-N3a experiments.
 
 ## Recommended way to open it
@@ -110,13 +110,13 @@ effective-config diff instead of manufacturing a source-code difference.
 
 The repository is intentionally split:
 
-- local links for Initial, N1/N2, N3a, and NN1 proposals resolve against
+- local links for Initial, N1/N2, N3a, and NN1 configurations resolve against
   `main_clean`, whose active model surface is the runnable N3a baseline;
 - N31-N38 model and launcher links open the corresponding files on the pushed
   `main_clean_exp` GitHub branch, because those implementations are not part of
   the active N3a baseline;
-- NN1 proposal links open
-  `Jul_new_exp/2026-07-17_NN1a_NN1f_approval_stage_experiment_plan.md`.
+- NN1 links open the implemented Hydra config, one-GPU launcher, active source,
+  and `Jul_new_exp/2026-07-17_NN1a_NN1f_implementation_and_launch_guide.md`.
 
 The archived N31-N38 launchers/configs under
 `Jul_new_exp/archived_post_n3a_examples/` are documentary examples only.
@@ -192,11 +192,10 @@ The detailed SVGs deliberately follow the visual grammar of
 `/home/kolyangg/rsrch/_ba_scheme/ba_original_plan.pdf`: explicit `Q`, `K`, and
 `V` projection blocks, attention outputs, mask multiplication, and merge arrows.
 
-## Proposed NN1 records
+## Implemented NN1 records
 
-NN1a–f are visualization and design records only. No NN1 launcher, Hydra
-config, `jul_serv_runs` directory, identity-loss backport, or model/trainer
-change has been created.
+NN1a–f have runnable Hydra configs and one-GPU launchers. They are marked
+`ready` because no checkpoint or validation result exists yet.
 
 - NN1a: guarded N3a one-GPU replay; branched SA and CA both train.
 - NN1b: NN1a with BA-active inference-region timestep sampling (audit issue 5).
@@ -210,6 +209,10 @@ All six retain the doubled `[target, reference]` U-Net batch, all 70
 `BranchedAttnProcessor` sites, all 70 `BranchedCrossAttnProcessor` sites, full
 reference-grid K/V, and direct target-half epsilon output. This is the main
 architectural boundary the visualization is intended to protect.
+
+The exact launcher matrix, runtime requirements, startup assertions, and
+rollback toggles are in
+`Jul_new_exp/2026-07-17_NN1a_NN1f_implementation_and_launch_guide.md`.
 
 ## Files
 
@@ -235,7 +238,7 @@ N39: {
   subtitle: "One-sentence result or experiment intent.",
   family: "pre-N34",
   topology: "compact_residual", // omit for compact residual; use legacy_spatial only with evidence
-  status: "active", // active | mixed | failed | proposed
+  status: "active", // active | mixed | failed | ready | proposed
   statusLabel: "Anchor run",
 
   memory: {

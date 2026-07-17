@@ -2,9 +2,9 @@
 
 Date: 17 July 2026
 
-Status: proposal only. This document and the architecture explorer may be
-updated before approval, but model/trainer code, Hydra configs, and launch
-scripts must not be created or changed until the experiment matrix is approved.
+Status: approved and implemented. The architecture decision record below is
+retained unchanged where possible; runnable files and commands are documented
+in `2026-07-17_NN1a_NN1f_implementation_and_launch_guide.md`.
 
 ## Decision summary
 
@@ -327,5 +327,7 @@ At step 0, 2k, 4k, 6k, 8k, and 10k:
 5. Compare NN1e only with NN1d to attribute direct reference-ID supervision.
 6. Compare NN1f only with NN1e to attribute reference-K/V-only trainability.
 
-No model/trainer code, Hydra config, `jul_serv_runs` directory, or launcher is
-authorized by this proposal. Create them only after explicit approval.
+The requested approval was received and the model/trainer changes, Hydra
+configs, `jul_serv_runs` launchers, and explorer records have now been created.
+See `2026-07-17_NN1a_NN1f_implementation_and_launch_guide.md` for the exact
+implementation and startup gates.

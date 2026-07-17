@@ -1,0 +1,8 @@
+defaults:
+  - one_id_ba_NN1e_frozen_ca_id_loss
+  - _self_
+
+# Preserve full BA, but train only spatial reference K/V in branched self-attention.
+model:
+  ba_sa_train_mode: ref_kv_only
+

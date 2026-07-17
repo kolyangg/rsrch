@@ -359,6 +359,10 @@ select {
   color: var(--train);
 }
 
+.status.ready {
+  color: var(--good);
+}
+
 .metrics-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

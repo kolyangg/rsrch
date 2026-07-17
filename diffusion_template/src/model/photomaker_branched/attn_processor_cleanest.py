@@ -537,6 +537,7 @@ class BranchedCrossAttnProcessor(nn.Module):
         self.noise_to_q = None
         self.noise_to_k = None
         self.noise_to_v = None
+        self.face_prompt_attention_mask = None
 
         self.has_cross_attention_kwargs = True # Accept cross_attention_kwargs to avoid noisy warnings
 
@@ -704,7 +705,50 @@ class BranchedCrossAttnProcessor(nn.Module):
         key_ref = key_ref.view(ref_batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
         value_ref = value_ref.view(ref_batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
 
-        hidden_ref = F.scaled_dot_product_attention(q_ref, key_ref, value_ref, dropout_p=0.0, is_causal=False)
+        face_attention_mask = None
+        allowed_tokens = self.face_prompt_attention_mask
+        if allowed_tokens is not None:
+            allowed_tokens = allowed_tokens.to(device=q_ref.device, dtype=torch.bool)
+            if allowed_tokens.ndim == 1:
+                allowed_tokens = allowed_tokens.unsqueeze(0)
+            if allowed_tokens.shape[-1] != key_ref.shape[-2]:
+                raise RuntimeError(
+                    "Face-prompt attention-mask sequence mismatch: "
+                    f"mask={tuple(allowed_tokens.shape)}, key={tuple(key_ref.shape)}"
+                )
+            if allowed_tokens.shape[0] != ref_batch_size:
+                if ref_batch_size % allowed_tokens.shape[0] != 0:
+                    raise RuntimeError(
+                        "Face-prompt attention-mask batch mismatch: "
+                        f"mask={tuple(allowed_tokens.shape)}, reference_batch={ref_batch_size}"
+                    )
+                allowed_tokens = allowed_tokens.repeat(
+                    ref_batch_size // allowed_tokens.shape[0],
+                    1,
+                )
+            if not bool(allowed_tokens.any(dim=1).all()):
+                raise RuntimeError("Face-prompt attention mask contains an empty row")
+            face_attention_mask = torch.zeros(
+                ref_batch_size,
+                1,
+                1,
+                key_ref.shape[-2],
+                device=q_ref.device,
+                dtype=q_ref.dtype,
+            )
+            face_attention_mask.masked_fill_(
+                ~allowed_tokens[:, None, None, :],
+                float("-inf"),
+            )
+
+        hidden_ref = F.scaled_dot_product_attention(
+            q_ref,
+            key_ref,
+            value_ref,
+            attn_mask=face_attention_mask,
+            dropout_p=0.0,
+            is_causal=False,
+        )
         hidden_ref = hidden_ref.transpose(1, 2).reshape(ref_batch_size, -1, noise_hidden.shape[-1])
         
         

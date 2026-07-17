@@ -1,0 +1,27 @@
+defaults:
+  - one_id_09Feb_testing
+  - _self_
+
+# Guarded N3a replay: unchanged doubled spatial BA forward and optimizer recipe.
+train_ba_all_steps: true
+train_ba_only: true
+branched_attn_weight_mode: noise_and_ref
+branched_attn_new_weight_kind: lora
+train_branched_ca_lora: true
+ba_patch_top_k: 1.0
+ba_train_top_k: 1.0
+non_ba_train: false
+ba_noise_lr_scale: 0.25
+loss_kind: masked_alternating
+
+model:
+  ba_correctness_guards: true
+  ba_invalid_sample_policy: skip_batch
+  ba_strict_processor_restore: true
+  ba_train_timestep_mode: all
+  ba_face_prompt_attention_mask: false
+  ba_sa_train_mode: all
+  ba_uncond_face_fix: true
+  ba_face_prompt_mode: id_only
+  use_id_loss: false
+

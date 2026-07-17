@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Optional, Sequence
 
@@ -67,10 +68,21 @@ class PhotomakerBranchedLora(SDXL):
         ba_patch_top_k: float = 1.0,
         non_ba_train: bool = False,
         train_ba_all_steps: bool = False,
+        ba_correctness_guards: bool = False,
+        ba_invalid_sample_policy: str = "legacy",
+        ba_strict_processor_restore: bool = False,
+        ba_train_timestep_mode: str = "all",
+        ba_face_prompt_attention_mask: bool = False,
+        ba_sa_train_mode: str = "all",
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
         ba_uncond_face_fix: bool = False,  # F1: keep plain negative prompt for the uncond face branch under CFG
         ba_face_prompt_mode: str = "id_only",  # B1: face-branch prompt: id_only (legacy) | full_boosted
+        use_id_loss: bool = False,
+        id_loss_weight: float = 0.1,
+        id_loss_max_timestep: int = 400,
+        id_loss_face_size: int = 160,
+        id_loss_identity_source: str = "reference",
         photomaker_start_step: int = 10,
         merge_start_step: int = 10,
         branched_attn_start_step: int = 15,
@@ -180,6 +192,26 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_patch_top_k = float(ba_patch_top_k)
         self.non_ba_train = bool(non_ba_train)
         self.train_ba_all_steps = bool(train_ba_all_steps)
+        self.ba_correctness_guards = bool(ba_correctness_guards)
+        self.ba_invalid_sample_policy = str(ba_invalid_sample_policy or "legacy").lower()
+        self.ba_strict_processor_restore = bool(ba_strict_processor_restore)
+        self.ba_train_timestep_mode = str(ba_train_timestep_mode or "all").lower()
+        self.ba_face_prompt_attention_mask = bool(ba_face_prompt_attention_mask)
+        self.ba_sa_train_mode = str(ba_sa_train_mode or "all").lower()
+        if self.ba_invalid_sample_policy not in {"legacy", "error", "skip_batch"}:
+            raise ValueError(f"Unknown ba_invalid_sample_policy: {self.ba_invalid_sample_policy}")
+        if self.ba_train_timestep_mode not in {"all", "inference_ba_region"}:
+            raise ValueError(f"Unknown ba_train_timestep_mode: {self.ba_train_timestep_mode}")
+        if self.ba_sa_train_mode not in {"all", "ref_kv_only"}:
+            raise ValueError(f"Unknown ba_sa_train_mode: {self.ba_sa_train_mode}")
+        self.use_id_loss = bool(use_id_loss)
+        self.id_loss_weight = float(id_loss_weight)
+        self.id_loss_max_timestep = int(id_loss_max_timestep)
+        self.id_loss_face_size = int(id_loss_face_size)
+        self.id_loss_identity_source = str(id_loss_identity_source or "reference").lower()
+        if self.id_loss_identity_source not in {"ground_truth_target", "reference"}:
+            raise ValueError(f"Unknown id_loss_identity_source: {self.id_loss_identity_source}")
+        self._id_loss_net = None
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 
         photomaker_lora_config = LoraConfig(
@@ -282,6 +314,7 @@ class PhotomakerBranchedLora(SDXL):
         }
         if hasattr(self.unet, "attn_processors"):
             proc_sd = {}
+            trainable_by_processor = {}
             patched_proc_names = set(getattr(self, "_ba_patched_processor_names", ()))
             for name, proc in self.unet.attn_processors.items():
                 if patched_proc_names and name not in patched_proc_names:
@@ -291,6 +324,7 @@ class PhotomakerBranchedLora(SDXL):
                 trainable = tuple(n for n, p in proc.named_parameters() if p.requires_grad)
                 if not trainable:
                     continue
+                trainable_by_processor[name] = sorted(trainable)
                 full_sd = proc.state_dict()
                 sd = {
                     k: v for k, v in full_sd.items()
@@ -300,6 +334,16 @@ class PhotomakerBranchedLora(SDXL):
                     proc_sd[name] = sd
             if proc_sd:
                 state["attn_processors"] = proc_sd
+            if self.ba_strict_processor_restore:
+                state["ba_processor_manifest"] = {
+                    "installed_processor_names": sorted(patched_proc_names),
+                    "state_processor_names": sorted(proc_sd),
+                    "trainable_keys_by_processor": trainable_by_processor,
+                    "processor_classes": {
+                        name: self.unet.attn_processors[name].__class__.__name__
+                        for name in sorted(patched_proc_names)
+                    },
+                }
         return state
 
     def load_state_dict_(self, state_dict):
@@ -311,10 +355,65 @@ class PhotomakerBranchedLora(SDXL):
             unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
             # In newer peft versions this is an empty list when there are no unexpected keys
             assert not unexpected_keys, unexpected_keys
-        for name, sd in state_dict.get("attn_processors", {}).items():
+        processor_state = state_dict.get("attn_processors", {})
+        if self.ba_strict_processor_restore:
+            manifest = state_dict.get("ba_processor_manifest")
+            if not isinstance(manifest, dict):
+                raise RuntimeError("Strict BA restore requires ba_processor_manifest in the checkpoint")
+            current_names = set(getattr(self, "_ba_patched_processor_names", ()))
+            saved_names = set(manifest.get("installed_processor_names", ()))
+            if current_names != saved_names:
+                raise RuntimeError(
+                    "Strict BA restore processor-name mismatch: "
+                    f"missing={sorted(saved_names - current_names)[:5]}, "
+                    f"unexpected={sorted(current_names - saved_names)[:5]}"
+                )
+            expected_state_names = set(manifest.get("state_processor_names", ()))
+            actual_state_names = set(processor_state)
+            if actual_state_names != expected_state_names:
+                raise RuntimeError(
+                    "Strict BA restore processor-state mismatch: "
+                    f"missing={sorted(expected_state_names - actual_state_names)[:5]}, "
+                    f"unexpected={sorted(actual_state_names - expected_state_names)[:5]}"
+                )
+            saved_trainable = manifest.get("trainable_keys_by_processor", {})
+            for name in sorted(saved_names):
+                proc = self.unet.attn_processors.get(name)
+                if proc is None:
+                    raise RuntimeError(f"Strict BA restore cannot find processor {name}")
+                expected_class = manifest.get("processor_classes", {}).get(name)
+                if expected_class and proc.__class__.__name__ != expected_class:
+                    raise RuntimeError(
+                        f"Strict BA restore class mismatch for {name}: "
+                        f"checkpoint={expected_class}, current={proc.__class__.__name__}"
+                    )
+                current_trainable = sorted(
+                    key for key, parameter in proc.named_parameters() if parameter.requires_grad
+                )
+                checkpoint_trainable = sorted(saved_trainable.get(name, ()))
+                if current_trainable != checkpoint_trainable:
+                    raise RuntimeError(
+                        f"Strict BA restore trainable-key mismatch for {name}: "
+                        f"checkpoint={checkpoint_trainable}, current={current_trainable}"
+                    )
+                if name in processor_state and set(processor_state[name]) != set(checkpoint_trainable):
+                    raise RuntimeError(
+                        f"Strict BA restore state-key mismatch for {name}: "
+                        f"checkpoint={sorted(processor_state[name])}, expected={checkpoint_trainable}"
+                    )
+
+        for name, sd in processor_state.items():
             proc = self.unet.attn_processors.get(name)
-            if proc is not None and hasattr(proc, "load_state_dict"):
-                proc.load_state_dict(sd, strict=False)
+            if proc is None or not hasattr(proc, "load_state_dict"):
+                if self.ba_strict_processor_restore:
+                    raise RuntimeError(f"Strict BA restore cannot load missing processor {name}")
+                continue
+            incompatible = proc.load_state_dict(sd, strict=False)
+            if self.ba_strict_processor_restore and getattr(incompatible, "unexpected_keys", ()):
+                raise RuntimeError(
+                    f"Strict BA restore found unexpected keys for {name}: "
+                    f"{incompatible.unexpected_keys}"
+                )
 
     def forward(
         self,
@@ -342,9 +441,23 @@ class PhotomakerBranchedLora(SDXL):
 
         # Match the current inference schedule at batch level:
         # NO_ID (0-9), PHOTOMAKER (10-14), BOTH (15-49)
+        max_timestep_exclusive = int(self.noise_scheduler.config.num_train_timesteps)
+        if self.ba_train_timestep_mode == "inference_ba_region":
+            ba_start_ratio = float(self.branched_attn_start_step) / float(max(1, self.num_inference_steps))
+            max_timestep_inclusive = int(
+                (1.0 - ba_start_ratio)
+                * float(self.noise_scheduler.config.num_train_timesteps - 1)
+            )
+            max_timestep_exclusive = max(1, min(max_timestep_exclusive, max_timestep_inclusive + 1))
+            if not hasattr(self, "_ba_logged_timestep_region"):
+                print(
+                    "[BA timestep sampler] inference_ba_region: "
+                    f"sampling t in [0, {max_timestep_exclusive - 1}]"
+                )
+                self._ba_logged_timestep_region = True
         t_scalar = torch.randint(
             0,
-            self.noise_scheduler.config.num_train_timesteps,
+            max_timestep_exclusive,
             (1,),
             device=latents.device,
         ).long()
@@ -480,10 +593,94 @@ class PhotomakerBranchedLora(SDXL):
             )
             ##### BRANCHED ATTENTION - FORWARD PASS #####
 
-        return {
+        if self.ba_correctness_guards and not hasattr(self, "_ba_logged_first_prediction"):
+            prediction_fp32 = noise_pred.detach().float().cpu().contiguous()
+            digest = hashlib.sha256(prediction_fp32.numpy().tobytes()).hexdigest()[:16]
+            print(
+                "[BA first-prediction fingerprint] "
+                f"sha256={digest} mean={prediction_fp32.mean().item():.8f} "
+                f"std={prediction_fp32.std().item():.8f}"
+            )
+            self._ba_logged_first_prediction = True
+
+        output = {
             'model_pred': noise_pred,
             'target': noise,
         }
+        if self.use_id_loss:
+            apply_id_loss = int(t_scalar.item()) <= self.id_loss_max_timestep
+            output["id_loss_applied"] = noise_pred.new_tensor(float(apply_id_loss))
+            output["id_loss"] = (
+                self._compute_id_loss(
+                    noise_pred=noise_pred,
+                    noisy_latents=noisy_latents,
+                    timesteps=timesteps,
+                    pixel_values=pixel_values,
+                    face_bbox=face_bbox,
+                    ref_images=ref_images,
+                    face_bbox_ref=face_bbox_ref,
+                )
+                if apply_id_loss
+                else noise_pred.new_zeros(())
+            )
+        return output
+
+    def _compute_id_loss(
+        self,
+        *,
+        noise_pred,
+        noisy_latents,
+        timesteps,
+        pixel_values,
+        face_bbox,
+        ref_images,
+        face_bbox_ref,
+    ):
+        """Decode predicted x0 and compare its target face to the trusted reference identity."""
+        if self._id_loss_net is None:
+            from src.loss.id_loss import IdentityLoss
+
+            self._id_loss_net = IdentityLoss(
+                face_size=self.id_loss_face_size,
+                device=self.device,
+            )
+
+        alpha_bar = self.noise_scheduler.alphas_cumprod.to(noise_pred.device)[timesteps].float()
+        alpha_bar = alpha_bar.view(-1, 1, 1, 1)
+        x0 = (
+            noisy_latents.float()
+            - (1.0 - alpha_bar).sqrt() * noise_pred.float()
+        ) / alpha_bar.sqrt().clamp_min(1e-4)
+
+        tiling = hasattr(self.vae, "enable_tiling") and hasattr(self.vae, "disable_tiling")
+        slicing = hasattr(self.vae, "enable_slicing") and hasattr(self.vae, "disable_slicing")
+        if tiling:
+            self.vae.enable_tiling()
+        if slicing:
+            self.vae.enable_slicing()
+        try:
+            generated = self.vae.decode(
+                (x0 / self.vae.config.scaling_factor).to(self.vae.dtype)
+            ).sample
+        finally:
+            if tiling:
+                self.vae.disable_tiling()
+            if slicing:
+                self.vae.disable_slicing()
+
+        targets = pixel_values.to(device=generated.device, dtype=generated.dtype)
+        bboxes = face_bbox if isinstance(face_bbox, (list, tuple)) else [face_bbox]
+        device_type = self.device.type if hasattr(self.device, "type") else "cuda"
+        with torch.autocast(device_type=device_type, enabled=False):
+            if self.id_loss_identity_source == "reference":
+                return self._id_loss_net(
+                    generated.float(),
+                    targets.float(),
+                    bboxes,
+                    reference_images=ref_images,
+                    reference_bboxes=face_bbox_ref,
+                )
+            return self._id_loss_net(generated.float(), targets.float(), bboxes)
 
     def encode_prompt_with_trigger_word(
         self,
@@ -593,10 +790,14 @@ class PhotomakerBranchedLora(SDXL):
     ) -> torch.Tensor:
         mask = torch.zeros(1, 1, self.target_size, self.target_size, device=self.device)
         if bbox is None or len(bbox) < 4:
+            if self.ba_correctness_guards:
+                raise ValueError("Strict BA reference bbox is missing or incomplete")
             mask.fill_(1.0)
         else:
             x0, y0, x1, y1 = [float(v) for v in bbox]
             if x1 <= x0 or y1 <= y0:
+                if self.ba_correctness_guards:
+                    raise ValueError(f"Strict BA reference bbox is inverted or empty: {bbox}")
                 mask.fill_(1.0)
             else:
                 image_h, image_w = image_shape
@@ -618,6 +819,10 @@ class PhotomakerBranchedLora(SDXL):
                 y_end = max(0, min(self.target_size, int(round(y1 * scale_h + pad_top))))
 
                 if x_end <= x_start or y_end <= y_start:
+                    if self.ba_correctness_guards:
+                        raise ValueError(
+                            f"Strict BA reference bbox is empty after resize: {bbox}"
+                        )
                     mask.fill_(1.0)
                 else:
                     mask[:, :, y_start:y_end, x_start:x_end] = 1.0
@@ -634,11 +839,15 @@ class PhotomakerBranchedLora(SDXL):
     ) -> torch.Tensor:
         mask = torch.zeros(1, 1, latent_shape[0], latent_shape[1], device=self.device)
         if bbox is None or len(bbox) < 4:
+            if self.ba_correctness_guards:
+                raise ValueError("Strict BA target bbox is missing or incomplete")
             mask.fill_(1.0)
             return mask
 
         x0, y0, x1, y1 = [float(v) for v in bbox]
         if x1 <= x0 or y1 <= y0:
+            if self.ba_correctness_guards:
+                raise ValueError(f"Strict BA target bbox is inverted or empty: {bbox}")
             mask.fill_(1.0)
             return mask
 
@@ -651,6 +860,8 @@ class PhotomakerBranchedLora(SDXL):
         y_end = max(0, min(latent_shape[0], int(round(y1 * scale_h))))
 
         if x_end <= x_start or y_end <= y_start:
+            if self.ba_correctness_guards:
+                raise ValueError(f"Strict BA target bbox is empty after resize: {bbox}")
             mask.fill_(1.0)
             return mask
 

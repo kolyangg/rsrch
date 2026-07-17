@@ -1,0 +1,7 @@
+defaults:
+  - one_id_ba_NN1a_n3a_replay
+  - _self_
+
+# Keep all 70 split CA processors in the forward, but freeze their projections.
+train_branched_ca_lora: false
+

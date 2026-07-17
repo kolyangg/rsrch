@@ -1,0 +1,8 @@
+defaults:
+  - one_id_ba_NN1a_n3a_replay
+  - _self_
+
+# Audit issue 5: every update still uses BA, but only in its inference-active t region.
+model:
+  ba_train_timestep_mode: inference_ba_region
+

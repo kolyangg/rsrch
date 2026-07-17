@@ -448,6 +448,8 @@ def two_branch_predict(
         )
 
     
+    face_prompt_attention_mask = None
+
     # Only mirror the main text into the face branch for legacy "id".
     # For "id_embeds" we keep actual "face" text and use the 2048-D ID features.
     if (face_embed_strategy or "face") in {"id"}:    
@@ -469,7 +471,8 @@ def two_branch_predict(
                         f"class_tokens_mask batch mismatch: mask={tuple(m.shape)} "
                         f"vs face_prompt_embeds={tuple(face_prompt_embeds.shape)}"
                     )
-            m = m.unsqueeze(-1).to(dtype=d)                # [B,L,1]
+            token_mask = m.to(dtype=torch.bool)
+            m = token_mask.unsqueeze(-1).to(dtype=d)       # [B,L,1]
             one = torch.tensor(1.0, device=dev, dtype=d)
             id_scale = torch.tensor(getattr(pipeline, "id_token_scale", 2.5),
                                    device=dev, dtype=d)
@@ -480,6 +483,13 @@ def two_branch_predict(
             # "full_boosted": keep the full fused prompt and boost the ID tokens
             #   (the pre-Feb-18 known-good variant).
             face_prompt_mode = str(getattr(pipeline, "ba_face_prompt_mode", "id_only") or "id_only").lower()
+            use_face_prompt_attention_mask = bool(
+                getattr(pipeline, "ba_face_prompt_attention_mask", False)
+            )
+            if use_face_prompt_attention_mask and face_prompt_mode != "id_only":
+                raise ValueError(
+                    "ba_face_prompt_attention_mask requires ba_face_prompt_mode=id_only"
+                )
             if face_prompt_mode == "full_boosted":
                 masked_face_prompt_embeds = (
                     face_prompt_embeds * (one - m) + face_prompt_embeds * m * id_scale
@@ -500,22 +510,33 @@ def two_branch_predict(
             uncond_fix = bool(getattr(pipeline, "ba_uncond_face_fix", False))
             do_cfg = bool(getattr(pipeline, "do_classifier_free_guidance", False))
             fp_batch = int(face_prompt_embeds.shape[0])
-            if uncond_fix and do_cfg and fp_batch % 2 == 0:
+            if (uncond_fix or use_face_prompt_attention_mask) and do_cfg and fp_batch % 2 == 0:
                 half = fp_batch // 2
                 face_prompt_embeds = torch.cat(
                     [face_prompt_embeds[:half], masked_face_prompt_embeds[half:]],
                     dim=0,
                 )
+                if use_face_prompt_attention_mask:
+                    token_mask = token_mask.clone()
+                    token_mask[:half] = True
             else:
                 face_prompt_embeds = masked_face_prompt_embeds
+            if use_face_prompt_attention_mask:
+                if not bool(token_mask.any(dim=1).all()):
+                    raise RuntimeError("Every face-prompt attention row must allow at least one token")
+                face_prompt_attention_mask = token_mask
             ##### BRANCHED ATTENTION - UNCOND FACE PROMPT FIX (F1) #####
 
         else:
-         print(f"[2BP]   WARNING: class_tokens_mask is None, falling back to face text")
-         # Fallback to face text encoding
-         face_prompt_embeds = encode_face_prompt(
-             pipeline, device, batch_size, pipeline.do_classifier_free_guidance
-         ).to(prompt_embeds.device, prompt_embeds.dtype)
+            if bool(getattr(pipeline, "ba_face_prompt_attention_mask", False)):
+                raise RuntimeError(
+                    "ba_face_prompt_attention_mask requires class_tokens_mask"
+                )
+            print(f"[2BP]   WARNING: class_tokens_mask is None, falling back to face text")
+            # Fallback to face text encoding
+            face_prompt_embeds = encode_face_prompt(
+                pipeline, device, batch_size, pipeline.do_classifier_free_guidance
+            ).to(prompt_embeds.device, prompt_embeds.dtype)
                   
         # per-token std match: bring face tokenwise std ~ gen tokenwise std
         eps = 1e-6
@@ -591,6 +612,16 @@ def two_branch_predict(
     #     }
     # )
     
+    # Store the explicit reference-token mask on the persistent CA processors.
+    # This avoids passing unknown kwargs through diffusers while keeping the
+    # target-half generation attention untouched.
+    for name, processor in pipeline.unet.attn_processors.items():
+        if (
+            name.endswith("attn2.processor")
+            and processor.__class__.__name__ == "BranchedCrossAttnProcessor"
+        ):
+            processor.face_prompt_attention_mask = face_prompt_attention_mask
+
     # Single forward pass with doubled batch
     noise_pred = pipeline.unet(
         batched_latents,

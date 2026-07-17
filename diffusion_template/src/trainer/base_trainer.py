@@ -320,7 +320,14 @@ class BaseTrainer:
             # Ensure branched processors are re-installed on all ranks only when
             # validation used the training base model itself.
             val_pretrained = getattr(self.config, "pretrained_model_for_validation_name_or_path", None)
-            needs_reinstall = not bool(val_pretrained)
+            try:
+                _guard_model = self.accelerator.unwrap_model(self.model)
+            except Exception:
+                _guard_model = self.model
+            needs_reinstall = (
+                not bool(val_pretrained)
+                or bool(getattr(_guard_model, "ba_strict_processor_restore", False))
+            )
             if needs_reinstall:
                 try:
                     unwrapped = self.accelerator.unwrap_model(self.model)
@@ -331,10 +338,12 @@ class BaseTrainer:
                 self.accelerator.wait_for_everyone()
             ### Modified for attention processors training ###
 
-        for batch_idx, batch in enumerate(
-            tqdm(self.train_dataloader, desc=f"train_{pid}", total=self.epoch_len)
-        ):
-
+        completed_batches = 0
+        progress_bar = tqdm(desc=f"train_{pid}", total=self.epoch_len)
+        for batch in self.train_dataloader:
+            # Invalid guarded samples do not consume the requested update budget.
+            # Reuse the same logical index so accumulation and logging stay aligned.
+            batch_idx = completed_batches
             batch["batch_idx"] = batch_idx
             batch = self.process_batch(
                 batch,
@@ -401,8 +410,11 @@ class BaseTrainer:
                 # because we are interested in recent train metrics
                 # last_train_metrics = self.train_metrics.result()
                 self.train_metrics.reset()
-            if batch_idx + 1 >= self.epoch_len:
+            completed_batches += 1
+            progress_bar.update(1)
+            if completed_batches >= self.epoch_len:
                 break
+        progress_bar.close()
 
         # logs.update(last_train_metrics)
 
@@ -419,7 +431,14 @@ class BaseTrainer:
         # Ensure branched processors are re-installed only when validation used
         # the training base model itself.
         val_pretrained = getattr(self.config, "pretrained_model_for_validation_name_or_path", None)
-        needs_reinstall = not bool(val_pretrained)
+        try:
+            _guard_model = self.accelerator.unwrap_model(self.model)
+        except Exception:
+            _guard_model = self.model
+        needs_reinstall = (
+            not bool(val_pretrained)
+            or bool(getattr(_guard_model, "ba_strict_processor_restore", False))
+        )
         if needs_reinstall:
             try:
                 unwrapped = self.accelerator.unwrap_model(self.model)
@@ -502,6 +521,11 @@ class BaseTrainer:
                     except Exception:
                         state = self.model.get_state_dict()
                     if not bool(getattr(self.config, "update_proc_weights_val", False)) and isinstance(state, dict):
+                        if bool(getattr(_val_model, "ba_strict_processor_restore", False)):
+                            raise RuntimeError(
+                                "ba_strict_processor_restore=true requires "
+                                "update_proc_weights_val=true for validation"
+                            )
                         state = dict(state)
                         state.pop("attn_processors", None)
                     if hasattr(_val_model, "load_state_dict_"):
@@ -509,7 +533,10 @@ class BaseTrainer:
 
                     # Optionally copy branched-attention processor weights into the
                     # validation UNet so their effect is visible in validation.
-                    if bool(getattr(self.config, "update_proc_weights_val", False)):
+                    if (
+                        bool(getattr(self.config, "update_proc_weights_val", False))
+                        and not bool(getattr(_val_model, "ba_strict_processor_restore", False))
+                    ):
                         try:
                             train_unet = self.accelerator.unwrap_model(self.model).unet
                         except Exception:

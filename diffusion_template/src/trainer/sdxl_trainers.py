@@ -7,6 +7,7 @@ from omegaconf import OmegaConf  # --- MODIFIED For training integration ---
 DEBUG_LOG_DEBUG_IMAGES = os.environ.get("PM_DEBUG_IMAGES", "1") not in {"0", "false", "False", ""}
 
 from src.metrics.tracker import MetricTracker
+from src.model.photomaker_branched.lora2_helpers import InvalidBranchedSampleError
 from src.trainer.base_trainer import BaseTrainer
 
 
@@ -284,10 +285,15 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             
         do_cfg = (batch["batch_idx"] % self.cfg_step == 0)
         oom_flag = torch.zeros(1, device=self.device)
+        invalid_flag = torch.zeros(1, device=self.device)
         local_oom = False
+        invalid_reason = None
         output = None
         try:
             output = self.model(**batch, do_cfg=do_cfg)
+        except InvalidBranchedSampleError as exc:
+            invalid_flag.fill_(1)
+            invalid_reason = exc.reason
         except RuntimeError as exc:
             if "out of memory" not in str(exc).lower():
                 raise
@@ -298,6 +304,25 @@ class PhotomakerLoraTrainer(SDXLTrainer):
 
         if torch.distributed.is_available() and torch.distributed.is_initialized():
             torch.distributed.all_reduce(oom_flag, op=torch.distributed.ReduceOp.MAX)
+            torch.distributed.all_reduce(invalid_flag, op=torch.distributed.ReduceOp.MAX)
+
+        if bool(invalid_flag.item()):
+            if output is not None:
+                del output
+            reason = invalid_reason or "rejected_on_other_rank"
+            train_metrics.update(f"invalid_sample/{reason}", 1.0)
+            rank = int(getattr(self.accelerator, "process_index", 0))
+            msg = (
+                f"[INVALID_SAMPLE_SKIP] time={time.strftime('%Y-%m-%d %H:%M:%S')} "
+                f"rank={rank} batch_idx={batch.get('batch_idx')} reason={reason}"
+            )
+            if self.logger is not None:
+                self.logger.warning(msg)
+            else:
+                print(msg, flush=True)
+            batch["skip_batch"] = True
+            batch["loss"] = torch.zeros((), device=self.device)
+            return batch
 
         if bool(oom_flag.item()):
             if output is not None:
@@ -326,6 +351,24 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         )
         all_losses = self.criterion(**batch)
         batch.update(all_losses)
+
+        if "id_loss" in output:
+            try:
+                unwrapped = self.accelerator.unwrap_model(self.model)
+            except Exception:
+                unwrapped = self.model
+            id_loss = output["id_loss"]
+            id_loss_weight = float(getattr(unwrapped, "id_loss_weight", 0.0))
+            if not torch.isfinite(id_loss):
+                raise FloatingPointError(f"Non-finite identity loss: {id_loss}")
+            batch["loss"] = batch["loss"] + id_loss_weight * id_loss
+            gathered_id = self.accelerator.gather(id_loss.detach()).mean()
+            gathered_applied = self.accelerator.gather(
+                output["id_loss_applied"].detach()
+            ).mean()
+            train_metrics.update("id_loss", gathered_id.item())
+            train_metrics.update("id_loss_applied", gathered_applied.item())
+            train_metrics.update("id_loss_weighted", (id_loss_weight * gathered_id).item())
         
         if self.is_train:
             assert torch.isfinite(batch["loss"]) # sum of all losses is always called loss
