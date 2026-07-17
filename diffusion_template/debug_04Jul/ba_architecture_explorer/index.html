@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta
+    name="description"
+    content="Interactive code-linked explorer for PhotoMaker branched-attention experiments."
+  >
+  <title>Branched Attention Architecture Explorer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">PhotoMaker research · code-linked architecture map</p>
+      <h1>Branched Attention Architecture Explorer</h1>
+      <p class="lede">
+        Compare the original full-reference spatial branches with later compact
+        identity residuals: every diagram traces target/reference streams, Q/K/V
+        routes, masks, and PhotoMaker composition. Click any block or arrow to
+        inspect the relevant implementation.
+      </p>
+    </div>
+    <div class="hero-note">
+      <span class="pulse"></span>
+      Initial comparison: N32 vs N38
+    </div>
+  </header>
+
+  <main>
+    <section class="controls" aria-label="Configuration controls">
+      <label>
+        <span>Left configuration</span>
+        <select id="left-config"></select>
+      </label>
+      <button id="swap-configs" type="button" aria-label="Swap configurations">
+        ⇄ Swap
+      </button>
+      <label>
+        <span>Right configuration</span>
+        <select id="right-config"></select>
+      </label>
+      <button id="reset-view" type="button">Reset N32 / N38</button>
+    </section>
+
+    <section class="comparison-summary" id="comparison-summary" aria-live="polite"></section>
+
+    <section class="diagram-grid" aria-label="Architecture diagrams">
+      <article class="diagram-card" id="left-card">
+        <header class="card-header"></header>
+        <div class="metrics-row"></div>
+        <div class="diagram-mount"></div>
+      </article>
+
+      <article class="diagram-card" id="right-card">
+        <header class="card-header"></header>
+        <div class="metrics-row"></div>
+        <div class="diagram-mount"></div>
+      </article>
+    </section>
+
+    <section class="matrix-section">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Configuration map</p>
+          <h2>All supported runs</h2>
+        </div>
+        <p>
+          The explorer is data-driven. These rows come from the same configuration
+          records used to draw the diagrams.
+        </p>
+      </div>
+      <div class="table-wrap">
+        <table id="config-matrix">
+          <thead>
+            <tr>
+              <th>Run</th>
+              <th>Identity memory</th>
+              <th>BA CA sites</th>
+              <th>Effective route</th>
+              <th>Merge</th>
+              <th>Objective</th>
+              <th>Face MAE vs PM</th>
+              <th>ID similarity</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="reading-key">
+      <div>
+        <span class="legend-line pm"></span>
+        <strong>PhotoMaker path</strong>
+        <p>Target pose, scene, rendering, and the absolute epsilon baseline.</p>
+      </div>
+      <div>
+        <span class="legend-line ba"></span>
+        <strong>BA identity path</strong>
+        <p>Either a legacy reference latent grid or newer compact identity K/V.</p>
+      </div>
+      <div>
+        <span class="legend-line mask"></span>
+        <strong>Hard target bbox</strong>
+        <p>Localizes the residual/merge; it does not by itself define identity.</p>
+      </div>
+      <div>
+        <span class="legend-line train"></span>
+        <strong>Training-only objective</strong>
+        <p>Supervises branch parameters but is absent from inference.</p>
+      </div>
+    </section>
+  </main>
+
+  <aside class="inspector" id="inspector" aria-hidden="true">
+    <div class="inspector-top">
+      <div>
+        <p class="eyebrow" id="inspector-run"></p>
+        <h2 id="inspector-title">Code inspector</h2>
+      </div>
+      <button id="close-inspector" type="button" aria-label="Close code inspector">×</button>
+    </div>
+    <p id="inspector-description"></p>
+    <div class="inspector-facts" id="inspector-facts"></div>
+    <div id="inspector-code"></div>
+  </aside>
+  <button class="inspector-scrim" id="inspector-scrim" type="button" aria-label="Close inspector"></button>
+
+  <footer>
+    <p>
+      Local research artifact. Diagram records are defined in <code>app.js</code>;
+      extension instructions are in the adjacent Markdown guide.
+    </p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
