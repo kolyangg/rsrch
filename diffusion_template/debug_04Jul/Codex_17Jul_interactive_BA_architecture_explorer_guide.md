@@ -8,20 +8,20 @@ Open:
 
 `debug_04Jul/ba_architecture_explorer/index.html`
 
-The initial comparison is N3a versus the proposed NN1b:
+The initial comparison is N3a versus the proposed NN1a:
 
 - N3a is the runnable full-spatial branched-attention baseline now restored on
   `main_clean`.
-- NN1b is the recommended architecture-preserving stability proposal: both
-  branched processors remain active, but branched cross-attention weights are
-  frozen.
+- NN1a is its guarded one-GPU replay: valid N3a forward math remains unchanged
+  while installation, masks, reference identities, and checkpoint restore
+  become fail-fast.
 
 The selectors also support:
 
 - the original pre-numbered `cosm_new1` spatial run;
 - N1 / N2 (`start_ba_ref_only_vast_N1.sh`, whose Comet run name is
   `ba_refonly_N2`);
-- NN1a, NN1b, and NN1c as explicitly unimplemented proposals;
+- NN1a through NN1f as explicitly unimplemented one-GPU proposals;
 - N31, N32, N33, N36, N37, and N38 as historical post-N3a experiments.
 
 ## Recommended way to open it
@@ -58,9 +58,9 @@ No package installation, build step, or external web resource is required.
 - Use `⇄ Swap` to reverse the comparison.
 - Click a row in the all-runs table to load it into the right diagram.
 - The selected pair is stored in URL parameters:
-  `?left=N3a&right=NN1b`.
+  `?left=N3a&right=NN1a`.
 - Difference mode is shareable with `diff=1`, for example:
-  `?left=N3a&right=NN1b&diff=1`.
+  `?left=NN1a&right=NN1b&diff=1`.
 - `Enter` and `Space` activate focused diagram elements; `Escape` closes the
   inspector.
 
@@ -91,7 +91,7 @@ text diff. It compares:
 - active site counts, gates, and allowlists;
 - mask routing;
 - PM/BA epsilon composition;
-- denoising schedule;
+- training and inference denoising schedules;
 - training objective;
 
 This avoids highlighting an unchanged block merely because two run names or
@@ -116,7 +116,7 @@ The repository is intentionally split:
   `main_clean_exp` GitHub branch, because those implementations are not part of
   the active N3a baseline;
 - NN1 proposal links open
-  `Jul_new_exp/2026-07-17_NN1_architecture_and_experiment_options.md`.
+  `Jul_new_exp/2026-07-17_NN1a_NN1f_approval_stage_experiment_plan.md`.
 
 The archived N31-N38 launchers/configs under
 `Jul_new_exp/archived_post_n3a_examples/` are documentary examples only.
@@ -194,15 +194,19 @@ The detailed SVGs deliberately follow the visual grammar of
 
 ## Proposed NN1 records
 
-NN1a/b/c are visualization and design records only. No NN1 launcher, Hydra
-config, identity-loss backport, or model change has been created.
+NN1a–f are visualization and design records only. No NN1 launcher, Hydra
+config, `jul_serv_runs` directory, identity-loss backport, or model/trainer
+change has been created.
 
-- NN1a: exact N3a two-GPU DDP parity control; branched SA and CA both train.
-- NN1b: full spatial BA with branched SA training and branched CA
-  forward-active but frozen.
-- NN1c: NN1b plus a proposed decoded reference-identity loss at `t <= 400`.
+- NN1a: guarded N3a one-GPU replay; branched SA and CA both train.
+- NN1b: NN1a with BA-active inference-region timestep sampling (audit issue 5).
+- NN1c: NN1a with an explicit conditional ID-token attention mask (audit issue
+  6).
+- NN1d: NN1a with split branched CA forward active but CA weights frozen.
+- NN1e: NN1d plus decoded reference-identity loss at `t <= 400`.
+- NN1f: NN1e with only branched SA `ref_to_k/v` projections trainable.
 
-All three retain the doubled `[target, reference]` U-Net batch, all 70
+All six retain the doubled `[target, reference]` U-Net batch, all 70
 `BranchedAttnProcessor` sites, all 70 `BranchedCrossAttnProcessor` sites, full
 reference-grid K/V, and direct target-half epsilon output. This is the main
 architectural boundary the visualization is intended to protect.
@@ -253,6 +257,7 @@ N39: {
   objective: "Full training objective",
   objectiveShort: "diffusion + decoded ID",
   schedule: "PM at 10 · BOTH at 15",
+  trainingSchedule: "BA on all sampled training timesteps",
 
   faceMae: 0.0, // use null if no comparable fixed-set measurement exists
   idScore: 0.0, // use null if unavailable

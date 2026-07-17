@@ -6,7 +6,7 @@ const N3A_COMMIT = "e42c966";
 const EXP_SOURCE_ROOT =
   "https://github.com/kolyangg/rsrch/blob/main_clean_exp/diffusion_template";
 const NN1_PROPOSAL =
-  "../../Jul_new_exp/2026-07-17_NN1_architecture_and_experiment_options.md";
+  "../../Jul_new_exp/2026-07-17_NN1a_NN1f_approval_stage_experiment_plan.md";
 
 const code = (path, line, snippet, label = "Open source") => ({
   path,
@@ -335,13 +335,13 @@ const CONFIGS = {
   },
   NN1a: {
     short: "NN1a",
-    title: "Exact N3a two-GPU control",
+    title: "Guarded N3a one-GPU replay",
     subtitle:
-      "Proposed reproducibility control: preserve the complete N3a forward and optimizer contract while changing only execution to two-GPU DDP.",
+      "N3a forward, objective, optimizer, augmentation, and all-timestep training with strict correctness guards 1–4.",
     family: "NN1 proposal",
     topology: "legacy_spatial",
     status: "proposed",
-    statusLabel: "Proposal · not implemented",
+    statusLabel: "Control · awaits approval",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -356,98 +356,233 @@ const CONFIGS = {
     objective: "Masked alternating diffusion MSE",
     objectiveShort: "N3a masked alternating",
     schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    trainingSchedule: "BA on all sampled training timesteps",
     faceMae: null,
     idScore: null,
     metricStep: "not run",
     architectureNote:
-      "This is a parity gate, not the expected winner: NN1b/c should not be interpreted until NN1a reproduces N3a startup counts and step-zero behavior.",
+      "The guards reject silent installation, invalid masks/identities, and incomplete processor restores without changing valid N3a forward math.",
     details: proposedNnDetails("NN1a", {
-      line: 50,
+      line: 126,
       trainCa: true,
       weightMode: "noise_and_ref · target/noise clone LR ×0.25",
       objective: "masked_alternating",
       optimizer: "LR 5e-5 · noise LR 1.25e-5 · clip 1.0 · weight decay 1e-2",
-      purpose: "Exact N3a forward and training control on two DDP processes",
+      trainingSchedule: "BA on all sampled timesteps",
+      purpose: "Guarded N3a replay on one GPU for 10k optimizer steps",
       objectiveDescription:
-        "Replay N3a's masked-alternating diffusion objective without an architectural change. Its purpose is to verify repository and DDP parity before testing improvements.",
+        "Replay N3a's masked-alternating diffusion objective without an architectural change. Correctness guards 1–4 are enabled, but issue 5 and issue 6 remain unchanged for parity.",
     }),
   },
   NN1b: {
     short: "NN1b",
-    title: "Stable full-BA self-attention training",
+    title: "Schedule-matched full BA",
     subtitle:
-      "Proposed stability anchor: both branched processors remain active, while only the spatial self-attention clones train.",
+      "Audit issue 5 in isolation: sample only the inference region in which the doubled spatial BA path is active.",
     family: "NN1 proposal",
     topology: "legacy_spatial",
     status: "proposed",
-    statusLabel: "Recommended · not implemented",
+    statusLabel: "Issue 5 · awaits approval",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
-      detail: "N3a spatial reference grid without crop jitter",
+      detail: "Exact N3a spatial reference grid with crop jitter",
       tokens: null,
     },
-    sites: legacySites("noise_and_ref", 0.1, false),
-    weightMode: "SA noise_and_ref · CA active/frozen",
+    sites: legacySites("noise_and_ref", 0.25, true),
+    weightMode: "noise_and_ref · SA/CA train · noise LR ×0.25",
     pmContext: "Target prompt + ID-only reference-half prompt",
     composition: "One doubled BA U-Net pass; target half returned directly",
-    compositionShort: "full BA · frozen CA weights",
-    objective: "Blended full-image and face diffusion MSE",
-    objectiveShort: "blended masked λface 0.15",
+    compositionShort: "exact N3a spatial pass",
+    objective: "Masked alternating diffusion MSE",
+    objectiveShort: "N3a masked alternating",
     schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    trainingSchedule: "Sample only BA-active inference region (approximately t≤699)",
     faceMae: null,
     idScore: null,
     metricStep: "not run",
     architectureNote:
-      "This carries forward N11's strongest stability lesson without removing BranchedCrossAttnProcessor from the forward path.",
+      "Every counted optimizer step still runs the unchanged doubled BA forward; text-only/PM-only no-gradient windows are not counted.",
     details: proposedNnDetails("NN1b", {
-      line: 77,
-      trainCa: false,
-      weightMode: "noise_and_ref for SA · CA forward active with frozen weights",
-      objective: "blended_masked · λface 0.15",
-      optimizer: "LR 1e-4 · noise LR 1e-5 · clip 1.0 · weight decay 1e-3",
-      purpose: "Architecture-preserving stability anchor based on N11",
+      line: 145,
+      trainCa: true,
+      weightMode: "noise_and_ref · target/noise clone LR ×0.25",
+      objective: "masked_alternating",
+      optimizer: "LR 5e-5 · noise LR 1.25e-5 · clip 1.0 · weight decay 1e-2",
+      trainingSchedule: "BA-active inference region only (approximately t≤699)",
+      purpose: "Isolate audit issue 5 with schedule-matched BA timestep sampling",
       objectiveDescription:
-        "Use blended full-image and face diffusion MSE while training only branched self-attention clones. Cross-attention still splits target/reference prompts at all 70 sites, but its cloned weights are frozen.",
+        "Use NN1a's objective and trainables, but sample only timesteps where inference uses spatial BA. This avoids counting text-only or PhotoMaker-only no-gradient windows.",
     }),
   },
   NN1c: {
     short: "NN1c",
-    title: "Stable full BA plus identity supervision",
+    title: "Masked ID-only face prompt",
     subtitle:
-      "Proposed highest-upside option: NN1b's stable full BA route plus a small low-timestep decoded identity loss.",
+      "Audit issue 6 in isolation: keep the ID-only prompt but mask non-ID tokens out of reference-half cross-attention.",
     family: "NN1 proposal",
     topology: "legacy_spatial",
     status: "proposed",
-    statusLabel: "Highest upside · not implemented",
+    statusLabel: "Issue 6 · awaits approval",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
-      detail: "N3a spatial reference grid without crop jitter",
+      detail: "Exact N3a spatial reference grid with crop jitter",
       tokens: null,
     },
-    sites: legacySites("noise_and_ref", 0.1, false),
-    weightMode: "SA noise_and_ref · CA active/frozen",
-    pmContext: "Target prompt + ID-only reference-half prompt",
+    sites: legacySites("noise_and_ref", 0.25, true),
+    weightMode: "noise_and_ref · SA/CA train · noise LR ×0.25",
+    pmContext: "Target prompt + explicitly masked ID-only reference-half prompt",
+    facePromptContext: "ID-only conditional prompt with non-ID tokens attention-masked",
+    facePromptLabel: ["Masked ID-only", "face prompt"],
+    facePromptSubtitle: "non-ID tokens excluded in CA",
     composition: "One doubled BA U-Net pass; target half returned directly",
-    compositionShort: "full BA · frozen CA weights",
-    objective: "Blended diffusion MSE + decoded reference identity loss",
-    objectiveShort: "blended + ID 0.1 at t≤400",
+    compositionShort: "exact N3a spatial pass",
+    objective: "Masked alternating diffusion MSE",
+    objectiveShort: "N3a masked alternating",
     schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    trainingSchedule: "BA on all sampled training timesteps",
     faceMae: null,
     idScore: null,
     metricStep: "not run",
     architectureNote:
-      "NN1c changes supervision, not attention math; the identity-loss plumbing is explicitly deferred until the experiment family is approved.",
+      "Conditional reference CA gives probability mass only to the two ID tokens; target prompt and unconditional negative-prompt rows remain unchanged.",
     details: proposedNnDetails("NN1c", {
-      line: 100,
+      line: 175,
+      trainCa: true,
+      weightMode: "noise_and_ref · target/noise clone LR ×0.25",
+      objective: "masked_alternating",
+      optimizer: "LR 5e-5 · noise LR 1.25e-5 · clip 1.0 · weight decay 1e-2",
+      trainingSchedule: "BA on all sampled timesteps",
+      facePromptMode: "Explicit attention mask: two ID tokens allowed; non-ID tokens excluded",
+      purpose: "Isolate audit issue 6 with explicit ID-token attention masking",
+      objectiveDescription:
+        "Use NN1a's loss, trainables, and timestep distribution. Only the conditional reference-half attention mask changes, removing 75 zero-token softmax sinks.",
+    }),
+  },
+  NN1d: {
+    short: "NN1d",
+    title: "Full BA with frozen CA weights",
+    subtitle:
+      "N11 stability lesson in isolation: all split cross-attention remains active, but only branched spatial self-attention updates.",
+    family: "NN1 proposal",
+    topology: "legacy_spatial",
+    status: "proposed",
+    statusLabel: "Stability anchor · awaits approval",
+    sourceCommit: N3A_COMMIT,
+    memory: {
+      label: "Full noised reference latent",
+      detail: "N3a spatial reference grid with crop jitter",
+      tokens: null,
+    },
+    sites: legacySites("noise_and_ref", 0.25, false),
+    weightMode: "SA noise_and_ref · CA active/frozen · noise LR ×0.25",
+    pmContext: "Target prompt + ID-only reference-half prompt",
+    composition: "One doubled BA U-Net pass; target half returned directly",
+    compositionShort: "full BA · frozen CA weights",
+    objective: "Masked alternating diffusion MSE",
+    objectiveShort: "N3a masked alternating",
+    schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    trainingSchedule: "BA on all sampled training timesteps",
+    faceMae: null,
+    idScore: null,
+    metricStep: "not run",
+    architectureNote:
+      "BranchedCrossAttnProcessor is not removed or replaced; only its cloned projection gradients are disabled.",
+    details: proposedNnDetails("NN1d", {
+      line: 204,
       trainCa: false,
       weightMode: "noise_and_ref for SA · CA forward active with frozen weights",
-      objective: "blended_masked + decoded ID 0.1 at t≤400",
-      optimizer: "NN1b optimizer · identity target from trusted reference",
-      purpose: "NN1b plus identity-directed supervision",
+      objective: "masked_alternating",
+      optimizer: "LR 5e-5 · noise LR 1.25e-5 · clip 1.0 · weight decay 1e-2",
+      trainingSchedule: "BA on all sampled timesteps",
+      purpose: "Isolate active-but-frozen branched CA as the N11 stability lever",
       objectiveDescription:
-        "Keep NN1b's full branched-attention forward and add a flag-gated decoded face identity loss of 0.1 only for t≤400. No compact memory, residual route, allowlist, or alternate epsilon composition is introduced.",
+        "Use the exact NN1a diffusion objective while training only branched SA clones. All 70 split CA processors remain active with frozen cloned weights.",
+    }),
+  },
+  NN1e: {
+    short: "NN1e",
+    title: "Frozen CA plus reference-ID loss",
+    subtitle:
+      "NN1d's stable full-BA route plus a low-noise decoded identity objective against the trusted reference face.",
+    family: "NN1 proposal",
+    topology: "legacy_spatial",
+    status: "proposed",
+    statusLabel: "Identity-directed · awaits approval",
+    sourceCommit: N3A_COMMIT,
+    memory: {
+      label: "Full noised reference latent",
+      detail: "N3a spatial reference grid with crop jitter",
+      tokens: null,
+    },
+    sites: legacySites("noise_and_ref", 0.25, false),
+    weightMode: "SA noise_and_ref · CA active/frozen · noise LR ×0.25",
+    pmContext: "Target prompt + ID-only reference-half prompt",
+    composition: "One doubled BA U-Net pass; target half returned directly",
+    compositionShort: "full BA · frozen CA weights",
+    objective: "Masked alternating diffusion MSE + decoded reference-ID cosine loss",
+    objectiveShort: "N3a MSE + reference ID 0.1 at t≤400",
+    schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    trainingSchedule: "BA on all sampled training timesteps",
+    faceMae: null,
+    idScore: null,
+    metricStep: "not run",
+    architectureNote:
+      "Identity supervision changes the training target, not the doubled spatial attention forward or PhotoMaker composition.",
+    details: proposedNnDetails("NN1e", {
+      line: 223,
+      trainCa: false,
+      weightMode: "noise_and_ref for SA · CA forward active with frozen weights",
+      objective: "masked_alternating + decoded reference-ID cosine 0.1 at t≤400",
+      optimizer: "LR 5e-5 · noise LR 1.25e-5 · clip 1.0 · weight decay 1e-2",
+      trainingSchedule: "BA on all sampled timesteps; ID decode only at t≤400",
+      purpose: "Add direct low-noise reference-identity supervision to NN1d",
+      objectiveDescription:
+        "Keep NN1d's full BA forward and add a flag-gated decoded reference identity loss of 0.1 only at t≤400. No compact memory or residual composition is backported.",
+    }),
+  },
+  NN1f: {
+    short: "NN1f",
+    title: "Reference K/V-only identity learning",
+    subtitle:
+      "Brave full-BA option: preserve target queries/background and train only the reference K/V projections that feed target-face attention.",
+    family: "NN1 proposal",
+    topology: "legacy_spatial",
+    status: "proposed",
+    statusLabel: "Selective identity path · awaits approval",
+    sourceCommit: N3A_COMMIT,
+    memory: {
+      label: "Full noised reference latent",
+      detail: "N3a spatial reference grid with crop jitter",
+      tokens: null,
+    },
+    sites: legacySites("ref_kv_only", null, false),
+    saTrainMode: "ref_kv_only",
+    weightMode: "SA ref_to_k/v only · CA active/frozen",
+    pmContext: "Target prompt + ID-only reference-half prompt",
+    composition: "One doubled BA U-Net pass; target half returned directly",
+    compositionShort: "full BA · selective reference K/V",
+    objective: "Masked alternating diffusion MSE + decoded reference-ID cosine loss",
+    objectiveShort: "N3a MSE + reference ID 0.1 at t≤400",
+    schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    trainingSchedule: "BA on all sampled training timesteps",
+    faceMae: null,
+    idScore: null,
+    metricStep: "not run",
+    architectureNote:
+      "All 70 SA/CA processors remain active; optimizer ownership narrows to spatial reference K/V, leaving target Q and background K/V fixed.",
+    details: proposedNnDetails("NN1f", {
+      line: 252,
+      trainCa: false,
+      saTrainMode: "ref_kv_only",
+      weightMode: "SA ref_to_k/v only · CA forward active with frozen weights",
+      objective: "masked_alternating + decoded reference-ID cosine 0.1 at t≤400",
+      optimizer: "Only BranchedAttnProcessor ref_to_k/v LoRA tensors; CA frozen",
+      trainingSchedule: "BA on all sampled timesteps; ID decode only at t≤400",
+      purpose: "Test selective spatial reference K/V identity learning",
+      objectiveDescription:
+        "Keep NN1e's forward and identity loss but train only reference K/V projections at all 70 branched SA sites. Target/noise Q/K/V, reference Q, and all CA projections remain frozen.",
     }),
   },
   N31: {
@@ -762,7 +897,9 @@ const CONFIGS = {
 
 function legacySites(weightMode, noiseLrScale = null, caTrainable = true) {
   const training =
-    weightMode === "ref_only"
+    weightMode === "ref_kv_only"
+      ? "only reference K/V clones train; target/noise and reference Q stay at base"
+      : weightMode === "ref_only"
       ? "reference-side clones train; target/noise projections stay at base"
       : noiseLrScale == null
         ? "reference and target/noise clones train at the same LR"
@@ -776,12 +913,21 @@ function legacySites(weightMode, noiseLrScale = null, caTrainable = true) {
     caTrainable,
     label: "70 SA + 70 CA sites",
     matrixLabel: "70 / 70 (+70 SA)",
-    metricLabel: caTrainable ? "70 SA + 70 CA" : "70 SA train + 70 CA active/frozen",
+    metricLabel:
+      weightMode === "ref_kv_only"
+        ? "70 SA ref-K/V train + 70 CA active/frozen"
+        : caTrainable
+          ? "70 SA + 70 CA"
+          : "70 SA train + 70 CA active/frozen",
     diagramLabel: caTrainable
       ? "70 SA + 70 CA processors"
-      : "70 SA train · 70 CA active/frozen",
+      : weightMode === "ref_kv_only"
+        ? "70 SA ref-K/V train · 70 CA active/frozen"
+        : "70 SA train · 70 CA active/frozen",
     effectiveLabel:
-      weightMode === "ref_only"
+      weightMode === "ref_kv_only"
+        ? "70 ref-K/V"
+        : weightMode === "ref_only"
         ? "70 ref-side"
         : caTrainable
           ? "70 spatial"
@@ -813,7 +959,7 @@ function legacyDetails(run, evidence) {
       code: [
         code(
           "../../debug_04Jul/Codex_17Jul_interactive_BA_architecture_explorer_guide.md",
-          72,
+          124,
           `git show ${LEGACY_SPATIAL}:diffusion_template/src/model/photomaker_branched/branched_runtime.py\ngit show ${LEGACY_SPATIAL}:diffusion_template/src/model/photomaker_branched/attn_processor_cleanest.py`,
           "Open reconstruction notes",
         ),
@@ -1172,6 +1318,13 @@ function proposedNnDetails(run, evidence) {
       "Open branch and recovery contract",
     ),
   ];
+  details.history.facts = {
+    ...details.history.facts,
+    Execution: "One GPU · physical/effective batch 2",
+    Budget: "10k optimizer steps · full validation every 2k",
+    "Correctness guards": "Audit issues 1–4 enabled",
+    Approval: "No model code, config, or launcher created",
+  };
   details.objective.description = evidence.objectiveDescription;
   details.objective.facts = {
     Status: "Proposed; not implemented",
@@ -1186,6 +1339,92 @@ function proposedNnDetails(run, evidence) {
       "Open proposed experiment",
     ),
   ];
+
+  details.scheduleFlow = {
+    title: `${run}: training and inference timestep exposure`,
+    description:
+      evidence.trainingSchedule === "BA-active inference region only (approximately t≤699)"
+        ? "Inference still switches from text-only to PhotoMaker to spatial BA at steps 0–9, 10–14, and 15–49. Training samples only the corresponding BA-active timestep region, so every counted update exercises the doubled branch."
+        : "Inference switches from text-only to PhotoMaker to spatial BA at steps 0–9, 10–14, and 15–49. Training retains N3a's behavior and runs the doubled BA branch for every sampled training timestep.",
+    facts: {
+      "Inference text-only": "0–9",
+      "Inference PhotoMaker": "10–14",
+      "Inference spatial BA": "15–49",
+      Training: evidence.trainingSchedule,
+    },
+    code: [
+      code(
+        NN1_PROPOSAL,
+        evidence.line,
+        `# ${run}\ntraining_timestep_mode=${evidence.trainingSchedule}\n# inference: text 0–9 · PM 10–14 · BA 15–49`,
+        "Open proposed schedule",
+      ),
+    ],
+  };
+
+  if (evidence.facePromptMode) {
+    details.facePrompt = {
+      title: `${run}: explicitly masked ID-only face prompt`,
+      description:
+        "The reference half keeps its ID-only prompt, but non-ID token positions are excluded from conditional cross-attention with an additive mask instead of remaining as zero K/V softmax sinks. Target generation context and unconditional negative-prompt rows stay unchanged.",
+      facts: {
+        Consumer: "Reference-half BranchedCrossAttnProcessor",
+        Conditional: evidence.facePromptMode,
+        Unconditional: "Plain negative-prompt context; positive ID mask not applied",
+      },
+      code: [
+        code(
+          NN1_PROPOSAL,
+          evidence.line,
+          `model.ba_face_prompt_mode=id_only\nmodel.ba_face_prompt_attention_mask=true\n# conditional: allow ID-token positions only`,
+          "Open proposed face-prompt change",
+        ),
+        ...details.facePrompt.code,
+      ],
+    };
+  }
+
+  if (evidence.saTrainMode === "ref_kv_only") {
+    details.selfAttention = {
+      ...details.selfAttention,
+      title: `${run}: full spatial BA with reference K/V-only updates`,
+      description:
+        "The forward is unchanged: target face Q attends reference-face spatial K/V at all 70 self-attention sites. Optimizer ownership is narrowed to ref_to_k and ref_to_v; target/noise Q/K/V and reference Q remain frozen to protect target pose and background.",
+      facts: {
+        Sites: "70 / 70 attn1",
+        "Target face Q": "Target coordinates · frozen projection",
+        "Face K/V": "Reference spatial grid · trainable ref_to_k/v",
+        "Other SA projections": "Frozen",
+      },
+      code: [
+        code(
+          NN1_PROPOSAL,
+          evidence.line,
+          `model.ba_sa_train_mode=ref_kv_only\n# train: BranchedAttnProcessor.ref_to_k / ref_to_v\n# freeze: noise_to_q/k/v and ref_to_q`,
+          "Open proposed selective trainability",
+        ),
+        ...details.selfAttention.code,
+      ],
+    };
+    details.trainFlow = {
+      title: `${run}: selective identity-path optimizer`,
+      description:
+        "Only the reference K/V LoRA tensors that directly supply target-face spatial identity are optimized. Both processor classes and every forward connection remain present.",
+      facts: {
+        Trainable: "SA ref_to_k/v at 70 sites",
+        Frozen: "SA target/noise Q/K/V · SA reference Q · all CA projections",
+        Objective: evidence.objective,
+      },
+      code: [
+        code(
+          NN1_PROPOSAL,
+          evidence.line,
+          `model.ba_sa_train_mode=ref_kv_only\nmodel.train_branched_ca_lora=false`,
+          "Open proposed optimizer ownership",
+        ),
+      ],
+    };
+  }
   return details;
 }
 
@@ -1327,6 +1566,9 @@ function selfTrainingValue(config) {
   if (config.topology !== "legacy_spatial") {
     return "standard self-attention; BranchedAttnProcessor absent";
   }
+  if (config.saTrainMode === "ref_kv_only") {
+    return "BranchedAttnProcessor active; only reference K/V clones train";
+  }
   if (String(config.weightMode || "").startsWith("ref_only")) {
     return "BranchedAttnProcessor active; reference clones train, target/noise frozen";
   }
@@ -1344,6 +1586,22 @@ function crossTrainingValue(config) {
 
 function objectiveOptimizerValue(config) {
   return detailFor(config, "objective").facts?.Optimizer || "not recorded";
+}
+
+function targetPromptValue(config) {
+  return config.topology === "legacy_spatial"
+    ? "PhotoMaker generation prompt on target half"
+    : config.pmContext;
+}
+
+function referencePromptValue(config) {
+  if (config.topology !== "legacy_spatial") {
+    return "no separate reference-half prompt stream";
+  }
+  return (
+    config.facePromptContext ||
+    "ID-only conditional prompt with non-ID tokens retained as zero K/V"
+  );
 }
 
 const COMPARISON_GROUPS = [
@@ -1379,14 +1637,26 @@ const COMPARISON_GROUPS = [
     ],
   },
   {
-    id: "prompt-context",
-    label: "prompt context",
-    keys: ["prompt", "facePrompt", "pmFlow"],
+    id: "target-prompt-context",
+    label: "target prompt context",
+    keys: ["prompt", "pmFlow"],
     fields: [
       {
-        label: "Prompt context",
-        codeName: "pm_context",
-        value: (config) => config.pmContext,
+        label: "Target prompt context",
+        codeName: "target_prompt_context",
+        value: targetPromptValue,
+      },
+    ],
+  },
+  {
+    id: "reference-prompt-context",
+    label: "reference prompt context",
+    keys: ["facePrompt", "crossAttention"],
+    fields: [
+      {
+        label: "Reference prompt context",
+        codeName: "reference_prompt_context",
+        value: referencePromptValue,
       },
     ],
   },
@@ -1444,14 +1714,30 @@ const COMPARISON_GROUPS = [
     ],
   },
   {
-    id: "schedule",
-    label: "denoising schedule",
+    id: "inference-schedule",
+    label: "inference denoising schedule",
     keys: ["scheduleFlow", "output"],
     fields: [
       {
-        label: "Schedule",
-        codeName: "denoising_schedule",
+        label: "Inference schedule",
+        codeName: "inference_schedule",
         value: (config) => config.schedule,
+      },
+    ],
+  },
+  {
+    id: "training-schedule",
+    label: "training timestep exposure",
+    keys: ["scheduleFlow"],
+    fields: [
+      {
+        label: "Training timestep exposure",
+        codeName: "training_timestep_mode",
+        value: (config) =>
+          config.trainingSchedule ||
+          (config.topology === "legacy_spatial"
+            ? "BA on all sampled training timesteps"
+            : "not recorded"),
       },
     ],
   },
@@ -1574,6 +1860,13 @@ function renderSvg(config, panelId) {
 
 function renderLegacyOverviewSvg(config, panelId) {
   const markerId = `arrow-${panelId}`;
+  const facePromptLabel = config.facePromptLabel || ["ID-only", "face prompt"];
+  const facePromptSubtitle = config.facePromptSubtitle || "reference-half CA";
+  const trainingScheduleLabel = String(config.trainingSchedule || "").startsWith(
+    "Sample only BA-active",
+  )
+    ? "train: BA-active region only"
+    : "train: BA at all sampled t";
   const caSubtitle =
     config.sites.caTrainable === false
       ? "forward active · cloned weights frozen"
@@ -1604,7 +1897,7 @@ function renderLegacyOverviewSvg(config, panelId) {
     ${node(242, 42, 140, 70, "memory", ["VAE + noise", "xref,t"], "reference grid", "ba")}
     ${node(28, 180, 166, 70, "target", ["Target noisy", "latent xt"], "first batch half", "pm")}
     ${node(28, 295, 166, 68, "prompt", ["Generation", "PM prompt"], "target-half CA", "pm")}
-    ${node(28, 385, 166, 68, "facePrompt", ["ID-only", "face prompt"], "reference-half CA", "ba")}
+    ${node(28, 385, 166, 68, "facePrompt", facePromptLabel, facePromptSubtitle, "ba")}
     ${node(28, 500, 166, 70, "mask", ["Target mask M", "Reference Mref"], "two coordinate grids", "mask")}
 
     <g class="unet-shell clickable" data-inspect="baPass" tabindex="0" role="button">
@@ -1619,7 +1912,7 @@ function renderLegacyOverviewSvg(config, panelId) {
 
     ${node(730, 220, 170, 80, "compose", ["Return target", "epsilon half"], "no outer PM merge", "ba")}
     ${node(730, 372, 170, 76, "output", ["CFG → scheduler", "0–9 text · 10–14 PM", "15–49 spatial BA"], "", "output")}
-    ${node(716, 72, 184, 96, "scheduleFlow", ["Temporal switch", "0–9 text · 10–14 PM", "15–49 spatial BA"], "", "train")}
+    ${node(716, 72, 184, 96, "scheduleFlow", ["Temporal switch", "0–9 text · 10–14 PM", "15–49 spatial BA"], trainingScheduleLabel, "train")}
     ${node(426, 530, 260, 76, "objective", ["Training objective"], config.objectiveShort, "train")}
     ${node(214, 530, 176, 76, "history", ["Historical evidence"], `${LEGACY_SPATIAL.slice(0, 8)} + ${config.sourceCommit}`, "")}
   </svg>`;
@@ -1688,6 +1981,10 @@ function renderMechanismSvg(config, panelId) {
 
 function renderLegacyMechanismSvg(config, panelId) {
   const markerId = `mechanism-${panelId}`;
+  const facePromptLabel = config.facePromptLabel || ["ID-only", "face prompt"];
+  const facePromptSubtitle = config.facePromptSubtitle || "";
+  const refKvSubtitle =
+    config.saTrainMode === "ref_kv_only" ? "train ref_to_k · ref_to_v" : "to_k · to_v";
   const caTrainingText =
     config.sites.caTrainable === false
       ? "CA forward active at all 70 sites; weights frozen."
@@ -1704,7 +2001,7 @@ function renderLegacyMechanismSvg(config, panelId) {
 
     ${node(214, 70, 126, 56, "selfAttention", ["Qtarget"], "to_q", "pm")}
     ${node(214, 146, 126, 56, "selfAttention", ["Ktarget / Vtarget"], "to_k · to_v", "pm")}
-    ${node(214, 270, 126, 66, "selfAttention", ["Kref / Vref"], "to_k · to_v", "ba")}
+    ${node(214, 270, 126, 66, "selfAttention", ["Kref / Vref"], refKvSubtitle, "ba")}
     ${node(214, 354, 126, 56, "selfAttention", ["Qref / Kref / Vref"], "reference continuation", "ba")}
 
     ${node(392, 66, 116, 54, "maskFlow", ["q_bg"], "Qtarget × (1−M)", "pm")}
@@ -1754,7 +2051,7 @@ function renderLegacyMechanismSvg(config, panelId) {
 
     ${node(24, 706, 154, 58, "memory", ["ref_hidden"], "", "ba")}
     ${node(226, 700, 126, 54, "crossAttention", ["q_ref"], "to_q(reference)", "ba")}
-      ${node(430, 698, 150, 66, "facePrompt", ["ID-only", "face prompt"], "", "ba")}
+      ${node(430, 698, 150, 66, "facePrompt", facePromptLabel, facePromptSubtitle, "ba")}
     ${node(624, 700, 126, 58, "crossAttention", ["k_face / v_face"], "to_k · to_v", "ba")}
     ${node(770, 624, 126, 72, "crossAttention", ["ref_hidden′"], "Attn(qref,kface,vface)", "ba")}
 
@@ -2189,7 +2486,7 @@ function renderInspectorComparison(side, key) {
 
 function renderAll() {
   const left = CONFIGS[leftSelect.value] ? leftSelect.value : "N3a";
-  const right = CONFIGS[rightSelect.value] ? rightSelect.value : "NN1b";
+  const right = CONFIGS[rightSelect.value] ? rightSelect.value : "NN1a";
   renderCard("left-card", left);
   renderCard("right-card", right);
   renderSummary(left, right);
@@ -2250,7 +2547,7 @@ populateSelect(leftSelect);
 populateSelect(rightSelect);
 const params = new URLSearchParams(window.location.search);
 leftSelect.value = CONFIGS[params.get("left")] ? params.get("left") : "N3a";
-rightSelect.value = CONFIGS[params.get("right")] ? params.get("right") : "NN1b";
+rightSelect.value = CONFIGS[params.get("right")] ? params.get("right") : "NN1a";
 differenceToggle.checked = params.get("diff") === "1";
 renderMatrix();
 renderAll();
@@ -2266,7 +2563,7 @@ document.getElementById("swap-configs").addEventListener("click", () => {
 });
 document.getElementById("reset-view").addEventListener("click", () => {
   leftSelect.value = "N3a";
-  rightSelect.value = "NN1b";
+  rightSelect.value = "NN1a";
   differenceToggle.checked = false;
   renderAll();
 });
