@@ -68,7 +68,10 @@ decode and frozen recognizer to BA parameters.
 ## Common run protocol
 
 - one Accelerate process and one GPU per run;
-- physical batch 2, effective batch 2, accumulation 1;
+- physical batch 2, effective batch 2, accumulation 1
+  (`grad_accum_enabled=false`, matching N33);
+- validation batch 12 on the single GPU, so each 96-image full validation
+  uses 8 validation batches;
 - 5 epochs × 2,000 optimizer steps = 10,000 steps;
 - full fixed 96-image `manual_val` at step 0, 2k, 4k, 6k, 8k, and 10k;
 - PhotoMaker starts at inference step 10 and spatial BA starts at step 15;
@@ -174,4 +177,3 @@ microbatch no longer shortens an epoch's successful-update budget.
 
 The interactive explorer contains all six implemented configs and links each
 clickable NN1 block to the corresponding config, launcher, and source code.
-

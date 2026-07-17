@@ -84,6 +84,7 @@ decision so the same code remains safe if a future DDP run enables the guards.
 |---|---|
 | training allocation | one GPU and one Accelerate process per run |
 | training batch | physical batch 2, effective batch 2, accumulation 1 |
+| validation batch | 12 on the single GPU; 96 images in 8 batches |
 | optimizer steps | 10,000 |
 | validation/checkpoint cadence | every 2,000 optimizer steps |
 | epochs | 5 × 2,000 optimizer steps |

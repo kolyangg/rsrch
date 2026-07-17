@@ -13,7 +13,7 @@ RUN_NAME="${RUN_NAME:-${NN1_RUN_NAME_DEFAULT}}"
 NUM_PROCESSES="${NUM_PROCESSES:-1}"
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-2}"
 LOCAL_EFFECTIVE_BATCH="${LOCAL_EFFECTIVE_BATCH:-2}"
-VAL_BATCH_SIZE_PER_GPU="${VAL_BATCH_SIZE_PER_GPU:-3}"
+VAL_BATCH_SIZE_PER_GPU="${VAL_BATCH_SIZE_PER_GPU:-12}"
 OPTIMIZER_STEPS_PER_EPOCH="${OPTIMIZER_STEPS_PER_EPOCH:-2000}"
 NUM_EPOCHS="${NUM_EPOCHS:-5}"
 WARMUP_OPTIMIZER_STEPS="${WARMUP_OPTIMIZER_STEPS:-2000}"
@@ -41,6 +41,11 @@ if (( LOCAL_EFFECTIVE_BATCH % TRAIN_BATCH_SIZE != 0 )); then
 fi
 
 ACCUM_STEPS=$((LOCAL_EFFECTIVE_BATCH / TRAIN_BATCH_SIZE))
+if (( ACCUM_STEPS > 1 )); then
+    GRAD_ACCUM_ENABLED=true
+else
+    GRAD_ACCUM_ENABLED=false
+fi
 MICROBATCHES_PER_EPOCH=$((OPTIMIZER_STEPS_PER_EPOCH * ACCUM_STEPS))
 TOTAL_OPTIMIZER_STEPS=$((OPTIMIZER_STEPS_PER_EPOCH * NUM_EPOCHS))
 SCHEDULER_WARMUP_STEPS=$((WARMUP_OPTIMIZER_STEPS * NUM_PROCESSES))
@@ -100,7 +105,7 @@ echo "${NN1_DESCRIPTION}"
 echo "Config: ${NN1_CONFIG_NAME}"
 echo "Training: GPU=${CUDA_VISIBLE_DEVICES:-${NN1_DEFAULT_GPU}} ranks=1 physical_batch=${TRAIN_BATCH_SIZE} accumulation=${ACCUM_STEPS} effective_batch=${LOCAL_EFFECTIVE_BATCH}"
 echo "Budget: ${TOTAL_OPTIMIZER_STEPS} optimizer steps (${NUM_EPOCHS} x ${OPTIMIZER_STEPS_PER_EPOCH})"
-echo "Validation: full fixed 96 images at step 0 and every ${OPTIMIZER_STEPS_PER_EPOCH} optimizer steps"
+echo "Validation: batch=${VAL_BATCH_SIZE_PER_GPU}; full fixed 96 images at step 0 and every ${OPTIMIZER_STEPS_PER_EPOCH} optimizer steps"
 
 ACCELERATE_LOG_LEVEL=error \
 TRANSFORMERS_VERBOSITY=error \
@@ -126,7 +131,7 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml \
     trainer.epoch_len="${MICROBATCHES_PER_EPOCH}" \
     trainer.n_epochs="${NUM_EPOCHS}" \
     dataloaders.train.batch_size="${TRAIN_BATCH_SIZE}" \
-    dataloaders.train.grad_accum_enabled=true \
+    dataloaders.train.grad_accum_enabled="${GRAD_ACCUM_ENABLED}" \
     dataloaders.train.batch_size_eff="${LOCAL_EFFECTIVE_BATCH}" \
     dataloaders.train.num_workers=6 \
     model.rank=32 \
