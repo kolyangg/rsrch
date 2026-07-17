@@ -47,12 +47,17 @@ No package installation, build step, or external web resource is required.
 ## Interaction
 
 - Choose either comparison configuration from the two selectors.
+- Enable **Highlight differences** to treat the left run as the baseline and
+  mark changed configuration fields, architecture blocks, connections, and
+  Q/K/V processor routes on the right.
 - Click a diagram block to see its role, run-specific facts, and relevant code.
 - Click an arrow to inspect the implementation of that connection.
 - Use `⇄ Swap` to reverse the comparison.
 - Click a row in the all-runs table to load it into the right diagram.
 - The selected pair is stored in URL parameters:
   `?left=N3a&right=NN1b`.
+- Difference mode is shareable with `diff=1`, for example:
+  `?left=N3a&right=NN1b&diff=1`.
 - `Enter` and `Space` activate focused diagram elements; `Escape` closes the
   inspector.
 
@@ -69,6 +74,28 @@ The diagrams intentionally distinguish:
 This distinction is important because N36-N38 are called "identity owner" in
 their configs, but PhotoMaker still owns the absolute prediction in their
 post-CFG composition.
+
+### How difference highlighting is determined
+
+The right-side highlight is a semantic configuration comparison, not a literal
+text diff. It compares:
+
+- reference/identity memory and preprocessing;
+- U-Net and processor topology;
+- PhotoMaker and face-prompt context;
+- branched self-attention trainability;
+- branched cross-attention route and trainability;
+- active site counts, gates, and allowlists;
+- mask routing;
+- PM/BA epsilon composition;
+- denoising schedule;
+- training objective;
+- recorded face-MAE and identity metrics.
+
+This avoids highlighting an unchanged block merely because two run names or
+descriptions use different wording. The legend above the diagrams lists every
+changed semantic category. Selecting the same run on both sides produces no
+highlights.
 
 ## Branch-aware source links
 

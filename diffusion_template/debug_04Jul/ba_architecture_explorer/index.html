@@ -41,10 +41,25 @@
         <span>Right configuration</span>
         <select id="right-config"></select>
       </label>
+      <label class="difference-toggle">
+        <input id="difference-mode" type="checkbox">
+        <span>
+          <strong>Highlight differences</strong>
+          <small>Right compared with left</small>
+        </span>
+      </label>
       <button id="reset-view" type="button">Reset N3a / NN1b</button>
     </section>
 
     <section class="comparison-summary" id="comparison-summary" aria-live="polite"></section>
+
+    <section class="difference-legend" id="difference-legend" aria-live="polite" hidden>
+      <span class="difference-swatch" aria-hidden="true"></span>
+      <div>
+        <strong id="difference-legend-title">Changed on the right</strong>
+        <p id="difference-legend-detail"></p>
+      </div>
+    </section>
 
     <section class="diagram-grid" aria-label="Architecture diagrams">
       <article class="diagram-card" id="left-card">

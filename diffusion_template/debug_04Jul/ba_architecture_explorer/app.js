@@ -1317,6 +1317,128 @@ function detailFor(config, key) {
   };
 }
 
+const COMPARISON_GROUPS = [
+  {
+    id: "implementation",
+    label: "run status / implementation",
+    keys: ["history"],
+    signature: (config) => [
+      config.family,
+      config.status,
+      config.statusLabel,
+      config.sourceCommit || null,
+    ],
+  },
+  {
+    id: "memory",
+    label: "reference / identity memory",
+    keys: ["reference", "memory", "memoryFlow"],
+    signature: (config) => [config.topology, config.memory],
+  },
+  {
+    id: "topology",
+    label: "U-Net and processor topology",
+    keys: [
+      "target",
+      "baPass",
+      "selfAttention",
+      "standardSelfAttention",
+      "residual",
+      "residualFlow",
+    ],
+    signature: (config) => config.topology || "compact_residual",
+  },
+  {
+    id: "prompt-context",
+    label: "PhotoMaker / face prompt context",
+    keys: ["prompt", "facePrompt", "pmFlow"],
+    signature: (config) => [config.topology, config.pmContext],
+  },
+  {
+    id: "self-training",
+    label: "branched self-attention training",
+    keys: ["selfAttention", "trainFlow"],
+    signature: (config) => [
+      config.topology,
+      config.weightMode || null,
+      config.sites.caTrainable ?? null,
+    ],
+  },
+  {
+    id: "cross-route",
+    label: "branched cross-attention route",
+    keys: ["facePrompt", "crossAttention", "residual", "residualFlow"],
+    signature: (config) => [
+      config.topology,
+      config.pmContext,
+      config.sites.count,
+      config.sites.effective,
+      config.sites.caTrainable ?? null,
+    ],
+  },
+  {
+    id: "sites",
+    label: "active attention sites / gates",
+    keys: ["sites", "baPass"],
+    signature: (config) => [
+      config.topology,
+      config.sites.count,
+      config.sites.effective,
+      config.sites.label,
+      config.sites.detail,
+      config.sites.caTrainable ?? null,
+    ],
+  },
+  {
+    id: "mask",
+    label: "face-mask routing",
+    keys: ["mask", "maskFlow"],
+    signature: (config) => config.topology || "compact_residual",
+  },
+  {
+    id: "composition",
+    label: "PhotoMaker / BA composition",
+    keys: ["pmPass", "compose", "output", "pmFlow"],
+    signature: (config) => config.composition,
+  },
+  {
+    id: "schedule",
+    label: "denoising schedule",
+    keys: ["scheduleFlow", "output"],
+    signature: (config) => config.schedule,
+  },
+  {
+    id: "objective",
+    label: "training objective",
+    keys: ["objective", "trainFlow"],
+    signature: (config) => [config.objective, config.objectiveShort],
+  },
+  {
+    id: "face-metric",
+    label: "face-MAE result",
+    keys: [],
+    signature: (config) => [config.faceMae, config.metricStep],
+  },
+  {
+    id: "id-metric",
+    label: "identity-similarity result",
+    keys: [],
+    signature: (config) => [config.idScore, config.metricStep],
+  },
+];
+
+function comparisonDifferences(left, right) {
+  const changedGroups = COMPARISON_GROUPS.filter(
+    (group) =>
+      JSON.stringify(group.signature(left)) !== JSON.stringify(group.signature(right)),
+  );
+  return {
+    changedGroups,
+    groupIds: new Set(changedGroups.map((group) => group.id)),
+    keys: new Set(changedGroups.flatMap((group) => group.keys)),
+  };
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -1661,22 +1783,22 @@ function renderCard(cardId, configId) {
       <h2>${escapeHtml(config.title)}</h2>
       <p>${escapeHtml(config.subtitle)}</p>
     </div>
-    <span class="status ${escapeHtml(config.status)}">${escapeHtml(config.statusLabel)}</span>`;
+    <span class="status ${escapeHtml(config.status)}" data-compare-group="implementation">${escapeHtml(config.statusLabel)}</span>`;
   card.querySelector(".metrics-row").innerHTML = [
-    ["Memory", config.memory.label],
-    ["BA attention sites", siteMetric],
-    ["Face MAE vs PM", faceMae],
-    ["Mean ID sim", idScore],
+    ["Memory", config.memory.label, "memory"],
+    ["BA attention sites", siteMetric, "sites"],
+    ["Face MAE vs PM", faceMae, "face-metric"],
+    ["Mean ID sim", idScore, "id-metric"],
   ]
     .map(
-      ([label, value]) =>
-        `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
+      ([label, value, group]) =>
+        `<div class="metric" data-compare-group="${group}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
     )
     .join("");
   card.querySelector(".diagram-mount").innerHTML = `
     ${renderSvg(config, cardId)}
     <section class="mechanism-panel" aria-label="${escapeHtml(config.short)} attention processor details">
-      <div class="mechanism-heading">
+      <div class="mechanism-heading" data-compare-group="topology self-training cross-route sites">
         <div>
           <span>Processor internals</span>
           <strong>${
@@ -1788,6 +1910,7 @@ function renderMatrix() {
 
 const leftSelect = document.getElementById("left-config");
 const rightSelect = document.getElementById("right-config");
+const differenceToggle = document.getElementById("difference-mode");
 
 function populateSelect(select) {
   select.innerHTML = Object.entries(CONFIGS)
@@ -1802,7 +1925,52 @@ function updateUrl(left, right) {
   const url = new URL(window.location.href);
   url.searchParams.set("left", left);
   url.searchParams.set("right", right);
+  if (differenceToggle.checked) {
+    url.searchParams.set("diff", "1");
+  } else {
+    url.searchParams.delete("diff");
+  }
   window.history.replaceState({}, "", url);
+}
+
+function applyDifferenceMode(leftId, rightId) {
+  const rightCard = document.getElementById("right-card");
+  const legend = document.getElementById("difference-legend");
+  const enabled = differenceToggle.checked;
+  rightCard.classList.toggle("difference-mode", enabled);
+  legend.hidden = !enabled;
+
+  if (!enabled) return;
+
+  const differences = comparisonDifferences(CONFIGS[leftId], CONFIGS[rightId]);
+
+  rightCard.querySelectorAll("[data-inspect]").forEach((element) => {
+    element.classList.toggle("is-different", differences.keys.has(element.dataset.inspect));
+  });
+  rightCard.querySelectorAll("[data-compare-group]").forEach((element) => {
+    const groups = element.dataset.compareGroup.split(/\s+/);
+    element.classList.toggle(
+      "is-different",
+      groups.some((group) => differences.groupIds.has(group)),
+    );
+  });
+
+  const sitesDiffer = differences.groupIds.has("sites");
+  rightCard.querySelectorAll(".site-chip, .site-chip-text").forEach((element) => {
+    element.classList.toggle("is-different", sitesDiffer);
+  });
+
+  const title = document.getElementById("difference-legend-title");
+  const detail = document.getElementById("difference-legend-detail");
+  const count = differences.changedGroups.length;
+  if (count === 0) {
+    title.textContent = "No modeled differences";
+    detail.textContent =
+      "The selected left and right records have the same architecture, configuration, and recorded metrics.";
+  } else {
+    title.textContent = `${count} changed ${count === 1 ? "category" : "categories"} on the right`;
+    detail.textContent = differences.changedGroups.map((group) => group.label).join(" · ");
+  }
 }
 
 function renderAll() {
@@ -1811,6 +1979,7 @@ function renderAll() {
   renderCard("left-card", left);
   renderCard("right-card", right);
   renderSummary(left, right);
+  applyDifferenceMode(left, right);
   updateUrl(left, right);
 }
 
@@ -1867,11 +2036,13 @@ populateSelect(rightSelect);
 const params = new URLSearchParams(window.location.search);
 leftSelect.value = CONFIGS[params.get("left")] ? params.get("left") : "N3a";
 rightSelect.value = CONFIGS[params.get("right")] ? params.get("right") : "NN1b";
+differenceToggle.checked = params.get("diff") === "1";
 renderMatrix();
 renderAll();
 
 leftSelect.addEventListener("change", renderAll);
 rightSelect.addEventListener("change", renderAll);
+differenceToggle.addEventListener("change", renderAll);
 document.getElementById("swap-configs").addEventListener("click", () => {
   const left = leftSelect.value;
   leftSelect.value = rightSelect.value;
@@ -1881,6 +2052,7 @@ document.getElementById("swap-configs").addEventListener("click", () => {
 document.getElementById("reset-view").addEventListener("click", () => {
   leftSelect.value = "N3a";
   rightSelect.value = "NN1b";
+  differenceToggle.checked = false;
   renderAll();
 });
 document.getElementById("close-inspector").addEventListener("click", closeInspector);
