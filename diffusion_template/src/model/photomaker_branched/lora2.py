@@ -74,6 +74,12 @@ class PhotomakerBranchedLora(SDXL):
         ba_train_timestep_mode: str = "all",
         ba_face_prompt_attention_mask: bool = False,
         ba_sa_train_mode: str = "all",
+        ba_sa_ref_token_mode: str = "full_grid",
+        ba_sa_face_mode: str = "reference",
+        ba_sa_ref_layer_scope: str = "all",
+        ba_sa_roi_grid_size: int = 8,
+        ba_sa_core_ratio: float = 0.7,
+        ba_sa_mix_init: float = 0.25,
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
         ba_uncond_face_fix: bool = False,  # F1: keep plain negative prompt for the uncond face branch under CFG
@@ -198,12 +204,35 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_train_timestep_mode = str(ba_train_timestep_mode or "all").lower()
         self.ba_face_prompt_attention_mask = bool(ba_face_prompt_attention_mask)
         self.ba_sa_train_mode = str(ba_sa_train_mode or "all").lower()
+        self.ba_sa_ref_token_mode = str(ba_sa_ref_token_mode or "full_grid").lower()
+        self.ba_sa_face_mode = str(ba_sa_face_mode or "reference").lower()
+        self.ba_sa_ref_layer_scope = str(ba_sa_ref_layer_scope or "all").lower()
+        self.ba_sa_roi_grid_size = int(ba_sa_roi_grid_size)
+        self.ba_sa_core_ratio = float(ba_sa_core_ratio)
+        self.ba_sa_mix_init = float(ba_sa_mix_init)
         if self.ba_invalid_sample_policy not in {"legacy", "error", "skip_batch"}:
             raise ValueError(f"Unknown ba_invalid_sample_policy: {self.ba_invalid_sample_policy}")
         if self.ba_train_timestep_mode not in {"all", "inference_ba_region"}:
             raise ValueError(f"Unknown ba_train_timestep_mode: {self.ba_train_timestep_mode}")
         if self.ba_sa_train_mode not in {"all", "ref_kv_only"}:
             raise ValueError(f"Unknown ba_sa_train_mode: {self.ba_sa_train_mode}")
+        if self.ba_sa_ref_token_mode not in {"full_grid", "roi"}:
+            raise ValueError(f"Unknown ba_sa_ref_token_mode: {self.ba_sa_ref_token_mode}")
+        if self.ba_sa_face_mode not in {
+            "reference",
+            "dual",
+            "core_ring",
+            "confidence_residual",
+        }:
+            raise ValueError(f"Unknown ba_sa_face_mode: {self.ba_sa_face_mode}")
+        if self.ba_sa_ref_layer_scope not in {"all", "up"}:
+            raise ValueError(f"Unknown ba_sa_ref_layer_scope: {self.ba_sa_ref_layer_scope}")
+        if self.ba_sa_roi_grid_size <= 0:
+            raise ValueError("ba_sa_roi_grid_size must be positive")
+        if not 0.0 < self.ba_sa_core_ratio <= 1.0:
+            raise ValueError("ba_sa_core_ratio must be in (0, 1]")
+        if not 0.0 < self.ba_sa_mix_init < 1.0:
+            raise ValueError("ba_sa_mix_init must be in (0, 1)")
         self.use_id_loss = bool(use_id_loss)
         self.id_loss_weight = float(id_loss_weight)
         self.id_loss_max_timestep = int(id_loss_max_timestep)
@@ -339,6 +368,14 @@ class PhotomakerBranchedLora(SDXL):
                     "installed_processor_names": sorted(patched_proc_names),
                     "state_processor_names": sorted(proc_sd),
                     "trainable_keys_by_processor": trainable_by_processor,
+                    "architecture": {
+                        "ba_sa_ref_token_mode": self.ba_sa_ref_token_mode,
+                        "ba_sa_face_mode": self.ba_sa_face_mode,
+                        "ba_sa_ref_layer_scope": self.ba_sa_ref_layer_scope,
+                        "ba_sa_roi_grid_size": self.ba_sa_roi_grid_size,
+                        "ba_sa_core_ratio": self.ba_sa_core_ratio,
+                        "ba_sa_mix_init": self.ba_sa_mix_init,
+                    },
                     "processor_classes": {
                         name: self.unet.attn_processors[name].__class__.__name__
                         for name in sorted(patched_proc_names)
@@ -368,6 +405,21 @@ class PhotomakerBranchedLora(SDXL):
                     f"missing={sorted(saved_names - current_names)[:5]}, "
                     f"unexpected={sorted(current_names - saved_names)[:5]}"
                 )
+            saved_architecture = manifest.get("architecture")
+            if saved_architecture is not None:
+                current_architecture = {
+                    "ba_sa_ref_token_mode": self.ba_sa_ref_token_mode,
+                    "ba_sa_face_mode": self.ba_sa_face_mode,
+                    "ba_sa_ref_layer_scope": self.ba_sa_ref_layer_scope,
+                    "ba_sa_roi_grid_size": self.ba_sa_roi_grid_size,
+                    "ba_sa_core_ratio": self.ba_sa_core_ratio,
+                    "ba_sa_mix_init": self.ba_sa_mix_init,
+                }
+                if saved_architecture != current_architecture:
+                    raise RuntimeError(
+                        "Strict BA restore architecture mismatch: "
+                        f"checkpoint={saved_architecture}, current={current_architecture}"
+                    )
             expected_state_names = set(manifest.get("state_processor_names", ()))
             actual_state_names = set(processor_state)
             if actual_state_names != expected_state_names:

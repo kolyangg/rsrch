@@ -110,6 +110,13 @@ class BranchedAttnProcessor(nn.Module):
         branched_attn_weight_mode: str = "shared",
         branched_attn_new_weight_kind: str = "full",
         branched_attn_lora_rank: int = 16,
+        processor_name: str = "",
+        ba_sa_ref_token_mode: str = "full_grid",
+        ba_sa_face_mode: str = "reference",
+        ba_sa_ref_layer_scope: str = "all",
+        ba_sa_roi_grid_size: int = 8,
+        ba_sa_core_ratio: float = 0.7,
+        ba_sa_mix_init: float = 0.25,
     ):
         super().__init__()
 
@@ -124,6 +131,30 @@ class BranchedAttnProcessor(nn.Module):
         self.branched_attn_weight_mode = (branched_attn_weight_mode or "shared").lower()
         self.branched_attn_new_weight_kind = (branched_attn_new_weight_kind or "full").lower()
         self.branched_attn_lora_rank = int(branched_attn_lora_rank)
+        self.processor_name = str(processor_name or "")
+        self.ba_sa_ref_token_mode = str(ba_sa_ref_token_mode or "full_grid").lower()
+        self.ba_sa_face_mode = str(ba_sa_face_mode or "reference").lower()
+        self.ba_sa_ref_layer_scope = str(ba_sa_ref_layer_scope or "all").lower()
+        self.ba_sa_roi_grid_size = int(ba_sa_roi_grid_size)
+        self.ba_sa_core_ratio = float(ba_sa_core_ratio)
+        self.ba_sa_mix_init = float(ba_sa_mix_init)
+        if self.ba_sa_ref_token_mode not in {"full_grid", "roi"}:
+            raise ValueError(f"Unknown ba_sa_ref_token_mode: {self.ba_sa_ref_token_mode}")
+        if self.ba_sa_face_mode not in {
+            "reference",
+            "dual",
+            "core_ring",
+            "confidence_residual",
+        }:
+            raise ValueError(f"Unknown ba_sa_face_mode: {self.ba_sa_face_mode}")
+        if self.ba_sa_ref_layer_scope not in {"all", "up"}:
+            raise ValueError(f"Unknown ba_sa_ref_layer_scope: {self.ba_sa_ref_layer_scope}")
+        if self.ba_sa_roi_grid_size <= 0:
+            raise ValueError("ba_sa_roi_grid_size must be positive")
+        if not 0.0 < self.ba_sa_core_ratio <= 1.0:
+            raise ValueError("ba_sa_core_ratio must be in (0, 1]")
+        if not 0.0 < self.ba_sa_mix_init < 1.0:
+            raise ValueError("ba_sa_mix_init must be in (0, 1)")
         
         self.mask = None
         self.mask_ref = None
@@ -133,6 +164,8 @@ class BranchedAttnProcessor(nn.Module):
         self.noise_to_q = None
         self.noise_to_k = None
         self.noise_to_v = None
+        self.face_mix_logits = None
+        self.face_residual_gain = None
         
         # If True: keep masks strictly binary after resize (avoids soft boundary blending)
         self.force_binary_masks: bool = True # False
@@ -173,6 +206,27 @@ class BranchedAttnProcessor(nn.Module):
                 kind=self.branched_attn_new_weight_kind,
                 rank=self.branched_attn_lora_rank,
             )
+        base_q = attn.to_q.get_base_layer() if hasattr(attn.to_q, "get_base_layer") else attn.to_q
+        if self.ba_sa_face_mode == "dual":
+            initial_logit = math.log(self.ba_sa_mix_init / (1.0 - self.ba_sa_mix_init))
+            self.face_mix_logits = nn.Parameter(
+                torch.full(
+                    (int(attn.heads),),
+                    initial_logit,
+                    device=base_q.weight.device,
+                    dtype=base_q.weight.dtype,
+                )
+            )
+        elif self.ba_sa_face_mode == "confidence_residual":
+            # tanh(0) gives exact target-attention parity while retaining a
+            # non-zero gradient for the residual gain itself.
+            self.face_residual_gain = nn.Parameter(
+                torch.zeros(
+                    int(attn.heads),
+                    device=base_q.weight.device,
+                    dtype=base_q.weight.dtype,
+                )
+            )
 
     def _q_noise(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
         layer = self.noise_to_q if self.noise_to_q is not None else attn.to_q
@@ -197,6 +251,113 @@ class BranchedAttnProcessor(nn.Module):
     def _v_ref(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
         layer = self.ref_to_v if self.ref_to_v is not None else attn.to_v
         return layer(hidden_states)
+
+    @staticmethod
+    def _to_heads(tensor: torch.Tensor, heads: int) -> torch.Tensor:
+        batch, length, channels = tensor.shape
+        return tensor.view(batch, length, heads, channels // heads).transpose(1, 2)
+
+    @staticmethod
+    def _from_heads(tensor: torch.Tensor) -> torch.Tensor:
+        batch, heads, length, channels = tensor.shape
+        return tensor.transpose(1, 2).reshape(batch, length, heads * channels)
+
+    def _reference_enabled_here(self) -> bool:
+        return (
+            self.ba_sa_ref_layer_scope == "all"
+            or self.processor_name.startswith("up_blocks.")
+        )
+
+    def _normalized_roi_tokens(
+        self,
+        hidden_states: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Crop each hard ROI and normalize it to a dense fixed token grid."""
+        batch, length, channels = hidden_states.shape
+        side = int(math.isqrt(length))
+        if side * side != length:
+            raise ValueError(f"ROI packing requires square spatial tokens, got {length}")
+        spatial = hidden_states.transpose(1, 2).reshape(batch, channels, side, side)
+        mask_2d = mask[:, 0, :, 0].reshape(batch, side, side)
+        grid = self.ba_sa_roi_grid_size
+        packed = []
+        for sample_idx in range(batch):
+            valid = mask_2d[sample_idx] > 0.01
+            coords = valid.nonzero(as_tuple=False)
+            if coords.numel() == 0:
+                raise ValueError(
+                    f"Reference ROI vanished at {side}x{side} in {self.processor_name}"
+                )
+            y0, x0 = coords.amin(dim=0)
+            y1, x1 = coords.amax(dim=0) + 1
+            crop = spatial[
+                sample_idx : sample_idx + 1,
+                :,
+                int(y0.item()) : int(y1.item()),
+                int(x0.item()) : int(x1.item()),
+            ]
+            normalized = F.interpolate(
+                crop.float(),
+                size=(grid, grid),
+                mode="bilinear",
+                align_corners=False,
+            ).to(dtype=hidden_states.dtype)
+            packed.append(normalized.flatten(2).transpose(1, 2))
+        return torch.cat(packed, dim=0)
+
+    def _inner_core_mask(self, mask_gate: torch.Tensor) -> torch.Tensor:
+        """Return an elliptical identity core inside each target-face mask."""
+        batch, _, length, _ = mask_gate.shape
+        side = int(math.isqrt(length))
+        if side * side != length:
+            raise ValueError(f"Core mask requires square spatial tokens, got {length}")
+        outer = mask_gate[:, 0, :, 0].reshape(batch, side, side) > 0.5
+        core = torch.zeros_like(outer)
+        for sample_idx in range(batch):
+            coords = outer[sample_idx].nonzero(as_tuple=False)
+            if coords.numel() == 0:
+                continue
+            low = coords.amin(dim=0).float()
+            high = coords.amax(dim=0).float()
+            center = (low + high) * 0.5
+            radius = ((high - low + 1.0) * 0.5 * self.ba_sa_core_ratio).clamp_min(0.5)
+            yy, xx = torch.meshgrid(
+                torch.arange(side, device=outer.device, dtype=torch.float32),
+                torch.arange(side, device=outer.device, dtype=torch.float32),
+                indexing="ij",
+            )
+            ellipse = (
+                ((yy - center[0]) / radius[0]).square()
+                + ((xx - center[1]) / radius[1]).square()
+            ) <= 1.0
+            sample_core = ellipse & outer[sample_idx]
+            if not bool(sample_core.any()):
+                nearest = coords[
+                    ((coords.float() - center).square().sum(dim=1)).argmin()
+                ]
+                sample_core[nearest[0], nearest[1]] = True
+            core[sample_idx] = sample_core
+        return core.reshape(batch, 1, length, 1).to(mask_gate.dtype)
+
+    @staticmethod
+    def _attention_with_confidence(
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Attention output plus normalized inverse-entropy confidence."""
+        scores = torch.matmul(query.float(), key.float().transpose(-2, -1))
+        scores = scores * (query.shape[-1] ** -0.5)
+        probs = scores.softmax(dim=-1)
+        output = torch.matmul(probs.to(value.dtype), value)
+        token_count = int(key.shape[-2])
+        if token_count <= 1:
+            confidence = torch.ones_like(probs[..., :1])
+        else:
+            entropy = -(probs * probs.clamp_min(1e-8).log()).sum(dim=-1, keepdim=True)
+            confidence = (1.0 - entropy / math.log(token_count)).clamp(0.0, 1.0)
+        return output, confidence.to(output.dtype)
 
     def set_masks(self, mask: Optional[torch.Tensor], mask_ref: Optional[torch.Tensor] = None):
         """Set masks for current denoising step"""
@@ -304,7 +465,6 @@ class BranchedAttnProcessor(nn.Module):
         # CA_MIXING_FOR_FACE = getattr(self, "ca_mixing_for_face", True)
         
         # Runtime values are passed via UNet cross_attention_kwargs
-        runtime = cross_attention_kwargs if isinstance(cross_attention_kwargs, dict) else {}
         POSE_ADAPT_RATIO = 0.0 # hardcoded to 0.0 for simplicity
         CA_MIXING_FOR_FACE = False # hardcoded to False for simplicity
 
@@ -331,30 +491,91 @@ class BranchedAttnProcessor(nn.Module):
         ref_mask = ref_mask.to(dtype=ref_hidden.dtype, device=ref_hidden.device)
         ref_mask_flat = ref_mask.squeeze(1)  # [B, L, 1]
 
+        q_face = q * mask_gate  # face area of noise_hidden
+        reference_enabled = self._reference_enabled_here()
+        legacy_reference_path = (
+            reference_enabled
+            and self.ba_sa_face_mode == "reference"
+            and self.ba_sa_ref_token_mode == "full_grid"
+        )
 
-        # Extract face regions from both noise and reference
-        noise_face_hidden = noise_hidden * mask_flat  # Face from current noise
-        ref_face_hidden = ref_hidden * ref_mask_flat
+        if legacy_reference_path:
+            # Exact N3a/NN1 face route. Keep this explicit so all new toggles
+            # can be disabled without changing the previous architecture.
+            noise_face_hidden = noise_hidden * mask_flat
+            ref_face_hidden = ref_hidden * ref_mask_flat
+            face_hidden_mixed = (
+                (1 - POSE_ADAPT_RATIO) * ref_face_hidden
+                + POSE_ADAPT_RATIO * noise_face_hidden
+            )
+            key_face = self._to_heads(self._k_ref(attn, face_hidden_mixed), head_dim)
+            value_face = self._to_heads(self._v_ref(attn, face_hidden_mixed), head_dim)
+            hidden_face_heads = F.scaled_dot_product_attention(
+                q_face, key_face, value_face, dropout_p=0.0, is_causal=False
+            )
+        else:
+            target_key = self._to_heads(self._k_noise(attn, noise_hidden), head_dim)
+            target_value = self._to_heads(self._v_noise(attn, noise_hidden), head_dim)
+            target_face_heads = F.scaled_dot_product_attention(
+                q_face, target_key, target_value, dropout_p=0.0, is_causal=False
+            )
 
-        # Blend them to allow pose adaptation while preserving identity
-        # Higher POSE_ADAPT_RATIO = more pose flexibility, less identity preservation
-        face_hidden_mixed = (1 - POSE_ADAPT_RATIO) * ref_face_hidden + POSE_ADAPT_RATIO * noise_face_hidden
-        
-        # Just use the blended face directly (previously had option for CA_MIXING_FOR_FACE but removed for simplicity)
-        key_face = self._k_ref(attn, face_hidden_mixed)
-        value_face = self._v_ref(attn, face_hidden_mixed)
+            if not reference_enabled:
+                hidden_face_heads = target_face_heads
+            else:
+                if self.ba_sa_ref_token_mode == "roi":
+                    soft_ref_mask = self._prepare_mask(
+                        self.mask_ref,
+                        seq_len,
+                        ref_batch_size,
+                        force_binary=False,
+                    ).to(dtype=ref_hidden.dtype, device=ref_hidden.device)
+                    reference_source = self._normalized_roi_tokens(ref_hidden, soft_ref_mask)
+                else:
+                    reference_source = ref_hidden * ref_mask_flat
+                reference_key = self._to_heads(self._k_ref(attn, reference_source), head_dim)
+                reference_value = self._to_heads(self._v_ref(attn, reference_source), head_dim)
 
+                if self.ba_sa_face_mode == "confidence_residual":
+                    reference_face_heads, confidence = self._attention_with_confidence(
+                        q_face,
+                        reference_key,
+                        reference_value,
+                    )
+                    if self.face_residual_gain is None:
+                        raise RuntimeError("confidence_residual mode is missing face_residual_gain")
+                    gain = self.face_residual_gain.tanh().view(1, head_dim, 1, 1)
+                    hidden_face_heads = target_face_heads + (
+                        gain * confidence * (reference_face_heads - target_face_heads)
+                    )
+                else:
+                    reference_face_heads = F.scaled_dot_product_attention(
+                        q_face,
+                        reference_key,
+                        reference_value,
+                        dropout_p=0.0,
+                        is_causal=False,
+                    )
+                    if self.ba_sa_face_mode == "dual":
+                        if self.face_mix_logits is None:
+                            raise RuntimeError("dual mode is missing face_mix_logits")
+                        ref_weight = self.face_mix_logits.sigmoid().view(1, head_dim, 1, 1)
+                        hidden_face_heads = (
+                            target_face_heads * (1.0 - ref_weight)
+                            + reference_face_heads * ref_weight
+                        )
+                    elif self.ba_sa_face_mode == "core_ring":
+                        core_gate = self._inner_core_mask(mask_gate)
+                        hidden_face_heads = (
+                            target_face_heads * (1.0 - core_gate)
+                            + reference_face_heads * core_gate
+                        )
+                    elif self.ba_sa_face_mode == "reference":
+                        hidden_face_heads = reference_face_heads
+                    else:
+                        raise RuntimeError(f"Unhandled face mode: {self.ba_sa_face_mode}")
 
-        key_face = key_face.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
-        value_face = value_face.view(batch_size, -1, head_dim, dim_per_head).transpose(1, 2)
-        
-        if mask_gate is  None:
-            raise ValueError("Branched attention requires a mask for the face branch")
-        
-        q_face = q * mask_gate # face area of noise_hidden
-            
-        hidden_face = F.scaled_dot_product_attention(q_face, key_face, value_face, dropout_p=0.0, is_causal=False)
-        hidden_face = hidden_face.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
+        hidden_face = self._from_heads(hidden_face_heads)
 
 
 
@@ -423,7 +644,13 @@ class BranchedAttnProcessor(nn.Module):
         return hidden_states
     
     
-    def _prepare_mask(self, mask: torch.Tensor, target_len: int, batch_size: int) -> torch.Tensor:
+    def _prepare_mask(
+        self,
+        mask: torch.Tensor,
+        target_len: int,
+        batch_size: int,
+        force_binary: Optional[bool] = None,
+    ) -> torch.Tensor:
         """Prepare mask for attention ops — always resize in 2-D (no 1-D raster)."""
         H = int(math.sqrt(target_len))
         W = H
@@ -441,7 +668,9 @@ class BranchedAttnProcessor(nn.Module):
         m2d = F.interpolate(m4, size=(H, W), mode="bilinear", align_corners=False)
                     
                     
-        if getattr(self, "force_binary_masks", False):
+        if force_binary is None:
+            force_binary = bool(getattr(self, "force_binary_masks", False))
+        if force_binary:
             m2d = (m2d > 0.5).to(dtype=m2d.dtype)
         m = m2d.flatten(2).transpose(1, 2)  # [B, H*W, 1]
         

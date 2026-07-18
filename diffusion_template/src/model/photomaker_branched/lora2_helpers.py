@@ -61,10 +61,15 @@ def _processor_trainable_manifest(model) -> dict[str, dict[str, int]]:
     for name, parameter in model.unet.named_parameters():
         if not parameter.requires_grad or ".processor." not in name:
             continue
-        attention = "sa" if ".attn1.processor." in name else "ca" if ".attn2.processor." in name else "other"
-        branch = "ref" if ".ref_to_" in name else "noise" if ".noise_to_" in name else "other"
-        projection = "q" if "_to_q" in name else "k" if "_to_k" in name else "v" if "_to_v" in name else "other"
-        key = f"{attention}_{branch}_{projection}"
+        if ".attn1.processor.face_mix_logits" in name:
+            key = "sa_face_mix"
+        elif ".attn1.processor.face_residual_gain" in name:
+            key = "sa_face_residual"
+        else:
+            attention = "sa" if ".attn1.processor." in name else "ca" if ".attn2.processor." in name else "other"
+            branch = "ref" if ".ref_to_" in name else "noise" if ".noise_to_" in name else "other"
+            projection = "q" if "_to_q" in name else "k" if "_to_k" in name else "v" if "_to_v" in name else "other"
+            key = f"{attention}_{branch}_{projection}"
         entry = categories.setdefault(key, {"tensors": 0, "parameters": 0})
         entry["tensors"] += 1
         entry["parameters"] += int(parameter.numel())
@@ -120,6 +125,8 @@ def _assert_branched_installation(model) -> None:
             if not (
                 ".attn1.processor.ref_to_k." in name
                 or ".attn1.processor.ref_to_v." in name
+                or ".attn1.processor.face_mix_logits" in name
+                or ".attn1.processor.face_residual_gain" in name
             )
         ]
         if invalid:
@@ -139,6 +146,11 @@ def _assert_branched_installation(model) -> None:
             required_categories.update({"ca_ref_q", "ca_ref_k", "ca_ref_v"})
         if train_ca and mode == "noise_and_ref":
             required_categories.update({"ca_noise_q", "ca_noise_k", "ca_noise_v"})
+    face_mode = str(getattr(model, "ba_sa_face_mode", "reference") or "reference").lower()
+    if face_mode == "dual":
+        required_categories.add("sa_face_mix")
+    elif face_mode == "confidence_residual":
+        required_categories.add("sa_face_residual")
     missing_categories = sorted(required_categories - set(manifest))
     if missing_categories:
         raise RuntimeError(
@@ -163,6 +175,14 @@ def _assert_branched_installation(model) -> None:
     print(
         "[BA validity] rejection counters initialized: "
         "target_bbox=0 reference_bbox=0 reference_recognition=0"
+    )
+    print(
+        "[BA architecture] "
+        f"face_mode={getattr(model, 'ba_sa_face_mode', 'reference')} "
+        f"ref_tokens={getattr(model, 'ba_sa_ref_token_mode', 'full_grid')} "
+        f"ref_scope={getattr(model, 'ba_sa_ref_layer_scope', 'all')} "
+        f"roi_grid={getattr(model, 'ba_sa_roi_grid_size', 8)} "
+        f"core_ratio={getattr(model, 'ba_sa_core_ratio', 0.7)}"
     )
     print(f"[BA strict install] processor names: {', '.join(expected)}")
     for category, counts in sorted(manifest.items()):
@@ -236,6 +256,14 @@ def configure_branched_trainables(model) -> None:
                 and ".attn1.processor.noise_to_" in name
                 and (
                     new_weight_kind == "full" or "lora_A" in name or "lora_B" in name
+                )
+            ):
+                p.requires_grad_(True)
+            elif (
+                is_selected_proc
+                and (
+                    ".attn1.processor.face_mix_logits" in name
+                    or ".attn1.processor.face_residual_gain" in name
                 )
             ):
                 p.requires_grad_(True)

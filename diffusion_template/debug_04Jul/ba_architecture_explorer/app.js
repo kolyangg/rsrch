@@ -11,6 +11,8 @@ const NN1_IMPLEMENTATION =
   "../../Jul_new_exp/2026-07-17_NN1a_NN1f_implementation_and_launch_guide.md";
 const NN2_REPORT =
   "../../Jul_new_exp/2026-07-17_NN1a_NN1f_results_and_NN2_architecture_plan.md";
+const NN2_IMPLEMENTATION =
+  "../../Jul_new_exp/2026-07-18_NN2a_NN2f_implementation_and_launch_guide.md";
 const NN1_FILES = {
   NN1a: {
     config: "../../src/configs/one_id_ba_NN1a_n3a_replay.yaml",
@@ -35,6 +37,32 @@ const NN1_FILES = {
   NN1f: {
     config: "../../src/configs/one_id_ba_NN1f_ref_kv_id_loss.yaml",
     launcher: "../../jul_serv_runs/start_ba_NN1f_ref_kv_id_loss_1gpu.sh",
+  },
+};
+const NN2_FILES = {
+  NN2a: {
+    config: "../../src/configs/one_id_ba_NN2a_packed_roi.yaml",
+    launcher: "../../jul_serv_runs/start_ba_NN2a_packed_roi_1gpu.sh",
+  },
+  NN2b: {
+    config: "../../src/configs/one_id_ba_NN2b_dual_attention.yaml",
+    launcher: "../../jul_serv_runs/start_ba_NN2b_dual_attention_1gpu.sh",
+  },
+  NN2c: {
+    config: "../../src/configs/one_id_ba_NN2c_roi_dual_attention.yaml",
+    launcher: "../../jul_serv_runs/start_ba_NN2c_roi_dual_attention_1gpu.sh",
+  },
+  NN2d: {
+    config: "../../src/configs/one_id_ba_NN2d_upblock_reference.yaml",
+    launcher: "../../jul_serv_runs/start_ba_NN2d_upblock_reference_1gpu.sh",
+  },
+  NN2e: {
+    config: "../../src/configs/one_id_ba_NN2e_core_ring.yaml",
+    launcher: "../../jul_serv_runs/start_ba_NN2e_core_ring_1gpu.sh",
+  },
+  NN2f: {
+    config: "../../src/configs/one_id_ba_NN2f_confidence_residual.yaml",
+    launcher: "../../jul_serv_runs/start_ba_NN2f_confidence_residual_1gpu.sh",
   },
 };
 
@@ -626,10 +654,10 @@ const CONFIGS = {
     title: "Packed ROI spatial BA",
     subtitle:
       "Isolate reference-memory cleanup: target face Q attends only a normalized, packed reference-face ROI with no zero-token softmax sinks.",
-    family: "NN2 proposal",
+    family: "NN2 implementation",
     topology: "legacy_spatial",
-    status: "proposed",
-    statusLabel: "Proposal · ROI isolation",
+    status: "active",
+    statusLabel: "Implemented · awaiting run",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Packed ROI-normalized reference face grid",
@@ -645,7 +673,7 @@ const CONFIGS = {
     objectiveShort: "N3a MSE · no ID loss",
     schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
     trainingSchedule: "BA on all sampled training timesteps",
-    kvMode: "packed ROI-normalized reference-face tokens; padded positions masked",
+    kvMode: "dense 8×8 ROI-normalized reference-face tokens; no outside-grid or padding positions",
     faceArbitration: "absolute reference-attention face output",
     layerRouting: "reference BA at all 70 attn1 sites",
     queryRegion: "hard target face bbox",
@@ -663,7 +691,7 @@ const CONFIGS = {
       "A necessary attribution run, but absolute replacement may still copy incompatible reference geometry.",
     details: nn2Details("NN2a", {
       purpose: "Isolate packed, ROI-normalized reference K/V without changing N3a's absolute face merge",
-      kvMode: "Packed fixed-grid ROI; outside/padding tokens excluded from attention",
+      kvMode: "Dense normalized 8×8 ROI; outside-grid and padding tokens do not exist",
       arbitration: "Absolute reference-attention face output",
       layerRouting: "All 70 BranchedAttnProcessor sites",
       queryRegion: "Hard target bbox",
@@ -675,10 +703,10 @@ const CONFIGS = {
     title: "Per-head dual spatial attention",
     subtitle:
       "Keep the full reference grid but compute target-face and reference-face attention separately, then arbitrate per head and layer.",
-    family: "NN2 proposal",
+    family: "NN2 implementation",
     topology: "legacy_spatial",
-    status: "proposed",
-    statusLabel: "Proposal · fusion isolation",
+    status: "active",
+    statusLabel: "Implemented · awaiting run",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -725,10 +753,10 @@ const CONFIGS = {
     title: "Packed ROI plus dual attention",
     subtitle:
       "Recommended combined repair: packed reference ROI for identity evidence and target-face attention as an explicit pose/occlusion anchor.",
-    family: "NN2 proposal",
+    family: "NN2 implementation",
     topology: "legacy_spatial",
-    status: "proposed",
-    statusLabel: "Proposal · recommended",
+    status: "active",
+    statusLabel: "Implemented · awaiting run",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Packed ROI-normalized reference face grid",
@@ -744,7 +772,7 @@ const CONFIGS = {
     objectiveShort: "N3a MSE · no ID loss",
     schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
     trainingSchedule: "BA on all sampled training timesteps",
-    kvMode: "packed ROI-normalized reference-face tokens; padded positions masked",
+    kvMode: "dense 8×8 ROI-normalized reference-face tokens; no outside-grid or padding positions",
     faceArbitration: "separate target-K/V and packed-reference-K/V outputs; bounded per-head blend",
     layerRouting: "dual attention at all 70 attn1 sites",
     queryRegion: "hard target face bbox",
@@ -760,10 +788,10 @@ const CONFIGS = {
     idScore: null,
     metricStep: "not run",
     architectureNote:
-      "Best balanced proposal: it attacks both zero-token/reference-location leakage and loss of target geometry.",
+      "Best balanced implementation: it attacks both zero-token/reference-location leakage and loss of target geometry.",
     details: nn2Details("NN2c", {
       purpose: "Combine packed ROI K/V with target-anchored per-head dual attention",
-      kvMode: "Packed fixed-grid ROI; outside/padding tokens excluded from attention",
+      kvMode: "Dense normalized 8×8 ROI; outside-grid and padding tokens do not exist",
       arbitration: "Separate target/ref outputs with bounded per-head/layer gate",
       layerRouting: "All 70 BranchedAttnProcessor sites",
       queryRegion: "Hard target bbox",
@@ -775,10 +803,10 @@ const CONFIGS = {
     title: "Up-block identity specialization",
     subtitle:
       "Keep both processor classes installed everywhere, but permit reference-face K/V only in the 36 up-block self-attention sites.",
-    family: "NN2 proposal",
+    family: "NN2 implementation",
     topology: "legacy_spatial",
-    status: "proposed",
-    statusLabel: "Proposal · layer routing",
+    status: "active",
+    statusLabel: "Implemented · awaiting run",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -831,10 +859,10 @@ const CONFIGS = {
     title: "Inner-face / boundary split BA",
     subtitle:
       "Use reference BA only in an inner identity core; keep a protected target-attention ring over hair, neck, hats, and bbox boundaries.",
-    family: "NN2 proposal",
+    family: "NN2 implementation",
     topology: "legacy_spatial",
-    status: "proposed",
-    statusLabel: "Proposal · boundary safety",
+    status: "active",
+    statusLabel: "Implemented · awaiting run",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -883,10 +911,10 @@ const CONFIGS = {
     title: "Confidence-gated ROI BA residual",
     subtitle:
       "Brave option: keep target self-attention as the face anchor and add a zero-init packed-ROI BA residual only where reference attention is confident.",
-    family: "NN2 proposal",
+    family: "NN2 implementation",
     topology: "legacy_spatial",
-    status: "proposed",
-    statusLabel: "Proposal · brave",
+    status: "active",
+    statusLabel: "Implemented · awaiting run",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Packed ROI-normalized reference face grid",
@@ -902,7 +930,7 @@ const CONFIGS = {
     objectiveShort: "N3a MSE · no current ID loss",
     schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
     trainingSchedule: "BA on all sampled training timesteps",
-    kvMode: "packed ROI-normalized reference-face tokens; padded positions masked",
+    kvMode: "dense 8×8 ROI-normalized reference-face tokens; no outside-grid or padding positions",
     faceArbitration: "target self-attention plus zero-init reference BA residual gated by attention confidence",
     layerRouting: "confidence-gated residual at all 70 attn1 sites",
     queryRegion: "hard target face bbox; per-query confidence fallback to target",
@@ -921,7 +949,7 @@ const CONFIGS = {
       "Highest-upside safety design: preserve core target-Q/reference-KV BA while making uncertain occlusion and pose matches fall back to target geometry.",
     details: nn2Details("NN2f", {
       purpose: "Make reference BA a confidence-gated residual over target face self-attention",
-      kvMode: "Packed fixed-grid ROI; outside/padding tokens excluded from attention",
+      kvMode: "Dense normalized 8×8 ROI; outside-grid and padding tokens do not exist",
       arbitration: "Target anchor + zero-init reference BA delta gated by normalized attention confidence",
       layerRouting: "All 70 BranchedAttnProcessor sites",
       queryRegion: "Hard bbox with per-query fallback to target self-attention",
@@ -1814,46 +1842,66 @@ function nn1Details(run, evidence) {
 }
 
 function nn2Details(run, evidence) {
+  const files = NN2_FILES[run];
   const details = legacyDetails(run, {
     sourceCommit: N3A_COMMIT,
-    launcher: NN2_REPORT,
+    launcher: files.launcher,
     launcherLine: 1,
     weightMode: "spatial SA train · branched CA active/frozen",
     objective: "masked_alternating",
     optimizer: "NN1d optimizer ownership; no current decoded ID loss",
-    result: "Proposal only; no model config, launcher, checkpoint, or result exists",
-    proposal: true,
+    result: "Implemented and statically validated; training has not started",
+    proposal: false,
     trainCa: false,
   });
 
   details.history = {
-    title: `${run}: architecture proposal only`,
+    title: `${run}: implemented architecture screen`,
     description:
-      "This record visualizes a proposed NN2 experiment. It retains the doubled [target, reference] U-Net call, BranchedAttnProcessor, BranchedCrossAttnProcessor, and target-face Q → reference-face K/V contract. No model code, Hydra config, launcher, checkpoint, or result has been created.",
+      "This NN2 experiment is implemented behind defaults-off BranchedAttnProcessor flags. It retains the doubled [target, reference] U-Net call, all 70 BranchedAttnProcessor and BranchedCrossAttnProcessor sites, and the target-face Q → reference-face K/V contract. No training result exists yet.",
     facts: {
-      Status: "Not implemented · awaiting approval",
+      Status: "Implemented · awaiting launch",
       Priority: evidence.priority,
       Baseline: "NN1d active/frozen-CA full spatial BA",
-      Hardware: "Proposed one-GPU architecture screen",
+      Hardware: "One GPU · physical/effective batch 2",
+      Budget: "20k maximum · full validation every 2k · stop early if decisive",
     },
     code: [
       code(
-        NN2_REPORT,
+        files.config,
         1,
-        `# ${run}: ${evidence.purpose}\n# Proposal only — no config or launcher exists.`,
-        "Open result analysis and NN2 plan",
+        `# ${run}: ${evidence.purpose}\n# Inherits NN1d; only architecture toggles differ.`,
+        "Open implemented config",
+      ),
+      code(
+        files.launcher,
+        1,
+        `# One-GPU launcher for ${run}\n# 20k maximum; full validation at step 0 and every 2k.`,
+        "Open run launcher",
+      ),
+      code(
+        NN2_IMPLEMENTATION,
+        1,
+        `# Shared toggles, exact run matrix, launch commands, checks, and rollback.`,
+        "Open implementation guide",
+      ),
+      code(
+        NN2_REPORT,
+        357,
+        `# Original visual diagnosis and architecture rationale for ${run}.`,
+        "Open NN2 design rationale",
       ),
       code(
         "../../src/model/photomaker_branched/attn_processor_cleanest.py",
-        300,
-        `# Current N3a insertion point:\n# BranchedAttnProcessor target-face Q / reference-face K,V routing`,
-        "Open current N3a processor",
+        496,
+        `legacy_reference_path = (\n    face_mode == "reference"\n    and ref_token_mode == "full_grid"\n)\n# New modes branch below; legacy remains the default.`,
+        "Open flag-gated processor",
       ),
     ],
   };
 
   details.memory = {
-    title: `${run}: proposed reference K/V representation`,
+    title: `${run}: configured reference K/V representation`,
     description:
       `${evidence.kvMode}. The full reference half and reference-side cross-attention remain present; this changes only which reference face tokens may supply target-face self-attention K/V.`,
     facts: {
@@ -1863,10 +1911,18 @@ function nn2Details(run, evidence) {
     },
     code: [
       code(
-        NN2_REPORT,
+        files.config,
         1,
-        `kv_mode = ${JSON.stringify(evidence.kvMode)}\n# proposed; defaults must preserve NN1/N3a`,
-        "Open proposed K/V contract",
+        `# ${run}\nmodel.ba_sa_ref_token_mode = ${JSON.stringify(
+          evidence.kvMode.includes("packed") ? "roi" : "full_grid",
+        )}`,
+        "Open configured K/V contract",
+      ),
+      code(
+        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        271,
+        `def _normalized_roi_tokens(hidden_states, mask):\n    # crop each validated bbox and bilinear-normalize it\n    return packed_8x8_real_tokens`,
+        "Open normalized ROI implementation",
       ),
     ],
   };
@@ -1877,9 +1933,9 @@ function nn2Details(run, evidence) {
   };
 
   details.selfAttention = {
-    title: `${run}: proposed BranchedAttnProcessor`,
+    title: `${run}: configured BranchedAttnProcessor`,
     description:
-      `${evidence.arbitration}. Target-face queries still attend reference-face K/V; the proposal changes token selection, arbitration, or layer ownership rather than replacing core BA with a compact attn2-only residual.`,
+      `${evidence.arbitration}. Target-face queries still attend reference-face K/V; the implementation changes token selection, arbitration, or layer ownership rather than replacing core BA with a compact attn2-only residual.`,
     facts: {
       Q: "Target face hidden state",
       "Reference K/V": evidence.kvMode,
@@ -1888,26 +1944,26 @@ function nn2Details(run, evidence) {
     },
     code: [
       code(
-        NN2_REPORT,
+        files.config,
         1,
-        `# Proposed ${run} BranchedAttnProcessor contract\nq_face = Q(target_hidden) * target_query_mask\nref_out = attention(q_face, K(reference_face), V(reference_face))\nface_out = ${JSON.stringify(evidence.arbitration)}`,
-        "Open architecture proposal",
+        `# ${run} architecture toggles\nface_arbitration = ${JSON.stringify(evidence.arbitration)}`,
+        "Open architecture config",
       ),
       code(
         "../../src/model/photomaker_branched/attn_processor_cleanest.py",
-        300,
-        `# Current N3a behavior remains the compatibility default:\nface_out = attention(q_face, k_ref_face, v_ref_face)`,
-        "Open current default",
+        519,
+        `target_face = attention(q_face, K(target), V(target))\nreference_face = attention(q_face, K(reference), V(reference))\n# face mode selects reference, dual, core-ring, or confidence residual`,
+        "Open implemented arbitration",
       ),
     ],
   };
   details.residualFlow = {
     ...details.selfAttention,
-    title: `${run}: proposed target-Q / reference-KV route`,
+    title: `${run}: target-Q / reference-KV route`,
   };
 
   details.mask = {
-    title: `${run}: proposed target query region`,
+    title: `${run}: configured target query region`,
     description:
       `${evidence.queryRegion}. Target and reference coordinates remain distinct, so bbox routing is treated as localization rather than semantic alignment.`,
     facts: {
@@ -1917,17 +1973,23 @@ function nn2Details(run, evidence) {
     },
     code: [
       code(
-        NN2_REPORT,
+        files.config,
         1,
-        `target_query_region = ${JSON.stringify(evidence.queryRegion)}\n# proposal only`,
-        "Open proposed routing",
+        `target_query_region = ${JSON.stringify(evidence.queryRegion)}`,
+        "Open configured routing",
+      ),
+      code(
+        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        309,
+        `def _inner_core_mask(mask_gate):\n    # inner ellipse = reference authority\n    # outer ring = target-attention authority`,
+        "Open core/ring mask",
       ),
     ],
   };
   details.maskFlow = details.mask;
 
   details.sites = {
-    title: `${run}: proposed layer ownership`,
+    title: `${run}: configured layer ownership`,
     description:
       `${evidence.layerRouting}. BranchedCrossAttnProcessor remains installed and forward-active at all 70 attn2 sites with frozen cloned weights.`,
     facts: {
@@ -1937,10 +1999,16 @@ function nn2Details(run, evidence) {
     },
     code: [
       code(
-        NN2_REPORT,
+        files.config,
         1,
-        `layer_routing = ${JSON.stringify(evidence.layerRouting)}\nbranched_ca = "70 sites active; cloned weights frozen"`,
-        "Open layer-routing proposal",
+        `layer_routing = ${JSON.stringify(evidence.layerRouting)}\ntrain_branched_ca_lora = false`,
+        "Open layer-routing config",
+      ),
+      code(
+        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        265,
+        `return ref_layer_scope == "all" or processor_name.startswith("up_blocks.")`,
+        "Open layer-scope implementation",
       ),
     ],
   };
@@ -1976,14 +2044,33 @@ function nn2Details(run, evidence) {
     },
     code: [
       code(
-        NN2_REPORT,
+        files.config,
         1,
         `loss_kind = "masked_alternating"\nuse_id_loss = false\ntrain_branched_ca_lora = false`,
-        "Open common proposed protocol",
+        "Open inherited objective config",
       ),
     ],
   };
   details.trainFlow = details.objective;
+  details.scheduleFlow = {
+    title: `${run}: 20k maximum with early visual stopping`,
+    description:
+      "The launcher requests ten 2k epochs. Full fixed 96-image validation runs at step 0 and every 2k, so a systematic artifact can stop the run before the 20k ceiling.",
+    facts: {
+      Maximum: "20,000 optimizer steps",
+      Validation: "Full 96 at 0/2k/4k/…/20k",
+      "Early stop": "Manual when visual failure is decisive",
+      Inference: "Text 0–9 · PM 10–14 · BA 15–49",
+    },
+    code: [
+      code(
+        "../../jul_serv_runs/_run_ba_NN2_common_1gpu.sh",
+        1,
+        `NUM_EPOCHS=10\nOPTIMIZER_STEPS_PER_EPOCH=2000\nFULL_STEP0_VAL=true`,
+        "Open shared 20k runner",
+      ),
+    ],
+  };
   return details;
 }
 

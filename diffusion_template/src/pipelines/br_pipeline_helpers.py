@@ -1154,6 +1154,18 @@ def build_pipeline_from_pretrained(
     pipeline.ba_face_prompt_attention_mask = bool(
         getattr(unwrapped_model, "ba_face_prompt_attention_mask", False)
     )
+    pipeline.ba_sa_ref_token_mode = str(
+        getattr(unwrapped_model, "ba_sa_ref_token_mode", "full_grid") or "full_grid"
+    ).lower()
+    pipeline.ba_sa_face_mode = str(
+        getattr(unwrapped_model, "ba_sa_face_mode", "reference") or "reference"
+    ).lower()
+    pipeline.ba_sa_ref_layer_scope = str(
+        getattr(unwrapped_model, "ba_sa_ref_layer_scope", "all") or "all"
+    ).lower()
+    pipeline.ba_sa_roi_grid_size = int(getattr(unwrapped_model, "ba_sa_roi_grid_size", 8))
+    pipeline.ba_sa_core_ratio = float(getattr(unwrapped_model, "ba_sa_core_ratio", 0.7))
+    pipeline.ba_sa_mix_init = float(getattr(unwrapped_model, "ba_sa_mix_init", 0.25))
     pipeline.branched_attn_weight_mode = getattr(unwrapped_model, "branched_attn_weight_mode", "shared")
     pipeline.branched_attn_new_weight_kind = getattr(unwrapped_model, "branched_attn_new_weight_kind", "full")
     pipeline.branched_attn_lora_rank = int(

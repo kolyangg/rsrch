@@ -161,6 +161,13 @@ def patch_unet_attention_processors(
                         branched_attn_lora_rank=int(
                             getattr(pipeline, "branched_attn_lora_rank", getattr(pipeline, "lora_rank", 16))
                         ),
+                        processor_name=name,
+                        ba_sa_ref_token_mode=getattr(pipeline, "ba_sa_ref_token_mode", "full_grid"),
+                        ba_sa_face_mode=getattr(pipeline, "ba_sa_face_mode", "reference"),
+                        ba_sa_ref_layer_scope=getattr(pipeline, "ba_sa_ref_layer_scope", "all"),
+                        ba_sa_roi_grid_size=int(getattr(pipeline, "ba_sa_roi_grid_size", 8)),
+                        ba_sa_core_ratio=float(getattr(pipeline, "ba_sa_core_ratio", 0.7)),
+                        ba_sa_mix_init=float(getattr(pipeline, "ba_sa_mix_init", 0.25)),
                     )
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
                     proc = proc.to(pipeline.device, dtype=pipeline.unet.dtype)

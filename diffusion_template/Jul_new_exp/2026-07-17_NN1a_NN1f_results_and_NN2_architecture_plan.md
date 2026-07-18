@@ -5,6 +5,13 @@ Date: 17 July 2026
 Status: analysis and proposals only. The NN2 model changes, configs, and
 launchers described below have **not** been implemented.
 
+Implementation update, 18 July 2026: NN2a–NN2f have now been implemented
+behind defaults-off toggles. See
+[the implementation and launch guide](2026-07-18_NN2a_NN2f_implementation_and_launch_guide.md).
+The approved launch budget is 20k maximum with validation every 2k and manual
+early stopping, replacing the 6k screening suggestion below. The statement
+above records the status when this analysis was written.
+
 ## Executive conclusion
 
 All six NN1 runs are active and change the generated face substantially. The

@@ -21,3 +21,11 @@ photomaker_start_step: 10
 merge_start_step: 10
 branched_attn_start_step: 15
 num_inference_steps: 50
+# Defaults preserve the N3a/NN1 spatial BA route. NN2 configs override only
+# these switches, so setting them back restores the legacy architecture.
+ba_sa_ref_token_mode: full_grid
+ba_sa_face_mode: reference
+ba_sa_ref_layer_scope: all
+ba_sa_roi_grid_size: 8
+ba_sa_core_ratio: 0.7
+ba_sa_mix_init: 0.25

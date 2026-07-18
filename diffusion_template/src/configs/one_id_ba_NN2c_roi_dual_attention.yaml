@@ -1,0 +1,12 @@
+defaults:
+  - one_id_ba_NN1d_frozen_ca
+  - _self_
+
+# Combine normalized reference ROI tokens with separate target/reference
+# attention and bounded per-layer/per-head arbitration.
+model:
+  ba_sa_ref_token_mode: roi
+  ba_sa_face_mode: dual
+  ba_sa_ref_layer_scope: all
+  ba_sa_roi_grid_size: 8
+  ba_sa_mix_init: 0.25
