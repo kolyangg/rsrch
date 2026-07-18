@@ -1,0 +1,42 @@
+{
+  "output_root": "../full_validation_results",
+  "refs_dir": "../../dataset_full/val_dataset/references",
+  "expected_names_json": "../../dataset_full/val_dataset/pm96_bboxes_new.json",
+  "expected_images": 96,
+  "default_steps": [2000, 6000, 10000],
+  "strict_steps": true,
+  "compute_metrics": true,
+  "clean_step_dirs": false,
+  "runs": [
+    {
+      "run_id": "367b839837da410ea75f8f802dcfb630",
+      "run_name": null,
+      "steps": [2000, 6000, 10000]
+    },
+    {
+      "run_id": "ff2a73c0821242ee91b0bf7be4d2d055",
+      "run_name": null,
+      "steps": [2000, 6000, 10000]
+    },
+    {
+      "run_id": "56181cedac3b411fbe0c94d1a909fcc8",
+      "run_name": null,
+      "steps": [2000, 6000, 10000]
+    },
+    {
+      "run_id": "0186ccb47eea4027a90a77079f650d2e",
+      "run_name": null,
+      "steps": [2000, 6000, 10000]
+    },
+    {
+      "run_id": "3571ab3666ec4fd1924a6bc9722455d9",
+      "run_name": null,
+      "steps": [2000, 6000, 10000]
+    },
+    {
+      "run_id": "59df0cf510dd45c98d8e620ed4804bdc",
+      "run_name": null,
+      "steps": [2000, 6000, 10000]
+    }
+  ]
+}

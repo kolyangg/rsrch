@@ -9,6 +9,8 @@ const NN1_PROPOSAL =
   "../../Jul_new_exp/2026-07-17_NN1a_NN1f_approval_stage_experiment_plan.md";
 const NN1_IMPLEMENTATION =
   "../../Jul_new_exp/2026-07-17_NN1a_NN1f_implementation_and_launch_guide.md";
+const NN2_REPORT =
+  "../../Jul_new_exp/2026-07-17_NN1a_NN1f_results_and_NN2_architecture_plan.md";
 const NN1_FILES = {
   NN1a: {
     config: "../../src/configs/one_id_ba_NN1a_n3a_replay.yaml",
@@ -365,11 +367,11 @@ const CONFIGS = {
     short: "NN1a",
     title: "Guarded N3a one-GPU replay",
     subtitle:
-      "N3a forward, objective, optimizer, augmentation, and all-timestep training with strict correctness guards 1–4.",
+      "N3a forward, objective, optimizer, and augmentation with strict guards; the 10k result reproduces N3a's destructive spatial drift.",
     family: "NN1 ready",
     topology: "legacy_spatial",
-    status: "ready",
-    statusLabel: "Control · ready to run",
+    status: "failed",
+    statusLabel: "10k · destructive control",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -385,11 +387,11 @@ const CONFIGS = {
     objectiveShort: "N3a masked alternating",
     schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
     trainingSchedule: "BA on all sampled training timesteps",
-    faceMae: null,
-    idScore: null,
-    metricStep: "not run",
+    faceMae: 0.2000,
+    idScore: 0.1801,
+    metricStep: "10k · 96 imgs",
     architectureNote:
-      "The guards reject silent installation, invalid masks/identities, and incomplete processor restores without changing valid N3a forward math.",
+      "The correctness guards do not cure N3a: full spatial replacement again produces hard face masks and reference-coordinate corruption.",
     details: nn1Details("NN1a", {
       line: 126,
       trainCa: true,
@@ -398,6 +400,7 @@ const CONFIGS = {
       optimizer: "LR 5e-5 · noise LR 1.25e-5 · clip 1.0 · weight decay 1e-2",
       trainingSchedule: "BA on all sampled timesteps",
       purpose: "Guarded N3a replay on one GPU for 10k optimizer steps",
+      result: "At 10k: face MAE vs PM 0.2000, mean ID 0.1801; destructive N3a behavior reproduced",
       objectiveDescription:
         "Replay N3a's masked-alternating diffusion objective without an architectural change. Correctness guards 1–4 are enabled, but issue 5 and issue 6 remain unchanged for parity.",
     }),
@@ -409,8 +412,8 @@ const CONFIGS = {
       "Audit issue 5 in isolation: sample only the inference region in which the doubled spatial BA path is active.",
     family: "NN1 ready",
     topology: "legacy_spatial",
-    status: "ready",
-    statusLabel: "Issue 5 · ready to run",
+    status: "failed",
+    statusLabel: "10k · schedule did not help",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -426,11 +429,11 @@ const CONFIGS = {
     objectiveShort: "N3a masked alternating",
     schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
     trainingSchedule: "Sample only BA-active inference region (approximately t≤699)",
-    faceMae: null,
-    idScore: null,
-    metricStep: "not run",
+    faceMae: 0.2082,
+    idScore: 0.1715,
+    metricStep: "10k · 96 imgs",
     architectureNote:
-      "Every counted optimizer step still runs the unchanged doubled BA forward; text-only/PM-only no-gradient windows are not counted.",
+      "Schedule matching does not solve the architecture: its 10k masks, holes, and face displacement are as severe as NN1a.",
     details: nn1Details("NN1b", {
       line: 145,
       trainCa: true,
@@ -439,6 +442,7 @@ const CONFIGS = {
       optimizer: "LR 5e-5 · noise LR 1.25e-5 · clip 1.0 · weight decay 1e-2",
       trainingSchedule: "BA-active inference region only (approximately t≤699)",
       purpose: "Isolate audit issue 5 with schedule-matched BA timestep sampling",
+      result: "At 10k: face MAE vs PM 0.2082, mean ID 0.1715; no visual stability gain over NN1a",
       objectiveDescription:
         "Use NN1a's objective and trainables, but sample only timesteps where inference uses spatial BA. This avoids counting text-only or PhotoMaker-only no-gradient windows.",
     }),
@@ -450,8 +454,8 @@ const CONFIGS = {
       "Audit issue 6 in isolation: keep the ID-only prompt but mask non-ID tokens out of reference-half cross-attention.",
     family: "NN1 ready",
     topology: "legacy_spatial",
-    status: "ready",
-    statusLabel: "Issue 6 · ready to run",
+    status: "failed",
+    statusLabel: "10k · prompt-mask collapse",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -470,11 +474,11 @@ const CONFIGS = {
     objectiveShort: "N3a masked alternating",
     schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
     trainingSchedule: "BA on all sampled training timesteps",
-    faceMae: null,
-    idScore: null,
-    metricStep: "not run",
+    faceMae: 0.2533,
+    idScore: 0.1460,
+    metricStep: "10k · 96 imgs",
     architectureNote:
-      "Conditional reference CA gives probability mass only to the two ID tokens; target prompt and unconditional negative-prompt rows remain unchanged.",
+      "Removing reference-prompt sinks strengthens the wrong route: NN1c has the largest face movement and the most binary white/orange corruption.",
     details: nn1Details("NN1c", {
       line: 175,
       trainCa: true,
@@ -484,6 +488,7 @@ const CONFIGS = {
       trainingSchedule: "BA on all sampled timesteps",
       facePromptMode: "Explicit attention mask: two ID tokens allowed; non-ID tokens excluded",
       purpose: "Isolate audit issue 6 with explicit ID-token attention masking",
+      result: "At 10k: face MAE vs PM 0.2533, mean ID 0.1460; worst visual collapse in the matrix",
       objectiveDescription:
         "Use NN1a's loss, trainables, and timestep distribution. Only the conditional reference-half attention mask changes, removing 75 zero-token softmax sinks.",
     }),
@@ -495,8 +500,8 @@ const CONFIGS = {
       "N11 stability lesson in isolation: all split cross-attention remains active, but only branched spatial self-attention updates.",
     family: "NN1 ready",
     topology: "legacy_spatial",
-    status: "ready",
-    statusLabel: "Stability anchor · ready",
+    status: "mixed",
+    statusLabel: "10k · cleanest NN1, still unsafe",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -512,11 +517,11 @@ const CONFIGS = {
     objectiveShort: "N3a masked alternating",
     schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
     trainingSchedule: "BA on all sampled training timesteps",
-    faceMae: null,
-    idScore: null,
-    metricStep: "not run",
+    faceMae: 0.1511,
+    idScore: 0.2272,
+    metricStep: "10k · 96 imgs",
     architectureNote:
-      "BranchedCrossAttnProcessor is not removed or replaced; only its cloned projection gradients are disabled.",
+      "Freezing CA clearly helps and preserves 96/96 face detections, but raw reference K/V still duplicate and fold features on hard poses.",
     details: nn1Details("NN1d", {
       line: 204,
       trainCa: false,
@@ -525,6 +530,7 @@ const CONFIGS = {
       optimizer: "LR 5e-5 · noise LR 1.25e-5 · clip 1.0 · weight decay 1e-2",
       trainingSchedule: "BA on all sampled timesteps",
       purpose: "Isolate active-but-frozen branched CA as the N11 stability lever",
+      result: "At 10k: face MAE vs PM 0.1511, mean ID 0.2272, 96/96 detections; best NN1 but not usable",
       objectiveDescription:
         "Use the exact NN1a diffusion objective while training only branched SA clones. All 70 split CA processors remain active with frozen cloned weights.",
     }),
@@ -536,8 +542,8 @@ const CONFIGS = {
       "NN1d's stable full-BA route plus a low-noise decoded identity objective against the trusted reference face.",
     family: "NN1 ready",
     topology: "legacy_spatial",
-    status: "ready",
-    statusLabel: "Identity-directed · ready",
+    status: "failed",
+    statusLabel: "10k · metric shortcut",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -553,11 +559,11 @@ const CONFIGS = {
     objectiveShort: "N3a MSE + reference ID 0.1 at t≤400",
     schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
     trainingSchedule: "BA on all sampled training timesteps",
-    faceMae: null,
-    idScore: null,
-    metricStep: "not run",
+    faceMae: 0.1600,
+    idScore: 0.2701,
+    metricStep: "10k · 96 imgs",
     architectureNote:
-      "Identity supervision changes the training target, not the doubled spatial attention forward or PhotoMaker composition.",
+      "The higher ID score is not a visual win: landmarks are smoothed away, faces fold, and detections fall to 94/96.",
     details: nn1Details("NN1e", {
       line: 223,
       trainCa: false,
@@ -566,6 +572,7 @@ const CONFIGS = {
       optimizer: "LR 5e-5 · noise LR 1.25e-5 · clip 1.0 · weight decay 1e-2",
       trainingSchedule: "BA on all sampled timesteps; ID decode only at t≤400",
       purpose: "Add direct low-noise reference-identity supervision to NN1d",
+      result: "At 10k: face MAE vs PM 0.1600, mean ID 0.2701, 94/96 detections; faceless smoothing/warping",
       objectiveDescription:
         "Keep NN1d's full BA forward and add a flag-gated decoded reference identity loss of 0.1 only at t≤400. No compact memory or residual composition is backported.",
     }),
@@ -577,8 +584,8 @@ const CONFIGS = {
       "Brave full-BA option: preserve target queries/background and train only the reference K/V projections that feed target-face attention.",
     family: "NN1 ready",
     topology: "legacy_spatial",
-    status: "ready",
-    statusLabel: "Selective path · ready",
+    status: "failed",
+    statusLabel: "10k · selective K/V insufficient",
     sourceCommit: N3A_COMMIT,
     memory: {
       label: "Full noised reference latent",
@@ -595,11 +602,11 @@ const CONFIGS = {
     objectiveShort: "N3a MSE + reference ID 0.1 at t≤400",
     schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
     trainingSchedule: "BA on all sampled training timesteps",
-    faceMae: null,
-    idScore: null,
-    metricStep: "not run",
+    faceMae: 0.1641,
+    idScore: 0.2472,
+    metricStep: "10k · 96 imgs",
     architectureNote:
-      "All 70 SA/CA processors remain active; optimizer ownership narrows to spatial reference K/V, leaving target Q and background K/V fixed.",
+      "Freezing target/noise projections is insufficient because the unaligned reference K/V source itself carries the harmful spatial mismatch.",
     details: nn1Details("NN1f", {
       line: 252,
       trainCa: false,
@@ -609,8 +616,316 @@ const CONFIGS = {
       optimizer: "Only BranchedAttnProcessor ref_to_k/v LoRA tensors; CA frozen",
       trainingSchedule: "BA on all sampled timesteps; ID decode only at t≤400",
       purpose: "Test selective spatial reference K/V identity learning",
+      result: "At 10k: face MAE vs PM 0.1641, mean ID 0.2472, 95/96 detections; artifacts remain",
       objectiveDescription:
         "Keep NN1e's forward and identity loss but train only reference K/V projections at all 70 branched SA sites. Target/noise Q/K/V, reference Q, and all CA projections remain frozen.",
+    }),
+  },
+  NN2a: {
+    short: "NN2a",
+    title: "Packed ROI spatial BA",
+    subtitle:
+      "Isolate reference-memory cleanup: target face Q attends only a normalized, packed reference-face ROI with no zero-token softmax sinks.",
+    family: "NN2 proposal",
+    topology: "legacy_spatial",
+    status: "proposed",
+    statusLabel: "Proposal · ROI isolation",
+    sourceCommit: N3A_COMMIT,
+    memory: {
+      label: "Packed ROI-normalized reference face grid",
+      detail: "Full reference stream retained; only real bbox tokens form target-face K/V",
+      tokens: null,
+    },
+    sites: legacySites("noise_and_ref", 0.25, false),
+    weightMode: "SA noise_and_ref · CA active/frozen · packed reference ROI",
+    pmContext: "Target prompt + legacy ID-only reference-half prompt",
+    composition: "One doubled BA U-Net pass; target half returned directly",
+    compositionShort: "absolute BA · packed ROI K/V",
+    objective: "Masked alternating diffusion MSE",
+    objectiveShort: "N3a MSE · no ID loss",
+    schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    trainingSchedule: "BA on all sampled training timesteps",
+    kvMode: "packed ROI-normalized reference-face tokens; padded positions masked",
+    faceArbitration: "absolute reference-attention face output",
+    layerRouting: "reference BA at all 70 attn1 sites",
+    queryRegion: "hard target face bbox",
+    selfAttentionSubtitle: "Qtarget face → packed ROI K/Vreference",
+    mechanismNote:
+      "Target face Q attends only real ROI-normalized reference tokens; no zero-masked full-grid K/V remains in the softmax.",
+    refKvSubtitle: "packed ROI · real tokens only",
+    faceAttentionLabel: ["reference ROI", "face attention"],
+    faceAttentionSubtitle: "Attn(qface, kROI, vROI)",
+    faceMergeSubtitle: "absolute ROI face output",
+    faceMae: null,
+    idScore: null,
+    metricStep: "not run",
+    architectureNote:
+      "A necessary attribution run, but absolute replacement may still copy incompatible reference geometry.",
+    details: nn2Details("NN2a", {
+      purpose: "Isolate packed, ROI-normalized reference K/V without changing N3a's absolute face merge",
+      kvMode: "Packed fixed-grid ROI; outside/padding tokens excluded from attention",
+      arbitration: "Absolute reference-attention face output",
+      layerRouting: "All 70 BranchedAttnProcessor sites",
+      queryRegion: "Hard target bbox",
+      priority: "Medium · diagnostic",
+    }),
+  },
+  NN2b: {
+    short: "NN2b",
+    title: "Per-head dual spatial attention",
+    subtitle:
+      "Keep the full reference grid but compute target-face and reference-face attention separately, then arbitrate per head and layer.",
+    family: "NN2 proposal",
+    topology: "legacy_spatial",
+    status: "proposed",
+    statusLabel: "Proposal · fusion isolation",
+    sourceCommit: N3A_COMMIT,
+    memory: {
+      label: "Full noised reference latent",
+      detail: "Legacy reference grid retained to isolate attention arbitration",
+      tokens: null,
+    },
+    sites: legacySites("noise_and_ref", 0.25, false),
+    weightMode: "SA noise_and_ref + per-head target/reference gate · CA active/frozen",
+    pmContext: "Target prompt + legacy ID-only reference-half prompt",
+    composition: "One doubled BA U-Net pass; target half returned directly",
+    compositionShort: "per-head target/reference face blend",
+    objective: "Masked alternating diffusion MSE",
+    objectiveShort: "N3a MSE · no ID loss",
+    schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    trainingSchedule: "BA on all sampled training timesteps",
+    kvMode: "legacy zero-masked full reference face grid",
+    faceArbitration: "separate target-K/V and reference-K/V attention outputs; bounded per-head blend",
+    layerRouting: "dual attention at all 70 attn1 sites",
+    queryRegion: "hard target face bbox",
+    selfAttentionSubtitle: "Qtarget face → target K/V + reference K/V",
+    mechanismNote:
+      "The same target-face Q is evaluated against target and reference K/V in separate softmaxes; a bounded per-head/layer gate blends the two outputs.",
+    usesTargetFaceKv: true,
+    refKvSubtitle: "legacy masked reference K/V",
+    faceAttentionLabel: ["target + reference", "face attention"],
+    faceAttentionSubtitle: "two softmaxes · per-head gate",
+    faceMergeSubtitle: "bounded target/reference blend",
+    faceMae: null,
+    idScore: null,
+    metricStep: "not run",
+    architectureNote:
+      "Tests the strongest N17 CAMIX/N24 lesson without simultaneously changing the reference representation.",
+    details: nn2Details("NN2b", {
+      purpose: "Isolate target-geometry arbitration while retaining the legacy reference grid",
+      kvMode: "Legacy zero-masked full reference face grid",
+      arbitration: "Separate target/ref face attention outputs with bounded per-head/layer gate",
+      layerRouting: "All 70 BranchedAttnProcessor sites",
+      queryRegion: "Hard target bbox",
+      priority: "High · attribution",
+    }),
+  },
+  NN2c: {
+    short: "NN2c",
+    title: "Packed ROI plus dual attention",
+    subtitle:
+      "Recommended combined repair: packed reference ROI for identity evidence and target-face attention as an explicit pose/occlusion anchor.",
+    family: "NN2 proposal",
+    topology: "legacy_spatial",
+    status: "proposed",
+    statusLabel: "Proposal · recommended",
+    sourceCommit: N3A_COMMIT,
+    memory: {
+      label: "Packed ROI-normalized reference face grid",
+      detail: "Reference stream retained; packed ROI competes only after separate target/ref attention",
+      tokens: null,
+    },
+    sites: legacySites("noise_and_ref", 0.25, false),
+    weightMode: "SA packed-ROI dual attention · CA active/frozen",
+    pmContext: "Target prompt + legacy ID-only reference-half prompt",
+    composition: "One doubled BA U-Net pass; target half returned directly",
+    compositionShort: "packed ROI + per-head dual blend",
+    objective: "Masked alternating diffusion MSE",
+    objectiveShort: "N3a MSE · no ID loss",
+    schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    trainingSchedule: "BA on all sampled training timesteps",
+    kvMode: "packed ROI-normalized reference-face tokens; padded positions masked",
+    faceArbitration: "separate target-K/V and packed-reference-K/V outputs; bounded per-head blend",
+    layerRouting: "dual attention at all 70 attn1 sites",
+    queryRegion: "hard target face bbox",
+    selfAttentionSubtitle: "Qtarget face → target K/V + packed ROI K/V",
+    mechanismNote:
+      "Target geometry and packed reference identity are attended in separate lanes, then combined by a bounded per-head/layer gate.",
+    usesTargetFaceKv: true,
+    refKvSubtitle: "packed ROI · real tokens only",
+    faceAttentionLabel: ["target + packed ROI", "face attention"],
+    faceAttentionSubtitle: "two softmaxes · per-head gate",
+    faceMergeSubtitle: "bounded target/reference blend",
+    faceMae: null,
+    idScore: null,
+    metricStep: "not run",
+    architectureNote:
+      "Best balanced proposal: it attacks both zero-token/reference-location leakage and loss of target geometry.",
+    details: nn2Details("NN2c", {
+      purpose: "Combine packed ROI K/V with target-anchored per-head dual attention",
+      kvMode: "Packed fixed-grid ROI; outside/padding tokens excluded from attention",
+      arbitration: "Separate target/ref outputs with bounded per-head/layer gate",
+      layerRouting: "All 70 BranchedAttnProcessor sites",
+      queryRegion: "Hard target bbox",
+      priority: "Highest · expected best balance",
+    }),
+  },
+  NN2d: {
+    short: "NN2d",
+    title: "Up-block identity specialization",
+    subtitle:
+      "Keep both processor classes installed everywhere, but permit reference-face K/V only in the 36 up-block self-attention sites.",
+    family: "NN2 proposal",
+    topology: "legacy_spatial",
+    status: "proposed",
+    statusLabel: "Proposal · layer routing",
+    sourceCommit: N3A_COMMIT,
+    memory: {
+      label: "Full noised reference latent",
+      detail: "Reference stream remains full; coarse/down/mid target geometry is protected",
+      tokens: null,
+    },
+    sites: {
+      ...legacySites("noise_and_ref", 0.25, false),
+      effective: 36,
+      effectiveLabel: "36 up-block SA",
+      metricLabel: "36 reference-BA SA + 70 CA active/frozen",
+      diagramLabel: "36 up-block reference-BA SA · 70 CA active/frozen",
+      matrixLabel: "36 / 70 ref-BA SA (+70 CA)",
+    },
+    weightMode: "SA reference route in up blocks · CA active/frozen",
+    pmContext: "Target prompt + legacy ID-only reference-half prompt",
+    composition: "One doubled BA U-Net pass; target half returned directly",
+    compositionShort: "target coarse structure · BA up blocks",
+    objective: "Masked alternating diffusion MSE",
+    objectiveShort: "N3a MSE · no ID loss",
+    schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    trainingSchedule: "BA on all sampled training timesteps",
+    kvMode: "legacy zero-masked full reference face grid",
+    faceArbitration: "absolute reference-attention output at enabled sites",
+    layerRouting: "reference K/V only at 36 up-block attn1 sites; target K/V at 34 down/mid sites",
+    queryRegion: "hard target face bbox",
+    selfAttentionSubtitle: "target K/V coarse · reference K/V in up blocks",
+    mechanismNote:
+      "All 70 BranchedAttnProcessor objects remain installed; down/mid sites keep target K/V while 36 up-block sites use reference-face K/V.",
+    refKvSubtitle: "enabled in 36 up-block sites",
+    faceAttentionLabel: ["up-block reference", "face attention"],
+    faceAttentionSubtitle: "coarse geometry stays target-owned",
+    faceMergeSubtitle: "reference details in up path",
+    faceMae: null,
+    idScore: null,
+    metricStep: "not run",
+    architectureNote:
+      "Tests whether low/mid spatial BA causes the face displacement while later layers can still transfer identity detail.",
+    details: nn2Details("NN2d", {
+      purpose: "Protect coarse target geometry and specialize reference BA to the 36 up-block SA sites",
+      kvMode: "Legacy reference face grid at enabled sites",
+      arbitration: "Target K/V in down/mid; absolute reference face attention in up blocks",
+      layerRouting: "36 up-block reference-BA SA; all 70 CA processors active/frozen",
+      queryRegion: "Hard target bbox",
+      priority: "High · clean layer attribution",
+    }),
+  },
+  NN2e: {
+    short: "NN2e",
+    title: "Inner-face / boundary split BA",
+    subtitle:
+      "Use reference BA only in an inner identity core; keep a protected target-attention ring over hair, neck, hats, and bbox boundaries.",
+    family: "NN2 proposal",
+    topology: "legacy_spatial",
+    status: "proposed",
+    statusLabel: "Proposal · boundary safety",
+    sourceCommit: N3A_COMMIT,
+    memory: {
+      label: "Full noised reference latent",
+      detail: "Legacy reference stream with two-zone target query routing",
+      tokens: null,
+    },
+    sites: legacySites("noise_and_ref", 0.25, false),
+    weightMode: "SA two-zone target/reference routing · CA active/frozen",
+    pmContext: "Target prompt + legacy ID-only reference-half prompt",
+    composition: "One doubled BA U-Net pass; target half returned directly",
+    compositionShort: "inner identity core + target boundary ring",
+    objective: "Masked alternating diffusion MSE",
+    objectiveShort: "N3a MSE · no ID loss",
+    schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    trainingSchedule: "BA on all sampled training timesteps",
+    kvMode: "legacy zero-masked full reference face grid",
+    faceArbitration: "reference attention in inner core; target attention in protected boundary ring",
+    layerRouting: "two-zone routing at all 70 attn1 sites",
+    queryRegion: "inner ellipse/core plus target-owned face boundary ring",
+    selfAttentionSubtitle: "reference identity core · target-owned boundary",
+    mechanismNote:
+      "Reference K/V may alter only an inner-face core; target K/V owns a surrounding ring that includes face edges, hair, neck, and nearby occluders.",
+    usesTargetFaceKv: true,
+    refKvSubtitle: "reference K/V for inner core",
+    faceAttentionLabel: ["two-zone target", "+ reference attention"],
+    faceAttentionSubtitle: "inner core / protected ring",
+    faceMergeSubtitle: "target-owned face boundary",
+    maskLabel: ["Inner identity core", "Boundary protection ring"],
+    maskSubtitle: "two target-coordinate query masks",
+    faceMae: null,
+    idScore: null,
+    metricStep: "not run",
+    architectureNote:
+      "Directly targets neck/hair/hat seams, though it cannot by itself solve mismatched eyes or goggles inside the core.",
+    details: nn2Details("NN2e", {
+      purpose: "Separate identity transfer from face/head boundary preservation",
+      kvMode: "Legacy reference face grid",
+      arbitration: "Reference BA in inner core; target self-attention in boundary ring",
+      layerRouting: "Two-zone routing at all 70 BranchedAttnProcessor sites",
+      queryRegion: "Inner ellipse/core + protected ring inside the hard bbox",
+      priority: "Medium · boundary-specific",
+    }),
+  },
+  NN2f: {
+    short: "NN2f",
+    title: "Confidence-gated ROI BA residual",
+    subtitle:
+      "Brave option: keep target self-attention as the face anchor and add a zero-init packed-ROI BA residual only where reference attention is confident.",
+    family: "NN2 proposal",
+    topology: "legacy_spatial",
+    status: "proposed",
+    statusLabel: "Proposal · brave",
+    sourceCommit: N3A_COMMIT,
+    memory: {
+      label: "Packed ROI-normalized reference face grid",
+      detail: "Reference stream retained; attention confidence controls local residual authority",
+      tokens: null,
+    },
+    sites: legacySites("noise_and_ref", 0.25, false),
+    weightMode: "SA target anchor + confidence-gated reference residual · CA active/frozen",
+    pmContext: "Target prompt + legacy ID-only reference-half prompt",
+    composition: "One doubled BA U-Net pass; target half returned directly",
+    compositionShort: "target SA + confidence-gated BA residual",
+    objective: "Masked alternating diffusion MSE",
+    objectiveShort: "N3a MSE · no current ID loss",
+    schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    trainingSchedule: "BA on all sampled training timesteps",
+    kvMode: "packed ROI-normalized reference-face tokens; padded positions masked",
+    faceArbitration: "target self-attention plus zero-init reference BA residual gated by attention confidence",
+    layerRouting: "confidence-gated residual at all 70 attn1 sites",
+    queryRegion: "hard target face bbox; per-query confidence fallback to target",
+    selfAttentionSubtitle: "target SA + confident packed-ROI BA delta",
+    mechanismNote:
+      "Target self-attention remains the absolute face anchor. Target Q still attends packed reference K/V, but its projected delta is suppressed for diffuse/low-confidence queries.",
+    usesTargetFaceKv: true,
+    refKvSubtitle: "packed ROI · real tokens only",
+    faceAttentionLabel: ["target anchor +", "reference BA residual"],
+    faceAttentionSubtitle: "entropy/confidence-gated delta",
+    faceMergeSubtitle: "zero-init residual over target SA",
+    faceMae: null,
+    idScore: null,
+    metricStep: "not run",
+    architectureNote:
+      "Highest-upside safety design: preserve core target-Q/reference-KV BA while making uncertain occlusion and pose matches fall back to target geometry.",
+    details: nn2Details("NN2f", {
+      purpose: "Make reference BA a confidence-gated residual over target face self-attention",
+      kvMode: "Packed fixed-grid ROI; outside/padding tokens excluded from attention",
+      arbitration: "Target anchor + zero-init reference BA delta gated by normalized attention confidence",
+      layerRouting: "All 70 BranchedAttnProcessor sites",
+      queryRegion: "Hard bbox with per-query fallback to target self-attention",
+      priority: "Highest · brave safety design",
     }),
   },
   N31: {
@@ -1321,6 +1636,7 @@ function legacyDetails(run, evidence) {
 
 function nn1Details(run, evidence) {
   const files = NN1_FILES[run];
+  const result = evidence.result || "No trained result is recorded";
   const details = legacyDetails(run, {
     sourceCommit: N3A_COMMIT,
     launcher: files.launcher,
@@ -1328,14 +1644,14 @@ function nn1Details(run, evidence) {
     weightMode: evidence.weightMode,
     objective: evidence.objective,
     optimizer: evidence.optimizer,
-    result: "Implementation and launcher are ready; no checkpoint or metric exists yet",
+    result,
     proposal: false,
     trainCa: evidence.trainCa,
   });
 
-  details.history.title = `${run}: implemented configuration and launcher`;
+  details.history.title = `${run}: implemented run and observed result`;
   details.history.description =
-    "This NN1 variant is implemented on main_clean behind defaults-off model flags. Its launcher uses one GPU, batch 2, 10k optimizer steps, and fixed 96-image validation at step 0 and every 2k. No trained result is recorded yet.";
+    `This NN1 variant ran on one GPU with physical/effective batch 2 for 10k optimizer steps and fixed 96-image validation every 2k. ${result}.`;
   details.history.code = [
     code(
       files.config,
@@ -1373,11 +1689,12 @@ function nn1Details(run, evidence) {
     Execution: "One GPU · physical/effective batch 2",
     Budget: "10k optimizer steps · full validation every 2k",
     "Correctness guards": "Audit issues 1–4 enabled",
-    Status: "Implemented and configured; not run yet",
+    Result: result,
+    Status: "Completed through 10k",
   };
   details.objective.description = evidence.objectiveDescription;
   details.objective.facts = {
-    Status: "Implemented; no result yet",
+    Result: result,
     Objective: evidence.objective,
     Optimizer: evidence.optimizer,
   };
@@ -1493,6 +1810,180 @@ function nn1Details(run, evidence) {
       ],
     };
   }
+  return details;
+}
+
+function nn2Details(run, evidence) {
+  const details = legacyDetails(run, {
+    sourceCommit: N3A_COMMIT,
+    launcher: NN2_REPORT,
+    launcherLine: 1,
+    weightMode: "spatial SA train · branched CA active/frozen",
+    objective: "masked_alternating",
+    optimizer: "NN1d optimizer ownership; no current decoded ID loss",
+    result: "Proposal only; no model config, launcher, checkpoint, or result exists",
+    proposal: true,
+    trainCa: false,
+  });
+
+  details.history = {
+    title: `${run}: architecture proposal only`,
+    description:
+      "This record visualizes a proposed NN2 experiment. It retains the doubled [target, reference] U-Net call, BranchedAttnProcessor, BranchedCrossAttnProcessor, and target-face Q → reference-face K/V contract. No model code, Hydra config, launcher, checkpoint, or result has been created.",
+    facts: {
+      Status: "Not implemented · awaiting approval",
+      Priority: evidence.priority,
+      Baseline: "NN1d active/frozen-CA full spatial BA",
+      Hardware: "Proposed one-GPU architecture screen",
+    },
+    code: [
+      code(
+        NN2_REPORT,
+        1,
+        `# ${run}: ${evidence.purpose}\n# Proposal only — no config or launcher exists.`,
+        "Open result analysis and NN2 plan",
+      ),
+      code(
+        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        300,
+        `# Current N3a insertion point:\n# BranchedAttnProcessor target-face Q / reference-face K,V routing`,
+        "Open current N3a processor",
+      ),
+    ],
+  };
+
+  details.memory = {
+    title: `${run}: proposed reference K/V representation`,
+    description:
+      `${evidence.kvMode}. The full reference half and reference-side cross-attention remain present; this changes only which reference face tokens may supply target-face self-attention K/V.`,
+    facts: {
+      "K/V selection": evidence.kvMode,
+      "Full reference stream": "Retained",
+      BranchedAttnProcessor: "Retained",
+    },
+    code: [
+      code(
+        NN2_REPORT,
+        1,
+        `kv_mode = ${JSON.stringify(evidence.kvMode)}\n# proposed; defaults must preserve NN1/N3a`,
+        "Open proposed K/V contract",
+      ),
+    ],
+  };
+  details.reference = details.memory;
+  details.memoryFlow = {
+    ...details.memory,
+    title: `${run}: reference image → proposed spatial K/V`,
+  };
+
+  details.selfAttention = {
+    title: `${run}: proposed BranchedAttnProcessor`,
+    description:
+      `${evidence.arbitration}. Target-face queries still attend reference-face K/V; the proposal changes token selection, arbitration, or layer ownership rather than replacing core BA with a compact attn2-only residual.`,
+    facts: {
+      Q: "Target face hidden state",
+      "Reference K/V": evidence.kvMode,
+      Arbitration: evidence.arbitration,
+      "Layer routing": evidence.layerRouting,
+    },
+    code: [
+      code(
+        NN2_REPORT,
+        1,
+        `# Proposed ${run} BranchedAttnProcessor contract\nq_face = Q(target_hidden) * target_query_mask\nref_out = attention(q_face, K(reference_face), V(reference_face))\nface_out = ${JSON.stringify(evidence.arbitration)}`,
+        "Open architecture proposal",
+      ),
+      code(
+        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        300,
+        `# Current N3a behavior remains the compatibility default:\nface_out = attention(q_face, k_ref_face, v_ref_face)`,
+        "Open current default",
+      ),
+    ],
+  };
+  details.residualFlow = {
+    ...details.selfAttention,
+    title: `${run}: proposed target-Q / reference-KV route`,
+  };
+
+  details.mask = {
+    title: `${run}: proposed target query region`,
+    description:
+      `${evidence.queryRegion}. Target and reference coordinates remain distinct, so bbox routing is treated as localization rather than semantic alignment.`,
+    facts: {
+      "Target query region": evidence.queryRegion,
+      "Reference token region": evidence.kvMode,
+      "Fail-closed validity": "Retain NN1 guards",
+    },
+    code: [
+      code(
+        NN2_REPORT,
+        1,
+        `target_query_region = ${JSON.stringify(evidence.queryRegion)}\n# proposal only`,
+        "Open proposed routing",
+      ),
+    ],
+  };
+  details.maskFlow = details.mask;
+
+  details.sites = {
+    title: `${run}: proposed layer ownership`,
+    description:
+      `${evidence.layerRouting}. BranchedCrossAttnProcessor remains installed and forward-active at all 70 attn2 sites with frozen cloned weights.`,
+    facts: {
+      "Self-attention": evidence.layerRouting,
+      "Cross-attention": "70 BranchedCrossAttnProcessor sites active/frozen",
+      "Doubled U-Net": "Retained",
+    },
+    code: [
+      code(
+        NN2_REPORT,
+        1,
+        `layer_routing = ${JSON.stringify(evidence.layerRouting)}\nbranched_ca = "70 sites active; cloned weights frozen"`,
+        "Open layer-routing proposal",
+      ),
+    ],
+  };
+
+  details.crossAttention = {
+    title: `${run}: unchanged split BranchedCrossAttnProcessor`,
+    description:
+      "All 70 split cross-attention processors remain on the forward path. Target hidden states use the generation prompt; reference hidden states use the face prompt. Their cloned weights stay frozen, following the clear NN1d stability result.",
+    facts: {
+      Sites: "70 / 70 attn2",
+      Forward: "Active",
+      Trainability: "Frozen cloned CA weights",
+    },
+    code: [
+      code(
+        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        650,
+        `# Unchanged proposed contract:\ntarget_out = CA(target_hidden, generation_prompt)\nref_out = CA(ref_hidden, face_prompt)`,
+        "Open current split cross-attention",
+      ),
+    ],
+  };
+
+  details.objective = {
+    title: `${run}: common architecture-screen objective`,
+    description:
+      "Use NN1d's masked-alternating diffusion objective and frozen-CA optimizer ownership for attribution. Do not reuse NN1e/f's current decoded ID loss in this first screen because its higher metric coincided with faceless smoothing and lost detections.",
+    facts: {
+      Objective: "N3a masked_alternating",
+      "Decoded ID loss": "Off in first screen",
+      "CA weights": "Frozen",
+      Purpose: "Attribute architecture before retuning supervision",
+    },
+    code: [
+      code(
+        NN2_REPORT,
+        1,
+        `loss_kind = "masked_alternating"\nuse_id_loss = false\ntrain_branched_ca_lora = false`,
+        "Open common proposed protocol",
+      ),
+    ],
+  };
+  details.trainFlow = details.objective;
   return details;
 }
 
@@ -1630,6 +2121,34 @@ function topologyValue(config) {
     : "compact target-face residual BA";
 }
 
+function kvSelectionValue(config) {
+  if (config.topology !== "legacy_spatial") {
+    return config.memory.label;
+  }
+  return config.kvMode || "legacy zero-masked full reference face grid";
+}
+
+function faceArbitrationValue(config) {
+  if (config.topology !== "legacy_spatial") {
+    return "additive compact-memory target-face residual";
+  }
+  return config.faceArbitration || "absolute reference-attention face output";
+}
+
+function layerRoutingValue(config) {
+  if (config.topology !== "legacy_spatial") {
+    return `${config.sites.count} target-face CA sites`;
+  }
+  return config.layerRouting || "reference BA at all 70 attn1 sites";
+}
+
+function queryRegionValue(config) {
+  if (config.topology !== "legacy_spatial") {
+    return "hard target face bbox";
+  }
+  return config.queryRegion || "hard target face bbox";
+}
+
 function selfTrainingValue(config) {
   if (config.topology !== "legacy_spatial") {
     return "standard self-attention; BranchedAttnProcessor absent";
@@ -1690,18 +2209,57 @@ const COMPARISON_GROUPS = [
   {
     id: "topology",
     label: "processor topology",
-    keys: [
-      "baPass",
-      "selfAttention",
-      "standardSelfAttention",
-      "crossAttention",
-      "residual",
-      "residualFlow",
-      "mask",
-      "maskFlow",
-    ],
+    keys: ["baPass"],
     fields: [
       { label: "Topology", codeName: "ba_topology", value: topologyValue },
+    ],
+  },
+  {
+    id: "reference-kv",
+    label: "reference K/V selection",
+    keys: ["reference", "memory", "memoryFlow", "selfAttention", "residualFlow"],
+    fields: [
+      {
+        label: "Reference K/V selection",
+        codeName: "reference_kv_selection",
+        value: kvSelectionValue,
+      },
+    ],
+  },
+  {
+    id: "face-arbitration",
+    label: "face arbitration",
+    keys: ["selfAttention", "residualFlow"],
+    fields: [
+      {
+        label: "Face arbitration",
+        codeName: "face_arbitration",
+        value: faceArbitrationValue,
+      },
+    ],
+  },
+  {
+    id: "layer-routing",
+    label: "self-attention layer routing",
+    keys: ["selfAttention"],
+    fields: [
+      {
+        label: "Layer routing",
+        codeName: "layer_routing",
+        value: layerRoutingValue,
+      },
+    ],
+  },
+  {
+    id: "query-region",
+    label: "target query region",
+    keys: ["mask", "maskFlow", "selfAttention"],
+    fields: [
+      {
+        label: "Target query region",
+        codeName: "target_query_region",
+        value: queryRegionValue,
+      },
     ],
   },
   {
@@ -1930,6 +2488,10 @@ function renderLegacyOverviewSvg(config, panelId) {
   const markerId = `arrow-${panelId}`;
   const facePromptLabel = config.facePromptLabel || ["ID-only", "face prompt"];
   const facePromptSubtitle = config.facePromptSubtitle || "reference-half CA";
+  const maskLabel = config.maskLabel || ["Target mask M", "Reference Mref"];
+  const maskSubtitle = config.maskSubtitle || "two coordinate grids";
+  const selfAttentionSubtitle =
+    config.selfAttentionSubtitle || "Qtarget face → K/Vreference face";
   const trainingScheduleLabel = String(config.trainingSchedule || "").startsWith(
     "Sample only BA-active",
   )
@@ -1966,14 +2528,14 @@ function renderLegacyOverviewSvg(config, panelId) {
     ${node(28, 180, 166, 70, "target", ["Target noisy", "latent xt"], "first batch half", "pm")}
     ${node(28, 295, 166, 68, "prompt", ["Generation", "PM prompt"], "target-half CA", "pm")}
     ${node(28, 385, 166, 68, "facePrompt", facePromptLabel, facePromptSubtitle, "ba")}
-    ${node(28, 500, 166, 70, "mask", ["Target mask M", "Reference Mref"], "two coordinate grids", "mask")}
+    ${node(28, 500, 166, 70, "mask", maskLabel, maskSubtitle, "mask")}
 
     <g class="unet-shell clickable" data-inspect="baPass" tabindex="0" role="button">
       <rect x="416" y="88" width="280" height="408" rx="9"></rect>
       <text class="shell-title" x="556" y="116">Doubled batch [target, reference]</text>
     </g>
     ${node(436, 128, 240, 58, "baPass", ["Target + reference streams"], "one absolute BA prediction", "")}
-    ${node(436, 232, 240, 90, "selfAttention", ["Branched self-attention"], "Qtarget face → K/Vreference face", "ba")}
+    ${node(436, 232, 240, 90, "selfAttention", ["Branched self-attention"], selfAttentionSubtitle, "ba")}
     ${node(436, 357, 240, 72, "crossAttention", ["Split cross-attention"], caSubtitle, "pm")}
     <rect class="site-chip" x="436" y="444" width="240" height="24" rx="12"></rect>
     <text class="site-chip-text" x="556" y="460">${escapeHtml(siteLabel)}</text>
@@ -2052,7 +2614,24 @@ function renderLegacyMechanismSvg(config, panelId) {
   const facePromptLabel = config.facePromptLabel || ["ID-only", "face prompt"];
   const facePromptSubtitle = config.facePromptSubtitle || "";
   const refKvSubtitle =
-    config.saTrainMode === "ref_kv_only" ? "train ref_to_k · ref_to_v" : "to_k · to_v";
+    config.refKvSubtitle ||
+    (config.saTrainMode === "ref_kv_only" ? "train ref_to_k · ref_to_v" : "to_k · to_v");
+  const mechanismNote =
+    config.mechanismNote ||
+    "Target face Q attends reference-grid K/V; target background remains target-owned.";
+  const faceAttentionLabel = config.faceAttentionLabel || ["hidden_face"];
+  const faceAttentionSubtitle =
+    config.faceAttentionSubtitle || "Attn(q_face,k_face,v_face)";
+  const faceMergeSubtitle =
+    config.faceMergeSubtitle || "(1−M)·bg + M·face";
+  const targetFaceKvEdge = config.usesTargetFaceKv
+    ? edge(
+        "M340 174 C420 184 500 250 570 276",
+        "selfAttention",
+        "pm",
+        markerId,
+      )
+    : "";
   const caTrainingText =
     config.sites.caTrainable === false
       ? "CA forward active at all 70 sites; weights frozen."
@@ -2062,7 +2641,7 @@ function renderLegacyMechanismSvg(config, panelId) {
     <defs>${markerDefs(markerId)}</defs>
 
     <text class="mechanism-title" x="24" y="30">A · BranchedAttnProcessor — spatial self-attention at every attn1 site</text>
-    <text class="mechanism-note" x="24" y="54">Target face Q attends reference-grid K/V; target background remains target-owned.</text>
+    <text class="mechanism-note" x="24" y="54">${escapeHtml(mechanismNote)}</text>
 
     ${node(24, 82, 142, 72, "target", ["target_hidden"], "first batch half", "pm")}
     ${node(24, 276, 142, 72, "memory", ["ref_hidden"], "second batch half", "ba")}
@@ -2078,9 +2657,9 @@ function renderLegacyMechanismSvg(config, panelId) {
     ${node(392, 284, 116, 64, "residualFlow", ["k_face / v_face"], "reference × Mref", "ba")}
 
     ${node(570, 98, 132, 64, "selfAttention", ["hidden_bg"], "Attn(q_bg,k_bg,v_bg)", "pm")}
-    ${node(570, 244, 132, 70, "residualFlow", ["hidden_face"], "Attn(q_face,k_face,v_face)", "ba")}
+    ${node(570, 244, 132, 70, "residualFlow", faceAttentionLabel, faceAttentionSubtitle, "ba")}
     ${node(570, 350, 132, 56, "selfAttention", ["hidden_ref"], "reference self-attn", "ba")}
-    ${node(754, 164, 142, 76, "compose", ["merged target"], "(1−M)·bg + M·face", "ba")}
+    ${node(754, 164, 142, 76, "selfAttention", ["merged target"], faceMergeSubtitle, "ba")}
     ${node(754, 330, 142, 64, "baPass", ["output batch"], "[merged, hidden_ref]", "")}
 
     ${edge("M166 108 C184 108 194 98 214 98", "selfAttention", "pm", markerId)}
@@ -2091,6 +2670,7 @@ function renderLegacyMechanismSvg(config, panelId) {
     ${edge("M340 104 C365 122 368 163 392 163", "maskFlow", "mask", markerId)}
     ${edge("M340 174 C365 174 370 241 392 241", "selfAttention", "pm", markerId)}
     ${edge("M340 303 C360 303 370 316 392 316", "residualFlow", "ba", markerId)}
+    ${targetFaceKvEdge}
     ${edge("M508 93 C535 93 540 118 570 128", "selfAttention", "pm", markerId)}
     ${edge("M508 241 C535 225 540 128 570 128", "selfAttention", "pm", markerId)}
     ${edge("M508 163 C535 170 540 270 570 279", "residualFlow", "ba", markerId)}
@@ -2256,11 +2836,7 @@ function renderSummary(leftId, rightId) {
     left.topology === "legacy_spatial" && right.topology === "legacy_spatial";
   const includesProposal = left.status === "proposed" || right.status === "proposed";
   const routeCopy = includesLegacy
-    ? `${left.short}: ${
-        left.topology === "legacy_spatial" ? "full reference grid" : "compact identity memory"
-      } · ${right.short}: ${
-        right.topology === "legacy_spatial" ? "full reference grid" : "compact identity memory"
-      }`
+    ? `${left.short}: ${left.memory.label} · ${right.short}: ${right.memory.label}`
     : `${left.short} ${left.sites.effective} → ${right.short} ${right.sites.effective}`;
   const routeExplanation = includesLegacy
     ? bothLegacy

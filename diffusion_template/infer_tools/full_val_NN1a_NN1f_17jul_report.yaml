@@ -1,0 +1,118 @@
+# NN1a-NN1f checkpoint evolution against the fixed PhotoMaker baseline.
+
+results_dir: full_validation_results
+refs_dir: ../dataset_full/val_dataset/references
+prompts: ../dataset_full/val_dataset/prompts_10.txt
+classes: ../dataset_full/val_dataset/classes_ref.json
+out_pdf: full_validation_results/ba_NN1a_NN1f_17Jul/full_val_report_NN1a_NN1f_vs_PM.pdf
+saved_dir: saved
+title: NN1a-NN1f full spatial branched-attention comparison
+trigger_word: img
+require_complete_grid: true
+
+runs:
+  - photomaker_baseline
+  - ba_NN1a_n3a_replay_1gpu/ba_NN1a_n3a_replay_1gpu_step6000
+  - ba_NN1a_n3a_replay_1gpu/ba_NN1a_n3a_replay_1gpu_step10000
+  - ba_NN1b_schedule_matched_1gpu/ba_NN1b_schedule_matched_1gpu_step2000
+  - ba_NN1b_schedule_matched_1gpu/ba_NN1b_schedule_matched_1gpu_step6000
+  - ba_NN1b_schedule_matched_1gpu/ba_NN1b_schedule_matched_1gpu_step10000
+  - ba_NN1c_masked_id_prompt_1gpu/ba_NN1c_masked_id_prompt_1gpu_step6000
+  - ba_NN1c_masked_id_prompt_1gpu/ba_NN1c_masked_id_prompt_1gpu_step10000
+  - ba_NN1d_frozen_ca_1gpu/ba_NN1d_frozen_ca_1gpu_step2000
+  - ba_NN1d_frozen_ca_1gpu/ba_NN1d_frozen_ca_1gpu_step6000
+  - ba_NN1d_frozen_ca_1gpu/ba_NN1d_frozen_ca_1gpu_step10000
+  - ba_NN1e_frozen_ca_id_loss_1gpu/ba_NN1e_frozen_ca_id_loss_1gpu_step2000
+  - ba_NN1e_frozen_ca_id_loss_1gpu/ba_NN1e_frozen_ca_id_loss_1gpu_step6000
+  - ba_NN1e_frozen_ca_id_loss_1gpu/ba_NN1e_frozen_ca_id_loss_1gpu_step10000
+  - ba_NN1f_ref_kv_id_loss_1gpu/ba_NN1f_ref_kv_id_loss_1gpu_step2000
+  - ba_NN1f_ref_kv_id_loss_1gpu/ba_NN1f_ref_kv_id_loss_1gpu_step6000
+  - ba_NN1f_ref_kv_id_loss_1gpu/ba_NN1f_ref_kv_id_loss_1gpu_step10000
+
+labels:
+  photomaker_baseline: PhotoMaker V2
+  ba_NN1a_n3a_replay_1gpu/ba_NN1a_n3a_replay_1gpu_step6000: NN1a replay 6k
+  ba_NN1a_n3a_replay_1gpu/ba_NN1a_n3a_replay_1gpu_step10000: NN1a replay 10k
+  ba_NN1b_schedule_matched_1gpu/ba_NN1b_schedule_matched_1gpu_step2000: NN1b schedule 2k
+  ba_NN1b_schedule_matched_1gpu/ba_NN1b_schedule_matched_1gpu_step6000: NN1b schedule 6k
+  ba_NN1b_schedule_matched_1gpu/ba_NN1b_schedule_matched_1gpu_step10000: NN1b schedule 10k
+  ba_NN1c_masked_id_prompt_1gpu/ba_NN1c_masked_id_prompt_1gpu_step6000: NN1c token mask 6k
+  ba_NN1c_masked_id_prompt_1gpu/ba_NN1c_masked_id_prompt_1gpu_step10000: NN1c token mask 10k
+  ba_NN1d_frozen_ca_1gpu/ba_NN1d_frozen_ca_1gpu_step2000: NN1d frozen CA 2k
+  ba_NN1d_frozen_ca_1gpu/ba_NN1d_frozen_ca_1gpu_step6000: NN1d frozen CA 6k
+  ba_NN1d_frozen_ca_1gpu/ba_NN1d_frozen_ca_1gpu_step10000: NN1d frozen CA 10k
+  ba_NN1e_frozen_ca_id_loss_1gpu/ba_NN1e_frozen_ca_id_loss_1gpu_step2000: NN1e ID loss 2k
+  ba_NN1e_frozen_ca_id_loss_1gpu/ba_NN1e_frozen_ca_id_loss_1gpu_step6000: NN1e ID loss 6k
+  ba_NN1e_frozen_ca_id_loss_1gpu/ba_NN1e_frozen_ca_id_loss_1gpu_step10000: NN1e ID loss 10k
+  ba_NN1f_ref_kv_id_loss_1gpu/ba_NN1f_ref_kv_id_loss_1gpu_step2000: NN1f ref-KV 2k
+  ba_NN1f_ref_kv_id_loss_1gpu/ba_NN1f_ref_kv_id_loss_1gpu_step6000: NN1f ref-KV 6k
+  ba_NN1f_ref_kv_id_loss_1gpu/ba_NN1f_ref_kv_id_loss_1gpu_step10000: NN1f ref-KV 10k
+
+metrics_sources:
+  photomaker_baseline: {path: full_validation_results/metrics_photomaker_baseline.json, key: photomaker_baseline}
+  ba_NN1a_n3a_replay_1gpu/ba_NN1a_n3a_replay_1gpu_step6000: {path: full_validation_results/ba_NN1a_n3a_replay_1gpu/metrics_ba_NN1a_n3a_replay_1gpu_steps.json, key: ba_NN1a_n3a_replay_1gpu_step6000}
+  ba_NN1a_n3a_replay_1gpu/ba_NN1a_n3a_replay_1gpu_step10000: {path: full_validation_results/ba_NN1a_n3a_replay_1gpu/metrics_ba_NN1a_n3a_replay_1gpu_steps.json, key: ba_NN1a_n3a_replay_1gpu_step10000}
+  ba_NN1b_schedule_matched_1gpu/ba_NN1b_schedule_matched_1gpu_step2000: {path: full_validation_results/ba_NN1b_schedule_matched_1gpu/metrics_ba_NN1b_schedule_matched_1gpu_steps.json, key: ba_NN1b_schedule_matched_1gpu_step2000}
+  ba_NN1b_schedule_matched_1gpu/ba_NN1b_schedule_matched_1gpu_step6000: {path: full_validation_results/ba_NN1b_schedule_matched_1gpu/metrics_ba_NN1b_schedule_matched_1gpu_steps.json, key: ba_NN1b_schedule_matched_1gpu_step6000}
+  ba_NN1b_schedule_matched_1gpu/ba_NN1b_schedule_matched_1gpu_step10000: {path: full_validation_results/ba_NN1b_schedule_matched_1gpu/metrics_ba_NN1b_schedule_matched_1gpu_steps.json, key: ba_NN1b_schedule_matched_1gpu_step10000}
+  ba_NN1c_masked_id_prompt_1gpu/ba_NN1c_masked_id_prompt_1gpu_step6000: {path: full_validation_results/ba_NN1c_masked_id_prompt_1gpu/metrics_ba_NN1c_masked_id_prompt_1gpu_steps.json, key: ba_NN1c_masked_id_prompt_1gpu_step6000}
+  ba_NN1c_masked_id_prompt_1gpu/ba_NN1c_masked_id_prompt_1gpu_step10000: {path: full_validation_results/ba_NN1c_masked_id_prompt_1gpu/metrics_ba_NN1c_masked_id_prompt_1gpu_steps.json, key: ba_NN1c_masked_id_prompt_1gpu_step10000}
+  ba_NN1d_frozen_ca_1gpu/ba_NN1d_frozen_ca_1gpu_step2000: {path: full_validation_results/ba_NN1d_frozen_ca_1gpu/metrics_ba_NN1d_frozen_ca_1gpu_steps.json, key: ba_NN1d_frozen_ca_1gpu_step2000}
+  ba_NN1d_frozen_ca_1gpu/ba_NN1d_frozen_ca_1gpu_step6000: {path: full_validation_results/ba_NN1d_frozen_ca_1gpu/metrics_ba_NN1d_frozen_ca_1gpu_steps.json, key: ba_NN1d_frozen_ca_1gpu_step6000}
+  ba_NN1d_frozen_ca_1gpu/ba_NN1d_frozen_ca_1gpu_step10000: {path: full_validation_results/ba_NN1d_frozen_ca_1gpu/metrics_ba_NN1d_frozen_ca_1gpu_steps.json, key: ba_NN1d_frozen_ca_1gpu_step10000}
+  ba_NN1e_frozen_ca_id_loss_1gpu/ba_NN1e_frozen_ca_id_loss_1gpu_step2000: {path: full_validation_results/ba_NN1e_frozen_ca_id_loss_1gpu/metrics_ba_NN1e_frozen_ca_id_loss_1gpu_steps.json, key: ba_NN1e_frozen_ca_id_loss_1gpu_step2000}
+  ba_NN1e_frozen_ca_id_loss_1gpu/ba_NN1e_frozen_ca_id_loss_1gpu_step6000: {path: full_validation_results/ba_NN1e_frozen_ca_id_loss_1gpu/metrics_ba_NN1e_frozen_ca_id_loss_1gpu_steps.json, key: ba_NN1e_frozen_ca_id_loss_1gpu_step6000}
+  ba_NN1e_frozen_ca_id_loss_1gpu/ba_NN1e_frozen_ca_id_loss_1gpu_step10000: {path: full_validation_results/ba_NN1e_frozen_ca_id_loss_1gpu/metrics_ba_NN1e_frozen_ca_id_loss_1gpu_steps.json, key: ba_NN1e_frozen_ca_id_loss_1gpu_step10000}
+  ba_NN1f_ref_kv_id_loss_1gpu/ba_NN1f_ref_kv_id_loss_1gpu_step2000: {path: full_validation_results/ba_NN1f_ref_kv_id_loss_1gpu/metrics_ba_NN1f_ref_kv_id_loss_1gpu_steps.json, key: ba_NN1f_ref_kv_id_loss_1gpu_step2000}
+  ba_NN1f_ref_kv_id_loss_1gpu/ba_NN1f_ref_kv_id_loss_1gpu_step6000: {path: full_validation_results/ba_NN1f_ref_kv_id_loss_1gpu/metrics_ba_NN1f_ref_kv_id_loss_1gpu_steps.json, key: ba_NN1f_ref_kv_id_loss_1gpu_step6000}
+  ba_NN1f_ref_kv_id_loss_1gpu/ba_NN1f_ref_kv_id_loss_1gpu_step10000: {path: full_validation_results/ba_NN1f_ref_kv_id_loss_1gpu/metrics_ba_NN1f_ref_kv_id_loss_1gpu_steps.json, key: ba_NN1f_ref_kv_id_loss_1gpu_step10000}
+
+run_config_overrides:
+  photomaker_baseline:
+    report: {method: PhotoMaker V2, schedule: none, trainables: released PM, topology: standard PM}
+    model: {use_id_loss: false}
+  ba_NN1a_n3a_replay_1gpu/ba_NN1a_n3a_replay_1gpu_step6000: &nn1a
+    report: {method: N3a replay, schedule: all diffusion timesteps, trainables: SA QKV + CA QKV, topology: full doubled spatial BA}
+    model: {use_id_loss: false, ba_face_prompt_attention_mask: false}
+  ba_NN1a_n3a_replay_1gpu/ba_NN1a_n3a_replay_1gpu_step10000: *nn1a
+  ba_NN1b_schedule_matched_1gpu/ba_NN1b_schedule_matched_1gpu_step2000: &nn1b
+    report: {method: schedule-matched BA, schedule: inference BA region only, trainables: SA QKV + CA QKV, topology: full doubled spatial BA}
+    model: {use_id_loss: false, ba_face_prompt_attention_mask: false}
+  ba_NN1b_schedule_matched_1gpu/ba_NN1b_schedule_matched_1gpu_step6000: *nn1b
+  ba_NN1b_schedule_matched_1gpu/ba_NN1b_schedule_matched_1gpu_step10000: *nn1b
+  ba_NN1c_masked_id_prompt_1gpu/ba_NN1c_masked_id_prompt_1gpu_step6000: &nn1c
+    report: {method: masked ID prompt, schedule: all diffusion timesteps, trainables: SA QKV + CA QKV, topology: full doubled spatial BA}
+    model: {use_id_loss: false, ba_face_prompt_attention_mask: true}
+  ba_NN1c_masked_id_prompt_1gpu/ba_NN1c_masked_id_prompt_1gpu_step10000: *nn1c
+  ba_NN1d_frozen_ca_1gpu/ba_NN1d_frozen_ca_1gpu_step2000: &nn1d
+    report: {method: frozen branched CA, schedule: all diffusion timesteps, trainables: SA QKV only, topology: full doubled spatial BA}
+    model: {use_id_loss: false, ba_face_prompt_attention_mask: false}
+  ba_NN1d_frozen_ca_1gpu/ba_NN1d_frozen_ca_1gpu_step6000: *nn1d
+  ba_NN1d_frozen_ca_1gpu/ba_NN1d_frozen_ca_1gpu_step10000: *nn1d
+  ba_NN1e_frozen_ca_id_loss_1gpu/ba_NN1e_frozen_ca_id_loss_1gpu_step2000: &nn1e
+    report: {method: frozen CA + ID loss, schedule: all diffusion timesteps, trainables: SA QKV only, topology: full doubled spatial BA}
+    model: {use_id_loss: true, id_loss_weight: 0.1, id_loss_max_timestep: 400, ba_face_prompt_attention_mask: false}
+  ba_NN1e_frozen_ca_id_loss_1gpu/ba_NN1e_frozen_ca_id_loss_1gpu_step6000: *nn1e
+  ba_NN1e_frozen_ca_id_loss_1gpu/ba_NN1e_frozen_ca_id_loss_1gpu_step10000: *nn1e
+  ba_NN1f_ref_kv_id_loss_1gpu/ba_NN1f_ref_kv_id_loss_1gpu_step2000: &nn1f
+    report: {method: ref-KV + ID loss, schedule: all diffusion timesteps, trainables: SA reference K/V only, topology: full doubled spatial BA}
+    model: {use_id_loss: true, id_loss_weight: 0.1, id_loss_max_timestep: 400, ba_face_prompt_attention_mask: false}
+  ba_NN1f_ref_kv_id_loss_1gpu/ba_NN1f_ref_kv_id_loss_1gpu_step6000: *nn1f
+  ba_NN1f_ref_kv_id_loss_1gpu/ba_NN1f_ref_kv_id_loss_1gpu_step10000: *nn1f
+
+config_criteria:
+  - {label: method, path: report.method}
+  - {label: checkpoint, path: metric.step}
+  - {label: mean ID sim (secondary), path: metric.mean_id_sim}
+  - {label: BA training schedule, path: report.schedule}
+  - {label: trainable projections, path: report.trainables}
+  - {label: forward topology, path: report.topology}
+  - {label: decoded reference-ID loss, path: computed.id_loss}
+  - {label: explicit ID-token mask, path: model.ba_face_prompt_attention_mask}
+
+cell_px: 155
+label_px: 215
+config_row_px: 60
+config_label_px: 245
+config_col_px: 145
+dpi: 150
