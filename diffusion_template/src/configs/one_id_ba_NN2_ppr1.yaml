@@ -43,6 +43,9 @@ model:
   ba_target_core_erode_frac: 0.10
   ba_reference_token_mode: packed_bbox_roi
   ba_reference_continuation: frozen_base
+  # Keep the ordinary PhotoMaker epsilon prediction exact outside the
+  # feathered face core. Set to none to reproduce the first PPR implementation.
+  ba_output_anchor_mode: base_outside_core
   ba_diagnostics: true
 
   use_id_loss: false

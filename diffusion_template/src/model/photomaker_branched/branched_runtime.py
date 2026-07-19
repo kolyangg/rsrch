@@ -791,6 +791,96 @@ def two_branch_predict(
     
     # Extract merged result (first half)
     noise_pred_merged = noise_pred[:batch_size]
+
+    output_anchor_mode = str(
+        getattr(pipeline, "ba_output_anchor_mode", "none") or "none"
+    ).lower()
+    if output_anchor_mode == "base_outside_core":
+        original_processors = getattr(pipeline, "_original_attn_processors", None)
+        if not original_processors:
+            raise RuntimeError(
+                "base_outside_core requires the original attention-processor registry"
+            )
+
+        branched_processors = dict(pipeline.unet.attn_processors)
+        try:
+            pipeline.unet.set_attn_processor(dict(original_processors))
+            with torch.no_grad():
+                base_noise_pred = pipeline.unet(
+                    latent_model_input,
+                    t_gen,
+                    encoder_hidden_states=prompt_embeds,
+                    timestep_cond=timestep_cond,
+                    cross_attention_kwargs=(
+                        runtime_cross_attention_kwargs
+                        if runtime_cross_attention_kwargs
+                        else None
+                    ),
+                    added_cond_kwargs=added_cond_kwargs,
+                    return_dict=False,
+                )[0]
+        finally:
+            # Diffusers consumes this mapping with pop(); pass a copy because
+            # the preserved registry is also inspected below.
+            pipeline.unet.set_attn_processor(dict(branched_processors))
+
+        from .packed_residual_attn_processor import make_inner_core_mask
+
+        core_mask = make_inner_core_mask(
+            mask4,
+            erode_frac=float(
+                getattr(pipeline, "ba_target_core_erode_frac", 0.10)
+            ),
+        ).to(device=noise_pred_merged.device, dtype=noise_pred_merged.dtype)
+        if core_mask.shape[-2:] != noise_pred_merged.shape[-2:]:
+            core_mask = F.interpolate(
+                core_mask.float(),
+                size=noise_pred_merged.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            ).to(noise_pred_merged.dtype)
+
+        branch_is_exactly_off = False
+        if not torch.is_grad_enabled():
+            cached_branch_state = getattr(
+                pipeline,
+                "_ba_packed_branch_exactly_off",
+                None,
+            )
+            if cached_branch_state is None:
+                packed_processors = [
+                    processor
+                    for processor in branched_processors.values()
+                    if processor.__class__.__name__
+                    == "PackedResidualBranchedAttnProcessor"
+                ]
+                cached_branch_state = bool(packed_processors) and all(
+                    int(torch.count_nonzero(processor.connector_up.weight).item()) == 0
+                    for processor in packed_processors
+                )
+                pipeline._ba_packed_branch_exactly_off = cached_branch_state
+            branch_is_exactly_off = bool(cached_branch_state)
+        if branch_is_exactly_off:
+            # A separate ordinary-batch pass is required for end-to-end BF16
+            # parity: a doubled U-Net call is numerically different even when
+            # every processor-local residual is exactly zero.
+            noise_pred_merged = base_noise_pred
+            anchor_state = "exact-zero-bypass"
+        else:
+            noise_pred_merged = base_noise_pred + core_mask * (
+                noise_pred_merged - base_noise_pred
+            )
+            anchor_state = "base-outside-core"
+
+        if not bool(getattr(pipeline, "_ba_output_anchor_logged", False)):
+            print(
+                "[BA output anchor] "
+                f"mode={output_anchor_mode} state={anchor_state} "
+                f"core_mean={core_mask.float().mean().item():.6f}"
+            )
+            pipeline._ba_output_anchor_logged = True
+    elif output_anchor_mode != "none":
+        raise ValueError(f"Unknown ba_output_anchor_mode: {output_anchor_mode}")
     
     USE_SOFT_BLENDING = True
     

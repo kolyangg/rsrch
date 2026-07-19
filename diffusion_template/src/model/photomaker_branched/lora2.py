@@ -89,6 +89,7 @@ class PhotomakerBranchedLora(SDXL):
         ba_target_core_erode_frac: float = 0.10,
         ba_reference_token_mode: str = "legacy_zero_mask",
         ba_reference_continuation: str = "legacy_ref_projection",
+        ba_output_anchor_mode: str = "none",
         ba_diagnostics: bool = False,
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
@@ -233,6 +234,7 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_reference_continuation = str(
             ba_reference_continuation or "legacy_ref_projection"
         ).lower()
+        self.ba_output_anchor_mode = str(ba_output_anchor_mode or "none").lower()
         self.ba_diagnostics = bool(ba_diagnostics)
         if self.ba_invalid_sample_policy not in {"legacy", "error", "skip_batch"}:
             raise ValueError(f"Unknown ba_invalid_sample_policy: {self.ba_invalid_sample_policy}")
@@ -259,6 +261,15 @@ class PhotomakerBranchedLora(SDXL):
             raise ValueError("ba_sa_mix_init must be in (0, 1)")
         if self.ba_processor_variant not in {"legacy", "packed_residual_v1"}:
             raise ValueError(f"Unknown ba_processor_variant: {self.ba_processor_variant}")
+        if self.ba_output_anchor_mode not in {"none", "base_outside_core"}:
+            raise ValueError(f"Unknown ba_output_anchor_mode: {self.ba_output_anchor_mode}")
+        if (
+            self.ba_output_anchor_mode != "none"
+            and self.ba_processor_variant != "packed_residual_v1"
+        ):
+            raise ValueError(
+                "ba_output_anchor_mode is only supported by packed_residual_v1"
+            )
         if self.ba_site_policy not in {"all", "up_blocks_attn1"}:
             raise ValueError(f"Unknown ba_site_policy: {self.ba_site_policy}")
         if self.ba_processor_variant == "packed_residual_v1":
@@ -443,6 +454,7 @@ class PhotomakerBranchedLora(SDXL):
                     "ba_target_core_erode_frac": self.ba_target_core_erode_frac,
                     "ba_reference_token_mode": self.ba_reference_token_mode,
                     "ba_reference_continuation": self.ba_reference_continuation,
+                    "ba_output_anchor_mode": self.ba_output_anchor_mode,
                 }
             )
         return architecture

@@ -44,6 +44,14 @@ Consequently, step-zero output is exactly the ordinary self-attention output.
 Reference evidence is additive and bounded; it is never the target face’s only
 self-attention candidate.
 
+The complete PPR prediction also uses `ba_output_anchor_mode=base_outside_core`.
+At each BA-active step it evaluates the ordinary PhotoMaker target prediction
+with the original processor registry, then permits the PPR correction only
+through the same feathered face core. Outside that core, epsilon is exactly the
+ordinary target epsilon. When every PPR connector-up tensor is still exactly
+zero (the step-zero validation case), inference returns the ordinary target
+prediction for the whole image.
+
 Reference K/V retrieval uses rank-32 LoRA. The reference continuation uses the
 frozen ordinary U-Net Q/K/V path, so retrieval specialization cannot alter the
 memory stream passed to later layers.
@@ -71,6 +79,7 @@ Important fixed choices for the primary, same-base run:
 - decoded identity loss off;
 - packed reference bbox ROI;
 - target inner-core output mask with 10% cosine erosion;
+- ordinary PhotoMaker output anchor outside that inner core;
 - BA-active inference timestep sampling;
 - blended diffusion loss with `lambda_face=0.20`;
 - existing cross-image `CosmicLargeTrain` sampler;
@@ -106,6 +115,10 @@ gate gradients.
 
 Repeated mask updates preserve processor object identities; they do not rebuild
 modules or detach the optimizer from live parameters.
+
+`ba_output_anchor_mode: none` restores the original one-doubled-call PPR
+behavior. All legacy NN1 configs inherit `none`, so their validation and
+training paths are unchanged.
 
 ## Launcher
 
@@ -224,10 +237,11 @@ PyTorch modules. Untouched Diffusers processors are skipped. This does not
 change the PPR architecture, selected sites, or trainable-parameter manifest.
 A regression test covers the intended mixed registry.
 
-## Step-zero comparison with NN1a–f
+## Step-zero comparison with NN1a–f and end-to-end parity correction
 
-The PPR step-zero panel is not expected to be pixel-identical to NN1a–f. This
-is not a seed mismatch:
+The PPR step-zero panel is not expected to reproduce the NN1 face, because NN1
+uses reference-owned replacement attention while PPR starts from the ordinary
+PhotoMaker face. The fixed validation inputs are nevertheless shared:
 
 - the common launcher and `manual_val` both use seed `0`;
 - sample ordering, prompts, reference images, bounding boxes, inference steps,
@@ -236,13 +250,27 @@ is not a seed mismatch:
 - target diffusion noise and reference noise use per-sample seeded generators;
 - reference VAE latents use the deterministic posterior mode.
 
-The output-changing difference is the architecture being tested. NN1d uses
-legacy reference-owned replacement self-attention at all 70 SA sites. PPR1
-uses ordinary target self-attention plus an exactly zero-initialized residual
-at 36 up-block SA sites. Once BA starts at denoising step 15, NN1d changes the
-target face even before training, while PPR1 intentionally remains on its
-ordinary target path. Making those panels identical would require restoring
-the legacy replacement operator and would invalidate PPR1.
+NN1d uses legacy reference-owned replacement self-attention at all 70 SA sites.
+PPR1 uses ordinary target self-attention plus a zero-initialized residual at 36
+up-block SA sites, so its untrained face intentionally remains the ordinary
+PhotoMaker face.
+
+The first implementation incorrectly generalized processor-local parity into
+end-to-end U-Net parity. A controlled RealVis BF16 test showed that an ordinary
+target call and the target half of an otherwise equivalent doubled call differ
+numerically (`mean |delta|` about `0.0065`, maximum about `0.039` in the tested
+forward). Repeating that perturbation through the denoising trajectory can
+change composition and create unrelated background hallucinations even though
+every connector is zero.
+
+The output anchor fixes that defect. Validation with zero connectors bypasses
+the doubled result and returns the ordinary target prediction exactly. Once
+the PPR branch has learned, its prediction is blended against the ordinary
+target only inside the feathered core. This makes background/body preservation
+an explicit runtime invariant rather than an assumption about local attention
+parity. It costs one additional ordinary target U-Net forward at BA-active
+steps. Training keeps the PPR forward active at zero initialization so the
+zero-up connector receives its required first gradient.
 
 For reproducibility and easier log auditing, the common launcher now passes
 `trainer.seed=0` and `datasets.val.manual_val.seeds=[0]` explicitly. The

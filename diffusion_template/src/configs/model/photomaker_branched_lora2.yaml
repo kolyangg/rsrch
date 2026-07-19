@@ -39,4 +39,5 @@ ba_delta_rms_cap: 0.25
 ba_target_core_erode_frac: 0.10
 ba_reference_token_mode: legacy_zero_mask
 ba_reference_continuation: legacy_ref_projection
+ba_output_anchor_mode: none
 ba_diagnostics: false

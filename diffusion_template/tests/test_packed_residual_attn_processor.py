@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import torch
 import torch.nn as nn
@@ -12,6 +13,7 @@ from diffusers.models.attention_processor import Attention, AttnProcessor2_0
 from src.model.photomaker_branched.branched_runtime import (
     patch_unet_attention_processors,
     select_branched_self_attention_names,
+    two_branch_predict,
 )
 from src.model.photomaker_branched.lora2_helpers import (
     _assert_branched_installation,
@@ -456,6 +458,95 @@ class PackedResidualRuntimeTests(unittest.TestCase):
         )
         configure_branched_trainables(model)
         _assert_branched_installation(model)
+
+    def test_output_anchor_is_exact_at_zero_and_face_local_after_update(self) -> None:
+        class PackedResidualBranchedAttnProcessor(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.connector_up = nn.Linear(1, 1, bias=False)
+                nn.init.zeros_(self.connector_up.weight)
+
+        class FakeScheduler:
+            @staticmethod
+            def add_noise(latents, noise, timesteps):
+                del noise, timesteps
+                return latents
+
+            @staticmethod
+            def scale_model_input(latents, timesteps):
+                del timesteps
+                return latents
+
+        class FakeUNet:
+            def __init__(self, packed):
+                self._branched = {"packed": packed}
+                self._original = {"plain": object()}
+                self.attn_processors = dict(self._branched)
+
+            def set_attn_processor(self, processors):
+                # Match diffusers.UNet2DConditionModel, which consumes the
+                # caller's mapping while installing processors.
+                self.attn_processors = {
+                    name: processors.pop(name)
+                    for name in list(processors)
+                }
+
+            def __call__(self, sample, *args, **kwargs):
+                del args, kwargs
+                is_base = "plain" in self.attn_processors
+                return (sample + (1.0 if is_base else 10.0),)
+
+        packed = PackedResidualBranchedAttnProcessor()
+        unet = FakeUNet(packed)
+        pipeline = SimpleNamespace(
+            unet=unet,
+            scheduler=FakeScheduler(),
+            device=torch.device("cpu"),
+            generator=torch.Generator().manual_seed(0),
+            do_classifier_free_guidance=False,
+            face_embed_strategy="face",
+            ba_output_anchor_mode="base_outside_core",
+            ba_target_core_erode_frac=0.10,
+            _original_attn_processors=dict(unet._original),
+            _cross_attention_kwargs=None,
+        )
+        target = torch.zeros(1, 4, 8, 8)
+        reference = torch.zeros_like(target)
+        prompt = torch.zeros(1, 4, 8)
+        mask = torch.zeros(1, 1, 8, 8)
+        mask[:, :, 1:7, 1:7] = 1
+        kwargs = {
+            "pipeline": pipeline,
+            "latent_model_input": target,
+            "t": torch.tensor([1]),
+            "prompt_embeds": prompt,
+            "added_cond_kwargs": {},
+            "mask4": mask,
+            "mask4_ref": mask,
+            "reference_latents": reference,
+            "face_prompt_embeds": prompt,
+        }
+
+        with patch(
+            "src.model.photomaker_branched.branched_runtime."
+            "patch_unet_attention_processors"
+        ), torch.no_grad():
+            exact, _, _ = two_branch_predict(**kwargs)
+        torch.testing.assert_close(exact, target + 1.0, atol=0, rtol=0)
+        self.assertIn("packed", unet.attn_processors)
+
+        with torch.no_grad():
+            packed.connector_up.weight.fill_(1.0)
+        with patch(
+            "src.model.photomaker_branched.branched_runtime."
+            "patch_unet_attention_processors"
+        ):
+            localized, _, _ = two_branch_predict(**kwargs)
+        core = make_inner_core_mask(mask, erode_frac=0.10)
+        expected = (target + 1.0) + core * 9.0
+        torch.testing.assert_close(localized, expected, atol=0, rtol=0)
+        self.assertTrue(torch.equal(localized[:, :, 0, :], target[:, :, 0, :] + 1.0))
+        self.assertIn("packed", unet.attn_processors)
 
 
 if __name__ == "__main__":

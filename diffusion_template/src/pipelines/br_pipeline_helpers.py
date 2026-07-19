@@ -1068,7 +1068,13 @@ def run_denoising_step(
 def cleanup_branched_runtime(pipeline, *, use_branched_attention: bool) -> None:
     del use_branched_attention
     set_validation_unet_mode(pipeline, branched_active=False)
-    for attr in ["_reference_latents", "_face_prompt_embeds", "_ref_latents_all", "_ref_noise"]:
+    for attr in [
+        "_reference_latents",
+        "_face_prompt_embeds",
+        "_ref_latents_all",
+        "_ref_noise",
+        "_ba_packed_branch_exactly_off",
+    ]:
         if hasattr(pipeline, attr):
             delattr(pipeline, attr)
 
@@ -1190,6 +1196,9 @@ def build_pipeline_from_pretrained(
             "legacy_ref_projection",
         )
         or "legacy_ref_projection"
+    ).lower()
+    pipeline.ba_output_anchor_mode = str(
+        getattr(unwrapped_model, "ba_output_anchor_mode", "none") or "none"
     ).lower()
     pipeline.ba_diagnostics = bool(getattr(unwrapped_model, "ba_diagnostics", False))
     pipeline.ba_patch_top_k = float(getattr(unwrapped_model, "ba_patch_top_k", 1.0))
