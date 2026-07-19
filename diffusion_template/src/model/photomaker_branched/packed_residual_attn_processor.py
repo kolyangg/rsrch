@@ -147,6 +147,11 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         self.mask_core: Optional[torch.Tensor] = None
         self.last_diagnostics: dict[str, torch.Tensor | float | int] = {}
         self._diagnostic_calls = 0
+        self.runtime_scale = 1.0
+        self.diagnostic_step = -1
+        self.diagnostic_steps = (15, 25, 35, 49)
+        self.diagnostic_variant = ""
+        self.diagnostic_sink = None
 
     def init_from_attention(self, attn) -> None:
         self.ref_to_k = _clone_effective_linear(
@@ -457,12 +462,14 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             max_ratio=self.delta_rms_cap,
         )
         gate = self.gate_max * torch.sigmoid(self.gate_logit)
-        target_output = target_base + (
+        applied_delta = (
             target_core
             * sample_has_roi[:, None, None].to(target_base.dtype)
             * gate
+            * float(self.runtime_scale)
             * bounded_delta
         )
+        target_output = target_base + applied_delta
         hidden_states = torch.cat([target_output, reference_base], dim=0)
 
         self._record_diagnostics(
@@ -473,6 +480,33 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             pre_ratio=pre_ratio,
             post_ratio=post_ratio,
         )
+        if (
+            isinstance(self.diagnostic_sink, list)
+            and int(self.diagnostic_step) in set(self.diagnostic_steps)
+        ):
+            mask_fp32 = target_core.float()
+            count = (mask_fp32.sum(dim=(1, 2)) * target_base.shape[-1]).clamp_min(1.0)
+            applied_rms = torch.sqrt(
+                (mask_fp32 * applied_delta.float().square()).sum(dim=(1, 2)) / count
+            )
+            base_rms = torch.sqrt(
+                (mask_fp32 * target_base.float().square()).sum(dim=(1, 2)) / count
+                + 1e-12
+            )
+            ratios = applied_rms / (base_rms + 1e-12)
+            self.diagnostic_sink.append(
+                {
+                    "record_type": "processor_applied_ratio",
+                    "variant": self.diagnostic_variant,
+                    "step": int(self.diagnostic_step),
+                    "processor": self.processor_name,
+                    "runtime_scale": float(self.runtime_scale),
+                    "gate": float(gate.detach().float().item()),
+                    "applied_ratio_min": float(ratios.min().item()),
+                    "applied_ratio_p50": float(ratios.median().item()),
+                    "applied_ratio_max": float(ratios.max().item()),
+                }
+            )
 
         hidden_states = attn.to_out[0](hidden_states)
         hidden_states = attn.to_out[1](hidden_states)

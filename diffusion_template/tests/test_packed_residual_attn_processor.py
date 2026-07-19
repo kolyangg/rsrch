@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from diffusers.models.attention_processor import Attention, AttnProcessor2_0
+from PIL import Image
 
 from src.model.photomaker_branched.branched_runtime import (
     patch_unet_attention_processors,
@@ -27,6 +28,7 @@ from src.model.photomaker_branched.packed_residual_attn_processor import (
     pack_valid_tokens,
 )
 from src.pipelines.br_pipeline_helpers import reset_branched_generation_caches
+from src.trainer.ppr_diagnostic import _pixel_mae, _select_spatial_swap_indices
 
 
 def _attention(channels: int = 16) -> Attention:
@@ -260,6 +262,32 @@ class PackedResidualProcessorTests(unittest.TestCase):
         after = processor(attn, hidden)
         torch.testing.assert_close(after[2:], before[2:], atol=0, rtol=0)
         self.assertFalse(torch.equal(after[:2], before[:2]))
+
+    def test_runtime_scale_multiplies_only_applied_target_delta(self) -> None:
+        torch.manual_seed(51)
+        side = 8
+        attn = _attention()
+        processor = _processor(attn)
+        with torch.no_grad():
+            processor.connector_up.weight.normal_(std=0.05)
+        mask, core = _masks(2, side)
+        processor.set_masks(mask, mask, core)
+        hidden = torch.randn(4, side * side, 16)
+
+        processor.runtime_scale = 0.0
+        base = processor(attn, hidden)
+        processor.runtime_scale = 1.0
+        scaled_one = processor(attn, hidden)
+        processor.runtime_scale = 4.0
+        scaled_four = processor(attn, hidden)
+
+        torch.testing.assert_close(
+            scaled_four[:2] - base[:2],
+            4.0 * (scaled_one[:2] - base[:2]),
+            atol=2e-5,
+            rtol=2e-5,
+        )
+        torch.testing.assert_close(scaled_four[2:], base[2:], atol=0, rtol=0)
 
     def test_inner_core_is_soft_and_zero_at_bbox_edges(self) -> None:
         mask = torch.zeros(1, 1, 16, 16)
@@ -543,6 +571,33 @@ class PackedResidualRuntimeTests(unittest.TestCase):
         reset_branched_generation_caches(pipeline)
         self.assertFalse(hasattr(pipeline, "_ba_packed_branch_exactly_off"))
         self.assertFalse(hasattr(pipeline, "_ba_output_anchor_logged"))
+
+        pipeline.ba_ppr_force_base_output = True
+        pipeline.ba_output_anchor_mode = "none"
+        pipeline.ba_ppr_collect_diagnostics = True
+        pipeline.ba_ppr_diagnostic_steps = (0,)
+        pipeline.ba_ppr_diagnostic_variant = "A"
+        pipeline.ba_ppr_diagnostic_sample_keys = ("sample",)
+        pipeline._ba_ppr_epsilon_diagnostics = []
+        with patch(
+            "src.model.photomaker_branched.branched_runtime."
+            "patch_unet_attention_processors"
+        ), torch.no_grad():
+            forced_base, _, _ = two_branch_predict(**kwargs)
+        torch.testing.assert_close(forced_base, target + 1.0, atol=0, rtol=0)
+        self.assertEqual(
+            pipeline._ba_ppr_epsilon_diagnostics[0]["output_control"],
+            "diagnostic-force-base",
+        )
+        self.assertEqual(
+            pipeline._ba_ppr_epsilon_diagnostics[0]["inside_core_post_anchor"],
+            0.0,
+        )
+
+        pipeline.ba_ppr_force_base_output = False
+        pipeline.ba_ppr_collect_diagnostics = False
+        pipeline.ba_output_anchor_mode = "base_outside_core"
+        reset_branched_generation_caches(pipeline)
         with patch(
             "src.model.photomaker_branched.branched_runtime."
             "patch_unet_attention_processors"
@@ -553,6 +608,35 @@ class PackedResidualRuntimeTests(unittest.TestCase):
         torch.testing.assert_close(localized, expected, atol=0, rtol=0)
         self.assertTrue(torch.equal(localized[:, :, 0, :], target[:, :, 0, :] + 1.0))
         self.assertIn("packed", unet.attn_processors)
+
+    def test_diagnostic_swap_selection_spans_face_area_tertiles(self) -> None:
+        class Dataset:
+            def __len__(self):
+                return 12
+
+            def __getitem__(self, index):
+                side = index + 1
+                return {"face_bbox_gen": [0, 0, side, side]}
+
+        selected = _select_spatial_swap_indices(Dataset(), 6)
+        self.assertEqual(len(selected), 6)
+        self.assertTrue(any(index < 4 for index in selected))
+        self.assertTrue(any(4 <= index < 8 for index in selected))
+        self.assertTrue(any(index >= 8 for index in selected))
+
+    def test_diagnostic_pixel_mae_uses_normalized_face_core(self) -> None:
+        baseline = Image.new("RGB", (16, 16), "black")
+        changed = Image.new("RGB", (16, 16), "white")
+        whole, face = _pixel_mae(changed, baseline, [2, 2, 14, 14])
+        self.assertEqual(whole, 1.0)
+        self.assertEqual(face, 1.0)
+        exact_whole, exact_face = _pixel_mae(
+            baseline,
+            baseline,
+            [2, 2, 14, 14],
+        )
+        self.assertEqual(exact_whole, 0.0)
+        self.assertEqual(exact_face, 0.0)
 
 
 if __name__ == "__main__":

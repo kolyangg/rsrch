@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -647,6 +648,22 @@ def run_branched_setup(
                 dtype=pipeline._ref_latents_all.dtype,
             )
 
+    if (
+        bool(getattr(pipeline, "ba_ppr_collect_diagnostics", False))
+        and hasattr(pipeline, "_ref_noise")
+    ):
+        def _sample_hashes(tensor: torch.Tensor) -> list[str]:
+            hashes = []
+            for sample in tensor.detach().contiguous().cpu():
+                raw = sample.contiguous().view(torch.uint8).numpy().tobytes()
+                hashes.append(hashlib.sha256(raw).hexdigest())
+            return hashes
+
+        pipeline._ba_ppr_randomness_fingerprints = {
+            "initial_latents_sha256": _sample_hashes(latents),
+            "reference_noise_sha256": _sample_hashes(pipeline._ref_noise),
+        }
+
     fes = (face_embed_strategy or "face").lower()
     if fes in {"faceanalysis"}:
         fes = "face"
@@ -1217,6 +1234,10 @@ def build_pipeline_from_pretrained(
     pipeline.ba_output_anchor_mode = str(
         getattr(unwrapped_model, "ba_output_anchor_mode", "none") or "none"
     ).lower()
+    pipeline.ba_ppr_runtime_scale = 1.0
+    pipeline.ba_ppr_force_base_output = False
+    pipeline.ba_ppr_collect_diagnostics = False
+    pipeline.ba_ppr_diagnostic_steps = (15, 25, 35, 49)
     pipeline.ba_diagnostics = bool(getattr(unwrapped_model, "ba_diagnostics", False))
     pipeline.ba_patch_top_k = float(getattr(unwrapped_model, "ba_patch_top_k", 1.0))
     pipeline.branched_attn_weight_mode = getattr(unwrapped_model, "branched_attn_weight_mode", "shared")

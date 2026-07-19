@@ -565,6 +565,10 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         # Added parameters (for PhotoMaker)
         input_id_images: PipelineImageInput = None,
+        # Diagnostic-only spatial reference override. PhotoMaker ID prompt
+        # conditioning still comes exclusively from input_id_images.
+        ppr_reference_image: PipelineImageInput = None,
+        ppr_face_bbox_ref: Optional[List[float]] = None,
         # start_merge_step kept for back-compat. If provided, it will populate both new knobs.
         start_merge_step: int = 10, # TODO: change to `style_strength_ratio` in the future
         # NEW: split the semantics
@@ -875,17 +879,32 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         self.mask_softness = float(mask_softness)
         self.force_binary_masks = bool(float(mask_softness) <= 0.0)
         # ### 05 APR - FIX VALIDATION REF BATCHING ISSUE ###
+        spatial_reference_images = (
+            ppr_reference_image
+            if ppr_reference_image is not None
+            else input_id_images_for_setup
+        )
+        if ppr_reference_image is not None and not isinstance(
+            spatial_reference_images,
+            (list, tuple),
+        ):
+            spatial_reference_images = [spatial_reference_images]
+        spatial_reference_bbox = (
+            ppr_face_bbox_ref
+            if ppr_reference_image is not None
+            else face_bbox_ref
+        )
         run_branched_setup_helper(
             self,
             use_branched_attention=use_branched_attention,
-            input_id_images=input_id_images_for_setup,
+            input_id_images=spatial_reference_images,
             height=height,
             width=width,
             latents=latents,
             id_pixel_values=id_pixel_values,
             auto_mask_ref=auto_mask_ref,
             use_bbox_mask_ref=use_bbox_mask_ref,
-            face_bbox_ref=face_bbox_ref,
+            face_bbox_ref=spatial_reference_bbox,
             mask_expansion_ratio=mask_expansion_ratio,
             mask_softness=mask_softness,
             import_mask_ref=import_mask_ref,

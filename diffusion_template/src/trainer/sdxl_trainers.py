@@ -395,6 +395,11 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         
     @torch.no_grad()
     def process_evaluation_batch(self, batch, eval_metrics):
+        if bool(getattr(self.config, "ppr_diagnostic_matrix", False)):
+            from src.trainer.ppr_diagnostic import run_ppr_diagnostic_batch
+
+            return run_ppr_diagnostic_batch(self, batch, eval_metrics)
+
         prompts = batch["prompt"]
         if isinstance(prompts, str):
             prompts = [prompts]
@@ -901,3 +906,10 @@ class PhotomakerLoraTrainer(SDXLTrainer):
 
         #### 08 MAR - FIX BATCHED VALIDATION ####
         return batch
+
+    def finalize_ppr_diagnostic_matrix(self):
+        if not bool(getattr(self.config, "ppr_diagnostic_matrix", False)):
+            return
+        from src.trainer.ppr_diagnostic import finalize_ppr_diagnostic_matrix
+
+        finalize_ppr_diagnostic_matrix(self)

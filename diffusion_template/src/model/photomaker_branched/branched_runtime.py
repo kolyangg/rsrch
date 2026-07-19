@@ -128,6 +128,26 @@ def patch_unet_attention_processors(
             setattr(proc, "ba_weights_split", getattr(pipe, "ba_weights_split"))
         if hasattr(pipe, "force_binary_masks"):
             setattr(proc, "force_binary_masks", bool(getattr(pipe, "force_binary_masks")))
+        if isinstance(proc, PackedResidualBranchedAttnProcessor):
+            runtime_scale = float(getattr(pipe, "ba_ppr_runtime_scale", 1.0))
+            if not math.isfinite(runtime_scale) or runtime_scale < 0.0:
+                raise ValueError(
+                    f"ba_ppr_runtime_scale must be finite and non-negative, got {runtime_scale}"
+                )
+            proc.runtime_scale = runtime_scale
+            proc.diagnostic_step = int(getattr(pipe, "_ba_ppr_step_idx", -1))
+            proc.diagnostic_steps = tuple(
+                int(step)
+                for step in getattr(pipe, "ba_ppr_diagnostic_steps", (15, 25, 35, 49))
+            )
+            proc.diagnostic_variant = str(
+                getattr(pipe, "ba_ppr_diagnostic_variant", "")
+            )
+            proc.diagnostic_sink = getattr(
+                pipe,
+                "_ba_ppr_processor_diagnostics",
+                None,
+            )
             
         
 
@@ -550,6 +570,7 @@ def two_branch_predict(
     batched_latents = torch.cat([latent_model_input, ref_noised], dim=0)
     
     # Patch processors with masks
+    pipeline._ba_ppr_step_idx = int(step_idx)
     patch_unet_attention_processors(
         pipeline, mask4, mask4_ref, scale,
         id_embeds=id_embeds if face_embed_strategy == "id_embeds" else None,
@@ -795,11 +816,25 @@ def two_branch_predict(
     output_anchor_mode = str(
         getattr(pipeline, "ba_output_anchor_mode", "none") or "none"
     ).lower()
-    if output_anchor_mode == "base_outside_core":
+    force_base_output = bool(
+        getattr(pipeline, "ba_ppr_force_base_output", False)
+    )
+    collect_diagnostics = bool(
+        getattr(pipeline, "ba_ppr_collect_diagnostics", False)
+    )
+    needs_base_prediction = (
+        output_anchor_mode == "base_outside_core"
+        or force_base_output
+        or collect_diagnostics
+    )
+    base_noise_pred = None
+    core_mask = None
+    pre_anchor_noise_pred = noise_pred_merged
+    if needs_base_prediction:
         original_processors = getattr(pipeline, "_original_attn_processors", None)
         if not original_processors:
             raise RuntimeError(
-                "base_outside_core requires the original attention-processor registry"
+                "PPR output control requires the original attention-processor registry"
             )
 
         branched_processors = dict(pipeline.unet.attn_processors)
@@ -840,6 +875,14 @@ def two_branch_predict(
                 align_corners=False,
             ).to(noise_pred_merged.dtype)
 
+    anchor_state = "none"
+    if force_base_output:
+        # Diagnostic A: return the actual ordinary single-target prediction.
+        # The doubled call above is intentionally excluded from the scheduler
+        # update even when its processor-local residual is zero.
+        noise_pred_merged = base_noise_pred
+        anchor_state = "diagnostic-force-base"
+    elif output_anchor_mode == "base_outside_core":
         branch_is_exactly_off = False
         if not torch.is_grad_enabled():
             cached_branch_state = getattr(
@@ -872,6 +915,10 @@ def two_branch_predict(
             )
             anchor_state = "base-outside-core"
 
+    elif output_anchor_mode != "none":
+        raise ValueError(f"Unknown ba_output_anchor_mode: {output_anchor_mode}")
+
+    if force_base_output or output_anchor_mode == "base_outside_core":
         if not bool(getattr(pipeline, "_ba_output_anchor_logged", False)):
             print(
                 "[BA output anchor] "
@@ -879,8 +926,98 @@ def two_branch_predict(
                 f"core_mean={core_mask.float().mean().item():.6f}"
             )
             pipeline._ba_output_anchor_logged = True
-    elif output_anchor_mode != "none":
-        raise ValueError(f"Unknown ba_output_anchor_mode: {output_anchor_mode}")
+
+    diagnostic_steps = tuple(
+        int(step)
+        for step in getattr(
+            pipeline,
+            "ba_ppr_diagnostic_steps",
+            (15, 25, 35, 49),
+        )
+    )
+    if collect_diagnostics and int(step_idx) in diagnostic_steps:
+        def _apply_cfg(prediction: torch.Tensor) -> torch.Tensor:
+            if not bool(getattr(pipeline, "do_classifier_free_guidance", False)):
+                return prediction.float()
+            if prediction.shape[0] % 2 != 0:
+                raise RuntimeError(
+                    f"PPR diagnostics expected an even CFG batch, got {prediction.shape[0]}"
+                )
+            unconditional, conditional = prediction.float().chunk(2)
+            guidance_scale = float(getattr(pipeline, "guidance_scale", 1.0))
+            return unconditional + guidance_scale * (conditional - unconditional)
+
+        def _masked_ratio(
+            prediction: torch.Tensor,
+            base: torch.Tensor,
+            region: torch.Tensor,
+        ) -> torch.Tensor:
+            region = region.float()
+            if region.shape[-2:] != prediction.shape[-2:]:
+                region = F.interpolate(
+                    region,
+                    size=prediction.shape[-2:],
+                    mode="bilinear",
+                    align_corners=False,
+                )
+            if region.shape[0] != prediction.shape[0]:
+                region = region[: prediction.shape[0]]
+            channels = float(prediction.shape[1])
+            count = (region.sum(dim=(1, 2, 3)) * channels).clamp_min(1.0)
+            difference_rms = torch.sqrt(
+                (
+                    region
+                    * (prediction.float() - base.float()).square()
+                ).sum(dim=(1, 2, 3))
+                / count
+            )
+            base_rms = torch.sqrt(
+                (region * base.float().square()).sum(dim=(1, 2, 3)) / count
+                + 1e-12
+            )
+            return difference_rms / (base_rms + 1e-12)
+
+        base_cfg = _apply_cfg(base_noise_pred)
+        pre_cfg = _apply_cfg(pre_anchor_noise_pred)
+        post_cfg = _apply_cfg(noise_pred_merged)
+        output_batch = int(base_cfg.shape[0])
+        core_cfg = core_mask[:output_batch]
+        bbox_cfg = (mask4[:output_batch] > 0.5).to(core_cfg.dtype)
+        outside_bbox = 1.0 - bbox_cfg
+        pre_core = _masked_ratio(pre_cfg, base_cfg, core_cfg)
+        pre_outside = _masked_ratio(pre_cfg, base_cfg, outside_bbox)
+        post_core = _masked_ratio(post_cfg, base_cfg, core_cfg)
+        post_outside = _masked_ratio(post_cfg, base_cfg, outside_bbox)
+        sample_keys = list(
+            getattr(pipeline, "ba_ppr_diagnostic_sample_keys", ())
+        )
+        if len(sample_keys) != output_batch:
+            sample_keys = [str(index) for index in range(output_batch)]
+        sink = getattr(pipeline, "_ba_ppr_epsilon_diagnostics", None)
+        if isinstance(sink, list):
+            timestep_value = (
+                int(t.flatten()[0].item())
+                if torch.is_tensor(t)
+                else int(t)
+            )
+            variant = str(
+                getattr(pipeline, "ba_ppr_diagnostic_variant", "")
+            )
+            for sample_index, sample_key in enumerate(sample_keys):
+                sink.append(
+                    {
+                        "record_type": "epsilon_ratio",
+                        "variant": variant,
+                        "sample": sample_key,
+                        "step": int(step_idx),
+                        "timestep": timestep_value,
+                        "output_control": anchor_state,
+                        "inside_core_pre_anchor": float(pre_core[sample_index].item()),
+                        "outside_bbox_pre_anchor": float(pre_outside[sample_index].item()),
+                        "inside_core_post_anchor": float(post_core[sample_index].item()),
+                        "outside_bbox_post_anchor": float(post_outside[sample_index].item()),
+                    }
+                )
     
     USE_SOFT_BLENDING = True
     

@@ -28,6 +28,11 @@ update_proc_weights_val: true
 validation_only: false
 ppr_checkpoint_require_nonzero: false
 strict_checkpoint_model_config: false
+ppr_expected_checkpoint_epoch: null
+ppr_diagnostic_matrix: false
+ppr_diagnostic_output_dir: ppr_4k_diagnostic
+ppr_diagnostic_overwrite: false
+ppr_diagnostic_swap_count: 12
 
 model:
   ba_processor_variant: packed_residual_v1

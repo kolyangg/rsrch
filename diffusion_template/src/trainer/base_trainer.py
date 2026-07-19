@@ -195,6 +195,8 @@ class BaseTrainer:
             val_logs = self._evaluation_epoch(epoch, part, dataloader)
             if self.accelerator.is_main_process:
                 logs.update({f"{part}/{name}": value for name, value in val_logs.items()})
+        if hasattr(self, "finalize_ppr_diagnostic_matrix"):
+            self.finalize_ppr_diagnostic_matrix()
         self.accelerator.wait_for_everyone()
         if self.accelerator.is_main_process:
             self.logger.info(
@@ -1072,6 +1074,19 @@ class BaseTrainer:
         checkpoint = torch.load(pretrained_path, self.device, weights_only=False)
 
         if checkpoint.get("state_dict") is not None:
+            expected_epoch = getattr(
+                self.config,
+                "ppr_expected_checkpoint_epoch",
+                None,
+            )
+            if (
+                expected_epoch is not None
+                and int(checkpoint.get("epoch", -1)) != int(expected_epoch)
+            ):
+                raise RuntimeError(
+                    f"Expected checkpoint epoch {int(expected_epoch)}, "
+                    f"found {checkpoint.get('epoch')}"
+                )
             if bool(getattr(self.config, "strict_checkpoint_model_config", False)):
                 saved_config = checkpoint.get("config")
                 saved_model = saved_config.get("model") if saved_config is not None else None
