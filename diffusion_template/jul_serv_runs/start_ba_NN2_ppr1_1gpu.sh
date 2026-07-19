@@ -3,12 +3,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 export NN1_CONFIG_NAME="one_id_ba_NN2_ppr1"
-export NN1_RUN_NAME_DEFAULT="ba_NN2_ppr1_1gpu"
-export NN1_DEFAULT_GPU="1"
-export NN1_DEFAULT_PORT="29620"
-export NN1_DESCRIPTION="NN2-PPR1: up-block packed-reference residual; frozen split CA"
+export NN1_RUN_NAME_DEFAULT="${NN1_RUN_NAME_DEFAULT:-ba_NN2_ppr1_1gpu}"
+export NN1_DEFAULT_GPU="${NN1_DEFAULT_GPU:-0}"
+export NN1_DEFAULT_PORT="${NN1_DEFAULT_PORT:-29620}"
+export NN1_DESCRIPTION="${NN1_DESCRIPTION:-NN2-PPR1: up-block packed-reference residual; frozen split CA}"
 export NN1_REQUIRE_ID_LOSS="0"
-export NN1_LAUNCHER_PATH="${SCRIPT_DIR}/$(basename -- "${BASH_SOURCE[0]}")"
+export NN1_LAUNCHER_PATH="${NN1_LAUNCHER_PATH:-${SCRIPT_DIR}/$(basename -- "${BASH_SOURCE[0]}")}"
 
 # Prefer the project PhotoMaker environment when the caller has not activated it.
 if [[ -n "${PHOTOMAKER_ENV_BIN:-}" ]]; then
@@ -37,7 +37,6 @@ export NUM_EPOCHS="${NUM_EPOCHS:-3}"
 export OPTIMIZER_STEPS_PER_EPOCH="${OPTIMIZER_STEPS_PER_EPOCH:-2000}"
 export FULL_STEP0_VAL="${FULL_STEP0_VAL:-true}"
 
-# This final override wins over the legacy RealVis override in the common runner.
-source "${SCRIPT_DIR}/_run_ba_NN1_common_1gpu.sh" \
-  pretrained_model_for_validation_name_or_path=null \
-  "$@"
+# Same-base validation is the PPR default; the RealVis wrapper overrides it.
+export NN1_VALIDATION_MODEL="${NN1_VALIDATION_MODEL:-null}"
+source "${SCRIPT_DIR}/_run_ba_NN1_common_1gpu.sh" "$@"

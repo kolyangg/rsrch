@@ -18,6 +18,7 @@ OPTIMIZER_STEPS_PER_EPOCH="${OPTIMIZER_STEPS_PER_EPOCH:-2000}"
 NUM_EPOCHS="${NUM_EPOCHS:-5}"
 WARMUP_OPTIMIZER_STEPS="${WARMUP_OPTIMIZER_STEPS:-2000}"
 FULL_STEP0_VAL="${FULL_STEP0_VAL:-true}"
+VALIDATION_MODEL="${NN1_VALIDATION_MODEL:-SG161222/RealVisXL_V4.0}"
 HYDRA_ARGS=()
 for arg in "$@"; do
     if [[ "${arg}" == "full_step0_val" ]]; then
@@ -105,7 +106,7 @@ echo "${NN1_DESCRIPTION}"
 echo "Config: ${NN1_CONFIG_NAME}"
 echo "Training: GPU=${CUDA_VISIBLE_DEVICES:-${NN1_DEFAULT_GPU}} ranks=1 physical_batch=${TRAIN_BATCH_SIZE} accumulation=${ACCUM_STEPS} effective_batch=${LOCAL_EFFECTIVE_BATCH}"
 echo "Budget: ${TOTAL_OPTIMIZER_STEPS} optimizer steps (${NUM_EPOCHS} x ${OPTIMIZER_STEPS_PER_EPOCH})"
-echo "Validation: batch=${VAL_BATCH_SIZE_PER_GPU}; full fixed 96 images at step 0 and every ${OPTIMIZER_STEPS_PER_EPOCH} optimizer steps"
+echo "Validation: base=${VALIDATION_MODEL}; batch=${VAL_BATCH_SIZE_PER_GPU}; full fixed 96 images at step 0 and every ${OPTIMIZER_STEPS_PER_EPOCH} optimizer steps"
 
 ACCELERATE_LOG_LEVEL=error \
 TRANSFORMERS_VERBOSITY=error \
@@ -150,7 +151,7 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml \
     automatic_bboxes_every_val=false \
     force_log_first_auto_bbox=false \
     trainer.masked_loss_step=2 \
-    pretrained_model_for_validation_name_or_path=SG161222/RealVisXL_V4.0 \
+    pretrained_model_for_validation_name_or_path="${VALIDATION_MODEL}" \
     metrics=all_metrics \
     writer=cometml writer.run_name="${RUN_NAME}" \
     "${HYDRA_ARGS[@]}"

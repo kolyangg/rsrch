@@ -61,7 +61,7 @@ The experiment config is:
 src/configs/one_id_ba_NN2_ppr1.yaml
 ```
 
-Important fixed choices:
+Important fixed choices for the primary, same-base run:
 
 - one SDXL base for training and validation;
 - no alternate RealVis validation model;
@@ -109,14 +109,22 @@ modules or detach the optimizer from live parameters.
 
 ## Launcher
 
-The one-GPU launcher is:
+The primary one-GPU launcher is:
 
 ```text
 jul_serv_runs/start_ba_NN2_ppr1_1gpu.sh
 ```
 
-It defaults to physical GPU 1 and port 29620. It prefers the PhotoMaker conda
-environment and accepts `PHOTOMAKER_ENV_BIN` when the environment is in a
+It validates with the same configured SDXL base used for training. A separate
+launcher validates the same trained architecture with RealVisXL:
+
+```text
+jul_serv_runs/start_ba_NN2_ppr1_realvis_1gpu.sh
+```
+
+Both default to physical GPU 0. The primary launcher uses port 29620 and the
+RealVis launcher uses port 29621. They prefer the PhotoMaker conda
+environment and accept `PHOTOMAKER_ENV_BIN` when the environment is in a
 machine-specific location.
 
 Launch from the repository:
@@ -125,10 +133,16 @@ Launch from the repository:
 bash jul_serv_runs/start_ba_NN2_ppr1_1gpu.sh
 ```
 
-Select another GPU:
+Launch with RealVis validation:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 \
+bash jul_serv_runs/start_ba_NN2_ppr1_realvis_1gpu.sh
+```
+
+Select another physical GPU for either launcher:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 \
 bash jul_serv_runs/start_ba_NN2_ppr1_1gpu.sh
 ```
 
