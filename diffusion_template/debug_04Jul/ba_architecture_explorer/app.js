@@ -677,6 +677,8 @@ const CONFIGS = {
     faceArbitration: "absolute reference-attention face output",
     layerRouting: "reference BA at all 70 attn1 sites",
     queryRegion: "hard target face bbox",
+    v2FaceMode: "reference",
+    v2RefMode: "roi",
     selfAttentionSubtitle: "Qtarget face → packed ROI K/Vreference",
     mechanismNote:
       "Target face Q attends only real ROI-normalized reference tokens; no zero-masked full-grid K/V remains in the softmax.",
@@ -726,6 +728,8 @@ const CONFIGS = {
     faceArbitration: "separate target-K/V and reference-K/V attention outputs; bounded per-head blend",
     layerRouting: "dual attention at all 70 attn1 sites",
     queryRegion: "hard target face bbox",
+    v2FaceMode: "dual",
+    v2RefMode: "full_grid",
     selfAttentionSubtitle: "Qtarget face → target K/V + reference K/V",
     mechanismNote:
       "The same target-face Q is evaluated against target and reference K/V in separate softmaxes; a bounded per-head/layer gate blends the two outputs.",
@@ -776,6 +780,8 @@ const CONFIGS = {
     faceArbitration: "separate target-K/V and packed-reference-K/V outputs; bounded per-head blend",
     layerRouting: "dual attention at all 70 attn1 sites",
     queryRegion: "hard target face bbox",
+    v2FaceMode: "dual",
+    v2RefMode: "roi",
     selfAttentionSubtitle: "Qtarget face → target K/V + packed ROI K/V",
     mechanismNote:
       "Target geometry and packed reference identity are attended in separate lanes, then combined by a bounded per-head/layer gate.",
@@ -833,6 +839,8 @@ const CONFIGS = {
     faceArbitration: "absolute reference-attention output at enabled sites",
     layerRouting: "reference K/V only at 36 up-block attn1 sites; target K/V at 34 down/mid sites",
     queryRegion: "hard target face bbox",
+    v2FaceMode: "layer_switch",
+    v2RefMode: "full_grid",
     selfAttentionSubtitle: "target K/V coarse · reference K/V in up blocks",
     mechanismNote:
       "All 70 BranchedAttnProcessor objects remain installed; down/mid sites keep target K/V while 36 up-block sites use reference-face K/V.",
@@ -882,6 +890,8 @@ const CONFIGS = {
     faceArbitration: "reference attention in inner core; target attention in protected boundary ring",
     layerRouting: "two-zone routing at all 70 attn1 sites",
     queryRegion: "inner ellipse/core plus target-owned face boundary ring",
+    v2FaceMode: "core_ring",
+    v2RefMode: "full_grid",
     selfAttentionSubtitle: "reference identity core · target-owned boundary",
     mechanismNote:
       "Reference K/V may alter only an inner-face core; target K/V owns a surrounding ring that includes face edges, hair, neck, and nearby occluders.",
@@ -934,6 +944,8 @@ const CONFIGS = {
     faceArbitration: "target self-attention plus zero-init reference BA residual gated by attention confidence",
     layerRouting: "confidence-gated residual at all 70 attn1 sites",
     queryRegion: "hard target face bbox; per-query confidence fallback to target",
+    v2FaceMode: "confidence_residual",
+    v2RefMode: "roi",
     selfAttentionSubtitle: "target SA + confident packed-ROI BA delta",
     mechanismNote:
       "Target self-attention remains the absolute face anchor. Target Q still attends packed reference K/V, but its projected delta is suppressed for diffuse/low-confidence queries.",
@@ -2564,11 +2576,237 @@ function markerDefs(markerId) {
     .join("");
 }
 
+function currentDiagramVersion() {
+  return document.getElementById("diagram-version")?.value === "v2" ? "v2" : "v1";
+}
+
+function v2ArchitectureSpec(config) {
+  if (config.topology !== "legacy_spatial") {
+    return {
+      compact: true,
+      refPrepTitle: config.memory.label,
+      refPrepSubtitle: config.memory.detail,
+      faceLanesTitle: "PhotoMaker CA + compact identity CA",
+      faceLanesSubtitle: "Target-coordinate Q in both lanes; attn1 remains standard",
+      arbitrationTitle: config.compositionShort,
+      arbitrationSubtitle: config.composition,
+      ownershipTitle: `${config.sites.count}/70 target-face attn2 sites`,
+      ownershipSubtitle: `${config.sites.effective} effective unit-gate sites · hard target bbox`,
+    };
+  }
+
+  const mode = config.v2FaceMode || "reference";
+  const roi = config.v2RefMode === "roi";
+  const modes = {
+    reference: {
+      targetActive: false,
+      faceLanesTitle: "Reference face-attention lane only",
+      faceLanesSubtitle: "A_target is not used for target-face queries",
+      arbitrationLines: ["ABSOLUTE REFERENCE", "face = A_reference"],
+      arbitrationSubtitle: "Reference attention replaces target face attention",
+      ownershipTitle: "Reference route at all 70 attn1 sites",
+      ownershipSubtitle: "Hard target bbox; background remains target-owned",
+      layerTitle: "all 70 SA sites → reference face lane",
+      queryTitle: "hard bbox M → reference-owned face",
+    },
+    dual: {
+      targetActive: true,
+      faceLanesTitle: "Separate target + reference softmax lanes",
+      faceLanesSubtitle: "A_target and A_reference are computed independently",
+      arbitrationLines: ["PER-HEAD GATE", "(1−gₕ)A_target + gₕA_reference"],
+      arbitrationSubtitle: "Bounded gate per head/layer · gₕ init 0.25",
+      ownershipTitle: "Dual lanes at all 70 attn1 sites",
+      ownershipSubtitle: "Hard target bbox; learned target/reference arbitration",
+      layerTitle: "all 70 SA sites → gated dual lanes",
+      queryTitle: "hard bbox M → per-head target/reference gate",
+    },
+    layer_switch: {
+      targetActive: true,
+      faceLanesTitle: "Target and reference lanes split by U-Net depth",
+      faceLanesSubtitle: "Target protects coarse geometry; reference supplies up-path detail",
+      arbitrationLines: ["LAYER SWITCH", "down/mid → A_target", "36 up sites → A_reference"],
+      arbitrationSubtitle: "No per-head blend; ownership changes by layer",
+      ownershipTitle: "34 down/mid target · 36 up reference",
+      ownershipSubtitle: "Hard target bbox at every site",
+      layerTitle: "34 down/mid → target · 36 up → reference",
+      queryTitle: "hard bbox M · layer chooses identity owner",
+    },
+    core_ring: {
+      targetActive: true,
+      faceLanesTitle: "Target and reference lanes split in target space",
+      faceLanesSubtitle: "Reference owns inner identity core; target owns boundary ring",
+      arbitrationLines: ["SPATIAL SWITCH", "core → A_reference", "ring → A_target"],
+      arbitrationSubtitle: "Two target-coordinate masks; no learned gate",
+      ownershipTitle: "Inner 70% reference · boundary ring target",
+      ownershipSubtitle: "All 70 attn1 sites; hair/neck/edges protected",
+      layerTitle: "all 70 SA sites → two-zone routing",
+      queryTitle: "inner core Mcore · target boundary ring Mring",
+    },
+    confidence_residual: {
+      targetActive: true,
+      faceLanesTitle: "Target anchor + packed-reference residual lane",
+      faceLanesSubtitle: "Separate target/reference softmax; target remains absolute owner",
+      arbitrationLines: ["CONFIDENCE RESIDUAL", "A_target + tanh(gₕ)c", "· (A_reference−A_target)"],
+      arbitrationSubtitle: "gₕ init 0 · c = 1 − H(attn)/log 64",
+      ownershipTitle: "Target fallback per query at all 70 sites",
+      ownershipSubtitle: "Packed ROI residual suppressed when attention is diffuse",
+      layerTitle: "all 70 SA sites → confidence-gated delta",
+      queryTitle: "hard bbox M · low confidence → target fallback",
+    },
+  };
+  const selected = modes[mode] || modes.reference;
+  return {
+    compact: false,
+    mode,
+    roi,
+    refPrepTitle: roi
+      ? "ROI crop + normalize → packed 8×8 K/V"
+      : "Mask full reference grid → H×W K/V",
+    refPrepSubtitle: roi
+      ? "64 real face tokens · no outside-grid softmax positions"
+      : "Outside-face positions become zero K/V but remain in softmax",
+    referenceLaneSubtitle: roi
+      ? "Attn(Q_target, K_ROI, V_ROI) · separate softmax"
+      : "Attn(Q_target, K_reference, V_reference) · separate softmax",
+    ...selected,
+  };
+}
+
+function renderV2ArchitectureStrip(config) {
+  const spec = v2ArchitectureSpec(config);
+  const facts = [
+    [
+      "Reference K/V preparation",
+      spec.refPrepTitle,
+      spec.refPrepSubtitle,
+      "reference memory memoryFlow selfAttention residualFlow",
+    ],
+    [
+      "Face-attention lanes",
+      spec.faceLanesTitle,
+      spec.faceLanesSubtitle,
+      config.topology === "legacy_spatial"
+        ? "selfAttention residualFlow"
+        : "pmPass baPass residual residualFlow standardSelfAttention",
+    ],
+    [
+      "Arbitration / merge",
+      spec.arbitrationLines?.join(" · ") || spec.arbitrationTitle,
+      spec.arbitrationSubtitle,
+      config.topology === "legacy_spatial"
+        ? "selfAttention residualFlow"
+        : "compose pmPass residual",
+    ],
+    [
+      "Layer + query ownership",
+      spec.ownershipTitle,
+      spec.ownershipSubtitle,
+      "sites selfAttention mask maskFlow",
+    ],
+  ];
+  return `
+    <section class="v2-architecture-strip" aria-label="${escapeHtml(config.short)} explicit architecture summary">
+      ${facts
+        .map(
+          ([label, title, subtitle, keys]) => `
+            <div class="v2-architecture-fact" data-compare-keys="${keys}">
+              <span>${escapeHtml(label)}</span>
+              <strong>${escapeHtml(title)}</strong>
+              <small>${escapeHtml(subtitle)}</small>
+            </div>`,
+        )
+        .join("")}
+    </section>`;
+}
+
 function renderSvg(config, panelId) {
+  if (currentDiagramVersion() === "v2" && config.topology === "legacy_spatial") {
+    return renderLegacyOverviewV2Svg(config, panelId);
+  }
   if (config.topology === "legacy_spatial") {
     return renderLegacyOverviewSvg(config, panelId);
   }
   return renderCompactOverviewSvg(config, panelId);
+}
+
+function renderLegacyOverviewV2Svg(config, panelId) {
+  const markerId = `arrow-v2-${panelId}`;
+  const spec = v2ArchitectureSpec(config);
+  const facePromptLabel = config.facePromptLabel || ["ID-only", "face prompt"];
+  const facePromptSubtitle = config.facePromptSubtitle || "reference-half CA";
+  const targetLaneClass = spec.targetActive ? "pm" : "inactive";
+  const targetLaneEdge = spec.targetActive
+    ? `
+      ${edge("M714 225 C735 245 735 320 714 350", "selfAttention", "pm", markerId)}
+      ${edgeLabel(724, 303, "A_target", "pm")}`
+    : "";
+  const trainingScheduleLabel = String(config.trainingSchedule || "").startsWith(
+    "Sample only BA-active",
+  )
+    ? "train samples BA-active timesteps only"
+    : "train samples all timesteps";
+  return `
+  <svg class="architecture-svg v2-svg" viewBox="0 0 1080 720" aria-label="${escapeHtml(config.short)} explicit legacy spatial architecture overview">
+    <defs>${markerDefs(markerId)}</defs>
+
+    <text class="group-label" x="24" y="26">Inputs and conditioning</text>
+    <text class="group-label" x="332" y="26">Reference K/V preparation</text>
+    <text class="group-label" x="570" y="26">One doubled U-Net call</text>
+    <text class="group-label" x="910" y="26">Absolute output</text>
+
+    ${node(24, 48, 132, 64, "reference", ["Reference image"], "full spatial evidence", "ba")}
+    ${node(178, 48, 130, 64, "memory", ["VAE + noise", "xreference,t"], "second batch half", "ba")}
+    ${node(332, 40, 194, 82, "memory", spec.refPrepTitle.split(" → "), spec.refPrepSubtitle, "ba")}
+    ${node(24, 182, 132, 68, "target", ["Target noisy", "latent xₜ"], "first batch half", "pm")}
+    ${node(24, 340, 132, 66, "prompt", ["Generation", "PM prompt"], "target-half CA", "pm")}
+    ${node(24, 430, 132, 66, "facePrompt", facePromptLabel, facePromptSubtitle, "ba")}
+    ${node(24, 540, 132, 72, "mask", ["Target query", "mask(s)"], spec.queryTitle, "mask")}
+
+    <g class="unet-shell clickable" data-inspect="baPass" tabindex="0" role="button">
+      <rect x="550" y="40" width="330" height="566" rx="9"></rect>
+      <text class="shell-title" x="715" y="61">Doubled batch [target, reference]</text>
+    </g>
+    ${node(570, 76, 290, 62, "baPass", ["Target + reference streams"], "single absolute BA prediction", "")}
+
+    <rect class="lane-shell" x="566" y="158" width="298" height="126" rx="9"></rect>
+    <text class="lane-label" x="715" y="174">BranchedAttnProcessor · two explicit candidate lanes</text>
+    ${node(580, 190, 134, 72, "selfAttention", ["A_target", "target-face lane"], spec.targetActive ? "Attn(Qₜ,Kₜ,Vₜ)" : "inactive for target face", targetLaneClass)}
+    ${node(726, 190, 124, 72, "residualFlow", ["A_reference", "reference lane"], spec.referenceLaneSubtitle, "ba")}
+
+    ${node(580, 296, 270, 46, "mask", ["Query ownership"], spec.queryTitle, "mask")}
+    ${node(596, 350, 238, 100, "selfAttention", spec.arbitrationLines, spec.arbitrationSubtitle, "arbitration")}
+    ${node(596, 482, 238, 68, "crossAttention", ["Split cross-attention"], config.sites.caTrainable === false ? "target↔gen · reference↔face · frozen" : "target↔gen · reference↔face · trainable", "pm")}
+    ${node(580, 566, 270, 30, "sites", [spec.layerTitle], "", "output")}
+
+    ${node(900, 48, 160, 104, "scheduleFlow", ["Temporal switch", "0–9 text", "10–14 PhotoMaker", "15–49 spatial BA"], trainingScheduleLabel, "train")}
+    ${node(910, 304, 150, 82, "compose", ["Return target", "epsilon half"], "no outer PM merge", "ba")}
+    ${node(910, 470, 150, 72, "output", ["CFG → scheduler"], config.schedule, "output")}
+    ${node(324, 632, 204, 66, "history", ["Architecture evidence"], `${LEGACY_SPATIAL.slice(0, 8)} + ${config.sourceCommit}`, "")}
+    ${node(550, 632, 310, 66, "objective", ["Training objective"], config.objectiveShort, "train")}
+
+    ${edge("M156 80 C166 80 168 80 178 80", "memoryFlow", "ba", markerId)}
+    ${edge("M308 80 C318 80 322 80 332 80", "memoryFlow", "ba", markerId)}
+    ${edge("M156 216 C360 216 430 107 570 107", "target", "pm", markerId)}
+    ${edge("M526 80 C600 82 640 146 788 190", "memoryFlow", "ba", markerId)}
+    ${edge("M715 138 C715 155 650 166 647 190", "selfAttention", "pm", markerId)}
+    ${edge("M715 138 C754 150 780 164 788 190", "residualFlow", "ba", markerId)}
+    ${targetLaneEdge}
+    ${edge("M788 262 C780 293 760 324 750 350", "residualFlow", "ba", markerId)}
+    ${edge("M156 576 C360 576 500 390 580 319", "maskFlow", "mask", markerId)}
+    ${edge("M715 342 C715 346 715 348 715 350", "maskFlow", "mask", markerId)}
+    ${edge("M715 450 C715 462 715 470 715 482", "selfAttention", "ba", markerId)}
+    ${edge("M156 373 C360 373 470 500 596 510", "prompt", "pm", markerId)}
+    ${edge("M156 463 C360 463 470 525 596 525", "facePrompt", "ba", markerId)}
+    ${edge("M834 516 C880 516 886 361 910 346", "compose", "ba", markerId)}
+    ${edge("M985 386 C985 420 985 438 985 470", "pmFlow", "pm", markerId)}
+    ${edge("M900 100 C880 100 875 102 860 107", "scheduleFlow", "train", markerId)}
+    ${edge("M705 632 C705 616 705 608 705 596", "trainFlow", "train", markerId)}
+
+    ${edgeLabel(534, 70, spec.roi ? "packed Kref / Vref" : "masked Kref / Vref", "ba")}
+    ${edgeLabel(648, 159, "Qtarget + Ktarget / Vtarget", "pm")}
+    ${edgeLabel(777, 159, "Qtarget + Kref / Vref", "ba")}
+    ${edgeLabel(846, 495, "target′ + reference′", "ba")}
+  </svg>`;
 }
 
 function renderLegacyOverviewSvg(config, panelId) {
@@ -2691,9 +2929,113 @@ function renderCompactOverviewSvg(config, panelId) {
 }
 
 function renderMechanismSvg(config, panelId) {
+  if (currentDiagramVersion() === "v2" && config.topology === "legacy_spatial") {
+    return renderLegacyMechanismV2Svg(config, panelId);
+  }
   return config.topology === "legacy_spatial"
     ? renderLegacyMechanismSvg(config, panelId)
     : renderResidualMechanismSvg(config, panelId);
+}
+
+function renderLegacyMechanismV2Svg(config, panelId) {
+  const markerId = `mechanism-v2-${panelId}`;
+  const spec = v2ArchitectureSpec(config);
+  const facePromptLabel = config.facePromptLabel || ["ID-only face prompt"];
+  const facePromptSubtitle = config.facePromptSubtitle || "reference-half context";
+  const targetLaneClass = spec.targetActive ? "pm" : "inactive";
+  const targetLanePaths = spec.targetActive
+    ? `
+      ${edge("M340 104 C390 104 402 135 430 139", "selfAttention", "pm", markerId)}
+      ${edge("M340 190 C390 190 402 155 430 151", "selfAttention", "pm", markerId)}
+      ${edge("M580 143 C700 143 726 177 840 193", "selfAttention", "pm", markerId)}
+      ${edgeLabel(596, 132, "A_target", "pm")}`
+    : "";
+  const caTrainingText =
+    config.sites.caTrainable === false
+      ? "Both split CA lanes execute; cloned CA weights are frozen."
+      : "Both split CA lanes execute and their cloned weights train.";
+  return `
+  <svg class="mechanism-svg v2-svg" viewBox="0 0 1080 940" aria-label="${escapeHtml(config.short)} explicit branched self and cross attention">
+    <defs>${markerDefs(markerId)}</defs>
+
+    <text class="mechanism-title" x="24" y="30">A · BranchedAttnProcessor (attn1) — explicit target/reference face lanes</text>
+    <text class="mechanism-note" x="24" y="54">${escapeHtml(spec.faceLanesSubtitle)} Reference preparation and arbitration are shown as separate operations.</text>
+
+    ${node(24, 78, 150, 70, "target", ["target_hidden"], "target-coordinate source", "pm")}
+    ${node(24, 292, 150, 70, "memory", ["reference_hidden"], "reference-coordinate source", "ba")}
+    ${node(24, 438, 150, 74, "mask", ["Target query masks"], spec.queryTitle, "mask")}
+
+    ${node(210, 72, 130, 56, "selfAttention", ["Q_target"], "to_q(target)", "pm")}
+    ${node(210, 160, 130, 60, "selfAttention", ["K_target / V_target"], "to_k(target) · to_v(target)", "pm")}
+    ${node(210, 284, 154, 78, "memoryFlow", spec.roi ? ["ROI crop + normalize", "8×8 packed tokens"] : ["Full-grid face mask", "H×W positions retained"], spec.refPrepSubtitle, "ba")}
+    ${node(400, 294, 132, 62, "residualFlow", ["K_ref / V_ref"], spec.roi ? "64 real ROI tokens" : "masked full-grid tokens", "ba")}
+
+    <rect class="lane-shell" x="408" y="70" width="190" height="154" rx="9"></rect>
+    <text class="lane-label" x="503" y="88">Target-face candidate lane</text>
+    ${node(430, 106, 150, 74, "selfAttention", ["A_target"], spec.targetActive ? "softmax(QₜKₜᵀ) · Vₜ" : "not executed for target face", targetLaneClass)}
+
+    <rect class="lane-shell" x="608" y="246" width="192" height="168" rx="9"></rect>
+    <text class="lane-label" x="704" y="264">Reference-face candidate lane</text>
+    ${node(630, 286, 148, 82, "residualFlow", ["A_reference"], spec.roi ? "softmax(QₜKROIᵀ) · VROI" : "softmax(QₜKrefᵀ) · Vref", "ba")}
+
+    ${node(840, 144, 216, 124, "selfAttention", spec.arbitrationLines, spec.arbitrationSubtitle, "arbitration")}
+    ${node(850, 318, 196, 74, "selfAttention", ["Merged target face"], spec.arbitrationLines.join(" · "), "ba")}
+    ${node(404, 454, 194, 64, "selfAttention", ["Target background"], "Attn(Qbg,Ktarget,Vtarget)", "pm")}
+    ${node(626, 454, 174, 64, "selfAttention", ["Reference continuation"], "ordinary reference self-attn", "ba")}
+    ${node(840, 440, 216, 88, "sites", ["Layer / query policy"], spec.layerTitle, "output")}
+
+    ${edge("M174 102 C188 102 194 100 210 100", "selfAttention", "pm", markerId)}
+    ${edge("M174 118 C192 142 194 181 210 190", "selfAttention", "pm", markerId)}
+    ${edge("M174 327 C190 327 194 324 210 324", "memoryFlow", "ba", markerId)}
+    ${edge("M364 323 C378 323 384 325 400 325", "residualFlow", "ba", markerId)}
+    ${targetLanePaths}
+    ${edge("M340 104 C470 212 555 289 630 316", "residualFlow", "ba", markerId)}
+    ${edge("M532 325 C570 325 590 327 630 327", "residualFlow", "ba", markerId)}
+    ${edge("M778 327 C812 314 820 242 840 222", "residualFlow", "ba", markerId)}
+    ${edge("M948 268 C948 286 948 298 948 318", "selfAttention", "ba", markerId)}
+    ${edge("M174 126 C265 270 300 466 404 486", "selfAttention", "pm", markerId)}
+    ${edge("M174 345 C320 430 500 478 626 486", "selfAttention", "ba", markerId)}
+    ${edge("M174 475 C430 575 720 430 840 236", "maskFlow", "mask", markerId)}
+    ${edge("M948 392 C948 410 948 422 948 440", "selfAttention", "ba", markerId)}
+
+    ${edgeLabel(368, 93, "Q_target", "pm")}
+    ${edgeLabel(366, 183, "K_target / V_target", "pm")}
+    ${edgeLabel(538, 313, "K_ref / V_ref", "ba")}
+    ${edgeLabel(522, 226, "same Q_target", "ba")}
+    ${edgeLabel(790, 309, "A_reference", "ba")}
+    ${edgeLabel(782, 454, "M / core / ring / confidence", "mask")}
+
+    <rect class="formula-card" x="618" y="78" width="180" height="70" rx="8"></rect>
+    <text class="formula-card-text" x="708" y="100">two lanes = two softmaxes</text>
+    <text class="formula-card-text" x="708" y="119">no K/V concatenation</text>
+    <text class="formula-card-text" x="708" y="138">before arbitration</text>
+
+    <line class="mechanism-divider" x1="24" y1="578" x2="1056" y2="578"></line>
+    <text class="mechanism-title" x="24" y="614">B · BranchedCrossAttnProcessor (attn2) — split conditioning for the doubled streams</text>
+    <text class="mechanism-note" x="24" y="638">Generation prompt conditions the target half; ID-only face prompt conditions the reference half. ${escapeHtml(caTrainingText)}</text>
+
+    ${node(24, 684, 150, 62, "target", ["target_hidden"], "target stream", "pm")}
+    ${node(24, 792, 150, 62, "prompt", ["Generation prompt"], "PhotoMaker context", "pm")}
+    ${node(224, 698, 204, 92, "crossAttention", ["Target cross-attention", "Qtarget × K/Vgeneration"], "separate target-half softmax", "pm")}
+    ${node(470, 684, 150, 62, "memory", ["reference_hidden"], "reference stream", "ba")}
+    ${node(470, 792, 150, 62, "facePrompt", facePromptLabel, facePromptSubtitle, "ba")}
+    ${node(670, 698, 204, 92, "crossAttention", ["Reference cross-attention", "Qref × K/Vface"], "separate reference-half softmax", "ba")}
+    ${node(912, 718, 144, 84, "baPass", ["Output batch"], "[target′, reference′]", "")}
+
+    ${edge("M174 715 C192 715 202 725 224 735", "crossAttention", "pm", markerId)}
+    ${edge("M174 823 C194 823 204 777 224 762", "prompt", "pm", markerId)}
+    ${edge("M620 715 C638 715 648 725 670 735", "crossAttention", "ba", markerId)}
+    ${edge("M620 823 C640 823 650 777 670 762", "facePrompt", "ba", markerId)}
+    ${edge("M428 744 C640 648 790 682 912 750", "crossAttention", "pm", markerId)}
+    ${edge("M874 744 C890 744 896 750 912 756", "crossAttention", "ba", markerId)}
+
+    ${edgeLabel(183, 703, "Qtarget", "pm")}
+    ${edgeLabel(184, 805, "Kgeneration / Vgeneration", "pm")}
+    ${edgeLabel(630, 703, "Qreference", "ba")}
+    ${edgeLabel(630, 805, "Kface / Vface", "ba")}
+    <rect class="site-chip" x="718" y="874" width="314" height="28" rx="14"></rect>
+    <text class="site-chip-text" x="875" y="892">${escapeHtml(config.weightMode)}</text>
+  </svg>`;
 }
 
 function renderLegacyMechanismSvg(config, panelId) {
@@ -2862,6 +3204,7 @@ function renderResidualMechanismSvg(config, panelId) {
 function renderCard(cardId, configId) {
   const config = CONFIGS[configId];
   const card = document.getElementById(cardId);
+  const isV2 = currentDiagramVersion() === "v2";
   const faceMae = Number.isFinite(config.faceMae)
     ? `${config.faceMae.toFixed(5)} @ ${config.metricStep}`
     : "not measured comparably";
@@ -2873,6 +3216,7 @@ function renderCard(cardId, configId) {
       ? config.sites.metricLabel || `${config.sites.count} SA + ${config.sites.count} CA`
       : `${config.sites.count} / 70 CA`;
   card.dataset.config = configId;
+  card.classList.toggle("diagram-version-v2", isV2);
   card.querySelector(".card-header").innerHTML = `
     <div>
       <p class="eyebrow">${escapeHtml(config.family)} · ${escapeHtml(config.short)}</p>
@@ -2892,11 +3236,12 @@ function renderCard(cardId, configId) {
     )
     .join("");
   card.querySelector(".diagram-mount").innerHTML = `
+    ${isV2 ? renderV2ArchitectureStrip(config) : ""}
     ${renderSvg(config, cardId)}
     <section class="mechanism-panel" aria-label="${escapeHtml(config.short)} attention processor details">
       <div class="mechanism-heading" data-compare-keys="baPass selfAttention standardSelfAttention crossAttention residual sites">
         <div>
-          <span>Processor internals</span>
+          <span>${isV2 ? "V2 · explicit processor internals" : "Processor internals"}</span>
           <strong>${
             config.topology === "legacy_spatial"
               ? "Full spatial branched self- and cross-attention"
@@ -3003,6 +3348,7 @@ function renderMatrix() {
 const leftSelect = document.getElementById("left-config");
 const rightSelect = document.getElementById("right-config");
 const differenceToggle = document.getElementById("difference-mode");
+const diagramVersionSelect = document.getElementById("diagram-version");
 
 function populateSelect(select) {
   select.innerHTML = Object.entries(CONFIGS)
@@ -3017,6 +3363,11 @@ function updateUrl(left, right) {
   const url = new URL(window.location.href);
   url.searchParams.set("left", left);
   url.searchParams.set("right", right);
+  if (currentDiagramVersion() === "v2") {
+    url.searchParams.set("view", "v2");
+  } else {
+    url.searchParams.delete("view");
+  }
   if (differenceToggle.checked) {
     url.searchParams.set("diff", "1");
   } else {
@@ -3280,12 +3631,24 @@ const params = new URLSearchParams(window.location.search);
 leftSelect.value = CONFIGS[params.get("left")] ? params.get("left") : "N3a";
 rightSelect.value = CONFIGS[params.get("right")] ? params.get("right") : "NN1a";
 differenceToggle.checked = params.get("diff") === "1";
+diagramVersionSelect.value = params.get("view") === "v2" ? "v2" : "v1";
+document.getElementById("diagram-version-description").textContent =
+  diagramVersionSelect.value === "v2"
+    ? "Shows K/V preparation, both face-attention lanes, and the arbitration policy directly."
+    : "Preserves the original overview and processor diagrams.";
 renderMatrix();
 renderAll();
 
 leftSelect.addEventListener("change", renderAll);
 rightSelect.addEventListener("change", renderAll);
 differenceToggle.addEventListener("change", renderAll);
+diagramVersionSelect.addEventListener("change", () => {
+  document.getElementById("diagram-version-description").textContent =
+    diagramVersionSelect.value === "v2"
+      ? "Shows K/V preparation, both face-attention lanes, and the arbitration policy directly."
+      : "Preserves the original overview and processor diagrams.";
+  renderAll();
+});
 document.getElementById("swap-configs").addEventListener("click", () => {
   const left = leftSelect.value;
   leftSelect.value = rightSelect.value;

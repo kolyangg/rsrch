@@ -1,6 +1,6 @@
 # Interactive BA architecture explorer: usage and extension guide
 
-Date: 17 July 2026
+Date: 18 July 2026
 
 ## Artifact
 
@@ -21,7 +21,8 @@ The selectors also support:
 - the original pre-numbered `cosm_new1` spatial run;
 - N1 / N2 (`start_ba_ref_only_vast_N1.sh`, whose Comet run name is
   `ba_refonly_N2`);
-- NN1a through NN1f as implemented one-GPU configurations awaiting results;
+- NN1a through NN1f with their completed 10k validation results;
+- NN2a through NN2f as implemented spatial-BA architecture experiments;
 - N31, N32, N33, N36, N37, and N38 as historical post-N3a experiments.
 
 ## Recommended way to open it
@@ -47,6 +48,11 @@ No package installation, build step, or external web resource is required.
 ## Interaction
 
 - Choose either comparison configuration from the two selectors.
+- Use the top **Diagram version** selector:
+  - **V1** preserves the original overview and processor diagrams.
+  - **V2** adds a no-click architecture summary and makes reference K/V
+    preparation, target/reference face-attention lanes, arbitration, and
+    layer/query ownership explicit in the diagrams.
 - Enable **Highlight differences** to treat the left run as the baseline and
   mark changed configuration fields, architecture blocks, connections, and
   Q/K/V processor routes on the right.
@@ -61,6 +67,8 @@ No package installation, build step, or external web resource is required.
   `?left=N3a&right=NN1a`.
 - Difference mode is shareable with `diff=1`, for example:
   `?left=NN1a&right=NN1b&diff=1`.
+- V2 is shareable with `view=v2`, for example:
+  `?left=N3a&right=NN2c&diff=1&view=v2`.
 - `Enter` and `Space` activate focused diagram elements; `Escape` closes the
   inspector.
 
@@ -73,6 +81,31 @@ The diagrams intentionally distinguish:
 - hard target-bbox localization;
 - PM/BA epsilon composition;
 - training-only supervision.
+
+### What V2 adds for NN2 comparisons
+
+V1 remains available unchanged because it is useful as a stable historical
+view. V2 is designed for NN2a-f, where several runs share the same doubled
+U-Net shell but differ inside `BranchedAttnProcessor`.
+
+For every full-spatial run, V2 directly shows:
+
+- whether reference K/V comes from the masked full grid or a packed normalized
+  8×8 ROI with 64 real tokens;
+- separate `A_target = Attn(Qtarget, Ktarget, Vtarget)` and
+  `A_reference = Attn(Qtarget, Kreference, Vreference)` candidate lanes;
+- whether the target lane is absent, blended per head, selected by U-Net depth,
+  selected by inner-core/boundary masks, or retained as the anchor for a
+  confidence-gated residual;
+- the exact high-level arbitration formula or switch policy;
+- all-70 versus up-block-only layer ownership;
+- hard bbox, core/ring, and confidence-based query ownership;
+- split target/reference cross-attention as a separate mechanism below
+  branched self-attention.
+
+The four-item strip above each V2 overview uses the same semantic comparison
+keys as the SVG. In difference mode, its changed cells and the corresponding
+right-side boxes/arrows are highlighted together.
 
 This distinction is important because N36-N38 are called "identity owner" in
 their configs, but PhotoMaker still owns the absolute prediction in their
@@ -267,6 +300,11 @@ N39: {
   metricStep: "step 0",
   architectureNote: "The central interpretation.",
 
+  // Optional V2 fields for full-spatial experiments:
+  v2RefMode: "full_grid", // full_grid | roi
+  v2FaceMode: "reference",
+  // reference | dual | layer_switch | core_ring | confidence_residual
+
   details: {
     memory: { /* inspector record */ },
     sites: { /* inspector record */ },
@@ -361,6 +399,11 @@ Keep the diagram focused on ownership and information flow. Add a new node only
 when a run introduces a genuinely new state or transformation. A config-only
 change normally belongs in an existing node's inspector and label.
 
+For V2 full-spatial records, set `v2RefMode` and `v2FaceMode` explicitly when
+the run departs from N3a's masked full-grid, absolute-reference face route. If
+these fields are omitted, V2 intentionally defaults to N3a semantics:
+`full_grid` plus `reference`.
+
 ## Validation after an update
 
 Syntax-check JavaScript:
@@ -373,6 +416,8 @@ Serve the page and verify:
 
 - both selectors redraw the correct labels and metrics;
 - `?left=...&right=...` restores the pair;
+- `?view=v2` restores the explicit diagram version, while an omitted `view`
+  parameter defaults to V1;
 - every block and arrow opens the inspector;
 - source links point to the intended file/line;
 - the page works at desktop and narrow widths;
