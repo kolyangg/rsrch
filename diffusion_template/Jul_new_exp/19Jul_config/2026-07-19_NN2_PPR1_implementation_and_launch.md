@@ -85,9 +85,9 @@ Important fixed choices for the primary, same-base run:
 - existing cross-image `CosmicLargeTrain` sampler;
 - fixed 96-image validation at step 0 and every 2,000 optimizer steps.
 
-The default screening budget is 6,000 optimizer steps: three epochs of 2,000
-steps. Extend the same checkpoint only if the 6k panel is anatomically clean
-and still improving.
+The default budget is 20,000 optimizer steps: ten epochs of 2,000 steps, with
+the fixed 96-image validation at step zero and every 2,000 steps. Stop early if
+the validation panels show a clear failure mode or sustained degradation.
 
 ## Trainable state and checkpoint guards
 

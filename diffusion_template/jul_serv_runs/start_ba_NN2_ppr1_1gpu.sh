@@ -33,8 +33,8 @@ if ! python -c 'import torch, diffusers' >/dev/null 2>&1; then
   exit 2
 fi
 
-# Screening protocol: fixed 96-image validation at 0/2k/4k/6k.
-export NUM_EPOCHS="${NUM_EPOCHS:-3}"
+# Default protocol: 20k optimizer steps with fixed 96-image validation every 2k.
+export NUM_EPOCHS="${NUM_EPOCHS:-10}"
 export OPTIMIZER_STEPS_PER_EPOCH="${OPTIMIZER_STEPS_PER_EPOCH:-2000}"
 export FULL_STEP0_VAL="${FULL_STEP0_VAL:-true}"
 
