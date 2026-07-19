@@ -18,7 +18,7 @@ taking an optimizer step:
 The checkpoint is strictly restored before any runtime override. The temporary
 RealVis validation model and pipeline are constructed once, and A–E use fresh
 pipeline calls with the same sample seeds. The runner loads the checkpoint once;
-the epoch-2 assertion, strict architecture check, exact processor-tensor check,
+the epoch-4 assertion, strict architecture check, exact processor-tensor check,
 and nonzero connector check all operate on that in-memory load.
 
 ## Launcher
@@ -48,6 +48,22 @@ CHECKPOINT_PATH=/path/to/checkpoint-epoch4.pth \
 bash jul_serv_runs/start_ba_NN2_ppr1_realvis_4k_diagnostic_1gpu.sh
 ```
 
+To preserve the completed A–D outputs and regenerate only E for all 96
+samples:
+
+```bash
+E_ONLY=true \
+OUTPUT_DIR=/home/niko/rsrch/diffusion_template/ppr_8k_diagnostic \
+CHECKPOINT_PATH=/home/niko/rsrch/diffusion_template/saved/ba_NN2_ppr1_realvis_1gpu/checkpoint-epoch4.pth \
+bash jul_serv_runs/start_ba_NN2_ppr1_realvis_4k_diagnostic_1gpu.sh
+```
+
+E-only mode verifies that the existing manifest uses the same checkpoint and
+96-sample dataset. It preserves A–D images and records, removes only the old E
+records, regenerates all 96 E images, and rebuilds metrics and contact sheets.
+Existing E files remain available until replacements are generated. Do not set
+`OVERWRITE_OUTPUT=true` in this mode.
+
 ## Outputs
 
 The default output directory is `ppr_8k_diagnostic/`:
@@ -65,9 +81,9 @@ ppr_8k_diagnostic/
   contact_sheets/
 ```
 
-A–D contain all 96 fixed validation samples with identical filenames. E
-contains 12 samples selected across lower, middle and upper generation-face
-area thirds.
+A–D contain all 96 fixed validation samples with identical filenames. A normal
+matrix run gives E 12 representative samples; `E_ONLY=true` replaces E with all
+96 samples.
 
 `metrics.csv` contains PNG SHA-256, normalized whole-image and face-core pixel
 MAE versus A, ID similarity, text similarity, identity/prompt/seed metadata,

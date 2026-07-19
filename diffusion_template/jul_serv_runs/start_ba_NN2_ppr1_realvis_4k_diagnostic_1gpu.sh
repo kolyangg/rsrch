@@ -5,7 +5,15 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 MASTER_PORT="${MASTER_PORT:-29624}"
-RUN_NAME="${RUN_NAME:-ba_NN2_ppr1_realvis_8k_diagnostic}"
+E_ONLY="${E_ONLY:-false}"
+if [[ "${E_ONLY,,}" =~ ^(1|true|yes)$ ]]; then
+  E_ONLY=true
+  DEFAULT_RUN_NAME="ba_NN2_ppr1_realvis_8k_diagnostic_E_only"
+else
+  E_ONLY=false
+  DEFAULT_RUN_NAME="ba_NN2_ppr1_realvis_8k_diagnostic"
+fi
+RUN_NAME="${RUN_NAME:-${DEFAULT_RUN_NAME}}"
 OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/ppr_8k_diagnostic}"
 OVERWRITE_OUTPUT="${OVERWRITE_OUTPUT:-false}"
 LOG_DIR="${LOG_DIR:-${PROJECT_DIR}/logs_new_runs}"
@@ -59,7 +67,11 @@ CHECKPOINT_PATH="$(cd -- "$(dirname -- "${CHECKPOINT_PATH}")" && pwd)/$(basename
 
 if [[ "${RUN_FOREGROUND:-0}" != "1" && "${DETACHED_RUN:-0}" != "1" ]]; then
   mkdir -p "${LOG_DIR}"
-  echo "Starting NN2-PPR 8k A-E diagnostic matrix on GPU ${CUDA_VISIBLE_DEVICES}"
+  if [[ "${E_ONLY}" == "true" ]]; then
+    echo "Starting NN2-PPR 8k E-only diagnostic on GPU ${CUDA_VISIBLE_DEVICES}"
+  else
+    echo "Starting NN2-PPR 8k A-E diagnostic matrix on GPU ${CUDA_VISIBLE_DEVICES}"
+  fi
   echo "Checkpoint: ${CHECKPOINT_PATH}"
   echo "Output: ${OUTPUT_DIR}"
   echo "Log: ${LOG_FILE}"
@@ -67,7 +79,8 @@ if [[ "${RUN_FOREGROUND:-0}" != "1" && "${DETACHED_RUN:-0}" != "1" ]]; then
     CHECKPOINT_PATH="${CHECKPOINT_PATH}" PM_PATH="${PM_PATH}" \
     CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES}" MASTER_PORT="${MASTER_PORT}" \
     RUN_NAME="${RUN_NAME}" OUTPUT_DIR="${OUTPUT_DIR}" \
-    OVERWRITE_OUTPUT="${OVERWRITE_OUTPUT}" LOG_DIR="${LOG_DIR}" LOG_FILE="${LOG_FILE}" \
+    OVERWRITE_OUTPUT="${OVERWRITE_OUTPUT}" E_ONLY="${E_ONLY}" \
+    LOG_DIR="${LOG_DIR}" LOG_FILE="${LOG_FILE}" \
     nohup bash "$0" "$@" >"${LOG_FILE}" 2>&1 </dev/null &
   echo "PID: $!"
   echo "Follow with: tail -f ${LOG_FILE}"
@@ -77,6 +90,15 @@ fi
 cd "${PROJECT_DIR}"
 export HYDRA_FULL_ERROR=1
 export FACEANALYSIS_CPU="${FACEANALYSIS_CPU:-1}"
+
+DIAGNOSTIC_MODE_ARGS=()
+if [[ "${E_ONLY}" == "true" ]]; then
+  DIAGNOSTIC_MODE_ARGS+=(
+    "ppr_diagnostic_options=[E]"
+    "ppr_diagnostic_reuse_output=true"
+    "ppr_diagnostic_swap_count=96"
+  )
+fi
 
 ACCELERATE_LOG_LEVEL=error \
 TRANSFORMERS_VERBOSITY=error \
@@ -133,4 +155,5 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml \
   ppr_diagnostic_matrix=true \
   ppr_diagnostic_output_dir="${OUTPUT_DIR}" \
   ppr_diagnostic_overwrite="${OVERWRITE_OUTPUT}" \
+  "${DIAGNOSTIC_MODE_ARGS[@]}" \
   "$@"

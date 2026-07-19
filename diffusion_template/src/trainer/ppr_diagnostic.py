@@ -27,6 +27,38 @@ OPTIONS = {
     "E": "E_reference_swap",
 }
 
+METRIC_FIELDS = [
+    "sample_index",
+    "filename",
+    "option",
+    "identity",
+    "spatial_swap_identity",
+    "seed",
+    "prompt",
+    "sha256",
+    "whole_image_mae_vs_A",
+    "face_core_mae_vs_A",
+    "id_similarity",
+    "text_similarity",
+]
+
+
+def _diagnostic_options(config) -> tuple[str, ...]:
+    raw = getattr(config, "ppr_diagnostic_options", tuple(OPTIONS))
+    if isinstance(raw, str):
+        raw = [part.strip() for part in raw.strip("[]").split(",") if part.strip()]
+    selected = tuple(str(option).upper() for option in raw)
+    if not selected or len(set(selected)) != len(selected):
+        raise ValueError(f"Invalid ppr_diagnostic_options: {selected}")
+    unknown = set(selected) - set(OPTIONS)
+    if unknown:
+        raise ValueError(f"Unknown PPR diagnostic options: {sorted(unknown)}")
+    if selected != tuple(OPTIONS) and selected != ("E",):
+        raise ValueError(
+            "PPR diagnostics currently support either [A,B,C,D,E] or E-only"
+        )
+    return selected
+
 
 def _per_sample(value: Any, batch_size: int) -> list[Any]:
     if batch_size == 1:
@@ -80,17 +112,29 @@ def _select_spatial_swap_indices(dataset, count: int) -> set[int]:
 def _initialize_state(trainer) -> dict[str, Any]:
     root = Path(str(trainer.config.ppr_diagnostic_output_dir)).expanduser().resolve()
     overwrite = bool(getattr(trainer.config, "ppr_diagnostic_overwrite", False))
-    if root.exists() and any(root.iterdir()):
+    options = _diagnostic_options(trainer.config)
+    reuse_output = bool(
+        getattr(trainer.config, "ppr_diagnostic_reuse_output", False)
+    )
+    e_only = options == ("E",)
+    if reuse_output and not e_only:
+        raise ValueError("ppr_diagnostic_reuse_output is supported only for E-only mode")
+    if e_only and not reuse_output:
+        raise ValueError(
+            "E-only mode requires ppr_diagnostic_reuse_output=true and an existing matrix"
+        )
+    if reuse_output and overwrite:
+        raise ValueError(
+            "E-only reuse and ppr_diagnostic_overwrite=true are mutually exclusive"
+        )
+
+    if root.exists() and any(root.iterdir()) and not reuse_output:
         if not overwrite:
             raise FileExistsError(
                 f"PPR diagnostic output already exists: {root}. "
                 "Set ppr_diagnostic_overwrite=true to replace it."
             )
         shutil.rmtree(root)
-    root.mkdir(parents=True, exist_ok=True)
-    for directory in OPTIONS.values():
-        (root / directory).mkdir(parents=True, exist_ok=True)
-    (root / "contact_sheets").mkdir(parents=True, exist_ok=True)
 
     if len(trainer.evaluation_dataloaders) != 1:
         raise RuntimeError("PPR diagnostic matrix requires exactly one validation dataset")
@@ -98,6 +142,77 @@ def _initialize_state(trainer) -> dict[str, Any]:
     dataset = dataloader.dataset
     swap_count = int(getattr(trainer.config, "ppr_diagnostic_swap_count", 12))
     swap_indices = _select_spatial_swap_indices(dataset, swap_count)
+
+    rows = []
+    epsilon = []
+    if reuse_output:
+        manifest_path = root / "manifest.json"
+        metrics_path = root / "metrics.csv"
+        epsilon_path = root / "epsilon_diagnostics.jsonl"
+        baseline_dir = root / OPTIONS["A"]
+        required = (manifest_path, metrics_path, epsilon_path, baseline_dir)
+        missing = [str(path) for path in required if not path.exists()]
+        if missing:
+            raise FileNotFoundError(
+                "E-only reuse requires the completed existing matrix; missing: "
+                + ", ".join(missing)
+            )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if int(manifest.get("sample_count", -1)) != len(dataset):
+            raise RuntimeError(
+                "Existing diagnostic sample count does not match current dataset: "
+                f"{manifest.get('sample_count')} vs {len(dataset)}"
+            )
+        existing_checkpoint_value = str(manifest.get("checkpoint", "")).strip()
+        active_checkpoint_value = str(
+            getattr(trainer.config, "saved_checkpoint", "")
+        ).strip()
+        if (
+            not existing_checkpoint_value
+            or not active_checkpoint_value
+            or Path(existing_checkpoint_value).expanduser().resolve()
+            != Path(active_checkpoint_value).expanduser().resolve()
+        ):
+            raise RuntimeError(
+                "E-only reuse checkpoint mismatch: "
+                f"existing={existing_checkpoint_value}, active={active_checkpoint_value}"
+            )
+        existing_base = str(manifest.get("validation_base", ""))
+        active_base = str(
+            getattr(
+                trainer.config,
+                "pretrained_model_for_validation_name_or_path",
+                "",
+            )
+        )
+        if existing_base != active_base:
+            raise RuntimeError(
+                "E-only reuse validation-base mismatch: "
+                f"existing={existing_base}, active={active_base}"
+            )
+        with metrics_path.open("r", encoding="utf-8", newline="") as handle:
+            rows = [
+                row for row in csv.DictReader(handle)
+                if str(row.get("option", "")).upper() != "E"
+            ]
+        with epsilon_path.open("r", encoding="utf-8") as handle:
+            epsilon = [
+                record
+                for line in handle
+                if line.strip()
+                for record in (json.loads(line),)
+                if str(record.get("variant", "")).upper() != "E"
+            ]
+        if len(list(baseline_dir.glob("*.png"))) < len(dataset):
+            raise RuntimeError(
+                "E-only reuse requires an A_exact_pm PNG for every validation sample"
+            )
+
+    root.mkdir(parents=True, exist_ok=True)
+    for option, directory in OPTIONS.items():
+        if option in options or not reuse_output:
+            (root / directory).mkdir(parents=True, exist_ok=True)
+    (root / "contact_sheets").mkdir(parents=True, exist_ok=True)
 
     identity_sources = []
     for image_path in getattr(dataset, "images", ()):
@@ -109,17 +224,20 @@ def _initialize_state(trainer) -> dict[str, Any]:
 
     state = {
         "root": root,
-        "rows": [],
-        "epsilon": [],
+        "rows": rows,
+        "epsilon": epsilon,
         "next_index": 0,
         "swap_indices": swap_indices,
         "identity_sources": identity_sources,
         "filenames": [],
+        "options": options,
+        "reuse_output": reuse_output,
     }
     trainer._ppr_diagnostic_state = state
     print(
         "[PPR diagnostic matrix] "
-        f"output={root} samples={len(dataset)} swap_indices={sorted(swap_indices)}"
+        f"output={root} options={list(options)} reuse={reuse_output} "
+        f"samples={len(dataset)} swap_indices={sorted(swap_indices)}"
     )
     return state
 
@@ -327,48 +445,70 @@ def run_ppr_diagnostic_batch(trainer, batch, eval_metrics):
     ]
     state["filenames"].extend(filenames)
 
+    if state["reuse_output"]:
+        missing_baselines = [
+            str(state["root"] / OPTIONS["A"] / filename)
+            for filename in filenames
+            if not (state["root"] / OPTIONS["A"] / filename).exists()
+        ]
+        if missing_baselines:
+            raise FileNotFoundError(
+                "E-only baseline filenames do not match this validation ordering; "
+                f"first missing: {missing_baselines[0]}"
+            )
+
     generated = {}
-    for option in ("A", "B", "C", "D"):
-        images, diagnostics = _generate(
-            trainer,
-            option=option,
-            prompts=prompts,
-            seeds=seeds,
-            identities=identities,
-            references=references,
-            reference_bboxes=reference_bboxes,
-            generation_bboxes=generation_bboxes,
-            sample_keys=filenames,
-        )
-        generated[option] = images
-        state["epsilon"].extend(diagnostics)
+    if not state["reuse_output"]:
+        for option in ("A", "B", "C", "D"):
+            images, diagnostics = _generate(
+                trainer,
+                option=option,
+                prompts=prompts,
+                seeds=seeds,
+                identities=identities,
+                references=references,
+                reference_bboxes=reference_bboxes,
+                generation_bboxes=generation_bboxes,
+                sample_keys=filenames,
+            )
+            generated[option] = images
+            state["epsilon"].extend(diagnostics)
 
-    for local_index, global_index in enumerate(global_indices):
-        if global_index not in state["swap_indices"]:
-            continue
-        swap_identity, swap_image, swap_bbox = _swap_source(
-            state,
-            identities[local_index],
-        )
-        images, diagnostics = _generate(
-            trainer,
-            option="E",
-            prompts=[prompts[local_index]],
-            seeds=[seeds[local_index]],
-            identities=[identities[local_index]],
-            references=[references[local_index]],
-            reference_bboxes=[reference_bboxes[local_index]],
-            generation_bboxes=[generation_bboxes[local_index]],
-            sample_keys=[filenames[local_index]],
-            ppr_reference_image=[swap_image],
-            ppr_face_bbox_ref=swap_bbox,
-        )
-        generated.setdefault("E", {})[local_index] = (images[0], swap_identity)
-        state["epsilon"].extend(diagnostics)
+    if "E" in state["options"]:
+        for local_index, global_index in enumerate(global_indices):
+            if global_index not in state["swap_indices"]:
+                continue
+            swap_identity, swap_image, swap_bbox = _swap_source(
+                state,
+                identities[local_index],
+            )
+            images, diagnostics = _generate(
+                trainer,
+                option="E",
+                prompts=[prompts[local_index]],
+                seeds=[seeds[local_index]],
+                identities=[identities[local_index]],
+                references=[references[local_index]],
+                reference_bboxes=[reference_bboxes[local_index]],
+                generation_bboxes=[generation_bboxes[local_index]],
+                sample_keys=[filenames[local_index]],
+                ppr_reference_image=[swap_image],
+                ppr_face_bbox_ref=swap_bbox,
+            )
+            generated.setdefault("E", {})[local_index] = (images[0], swap_identity)
+            state["epsilon"].extend(diagnostics)
 
+    display_images = []
     for local_index, filename in enumerate(filenames):
-        baseline = generated["A"][local_index]
-        for option in ("A", "B", "C", "D", "E"):
+        if state["reuse_output"]:
+            baseline_path = state["root"] / OPTIONS["A"] / filename
+            if not baseline_path.exists():
+                raise FileNotFoundError(f"Missing E-only baseline: {baseline_path}")
+            with Image.open(baseline_path) as baseline_file:
+                baseline = baseline_file.convert("RGB")
+        else:
+            baseline = generated["A"][local_index]
+        for option in state["options"]:
             swap_identity = ""
             if option == "E":
                 record = generated.get("E", {}).get(local_index)
@@ -407,8 +547,15 @@ def run_ppr_diagnostic_batch(trainer, batch, eval_metrics):
                     **metric_values,
                 }
             )
+        e_record = generated.get("E", {}).get(local_index)
+        display_images.append(e_record[0] if e_record is not None else baseline)
 
-    batch["generated"] = generated["B"] if batch_size > 1 else [generated["B"][0]]
+    if state["reuse_output"]:
+        batch["generated"] = display_images
+    else:
+        batch["generated"] = (
+            generated["B"] if batch_size > 1 else [generated["B"][0]]
+        )
     batch["generated_masks"] = [None] * batch_size
     return batch
 
@@ -468,22 +615,8 @@ def finalize_ppr_diagnostic_matrix(trainer) -> None:
         state["rows"],
         key=lambda row: (int(row["sample_index"]), str(row["option"])),
     )
-    fieldnames = [
-        "sample_index",
-        "filename",
-        "option",
-        "identity",
-        "spatial_swap_identity",
-        "seed",
-        "prompt",
-        "sha256",
-        "whole_image_mae_vs_A",
-        "face_core_mae_vs_A",
-        "id_similarity",
-        "text_similarity",
-    ]
     with (root / "metrics.csv").open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer = csv.DictWriter(handle, fieldnames=METRIC_FIELDS)
         writer.writeheader()
         writer.writerows(rows)
     with (root / "epsilon_diagnostics.jsonl").open("w", encoding="utf-8") as handle:
@@ -521,6 +654,8 @@ def finalize_ppr_diagnostic_matrix(trainer) -> None:
         "sample_count": int(state["next_index"]),
         "spatial_swap_indices": sorted(state["swap_indices"]),
         "options": OPTIONS,
+        "generated_options": list(state["options"]),
+        "reused_existing_output": bool(state["reuse_output"]),
         "diagnostic_steps": [15, 25, 35, 49],
         "randomness_fingerprints_verified": True,
         "validation_args": OmegaConf.to_container(
@@ -532,6 +667,13 @@ def finalize_ppr_diagnostic_matrix(trainer) -> None:
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    if state["reuse_output"]:
+        expected_filenames = set(state["filenames"])
+        for image_path in (root / OPTIONS["E"]).glob("*.png"):
+            if image_path.name not in expected_filenames:
+                image_path.unlink()
+        shutil.rmtree(root / "contact_sheets", ignore_errors=True)
+        (root / "contact_sheets").mkdir(parents=True, exist_ok=True)
     _create_contact_sheets(state)
     print(
         "[PPR diagnostic matrix complete] "

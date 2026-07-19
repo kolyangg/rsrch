@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import os
+import csv
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -28,7 +32,13 @@ from src.model.photomaker_branched.packed_residual_attn_processor import (
     pack_valid_tokens,
 )
 from src.pipelines.br_pipeline_helpers import reset_branched_generation_caches
-from src.trainer.ppr_diagnostic import _pixel_mae, _select_spatial_swap_indices
+from src.trainer.ppr_diagnostic import (
+    METRIC_FIELDS,
+    _diagnostic_options,
+    _initialize_state,
+    _pixel_mae,
+    _select_spatial_swap_indices,
+)
 
 
 def _attention(channels: int = 16) -> Attention:
@@ -637,6 +647,99 @@ class PackedResidualRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(exact_whole, 0.0)
         self.assertEqual(exact_face, 0.0)
+
+    def test_e_only_reuses_a_to_d_without_eagerly_deleting_old_e(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkpoint = root / "checkpoint-epoch4.pth"
+            checkpoint.touch()
+            output = root / "ppr_8k_diagnostic"
+            baseline_dir = output / "A_exact_pm"
+            old_e_dir = output / "E_reference_swap"
+            contact_dir = output / "contact_sheets"
+            baseline_dir.mkdir(parents=True)
+            old_e_dir.mkdir()
+            contact_dir.mkdir()
+            for index in range(2):
+                Image.new("RGB", (8, 8), "black").save(
+                    baseline_dir / f"{index}.png"
+                )
+            Image.new("RGB", (8, 8), "white").save(old_e_dir / "old.png")
+            (contact_dir / "old.jpg").touch()
+            (output / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "checkpoint": str(checkpoint),
+                        "validation_base": "SG161222/RealVisXL_V4.0",
+                        "sample_count": 2,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (output / "metrics.csv").open(
+                "w", encoding="utf-8", newline=""
+            ) as handle:
+                writer = csv.DictWriter(handle, fieldnames=METRIC_FIELDS)
+                writer.writeheader()
+                for option in ("A", "E"):
+                    writer.writerow(
+                        {
+                            field: option if field == "option" else ""
+                            for field in METRIC_FIELDS
+                        }
+                    )
+            with (output / "epsilon_diagnostics.jsonl").open(
+                "w", encoding="utf-8"
+            ) as handle:
+                for option in ("A", "E"):
+                    handle.write(json.dumps({"variant": option}) + "\n")
+
+            images = []
+            for identity in ("id0", "id1"):
+                path = root / f"{identity}.png"
+                Image.new("RGB", (8, 8), "gray").save(path)
+                images.append(path)
+
+            class Dataset:
+                _bbox_map_ref = {"id0": [0, 0, 8, 8], "id1": [0, 0, 8, 8]}
+
+                def __init__(self):
+                    self.images = images
+
+                def __len__(self):
+                    return 2
+
+                def __getitem__(self, index):
+                    return {"face_bbox_gen": [0, 0, 4 + index, 4 + index]}
+
+            config = SimpleNamespace(
+                ppr_diagnostic_output_dir=str(output),
+                ppr_diagnostic_overwrite=False,
+                ppr_diagnostic_options=["E"],
+                ppr_diagnostic_reuse_output=True,
+                ppr_diagnostic_swap_count=2,
+                saved_checkpoint=str(checkpoint),
+                pretrained_model_for_validation_name_or_path=(
+                    "SG161222/RealVisXL_V4.0"
+                ),
+            )
+            trainer = SimpleNamespace(
+                config=config,
+                evaluation_dataloaders={
+                    "manual_val": SimpleNamespace(dataset=Dataset())
+                },
+            )
+            state = _initialize_state(trainer)
+            self.assertEqual(_diagnostic_options(config), ("E",))
+            self.assertEqual([row["option"] for row in state["rows"]], ["A"])
+            self.assertEqual(
+                [record["variant"] for record in state["epsilon"]],
+                ["A"],
+            )
+            self.assertTrue((old_e_dir / "old.png").exists())
+            self.assertTrue(old_e_dir.is_dir())
+            self.assertTrue((contact_dir / "old.jpg").exists())
+            self.assertEqual(state["swap_indices"], {0, 1})
 
 
 if __name__ == "__main__":
