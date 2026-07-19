@@ -314,6 +314,8 @@ def _generate(
     sample_keys: list[str],
     ppr_reference_image=None,
     ppr_face_bbox_ref=None,
+    runtime_settings: tuple[bool, str, float] | None = None,
+    diagnostic_variant: str | None = None,
 ) -> tuple[list[Image.Image], list[dict[str, Any]]]:
     pipeline = trainer.pipe
     settings = {
@@ -323,7 +325,9 @@ def _generate(
         "D": (False, "base_outside_core", 4.0),
         "E": (False, "base_outside_core", 1.0),
     }
-    force_base, anchor_mode, runtime_scale = settings[option]
+    force_base, anchor_mode, runtime_scale = (
+        runtime_settings if runtime_settings is not None else settings[option]
+    )
     previous = {
         name: getattr(pipeline, name, None)
         for name in (
@@ -341,7 +345,7 @@ def _generate(
     pipeline.ba_output_anchor_mode = anchor_mode
     pipeline.ba_ppr_runtime_scale = runtime_scale
     pipeline.ba_ppr_collect_diagnostics = True
-    pipeline.ba_ppr_diagnostic_variant = option
+    pipeline.ba_ppr_diagnostic_variant = diagnostic_variant or option
     pipeline.ba_ppr_diagnostic_sample_keys = tuple(sample_keys)
     pipeline._ba_ppr_processor_diagnostics = processor_records
     pipeline._ba_ppr_epsilon_diagnostics = epsilon_records

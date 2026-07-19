@@ -6,6 +6,7 @@ PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 MASTER_PORT="${MASTER_PORT:-29624}"
 E_ONLY="${E_ONLY:-false}"
+PPR_RUN_MODE="${PPR_RUN_MODE:-diagnostic}"
 if [[ "${E_ONLY,,}" =~ ^(1|true|yes)$ ]]; then
   E_ONLY=true
   DEFAULT_RUN_NAME="ba_NN2_ppr1_realvis_8k_diagnostic_E_only"
@@ -67,7 +68,9 @@ CHECKPOINT_PATH="$(cd -- "$(dirname -- "${CHECKPOINT_PATH}")" && pwd)/$(basename
 
 if [[ "${RUN_FOREGROUND:-0}" != "1" && "${DETACHED_RUN:-0}" != "1" ]]; then
   mkdir -p "${LOG_DIR}"
-  if [[ "${E_ONLY}" == "true" ]]; then
+  if [[ "${PPR_RUN_MODE}" == "scale_sweep" ]]; then
+    echo "Starting NN2-PPR 8k residual-scale sweep on GPU ${CUDA_VISIBLE_DEVICES}"
+  elif [[ "${E_ONLY}" == "true" ]]; then
     echo "Starting NN2-PPR 8k E-only diagnostic on GPU ${CUDA_VISIBLE_DEVICES}"
   else
     echo "Starting NN2-PPR 8k A-E diagnostic matrix on GPU ${CUDA_VISIBLE_DEVICES}"
@@ -80,6 +83,7 @@ if [[ "${RUN_FOREGROUND:-0}" != "1" && "${DETACHED_RUN:-0}" != "1" ]]; then
     CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES}" MASTER_PORT="${MASTER_PORT}" \
     RUN_NAME="${RUN_NAME}" OUTPUT_DIR="${OUTPUT_DIR}" \
     OVERWRITE_OUTPUT="${OVERWRITE_OUTPUT}" E_ONLY="${E_ONLY}" \
+    PPR_RUN_MODE="${PPR_RUN_MODE}" \
     LOG_DIR="${LOG_DIR}" LOG_FILE="${LOG_FILE}" \
     nohup bash "$0" "$@" >"${LOG_FILE}" 2>&1 </dev/null &
   echo "PID: $!"

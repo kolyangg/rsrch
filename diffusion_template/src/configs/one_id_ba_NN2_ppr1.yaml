@@ -35,6 +35,12 @@ ppr_diagnostic_overwrite: false
 ppr_diagnostic_swap_count: 12
 ppr_diagnostic_options: [A, B, C, D, E]
 ppr_diagnostic_reuse_output: false
+ppr_scale_sweep: false
+ppr_scale_sweep_output_dir: ppr_8k_scale_sweep
+ppr_scale_sweep_overwrite: false
+ppr_scale_sweep_scales: [0, 1, 2, 3, 4]
+ppr_scale_sweep_swap_scale: null
+ppr_scale_sweep_swap_count: 12
 
 model:
   ba_processor_variant: packed_residual_v1

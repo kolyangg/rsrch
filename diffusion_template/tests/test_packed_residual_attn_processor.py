@@ -39,6 +39,11 @@ from src.trainer.ppr_diagnostic import (
     _pixel_mae,
     _select_spatial_swap_indices,
 )
+from src.trainer.ppr_scale_sweep import (
+    _parse_scales,
+    _processor_stats,
+    _scale_label,
+)
 
 
 def _attention(channels: int = 16) -> Attention:
@@ -740,6 +745,35 @@ class PackedResidualRuntimeTests(unittest.TestCase):
             self.assertTrue(old_e_dir.is_dir())
             self.assertTrue((contact_dir / "old.jpg").exists())
             self.assertEqual(state["swap_indices"], {0, 1})
+
+    def test_scale_sweep_parses_scales_and_maps_cfg_processor_stats(self) -> None:
+        config = SimpleNamespace(ppr_scale_sweep_scales=[0, 1, 2, 3, 4, 6])
+        self.assertEqual(_parse_scales(config), (0.0, 1.0, 2.0, 3.0, 4.0, 6.0))
+        self.assertEqual(_scale_label(2.5), "2p5")
+        diagnostics = [
+            {
+                "record_type": "processor_applied_ratio",
+                "processor": "up.0",
+                "gate": 0.25,
+                # CFG order: two unconditional samples, then two conditional.
+                "applied_ratios": [0.1, 0.2, 0.3, 0.4],
+                "cap_scales": [1.0, 0.5, 0.8, 1.0],
+            },
+            {
+                "record_type": "processor_applied_ratio",
+                "processor": "up.1",
+                "gate": 0.35,
+                "applied_ratios": [0.2, 0.4, 0.6, 0.8],
+                "cap_scales": [1.0, 1.0, 0.9, 0.7],
+            },
+        ]
+        stats = _processor_stats(diagnostics, batch_size=2)
+        self.assertEqual(stats[0]["active_processor_count"], 2)
+        self.assertAlmostEqual(stats[0]["mean_gate"], 0.30)
+        self.assertAlmostEqual(stats[0]["applied_delta_rms_ratio"], 0.30)
+        self.assertAlmostEqual(stats[0]["cap_fraction"], 0.50)
+        self.assertAlmostEqual(stats[1]["applied_delta_rms_ratio"], 0.45)
+        self.assertAlmostEqual(stats[1]["cap_fraction"], 0.50)
 
 
 if __name__ == "__main__":

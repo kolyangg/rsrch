@@ -505,6 +505,8 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
                     "applied_ratio_min": float(ratios.min().item()),
                     "applied_ratio_p50": float(ratios.median().item()),
                     "applied_ratio_max": float(ratios.max().item()),
+                    "applied_ratios": ratios.detach().float().cpu().tolist(),
+                    "cap_scales": cap_scale.detach().float().cpu().tolist(),
                 }
             )
 
