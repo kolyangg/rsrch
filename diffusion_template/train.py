@@ -182,20 +182,26 @@ def main(config):
             "pretrained_model_for_validation_name_or_path",
             None,
         )
-        if validation_base not in {None, "", "null"}:
+        alternate_validation_base = validation_base not in {None, "", "null"}
+        if alternate_validation_base and (
+            not bool(getattr(config, "update_proc_weights_val", False))
+            or not bool(getattr(config.model, "ba_strict_processor_restore", False))
+        ):
             raise ValueError(
-                "NN2-PPR1 requires pretrained_model_for_validation_name_or_path=null"
+                "NN2-PPR1 alternate-base validation requires "
+                "update_proc_weights_val=true and ba_strict_processor_restore=true"
             )
         if training_base != pipeline_base:
             raise ValueError(
-                "NN2-PPR1 requires the same training and validation pipeline base: "
+                "NN2-PPR1 requires the training model and primary pipeline to share a base: "
                 f"model={training_base}, pipeline={pipeline_base}"
             )
         if bool(getattr(config, "strict_face_routing", False)):
             raise ValueError("NN2-PPR1 requires strict_face_routing=false")
         print(
             "[NN2-PPR1 preflight] "
-            f"base={training_base} alternate_validation_base=null "
+            f"training_base={training_base} "
+            f"alternate_validation_base={validation_base if alternate_validation_base else 'null'} "
             f"variant={processor_variant} "
             f"site_policy={config.model.ba_site_policy}"
         )

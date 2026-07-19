@@ -125,7 +125,10 @@ jul_serv_runs/start_ba_NN2_ppr1_realvis_1gpu.sh
 Both default to physical GPU 0. The primary launcher uses port 29620 and the
 RealVis launcher uses port 29621. They prefer the PhotoMaker conda
 environment and accept `PHOTOMAKER_ENV_BIN` when the environment is in a
-machine-specific location.
+machine-specific location. Both PPR launchers default to
+`train_dataset_name=cosmic_large_neb`. This entry exactly mirrors
+`cosmic_large_vast`, except its two `/workspace/datasets/...` roots are
+`/home/niko/datasets/...`.
 
 Launch from the repository:
 
@@ -198,7 +201,8 @@ server PhotoMaker checkpoint. Before committing a long run on the GPU machine:
 3. verify finite losses and the expected staged gradients;
 4. run the fixed 96-image step-zero validation;
 5. verify the log reports `variant=packed_residual_v1`, `SA=36`, `CA=70`, and
-   no alternate validation base;
+   the expected validation base (`null` for the primary launcher or RealVisXL
+   for the RealVis launcher);
 6. inspect the step-zero panel before allowing training to continue.
 
 The resolved configuration, selected site list, strict trainability manifest,
@@ -219,3 +223,40 @@ The installer now enables parameters only for processor objects that are
 PyTorch modules. Untouched Diffusers processors are skipped. This does not
 change the PPR architecture, selected sites, or trainable-parameter manifest.
 A regression test covers the intended mixed registry.
+
+## Step-zero comparison with NN1a–f
+
+The PPR step-zero panel is not expected to be pixel-identical to NN1a–f. This
+is not a seed mismatch:
+
+- the common launcher and `manual_val` both use seed `0`;
+- sample ordering, prompts, reference images, bounding boxes, inference steps,
+  guidance scale, PhotoMaker/BA switch steps, and RealVis validation base are
+  shared;
+- target diffusion noise and reference noise use per-sample seeded generators;
+- reference VAE latents use the deterministic posterior mode.
+
+The output-changing difference is the architecture being tested. NN1d uses
+legacy reference-owned replacement self-attention at all 70 SA sites. PPR1
+uses ordinary target self-attention plus an exactly zero-initialized residual
+at 36 up-block SA sites. Once BA starts at denoising step 15, NN1d changes the
+target face even before training, while PPR1 intentionally remains on its
+ordinary target path. Making those panels identical would require restoring
+the legacy replacement operator and would invalidate PPR1.
+
+For reproducibility and easier log auditing, the common launcher now passes
+`trainer.seed=0` and `datasets.val.manual_val.seeds=[0]` explicitly. The
+RealVis launcher is also accepted by PPR preflight when strict processor
+restore and processor-state transfer are enabled. Under that path, a temporary
+RealVis model constructs its own base projections and receives only the
+trainable PPR adapter/connector state; frozen SDXL base projections are not
+transplanted.
+
+The valid comparisons are therefore:
+
+1. PPR1 step zero versus a same-base ordinary-PhotoMaker control, to verify
+   branch-off parity;
+2. PPR1 versus NN1d on the same fixed inputs, to measure the effect of replacing
+   legacy absolute BA with the new residual topology;
+3. PPR1 checkpoints versus PPR1 step zero, to measure learning within the new
+   architecture.

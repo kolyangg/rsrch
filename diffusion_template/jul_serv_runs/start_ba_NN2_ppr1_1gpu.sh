@@ -9,6 +9,7 @@ export NN1_DEFAULT_PORT="${NN1_DEFAULT_PORT:-29620}"
 export NN1_DESCRIPTION="${NN1_DESCRIPTION:-NN2-PPR1: up-block packed-reference residual; frozen split CA}"
 export NN1_REQUIRE_ID_LOSS="0"
 export NN1_LAUNCHER_PATH="${NN1_LAUNCHER_PATH:-${SCRIPT_DIR}/$(basename -- "${BASH_SOURCE[0]}")}"
+export NN1_TRAIN_DATASET_NAME="${NN1_TRAIN_DATASET_NAME:-cosmic_large_neb}"
 
 # Prefer the project PhotoMaker environment when the caller has not activated it.
 if [[ -n "${PHOTOMAKER_ENV_BIN:-}" ]]; then

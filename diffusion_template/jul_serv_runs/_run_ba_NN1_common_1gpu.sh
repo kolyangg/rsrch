@@ -19,6 +19,9 @@ NUM_EPOCHS="${NUM_EPOCHS:-5}"
 WARMUP_OPTIMIZER_STEPS="${WARMUP_OPTIMIZER_STEPS:-2000}"
 FULL_STEP0_VAL="${FULL_STEP0_VAL:-true}"
 VALIDATION_MODEL="${NN1_VALIDATION_MODEL:-SG161222/RealVisXL_V4.0}"
+TRAIN_DATASET_NAME="${NN1_TRAIN_DATASET_NAME:-cosmic_large}"
+TRAIN_SEED="${TRAIN_SEED:-0}"
+VAL_SEEDS="${VAL_SEEDS:-[0]}"
 HYDRA_ARGS=()
 for arg in "$@"; do
     if [[ "${arg}" == "full_step0_val" ]]; then
@@ -104,9 +107,9 @@ fi
 
 echo "${NN1_DESCRIPTION}"
 echo "Config: ${NN1_CONFIG_NAME}"
-echo "Training: GPU=${CUDA_VISIBLE_DEVICES:-${NN1_DEFAULT_GPU}} ranks=1 physical_batch=${TRAIN_BATCH_SIZE} accumulation=${ACCUM_STEPS} effective_batch=${LOCAL_EFFECTIVE_BATCH}"
+echo "Training: GPU=${CUDA_VISIBLE_DEVICES:-${NN1_DEFAULT_GPU}} dataset=${TRAIN_DATASET_NAME} ranks=1 physical_batch=${TRAIN_BATCH_SIZE} accumulation=${ACCUM_STEPS} effective_batch=${LOCAL_EFFECTIVE_BATCH}"
 echo "Budget: ${TOTAL_OPTIMIZER_STEPS} optimizer steps (${NUM_EPOCHS} x ${OPTIMIZER_STEPS_PER_EPOCH})"
-echo "Validation: base=${VALIDATION_MODEL}; batch=${VAL_BATCH_SIZE_PER_GPU}; full fixed 96 images at step 0 and every ${OPTIMIZER_STEPS_PER_EPOCH} optimizer steps"
+echo "Validation: base=${VALIDATION_MODEL}; train_seed=${TRAIN_SEED}; val_seeds=${VAL_SEEDS}; batch=${VAL_BATCH_SIZE_PER_GPU}; full fixed 96 images at step 0 and every ${OPTIMIZER_STEPS_PER_EPOCH} optimizer steps"
 
 ACCELERATE_LOG_LEVEL=error \
 TRANSFORMERS_VERBOSITY=error \
@@ -120,17 +123,19 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml \
     --num_processes=1 train.py \
     --config-name="${NN1_CONFIG_NAME}" \
     datasets=all_datasets \
-    train_dataset_name=cosmic_large \
-    datasets.train.cosmic_large.num_refs=1 \
-    +datasets.train.cosmic_large.ref_crop_margin_min=0.2 \
-    +datasets.train.cosmic_large.ref_crop_margin_max=0.6 \
-    +datasets.train.cosmic_large.ref_downscale_jitter=0.5 \
+    train_dataset_name="${TRAIN_DATASET_NAME}" \
+    "datasets.train.${TRAIN_DATASET_NAME}.num_refs=1" \
+    "+datasets.train.${TRAIN_DATASET_NAME}.ref_crop_margin_min=0.2" \
+    "+datasets.train.${TRAIN_DATASET_NAME}.ref_crop_margin_max=0.6" \
+    "+datasets.train.${TRAIN_DATASET_NAME}.ref_downscale_jitter=0.5" \
     val_datasets_names='[manual_val]' \
     datasets.val.manual_val.limit=96 \
+    datasets.val.manual_val.seeds="${VAL_SEEDS}" \
     dataloaders.manual_val.batch_size="${VAL_BATCH_SIZE_PER_GPU}" \
     dataloaders.manual_val.num_workers=1 \
     trainer.epoch_len="${MICROBATCHES_PER_EPOCH}" \
     trainer.n_epochs="${NUM_EPOCHS}" \
+    trainer.seed="${TRAIN_SEED}" \
     dataloaders.train.batch_size="${TRAIN_BATCH_SIZE}" \
     dataloaders.train.grad_accum_enabled="${GRAD_ACCUM_ENABLED}" \
     dataloaders.train.batch_size_eff="${LOCAL_EFFECTIVE_BATCH}" \
