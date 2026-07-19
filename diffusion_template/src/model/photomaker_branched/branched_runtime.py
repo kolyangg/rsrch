@@ -2,6 +2,7 @@
 branched_new.py - Simplified branched attention implementation with cross-attention
 """
 
+import hashlib
 import math
 import torch
 import torch.nn.functional as F
@@ -148,6 +149,10 @@ def patch_unet_attention_processors(
                 "_ba_ppr_processor_diagnostics",
                 None,
             )
+            tensor_sites = tuple(
+                getattr(pipe, "ba_ppr_tensor_diagnostic_sites", ())
+            )
+            proc.tensor_diagnostics = proc.processor_name in tensor_sites
             
         
 
@@ -560,6 +565,44 @@ def two_branch_predict(
 
     
     ref_noised = pipeline.scheduler.scale_model_input(ref_noised, t_ref).to(latent_model_input.dtype) # critical: match UNet’s expected scaling at this timestep
+
+    diagnostic_steps = tuple(
+        int(value)
+        for value in getattr(
+            pipeline,
+            "ba_ppr_diagnostic_steps",
+            (15, 25, 35, 49),
+        )
+    )
+    if (
+        bool(getattr(pipeline, "ba_ppr_collect_diagnostics", False))
+        and int(step_idx) in diagnostic_steps
+    ):
+        fingerprints = getattr(
+            pipeline,
+            "_ba_ppr_randomness_fingerprints",
+            None,
+        )
+        if isinstance(fingerprints, dict):
+            sample_count = len(
+                getattr(
+                    pipeline,
+                    "ba_ppr_diagnostic_sample_keys",
+                    (),
+                )
+            )
+            ref_noised_for_hash = ref_noised
+            if (
+                sample_count > 0
+                and ref_noised.shape[0] == 2 * sample_count
+            ):
+                # CFG ordering is [unconditional B, conditional B].
+                ref_noised_for_hash = ref_noised[sample_count:]
+            hashes = []
+            for sample in ref_noised_for_hash.detach().contiguous().cpu():
+                raw = sample.contiguous().view(torch.uint8).numpy().tobytes()
+                hashes.append(hashlib.sha256(raw).hexdigest())
+            fingerprints[f"ref_noised_step_{int(step_idx)}_sha256"] = hashes
 
     if full_debug:
         if step_idx in (0, 1) or step_idx % 10 == 0:
@@ -1018,6 +1061,42 @@ def two_branch_predict(
                         "outside_bbox_post_anchor": float(post_outside[sample_index].item()),
                     }
                 )
+            tensor_sink = getattr(
+                pipeline,
+                "_ba_ppr_tensor_diagnostics",
+                None,
+            )
+            if isinstance(tensor_sink, list):
+                def _tensor_signature(value: torch.Tensor) -> dict[str, Any]:
+                    value = value.detach().float().contiguous()
+                    flat = value.flatten()
+                    stride = max(1, math.ceil(flat.numel() / 512))
+                    sketch = flat[::stride][:512].cpu()
+                    raw = value.cpu().view(torch.uint8).numpy().tobytes()
+                    return {
+                        "shape": list(value.shape),
+                        "rms": float(value.square().mean().sqrt().item()),
+                        "sha256": hashlib.sha256(raw).hexdigest(),
+                        "sketch_stride": stride,
+                        "sketch": sketch.tolist(),
+                    }
+
+                for sample_index, sample_key in enumerate(sample_keys):
+                    tensor_sink.append(
+                        {
+                            "record_type": "epsilon_tensor_signature",
+                            "variant": variant,
+                            "sample": sample_key,
+                            "step": int(step_idx),
+                            "timestep": timestep_value,
+                            "target_epsilon_pre_anchor": _tensor_signature(
+                                pre_cfg[sample_index]
+                            ),
+                            "target_epsilon_post_anchor": _tensor_signature(
+                                post_cfg[sample_index]
+                            ),
+                        }
+                    )
     
     USE_SOFT_BLENDING = True
     

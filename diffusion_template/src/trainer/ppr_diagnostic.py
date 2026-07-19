@@ -314,8 +314,10 @@ def _generate(
     sample_keys: list[str],
     ppr_reference_image=None,
     ppr_face_bbox_ref=None,
+    ppr_reference_noise_seed: int | None = None,
     runtime_settings: tuple[bool, str, float] | None = None,
     diagnostic_variant: str | None = None,
+    capture_tensor_signatures: bool = False,
 ) -> tuple[list[Image.Image], list[dict[str, Any]]]:
     pipeline = trainer.pipe
     settings = {
@@ -337,10 +339,12 @@ def _generate(
             "ba_ppr_collect_diagnostics",
             "ba_ppr_diagnostic_variant",
             "ba_ppr_diagnostic_sample_keys",
+            "ba_ppr_tensor_diagnostic_sites",
         )
     }
     processor_records: list[dict[str, Any]] = []
     epsilon_records: list[dict[str, Any]] = []
+    tensor_records: list[dict[str, Any]] = []
     pipeline.ba_ppr_force_base_output = force_base
     pipeline.ba_output_anchor_mode = anchor_mode
     pipeline.ba_ppr_runtime_scale = runtime_scale
@@ -349,6 +353,25 @@ def _generate(
     pipeline.ba_ppr_diagnostic_sample_keys = tuple(sample_keys)
     pipeline._ba_ppr_processor_diagnostics = processor_records
     pipeline._ba_ppr_epsilon_diagnostics = epsilon_records
+    pipeline._ba_ppr_tensor_diagnostics = tensor_records
+    if capture_tensor_signatures:
+        registry = getattr(pipeline, "_branched_attn_processors", {})
+        packed_names = sorted(
+            name
+            for name, processor in registry.items()
+            if processor.__class__.__name__
+            == "PackedResidualBranchedAttnProcessor"
+        )
+        if len(packed_names) < 2:
+            raise RuntimeError(
+                "Tensor diagnostics require at least two packed-residual sites"
+            )
+        pipeline.ba_ppr_tensor_diagnostic_sites = (
+            packed_names[0],
+            packed_names[-1],
+        )
+    else:
+        pipeline.ba_ppr_tensor_diagnostic_sites = ()
 
     kwargs = OmegaConf.to_container(
         trainer.config.validation_args,
@@ -371,6 +394,7 @@ def _generate(
             face_bbox_gen=generation_bboxes if batch_size > 1 else generation_bboxes[0],
             ppr_reference_image=ppr_reference_image,
             ppr_face_bbox_ref=ppr_face_bbox_ref,
+            ppr_reference_noise_seed=ppr_reference_noise_seed,
             **kwargs,
         )
         images = result.images
@@ -388,31 +412,38 @@ def _generate(
             setattr(pipeline, name, value)
         pipeline._ba_ppr_processor_diagnostics = None
         pipeline._ba_ppr_epsilon_diagnostics = None
+        pipeline._ba_ppr_tensor_diagnostics = None
 
     for record in processor_records:
         record["samples"] = list(sample_keys)
     randomness_records = []
-    latent_hashes = fingerprints.get("initial_latents_sha256", ())
-    reference_hashes = fingerprints.get("reference_noise_sha256", ())
-    if len(latent_hashes) != batch_size or len(reference_hashes) != batch_size:
+    per_sample_fields = {
+        key: value
+        for key, value in fingerprints.items()
+        if isinstance(value, (list, tuple))
+    }
+    if any(len(values) != batch_size for values in per_sample_fields.values()):
         raise RuntimeError(
-            f"PPR diagnostic {option} did not record per-sample randomness fingerprints"
+            f"PPR diagnostic {option} recorded malformed per-sample fingerprints"
         )
-    for sample_key, latent_hash, reference_hash in zip(
-        sample_keys,
-        latent_hashes,
-        reference_hashes,
-    ):
+    for sample_index, sample_key in enumerate(sample_keys):
         randomness_records.append(
             {
                 "record_type": "generation_randomness",
-                "variant": option,
+                "variant": diagnostic_variant or option,
                 "sample": sample_key,
-                "initial_latents_sha256": latent_hash,
-                "reference_noise_sha256": reference_hash,
+                **{
+                    key: values[sample_index]
+                    for key, values in per_sample_fields.items()
+                },
             }
         )
-    return images, epsilon_records + processor_records + randomness_records
+    for record in tensor_records + processor_records:
+        record["samples"] = list(sample_keys)
+    return (
+        images,
+        epsilon_records + tensor_records + processor_records + randomness_records,
+    )
 
 
 @torch.no_grad()

@@ -508,6 +508,7 @@ def run_branched_setup(
     use_bbox_mask_gen: bool,
     face_bbox_gen: Optional[List[float]],
     generator: Optional[torch.Generator],
+    ppr_reference_noise_seed: Optional[int],
     device: torch.device,
     face_embed_strategy: str,
     batch_size: int,
@@ -623,7 +624,19 @@ def run_branched_setup(
     pipeline._ref_img = id_pixel_values[0] if id_pixel_values.dim() == 5 else id_pixel_values
 
     if use_branched_attention and hasattr(pipeline, "_ref_latents_all") and not hasattr(pipeline, "_ref_noise"):
-        if isinstance(generator, (list, tuple)) and len(generator) == pipeline._ref_latents_all.shape[0]:
+        if ppr_reference_noise_seed is not None:
+            # Diagnostic-only RNG: never consume or replace the target-latent
+            # generator. Equal seeds therefore mean equal reference noise even
+            # when the spatial reference image changes.
+            ref_generator = torch.Generator(device=device)
+            ref_generator.manual_seed(int(ppr_reference_noise_seed))
+            pipeline._ref_noise = torch.randn(
+                pipeline._ref_latents_all.shape,
+                generator=ref_generator,
+                device=device,
+                dtype=pipeline._ref_latents_all.dtype,
+            )
+        elif isinstance(generator, (list, tuple)) and len(generator) == pipeline._ref_latents_all.shape[0]:
             pipeline._ref_noise = torch.cat(
                 [
                     torch.randn(
@@ -648,22 +661,6 @@ def run_branched_setup(
                 dtype=pipeline._ref_latents_all.dtype,
             )
 
-    if (
-        bool(getattr(pipeline, "ba_ppr_collect_diagnostics", False))
-        and hasattr(pipeline, "_ref_noise")
-    ):
-        def _sample_hashes(tensor: torch.Tensor) -> list[str]:
-            hashes = []
-            for sample in tensor.detach().contiguous().cpu():
-                raw = sample.contiguous().view(torch.uint8).numpy().tobytes()
-                hashes.append(hashlib.sha256(raw).hexdigest())
-            return hashes
-
-        pipeline._ba_ppr_randomness_fingerprints = {
-            "initial_latents_sha256": _sample_hashes(latents),
-            "reference_noise_sha256": _sample_hashes(pipeline._ref_noise),
-        }
-
     fes = (face_embed_strategy or "face").lower()
     if fes in {"faceanalysis"}:
         fes = "face"
@@ -685,6 +682,54 @@ def run_branched_setup(
         id_embeds=id_embeds,
         class_tokens_mask=class_tokens_mask,
     )
+
+    if (
+        bool(getattr(pipeline, "ba_ppr_collect_diagnostics", False))
+        and hasattr(pipeline, "_ref_noise")
+    ):
+        def _sample_hashes(tensor: torch.Tensor) -> list[str]:
+            hashes = []
+            for sample in tensor.detach().contiguous().cpu():
+                raw = sample.contiguous().view(torch.uint8).numpy().tobytes()
+                hashes.append(hashlib.sha256(raw).hexdigest())
+            return hashes
+
+        def _match_samples(tensor: torch.Tensor) -> torch.Tensor:
+            if tensor.shape[0] == batch_size:
+                return tensor
+            # Prompt embeddings are CFG ordered [uncond B, cond B]. The
+            # conditional half is the actual target conditioning.
+            if tensor.shape[0] == 2 * batch_size:
+                return tensor[batch_size:]
+            if tensor.shape[0] == 1:
+                return tensor.expand(batch_size, *tensor.shape[1:])
+            return tensor[:batch_size]
+
+        mask_ref = getattr(pipeline, "_face_mask_t_ref", None)
+        pm_id = getattr(pipeline, "_pm_id_embeds_2048", None)
+        fingerprints = {
+            "initial_latents_sha256": _sample_hashes(latents),
+            "target_prompt_embeds_sha256": _sample_hashes(
+                _match_samples(prompt_embeds)
+            ),
+            "reference_latents_sha256": _sample_hashes(
+                pipeline._ref_latents_all
+            ),
+            "reference_noise_sha256": _sample_hashes(pipeline._ref_noise),
+            "reference_mask_nonempty": [],
+        }
+        if mask_ref is not None:
+            mask_ref = _match_samples(mask_ref)
+            fingerprints["reference_mask_sha256"] = _sample_hashes(mask_ref)
+            fingerprints["reference_mask_nonempty"] = [
+                bool(value > 0)
+                for value in mask_ref.detach().float().sum(dim=(1, 2, 3)).cpu()
+            ]
+        if pm_id is not None:
+            fingerprints["target_photomaker_id_embeds_sha256"] = _sample_hashes(
+                _match_samples(pm_id)
+            )
+        pipeline._ba_ppr_randomness_fingerprints = fingerprints
 
 
 def reset_branched_generation_caches(pipeline) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 from typing import Optional
 
@@ -148,6 +149,7 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         self.last_diagnostics: dict[str, torch.Tensor | float | int] = {}
         self._diagnostic_calls = 0
         self.runtime_scale = 1.0
+        self.tensor_diagnostics = False
         self.diagnostic_step = -1
         self.diagnostic_steps = (15, 25, 35, 49)
         self.diagnostic_variant = ""
@@ -445,9 +447,8 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         )
         reference_candidate = self._from_heads(reference_candidate).to(target_base.dtype)
 
-        raw_delta = self.connector_up(
-            self.connector_down(reference_candidate - target_base)
-        )
+        connector_hidden = self.connector_down(reference_candidate - target_base)
+        raw_delta = self.connector_up(connector_hidden)
         target_core = self._resize_mask(
             self.mask_core,
             target_length=sequence_length,
@@ -509,6 +510,42 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
                     "cap_scales": cap_scale.detach().float().cpu().tolist(),
                 }
             )
+            if self.tensor_diagnostics:
+                # Full feature maps at late SDXL sites are prohibitively large
+                # across 96x5 generations. Store an exact hash/RMS plus a
+                # deterministic bounded sketch; paired relative differences
+                # are calculated from the same tensor positions.
+                def _signature(value: torch.Tensor) -> dict:
+                    # With validation batch=1 and CFG, the last row is the
+                    # conditional sample. This keeps records per image.
+                    value = value[-1].detach().float().contiguous()
+                    flat = value.flatten()
+                    stride = max(1, math.ceil(flat.numel() / 512))
+                    sketch = flat[::stride][:512].cpu()
+                    raw = value.cpu().view(torch.uint8).numpy().tobytes()
+                    return {
+                        "shape": list(value.shape),
+                        "rms": float(value.square().mean().sqrt().item()),
+                        "sha256": hashlib.sha256(raw).hexdigest(),
+                        "sketch_stride": stride,
+                        "sketch": sketch.tolist(),
+                    }
+
+                self.diagnostic_sink.append(
+                    {
+                        "record_type": "processor_tensor_signature",
+                        "variant": self.diagnostic_variant,
+                        "step": int(self.diagnostic_step),
+                        "processor": self.processor_name,
+                        "roi_tokens": int(lengths[-1].item()),
+                        "reference_hidden": _signature(reference_hidden),
+                        "reference_candidate": _signature(reference_candidate),
+                        "connector_down": _signature(connector_hidden),
+                        "raw_delta": _signature(raw_delta),
+                        "bounded_delta": _signature(bounded_delta),
+                        "applied_delta": _signature(applied_delta),
+                    }
+                )
 
         hidden_states = attn.to_out[0](hidden_states)
         hidden_states = attn.to_out[1](hidden_states)

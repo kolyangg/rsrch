@@ -41,6 +41,10 @@ ppr_scale_sweep_overwrite: false
 ppr_scale_sweep_scales: [0, 1, 2, 3, 4]
 ppr_scale_sweep_swap_scale: null
 ppr_scale_sweep_swap_count: 12
+ppr_reference_noise_test: false
+ppr_reference_noise_output_dir: ppr_8k_reference_vs_noise
+ppr_reference_noise_overwrite: false
+ppr_reference_noise_seeds: [918273, 271828]
 
 model:
   ba_processor_variant: packed_residual_v1

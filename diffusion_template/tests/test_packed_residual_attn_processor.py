@@ -44,6 +44,10 @@ from src.trainer.ppr_scale_sweep import (
     _processor_stats,
     _scale_label,
 )
+from src.trainer.ppr_reference_noise import (
+    _noise_seeds,
+    _relative_signature,
+)
 
 
 def _attention(channels: int = 16) -> Attention:
@@ -303,6 +307,52 @@ class PackedResidualProcessorTests(unittest.TestCase):
             rtol=2e-5,
         )
         torch.testing.assert_close(scaled_four[2:], base[2:], atol=0, rtol=0)
+
+    def test_tensor_diagnostic_signature_records_all_processor_stages(self) -> None:
+        torch.manual_seed(52)
+        side = 8
+        attn = _attention()
+        processor = _processor(attn)
+        with torch.no_grad():
+            processor.connector_up.weight.normal_(std=0.05)
+        mask, core = _masks(2, side)
+        processor.set_masks(mask, mask, core)
+        processor.tensor_diagnostics = True
+        processor.diagnostic_step = 15
+        processor.diagnostic_steps = (15,)
+        processor.diagnostic_variant = "R1N1"
+        processor.diagnostic_sink = []
+        processor(attn, torch.randn(4, side * side, 16))
+        records = [
+            value
+            for value in processor.diagnostic_sink
+            if value["record_type"] == "processor_tensor_signature"
+        ]
+        self.assertEqual(len(records), 1)
+        self.assertGreater(records[0]["roi_tokens"], 0)
+        for stage in (
+            "reference_hidden",
+            "reference_candidate",
+            "connector_down",
+            "raw_delta",
+            "bounded_delta",
+            "applied_delta",
+        ):
+            self.assertEqual(len(records[0][stage]["sha256"]), 64)
+            self.assertGreater(len(records[0][stage]["sketch"]), 0)
+
+    def test_reference_noise_helpers_require_two_distinct_seeds(self) -> None:
+        config = SimpleNamespace(ppr_reference_noise_seeds=[11, 22])
+        self.assertEqual(_noise_seeds(config), {"N1": 11, "N2": 22})
+        with self.assertRaises(ValueError):
+            _noise_seeds(
+                SimpleNamespace(ppr_reference_noise_seeds=[11, 11])
+            )
+        left = {"sketch": [1.0, 2.0]}
+        same = {"sketch": [1.0, 2.0]}
+        doubled = {"sketch": [2.0, 4.0]}
+        self.assertEqual(_relative_signature(left, same), 0.0)
+        self.assertAlmostEqual(_relative_signature(left, doubled), 1.0)
 
     def test_inner_core_is_soft_and_zero_at_bbox_edges(self) -> None:
         mask = torch.zeros(1, 1, 16, 16)

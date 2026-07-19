@@ -395,6 +395,12 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         
     @torch.no_grad()
     def process_evaluation_batch(self, batch, eval_metrics):
+        if bool(getattr(self.config, "ppr_reference_noise_test", False)):
+            from src.trainer.ppr_reference_noise import (
+                run_ppr_reference_noise_batch,
+            )
+
+            return run_ppr_reference_noise_batch(self, batch, eval_metrics)
         if bool(getattr(self.config, "ppr_scale_sweep", False)):
             from src.trainer.ppr_scale_sweep import run_ppr_scale_sweep_batch
 
@@ -912,6 +918,13 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         return batch
 
     def finalize_ppr_diagnostic_matrix(self):
+        if bool(getattr(self.config, "ppr_reference_noise_test", False)):
+            from src.trainer.ppr_reference_noise import (
+                finalize_ppr_reference_noise,
+            )
+
+            finalize_ppr_reference_noise(self)
+            return
         if bool(getattr(self.config, "ppr_scale_sweep", False)):
             from src.trainer.ppr_scale_sweep import finalize_ppr_scale_sweep
 

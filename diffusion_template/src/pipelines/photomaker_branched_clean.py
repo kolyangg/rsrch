@@ -569,6 +569,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         # conditioning still comes exclusively from input_id_images.
         ppr_reference_image: PipelineImageInput = None,
         ppr_face_bbox_ref: Optional[List[float]] = None,
+        ppr_reference_noise_seed: Optional[int] = None,
         # start_merge_step kept for back-compat. If provided, it will populate both new knobs.
         start_merge_step: int = 10, # TODO: change to `style_strength_ratio` in the future
         # NEW: split the semantics
@@ -913,6 +914,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             use_bbox_mask_gen=use_bbox_mask_gen,
             face_bbox_gen=face_bbox_gen,
             generator=generator,
+            ppr_reference_noise_seed=ppr_reference_noise_seed,
             device=device,
             face_embed_strategy=face_embed_strategy,
             batch_size=batch_size,
