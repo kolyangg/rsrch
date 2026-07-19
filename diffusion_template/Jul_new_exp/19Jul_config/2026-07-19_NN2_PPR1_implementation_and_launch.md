@@ -190,3 +190,18 @@ server PhotoMaker checkpoint. Before committing a long run on the GPU machine:
 The resolved configuration, selected site list, strict trainability manifest,
 diagnostics, and first-prediction fingerprint are printed/saved by the existing
 training and logging path.
+
+## Startup compatibility fix
+
+The first server launch exposed a mixed-processor compatibility bug in the
+training installer. PPR1 deliberately patches only up-block self-attention
+sites, so down/mid self-attention sites remain Diffusers
+`AttnProcessor2_0` objects. Those objects are callable processors but are not
+`torch.nn.Module` instances and do not expose `parameters()`. The installer
+incorrectly called `parameters()` on every registered processor and failed
+before optimizer creation.
+
+The installer now enables parameters only for processor objects that are
+PyTorch modules. Untouched Diffusers processors are skipped. This does not
+change the PPR architecture, selected sites, or trainable-parameter manifest.
+A regression test covers the intended mixed registry.

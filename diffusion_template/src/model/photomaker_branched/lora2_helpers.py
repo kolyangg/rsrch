@@ -417,6 +417,8 @@ def install_branched_processors_for_training(model) -> None:
 
         if hasattr(model.unet, "attn_processors"):
             for proc in model.unet.attn_processors.values():
+                if not isinstance(proc, torch.nn.Module):
+                    continue
                 for p in proc.parameters():
                     p.requires_grad_(True)
 

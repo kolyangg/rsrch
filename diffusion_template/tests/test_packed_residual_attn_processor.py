@@ -16,6 +16,7 @@ from src.model.photomaker_branched.branched_runtime import (
 from src.model.photomaker_branched.lora2_helpers import (
     _assert_branched_installation,
     configure_branched_trainables,
+    install_branched_processors_for_training,
 )
 from src.model.photomaker_branched.lora2 import PhotomakerBranchedLora
 from src.model.photomaker_branched.packed_residual_attn_processor import (
@@ -311,6 +312,10 @@ class _TinyUNet(nn.Module):
         return next(self.parameters()).dtype
 
     @property
+    def device(self):
+        return next(self.parameters()).device
+
+    @property
     def attn_processors(self):
         return {
             "down_blocks.0.attn1.processor": self.down_blocks[0].attn1.processor,
@@ -333,6 +338,11 @@ def _tiny_model() -> SimpleNamespace:
     model = SimpleNamespace(
         unet=_TinyUNet(),
         device=torch.device("cpu"),
+        target_size=64,
+        vae_scale_factor=8,
+        face_embed_strategy="id_image",
+        use_attn_v2=False,
+        ba_correctness_guards=True,
         disable_branched_sa=False,
         disable_branched_ca=False,
         ba_processor_variant="packed_residual_v1",
@@ -367,6 +377,21 @@ class _OptimizerConfig(dict):
 
 
 class PackedResidualRuntimeTests(unittest.TestCase):
+    def test_training_installer_skips_plain_diffusers_processors(self) -> None:
+        model = _tiny_model()
+        install_branched_processors_for_training(model)
+        plain_processors = [
+            processor
+            for processor in model.unet.attn_processors.values()
+            if isinstance(processor, AttnProcessor2_0)
+        ]
+        self.assertEqual(len(plain_processors), 2)
+        self.assertEqual(
+            set(model._ba_patched_sa_names),
+            {"up_blocks.0.attn1.processor"},
+        )
+        _assert_branched_installation(model)
+
     def test_processors_persist_and_trainability_manifest_is_exact(self) -> None:
         model = _tiny_model()
         mask = torch.ones(1, 1, 8, 8)
