@@ -24,6 +24,11 @@ mask_softness: 0.0
 pretrained_model_for_validation_name_or_path: null
 update_proc_weights_val: true
 
+# Checkpoint revalidation controls. Defaults preserve ordinary training.
+validation_only: false
+ppr_checkpoint_require_nonzero: false
+strict_checkpoint_model_config: false
+
 model:
   ba_processor_variant: packed_residual_v1
   ba_site_policy: up_blocks_attn1

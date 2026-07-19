@@ -405,10 +405,22 @@ def main(config):
             # Restore original config value immediately after
             config.pipeline.pretrained_model_name_or_path = prev_base
         
+    # Validation-only loads model tensors from a full checkpoint without
+    # restoring optimizer/scheduler state. A separate invocation can then
+    # resume training only after this fixed validation succeeds.
+    validation_only = bool(getattr(config, "validation_only", False))
+    if validation_only and bool(getattr(config, "continue_run", False)):
+        raise ValueError("validation_only=true and continue_run=true are mutually exclusive")
+
     # Optionally resume training from a checkpoint if requested at top-level config
     resume_from = None
     if bool(getattr(config, "continue_run", False)):
         resume_from = getattr(config, "saved_checkpoint", None)
+    from_pretrained = getattr(config.trainer, "from_pretrained", None)
+    if validation_only:
+        from_pretrained = getattr(config, "saved_checkpoint", None)
+        if not from_pretrained:
+            raise ValueError("validation_only=true requires saved_checkpoint")
 
     trainer = instantiate(
         config.trainer,
@@ -426,10 +438,14 @@ def main(config):
         writer=writer,
         batch_transforms=batch_transforms,
         resume_from=resume_from,
+        from_pretrained=from_pretrained,
         _recursive_=False
     )
 
-    trainer.train()
+    if validation_only:
+        trainer.validate_only()
+    else:
+        trainer.train()
     accelerator.end_training()
 
 

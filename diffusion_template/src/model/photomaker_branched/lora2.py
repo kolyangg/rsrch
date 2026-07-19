@@ -563,6 +563,10 @@ class PhotomakerBranchedLora(SDXL):
                         f"checkpoint={sorted(processor_state[name])}, expected={checkpoint_trainable}"
                     )
 
+        ppr_connector_nonzero = 0
+        ppr_connector_l2_sq = 0.0
+        ppr_connector_tensors = 0
+        ppr_gate_values = []
         for name, sd in processor_state.items():
             proc = self.unet.attn_processors.get(name)
             if proc is None or not hasattr(proc, "load_state_dict"):
@@ -575,6 +579,37 @@ class PhotomakerBranchedLora(SDXL):
                     f"Strict BA restore found unexpected keys for {name}: "
                     f"{incompatible.unexpected_keys}"
                 )
+            if self.ba_strict_processor_restore:
+                live_state = proc.state_dict()
+                for key, saved_tensor in sd.items():
+                    live_tensor = live_state.get(key)
+                    if live_tensor is None or not torch.equal(
+                        live_tensor.detach().cpu(),
+                        saved_tensor.detach().cpu(),
+                    ):
+                        raise RuntimeError(
+                            "Strict BA restore did not reproduce checkpoint tensor "
+                            f"{name}.{key}"
+                        )
+            connector_up = sd.get("connector_up.weight")
+            if connector_up is not None:
+                connector_fp32 = connector_up.detach().float()
+                ppr_connector_tensors += 1
+                ppr_connector_nonzero += int(torch.count_nonzero(connector_fp32).item())
+                ppr_connector_l2_sq += float(connector_fp32.square().sum().item())
+            gate_logit = sd.get("gate_logit")
+            if gate_logit is not None:
+                ppr_gate_values.append(
+                    float(self.ba_gate_max * torch.sigmoid(gate_logit.detach().float()).item())
+                )
+
+        self._last_ppr_checkpoint_diagnostics = {
+            "connector_up_tensors": ppr_connector_tensors,
+            "connector_up_nonzero": ppr_connector_nonzero,
+            "connector_up_l2": ppr_connector_l2_sq ** 0.5,
+            "gate_min": min(ppr_gate_values) if ppr_gate_values else 0.0,
+            "gate_max": max(ppr_gate_values) if ppr_gate_values else 0.0,
+        }
 
     def forward(
         self,

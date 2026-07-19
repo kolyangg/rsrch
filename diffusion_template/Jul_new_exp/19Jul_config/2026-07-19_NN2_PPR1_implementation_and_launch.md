@@ -203,6 +203,49 @@ PYTHONPATH=. \
 python tests/test_packed_residual_attn_processor.py -v
 ```
 
+## Corrected 4k checkpoint validation and continuation
+
+The initial PPR validation path could retain
+`_ba_packed_branch_exactly_off=true` from a step-zero generation. That value
+is valid for the 50 denoising steps within one pipeline call, but not for a
+later generation after trained checkpoint weights have been loaded. It could
+therefore make a nonzero PPR checkpoint render as ordinary PhotoMaker.
+
+Generation-scoped caches are now invalidated at the beginning of every
+`run_branched_setup()` call. The cache remains active inside that generation,
+so the exact step-zero bypass still avoids 50 repeated connector scans. The
+regression test now runs both the zero and nonzero generations under
+`torch.no_grad()` and verifies that the latter changes only the face core.
+
+The checkpoint revalidation launcher is:
+
+```text
+jul_serv_runs/start_ba_NN2_ppr1_realvis_resume_4k_1gpu.sh
+```
+
+It performs two sequential phases:
+
+1. loads only model weights from `checkpoint-epoch2.pth`, verifies exact
+   processor-tensor restoration and nonzero `connector_up` tensors, and runs
+   the fixed 96-image RealVis validation at logged step 4,000;
+2. only if validation exits successfully, launches a fresh process that
+   restores model, optimizer, and scheduler state and continues from epoch 3
+   through the configured 20k total budget.
+
+No optimizer state is restored and no training batch is executed in phase 1.
+The corrected validation is saved under a separate
+`*_checkpoint4k_revalidation` run name.
+
+On the NN2-PPR server, the usual command is:
+
+```bash
+CHECKPOINT_PATH=/home/niko/rsrch/diffusion_template/saved/ba_NN2_ppr1_realvis_1gpu/checkpoint-epoch2.pth \
+bash jul_serv_runs/start_ba_NN2_ppr1_realvis_resume_4k_1gpu.sh
+```
+
+The launcher uses GPU 0 by default. To append continuation metrics to the
+original Comet run, also set `CONTINUE_COMET_ID` to that run's experiment key.
+
 ## Required server preflight
 
 The local machine does not mount the server CosmicLarge JSON/images or the

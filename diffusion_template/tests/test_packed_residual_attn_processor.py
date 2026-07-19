@@ -26,6 +26,7 @@ from src.model.photomaker_branched.packed_residual_attn_processor import (
     make_inner_core_mask,
     pack_valid_tokens,
 )
+from src.pipelines.br_pipeline_helpers import reset_branched_generation_caches
 
 
 def _attention(channels: int = 16) -> Attention:
@@ -533,14 +534,19 @@ class PackedResidualRuntimeTests(unittest.TestCase):
         ), torch.no_grad():
             exact, _, _ = two_branch_predict(**kwargs)
         torch.testing.assert_close(exact, target + 1.0, atol=0, rtol=0)
+        self.assertTrue(pipeline._ba_packed_branch_exactly_off)
+        self.assertTrue(pipeline._ba_output_anchor_logged)
         self.assertIn("packed", unet.attn_processors)
 
         with torch.no_grad():
             packed.connector_up.weight.fill_(1.0)
+        reset_branched_generation_caches(pipeline)
+        self.assertFalse(hasattr(pipeline, "_ba_packed_branch_exactly_off"))
+        self.assertFalse(hasattr(pipeline, "_ba_output_anchor_logged"))
         with patch(
             "src.model.photomaker_branched.branched_runtime."
             "patch_unet_attention_processors"
-        ):
+        ), torch.no_grad():
             localized, _, _ = two_branch_predict(**kwargs)
         core = make_inner_core_mask(mask, erode_frac=0.10)
         expected = (target + 1.0) + core * 9.0

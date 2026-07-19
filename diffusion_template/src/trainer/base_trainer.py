@@ -135,6 +135,7 @@ class BaseTrainer:
         self._last_epoch = 0  # required for saving on interruption
         self.start_epoch = 1
         self.epochs = n_epochs
+        self.loaded_checkpoint_epoch = 0
 
         self.save_period = save_period  # checkpoint each save_period epochs
         self.max_grad_norm = max_grad_norm
@@ -176,6 +177,56 @@ class BaseTrainer:
                 self.logger.info("Saving model on keyboard interrupt")
             self._save_checkpoint(self._last_epoch)
             raise e
+
+    def validate_only(self):
+        """Evaluate loaded model weights once without restoring optimizer state."""
+        if not self.evaluation_dataloaders:
+            raise RuntimeError("validation_only=true requires an evaluation dataloader")
+        epoch = int(self.loaded_checkpoint_epoch)
+        self.is_train = False
+        try:
+            unwrapped = self.accelerator.unwrap_model(self.model)
+        except Exception:
+            unwrapped = self.model
+        unwrapped.eval()
+        self.accelerator.wait_for_everyone()
+        logs = {}
+        for part, dataloader in self.evaluation_dataloaders.items():
+            val_logs = self._evaluation_epoch(epoch, part, dataloader)
+            if self.accelerator.is_main_process:
+                logs.update({f"{part}/{name}": value for name, value in val_logs.items()})
+        self.accelerator.wait_for_everyone()
+        if self.accelerator.is_main_process:
+            self.logger.info(
+                f"Validation-only checkpoint epoch={epoch}, step={epoch * self.epoch_len}"
+            )
+            for key, value in logs.items():
+                self.logger.info(f"    {key:15s}: {value}")
+        return logs
+
+    def _check_ppr_checkpoint_preflight(self):
+        if not bool(getattr(self.config, "ppr_checkpoint_require_nonzero", False)):
+            return
+        try:
+            model = self.accelerator.unwrap_model(self.model)
+        except Exception:
+            model = self.model
+        diagnostics = getattr(model, "_last_ppr_checkpoint_diagnostics", None)
+        if not diagnostics or int(diagnostics.get("connector_up_tensors", 0)) == 0:
+            raise RuntimeError("PPR checkpoint preflight found no connector_up tensors")
+        if int(diagnostics.get("connector_up_nonzero", 0)) == 0:
+            raise RuntimeError("PPR checkpoint preflight found only zero connector_up tensors")
+        message = (
+            "[PPR checkpoint preflight] "
+            f"connector_up_tensors={diagnostics['connector_up_tensors']} "
+            f"nonzero={diagnostics['connector_up_nonzero']} "
+            f"l2={diagnostics['connector_up_l2']:.6f} "
+            f"gate={diagnostics['gate_min']:.6f}..{diagnostics['gate_max']:.6f}"
+        )
+        if self.accelerator.is_main_process and self.logger is not None:
+            self.logger.info(message)
+        elif self.accelerator.is_main_process:
+            print(message)
 
     def _cleanup_cuda_state(self):
         objs = []
@@ -968,8 +1019,9 @@ class BaseTrainer:
         resume_path = str(resume_path)
         if self.accelerator.is_main_process:
             self.logger.info(f"Loading checkpoint: {resume_path} ...")
-        checkpoint = torch.load(resume_path, self.device)
+        checkpoint = torch.load(resume_path, self.device, weights_only=False)
         self.start_epoch = checkpoint["epoch"] + 1
+        self.loaded_checkpoint_epoch = int(checkpoint["epoch"])
 
         # load architecture params from checkpoint.
         if checkpoint["config"]["model"] != self.config["model"]:
@@ -979,6 +1031,7 @@ class BaseTrainer:
                     "of the checkpoint. This may yield an exception when state_dict is loaded."
                 )
         self.accelerator.unwrap_model(self.model).load_state_dict_(checkpoint["state_dict"])
+        self._check_ppr_checkpoint_preflight()
 
         # load optimizer state from checkpoint only when optimizer type is not changed.
         if (
@@ -1016,10 +1069,19 @@ class BaseTrainer:
                 self.logger.info(f"Loading model weights from: {pretrained_path} ...")
         else:
             print(f"Loading model weights from: {pretrained_path} ...")
-        checkpoint = torch.load(pretrained_path, self.device)
+        checkpoint = torch.load(pretrained_path, self.device, weights_only=False)
 
         if checkpoint.get("state_dict") is not None:
+            if bool(getattr(self.config, "strict_checkpoint_model_config", False)):
+                saved_config = checkpoint.get("config")
+                saved_model = saved_config.get("model") if saved_config is not None else None
+                if saved_model is None or saved_model != self.config["model"]:
+                    raise RuntimeError(
+                        "Validation checkpoint model config does not match the active model config"
+                    )
             self.accelerator.unwrap_model(self.model).load_state_dict_(checkpoint["state_dict"])
+            self.loaded_checkpoint_epoch = int(checkpoint.get("epoch", 0))
         else:
             self.accelerator.unwrap_model(self.model).load_state_dict_(checkpoint)
+        self._check_ppr_checkpoint_preflight()
            

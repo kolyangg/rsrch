@@ -514,6 +514,12 @@ def run_branched_setup(
     id_embeds: Optional[torch.Tensor],
     class_tokens_mask: torch.LongTensor,
 ) -> None:
+    # These values are cached across denoising steps, not across generations.
+    # In particular, a step-zero validation may cache that every PPR connector
+    # is exactly off; reusing that value after loading trained weights would
+    # incorrectly return the ordinary PhotoMaker prediction for every step.
+    reset_branched_generation_caches(pipeline)
+
     # ### 05 APR - FIX VALIDATION REF BATCHING ISSUE ###
     def _clone_generator_for_device(cand: Any) -> Optional[torch.Generator]:
         if not isinstance(cand, torch.Generator):
@@ -662,6 +668,16 @@ def run_branched_setup(
         id_embeds=id_embeds,
         class_tokens_mask=class_tokens_mask,
     )
+
+
+def reset_branched_generation_caches(pipeline) -> None:
+    """Invalidate state whose lifetime is one pipeline generation."""
+    for attr in (
+        "_ba_packed_branch_exactly_off",
+        "_ba_output_anchor_logged",
+    ):
+        if hasattr(pipeline, attr):
+            delattr(pipeline, attr)
 
 
 def ensure_ref_latents_ready(
@@ -1074,6 +1090,7 @@ def cleanup_branched_runtime(pipeline, *, use_branched_attention: bool) -> None:
         "_ref_latents_all",
         "_ref_noise",
         "_ba_packed_branch_exactly_off",
+        "_ba_output_anchor_logged",
     ]:
         if hasattr(pipeline, attr):
             delattr(pipeline, attr)
