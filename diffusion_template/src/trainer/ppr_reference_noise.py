@@ -117,10 +117,9 @@ def _initialize_state(trainer) -> dict[str, Any]:
     if len(trainer.evaluation_dataloaders) != 1:
         raise RuntimeError("Reference/noise test requires one validation dataset")
     dataloader = next(iter(trainer.evaluation_dataloaders.values()))
-    if int(getattr(dataloader, "batch_size", 0) or 0) != 1:
-        raise RuntimeError(
-            "Reference/noise tensor diagnostics require validation batch_size=1"
-        )
+    # Accelerate's DataLoaderShard does not reliably preserve the source
+    # DataLoader.batch_size metadata. The effective batch is checked from the
+    # actual prompts in run_ppr_reference_noise_batch instead.
     dataset = dataloader.dataset
     sources = []
     for image_path in getattr(dataset, "images", ()):
