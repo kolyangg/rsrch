@@ -5,8 +5,8 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 MASTER_PORT="${MASTER_PORT:-29624}"
-RUN_NAME="${RUN_NAME:-ba_NN2_ppr1_realvis_6k_diagnostic}"
-OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/ppr_6k_diagnostic}"
+RUN_NAME="${RUN_NAME:-ba_NN2_ppr1_realvis_8k_diagnostic}"
+OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/ppr_8k_diagnostic}"
 OVERWRITE_OUTPUT="${OVERWRITE_OUTPUT:-false}"
 LOG_DIR="${LOG_DIR:-${PROJECT_DIR}/logs_new_runs}"
 LOG_FILE="${LOG_FILE:-${LOG_DIR}/${RUN_NAME}_$(date +%Y%m%d_%H%M%S).log}"
@@ -43,8 +43,8 @@ fi
 
 if [[ -z "${CHECKPOINT_PATH:-}" ]]; then
   for candidate in \
-    "${PROJECT_DIR}/saved/ba_NN2_ppr1_realvis_1gpu/checkpoint-epoch3.pth" \
-    "${PROJECT_DIR}/saved/ba_NN2_ppr1_1gpu/checkpoint-epoch3.pth"; do
+    "${PROJECT_DIR}/saved/ba_NN2_ppr1_realvis_1gpu/checkpoint-epoch4.pth" \
+    "${PROJECT_DIR}/saved/ba_NN2_ppr1_1gpu/checkpoint-epoch4.pth"; do
     if [[ -f "${candidate}" ]]; then
       CHECKPOINT_PATH="${candidate}"
       break
@@ -52,14 +52,14 @@ if [[ -z "${CHECKPOINT_PATH:-}" ]]; then
   done
 fi
 if [[ -z "${CHECKPOINT_PATH:-}" || ! -f "${CHECKPOINT_PATH}" ]]; then
-  echo "Set CHECKPOINT_PATH to the NN2-PPR 6k checkpoint-epoch3.pth." >&2
+  echo "Set CHECKPOINT_PATH to the NN2-PPR 8k checkpoint-epoch4.pth." >&2
   exit 2
 fi
 CHECKPOINT_PATH="$(cd -- "$(dirname -- "${CHECKPOINT_PATH}")" && pwd)/$(basename -- "${CHECKPOINT_PATH}")"
 
 if [[ "${RUN_FOREGROUND:-0}" != "1" && "${DETACHED_RUN:-0}" != "1" ]]; then
   mkdir -p "${LOG_DIR}"
-  echo "Starting NN2-PPR 6k A-E diagnostic matrix on GPU ${CUDA_VISIBLE_DEVICES}"
+  echo "Starting NN2-PPR 8k A-E diagnostic matrix on GPU ${CUDA_VISIBLE_DEVICES}"
   echo "Checkpoint: ${CHECKPOINT_PATH}"
   echo "Output: ${OUTPUT_DIR}"
   echo "Log: ${LOG_FILE}"
@@ -129,7 +129,7 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml \
   saved_checkpoint="${CHECKPOINT_PATH}" \
   ppr_checkpoint_require_nonzero=true \
   strict_checkpoint_model_config=true \
-  ppr_expected_checkpoint_epoch=3 \
+  ppr_expected_checkpoint_epoch=4 \
   ppr_diagnostic_matrix=true \
   ppr_diagnostic_output_dir="${OUTPUT_DIR}" \
   ppr_diagnostic_overwrite="${OVERWRITE_OUTPUT}" \
