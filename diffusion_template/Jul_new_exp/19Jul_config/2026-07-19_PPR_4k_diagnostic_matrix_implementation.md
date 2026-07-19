@@ -1,14 +1,15 @@
-# PPR 4k diagnostic matrix implementation
+# PPR checkpoint-3 (6k) diagnostic matrix implementation
 
 Date: 19 July 2026
 
 ## Purpose
 
-This checkpoint-only test distinguishes five explanations for weak NN2-PPR
-validation effects without taking an optimizer step:
+This checkpoint-only test uses `checkpoint-epoch3.pth` (6k steps) to
+distinguish five explanations for weak NN2-PPR validation effects without
+taking an optimizer step:
 
 - A: exact ordinary PhotoMaker epsilon at every BA-active step;
-- B: the unchanged 4k PPR checkpoint;
+- B: the unchanged 6k PPR checkpoint;
 - C: PPR with the final `base_outside_core` anchor disabled at runtime;
 - D: the applied processor residual multiplied by four after gate and cap;
 - E: original PhotoMaker identity conditioning with only the PPR spatial
@@ -31,7 +32,7 @@ Run on the NN2-PPR server:
 ```bash
 cd /home/niko/rsrch/diffusion_template
 
-CHECKPOINT_PATH=/home/niko/rsrch/diffusion_template/saved/ba_NN2_ppr1_realvis_1gpu/checkpoint-epoch2.pth \
+CHECKPOINT_PATH=/home/niko/rsrch/diffusion_template/saved/ba_NN2_ppr1_realvis_1gpu/checkpoint-epoch3.pth \
 bash jul_serv_runs/start_ba_NN2_ppr1_realvis_4k_diagnostic_1gpu.sh
 ```
 
@@ -43,16 +44,16 @@ intentional clean rerun:
 
 ```bash
 OVERWRITE_OUTPUT=true \
-CHECKPOINT_PATH=/path/to/checkpoint-epoch2.pth \
+CHECKPOINT_PATH=/path/to/checkpoint-epoch3.pth \
 bash jul_serv_runs/start_ba_NN2_ppr1_realvis_4k_diagnostic_1gpu.sh
 ```
 
 ## Outputs
 
-The default output directory is `ppr_4k_diagnostic/`:
+The default output directory is `ppr_6k_diagnostic/`:
 
 ```text
-ppr_4k_diagnostic/
+ppr_6k_diagnostic/
   A_exact_pm/
   B_current_ppr/
   C_no_anchor/
