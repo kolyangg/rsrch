@@ -6,7 +6,12 @@ from typing import Sequence
 import numpy as np
 import torch
 
-from .branched_runtime import patch_unet_attention_processors, select_branched_processor_names, two_branch_predict
+from .branched_runtime import (
+    patch_unet_attention_processors,
+    select_branched_processor_names,
+    select_branched_self_attention_names,
+    two_branch_predict,
+)
 from .insightface_package import analyze_faces
 
 from copy import deepcopy
@@ -65,6 +70,12 @@ def _processor_trainable_manifest(model) -> dict[str, dict[str, int]]:
             key = "sa_face_mix"
         elif ".attn1.processor.face_residual_gain" in name:
             key = "sa_face_residual"
+        elif ".attn1.processor.connector_down." in name:
+            key = "sa_connector_down"
+        elif ".attn1.processor.connector_up." in name:
+            key = "sa_connector_up"
+        elif ".attn1.processor.gate_logit" in name:
+            key = "sa_gate"
         else:
             attention = "sa" if ".attn1.processor." in name else "ca" if ".attn2.processor." in name else "other"
             branch = "ref" if ".ref_to_" in name else "noise" if ".noise_to_" in name else "other"
@@ -78,22 +89,56 @@ def _processor_trainable_manifest(model) -> dict[str, dict[str, int]]:
 
 def _assert_branched_installation(model) -> None:
     processors = model.unet.attn_processors
-    sa_names = sorted(
+    all_names = list(processors)
+    variant = str(getattr(model, "ba_processor_variant", "legacy") or "legacy").lower()
+    if variant == "packed_residual_v1":
+        expected_sa = set(
+            select_branched_self_attention_names(
+                all_names,
+                getattr(model, "ba_site_policy", "all"),
+            )
+        )
+    else:
+        expected_sa = set(
+            select_branched_processor_names(
+                all_names,
+                include_self_attention=True,
+                include_cross_attention=False,
+                top_k=float(getattr(model, "ba_patch_top_k", 1.0)),
+                param_name="ba_patch_top_k",
+            )
+        )
+    if bool(getattr(model, "disable_branched_sa", False)):
+        expected_sa.clear()
+    expected_ca = {
+        name for name in all_names if name.endswith("attn2.processor")
+    }
+    if bool(getattr(model, "disable_branched_ca", False)):
+        expected_ca.clear()
+
+    actual_sa = {
         name for name, proc in processors.items()
-        if name.endswith("attn1.processor") and proc.__class__.__name__ == "BranchedAttnProcessor"
-    )
-    ca_names = sorted(
+        if name.endswith("attn1.processor")
+        and bool(getattr(proc, "_is_branched_processor", False))
+        and getattr(proc, "_branched_kind", None) == "self"
+    }
+    actual_ca = {
         name for name, proc in processors.items()
-        if name.endswith("attn2.processor") and proc.__class__.__name__ == "BranchedCrossAttnProcessor"
-    )
-    if len(sa_names) != 70 or len(ca_names) != 70:
+        if name.endswith("attn2.processor")
+        and bool(getattr(proc, "_is_branched_processor", False))
+        and getattr(proc, "_branched_kind", None) == "cross"
+    }
+    if actual_sa != expected_sa or actual_ca != expected_ca:
         raise RuntimeError(
-            "Strict BA installation expected 70 BranchedAttnProcessor and 70 "
-            f"BranchedCrossAttnProcessor instances, found SA={len(sa_names)}, CA={len(ca_names)}"
+            "Strict BA installation site mismatch: "
+            f"missing_sa={sorted(expected_sa - actual_sa)[:5]}, "
+            f"unexpected_sa={sorted(actual_sa - expected_sa)[:5]}, "
+            f"missing_ca={sorted(expected_ca - actual_ca)[:5]}, "
+            f"unexpected_ca={sorted(actual_ca - expected_ca)[:5]}"
         )
 
     patched = tuple(sorted(getattr(model, "_ba_patched_processor_names", ())))
-    expected = tuple(sorted(sa_names + ca_names))
+    expected = tuple(sorted(expected_sa | expected_ca))
     if patched != expected:
         raise RuntimeError(
             "Strict BA installation processor-name mismatch: "
@@ -106,6 +151,10 @@ def _assert_branched_installation(model) -> None:
     trainable_processor_keys = tuple(name for name in trainable_keys if ".processor." in name)
     if getattr(model, "train_ba_only", False) and not trainable_processor_keys:
         raise RuntimeError("Strict BA installation found no trainable processor parameters")
+    if getattr(model, "train_ba_only", False) and any(
+        ".processor." not in name for name in trainable_keys
+    ):
+        raise RuntimeError("train_ba_only found trainable parameters outside processors")
     if any(
         ".processor." in name
         and not any(name.startswith(f"{proc_name}.") for proc_name in expected)
@@ -119,7 +168,53 @@ def _assert_branched_installation(model) -> None:
 
     sa_train_mode = str(getattr(model, "ba_sa_train_mode", "all") or "all").lower()
     manifest = _processor_trainable_manifest(model)
-    if sa_train_mode == "ref_kv_only":
+    if sa_train_mode == "packed_residual":
+        allowed_fragments = (
+            ".attn1.processor.ref_to_k.lora_A",
+            ".attn1.processor.ref_to_k.lora_B",
+            ".attn1.processor.ref_to_v.lora_A",
+            ".attn1.processor.ref_to_v.lora_B",
+            ".attn1.processor.connector_down.weight",
+            ".attn1.processor.connector_up.weight",
+            ".attn1.processor.gate_logit",
+        )
+        invalid = [
+            name for name in trainable_processor_keys
+            if not any(fragment in name for fragment in allowed_fragments)
+        ]
+        if invalid:
+            raise RuntimeError(
+                "packed_residual selected but unexpected parameters are trainable: "
+                + ", ".join(invalid[:5])
+            )
+        required_categories = {
+            "sa_ref_k",
+            "sa_ref_v",
+            "sa_connector_down",
+            "sa_connector_up",
+            "sa_gate",
+        }
+        expected_local = {
+            "ref_to_k.lora_A",
+            "ref_to_k.lora_B",
+            "ref_to_v.lora_A",
+            "ref_to_v.lora_B",
+            "connector_down.weight",
+            "connector_up.weight",
+            "gate_logit",
+        }
+        for name in sorted(expected_sa):
+            local_trainable = {
+                key for key, parameter in processors[name].named_parameters()
+                if parameter.requires_grad
+            }
+            if local_trainable != expected_local:
+                raise RuntimeError(
+                    f"Packed residual trainability mismatch at {name}: "
+                    f"missing={sorted(expected_local - local_trainable)}, "
+                    f"unexpected={sorted(local_trainable - expected_local)}"
+                )
+    elif sa_train_mode == "ref_kv_only":
         invalid = [
             name for name in trainable_processor_keys
             if not (
@@ -169,7 +264,9 @@ def _assert_branched_installation(model) -> None:
     )
     print(
         "[BA strict install] "
-        f"SA=70 CA=70 trainable_tensors={len(trainable_processor_keys)} "
+        f"variant={variant} site_policy={getattr(model, 'ba_site_policy', 'all')} "
+        f"SA={len(expected_sa)} CA={len(expected_ca)} "
+        f"trainable_tensors={len(trainable_processor_keys)} "
         f"trainable_parameters={sum(parameter.numel() for parameter in model.unet.parameters() if parameter.requires_grad)}"
     )
     print(
@@ -178,6 +275,8 @@ def _assert_branched_installation(model) -> None:
     )
     print(
         "[BA architecture] "
+        f"variant={variant} "
+        f"site_policy={getattr(model, 'ba_site_policy', 'all')} "
         f"face_mode={getattr(model, 'ba_sa_face_mode', 'reference')} "
         f"ref_tokens={getattr(model, 'ba_sa_ref_token_mode', 'full_grid')} "
         f"ref_scope={getattr(model, 'ba_sa_ref_layer_scope', 'all')} "
@@ -206,7 +305,7 @@ def configure_branched_trainables(model) -> None:
         raise ValueError(f"Unknown branched_attn_weight_mode: {mode}")
     if new_weight_kind not in {"full", "lora"}:
         raise ValueError(f"Unknown branched_attn_new_weight_kind: {new_weight_kind}")
-    if sa_train_mode not in {"all", "ref_kv_only"}:
+    if sa_train_mode not in {"all", "ref_kv_only", "packed_residual"}:
         raise ValueError(f"Unknown ba_sa_train_mode: {sa_train_mode}")
 
     patched_proc_names = tuple(getattr(model, "_ba_patched_processor_names", ()))
@@ -233,12 +332,24 @@ def configure_branched_trainables(model) -> None:
 
     for name, p in model.unet.named_parameters():
         is_non_ba_attn = bool(non_ba_attn_prefixes) and name.startswith(non_ba_attn_prefixes)
-        if mode == "shared":
+        is_selected_proc = bool(selected_proc_prefixes) and name.startswith(selected_proc_prefixes)
+        if sa_train_mode == "packed_residual":
+            is_packed_parameter = (
+                ".attn1.processor.ref_to_k.lora_A" in name
+                or ".attn1.processor.ref_to_k.lora_B" in name
+                or ".attn1.processor.ref_to_v.lora_A" in name
+                or ".attn1.processor.ref_to_v.lora_B" in name
+                or ".attn1.processor.connector_down.weight" in name
+                or ".attn1.processor.connector_up.weight" in name
+                or ".attn1.processor.gate_logit" in name
+            )
+            if is_selected_proc and is_packed_parameter:
+                p.requires_grad_(True)
+        elif mode == "shared":
             is_selected_attn = bool(selected_attn_prefixes) and name.startswith(selected_attn_prefixes)
             if is_selected_attn and ("lora_A" in name or "lora_B" in name) and ".lora_adapter." in name and ".attn1." in name:
                 p.requires_grad_(True)
         else:
-            is_selected_proc = bool(selected_proc_prefixes) and name.startswith(selected_proc_prefixes)
             is_ref_projection = ".attn1.processor.ref_to_" in name
             if sa_train_mode == "ref_kv_only":
                 is_ref_projection = (
@@ -608,6 +719,12 @@ def ensure_branched_after_eval(model) -> None:
     # would create fresh clones (zero LoRA deltas) and silently detach training:
     # the optimizer would keep updating orphaned modules.
     trained_procs = getattr(model, "_branched_attn_processors_train", None)
+    before_restore_ids = {
+        name: id(proc)
+        for name, proc in sorted((trained_procs or {}).items())
+        if bool(getattr(proc, "_is_branched_processor", False))
+    }
+    model._ba_processor_object_ids_before_restore = before_restore_ids
     if trained_procs:
         current = model.unet.attn_processors
         if any(current.get(name) is not proc for name, proc in trained_procs.items()):
@@ -625,6 +742,12 @@ def ensure_branched_after_eval(model) -> None:
     )
     if bool(getattr(model, "ba_strict_processor_restore", False)):
         current = model.unet.attn_processors
+        after_restore_ids = {
+            name: id(proc)
+            for name, proc in sorted(current.items())
+            if bool(getattr(proc, "_is_branched_processor", False))
+        }
+        model._ba_processor_object_ids_after_restore = after_restore_ids
         missing = sorted(set(trained_procs or {}) - set(current))
         detached = sorted(
             name
@@ -639,3 +762,8 @@ def ensure_branched_after_eval(model) -> None:
                 f"missing={missing[:3]}, detached={detached[:3]}, "
                 f"expected_names={len(expected)}, actual_names={len(actual)}"
             )
+        print(
+            "[BA processor restore] "
+            f"identities_preserved={before_restore_ids == after_restore_ids} "
+            f"branched_processors={len(after_restore_ids)}"
+        )

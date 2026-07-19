@@ -40,6 +40,25 @@ def select_branched_processor_names(
     return candidate_names[:keep_count]
 
 
+def select_branched_self_attention_names(
+    attn_processor_names: Sequence[str],
+    policy: str,
+) -> list[str]:
+    """Select explicit self-attention sites for a processor variant."""
+    policy = str(policy or "all").lower()
+    if policy == "all":
+        return [
+            name for name in attn_processor_names
+            if name.endswith("attn1.processor")
+        ]
+    if policy == "up_blocks_attn1":
+        return [
+            name for name in attn_processor_names
+            if name.startswith("up_blocks.") and name.endswith("attn1.processor")
+        ]
+    raise ValueError(f"Unknown ba_site_policy: {policy}")
+
+
 def patch_unet_attention_processors(
     pipeline,
     mask: torch.Tensor,
@@ -63,6 +82,15 @@ def patch_unet_attention_processors(
     #     # from .attn_processor_clean import BranchedAttnProcessor, BranchedCrossAttnProcessor
     
     from .attn_processor_cleanest import BranchedAttnProcessor, BranchedCrossAttnProcessor # New ver 25 Feb
+    from .packed_residual_attn_processor import (
+        PackedResidualBranchedAttnProcessor,
+        make_inner_core_mask,
+    )
+
+    variant = str(getattr(pipeline, "ba_processor_variant", "legacy") or "legacy").lower()
+    if variant not in {"legacy", "packed_residual_v1"}:
+        raise ValueError(f"Unknown ba_processor_variant: {variant}")
+    site_policy = str(getattr(pipeline, "ba_site_policy", "all") or "all").lower()
 
     # print(f'[TEMP DEBUG] mask in patch_unet_attention_processors: {mask}')
     
@@ -75,7 +103,7 @@ def patch_unet_attention_processors(
     # Check if already patched
     current_procs = pipeline.unet.attn_processors
     has_branched = any(
-        isinstance(p, (BranchedAttnProcessor, BranchedCrossAttnProcessor)) 
+        bool(getattr(p, "_is_branched_processor", False))
         for p in current_procs.values()
     )
 
@@ -110,17 +138,36 @@ def patch_unet_attention_processors(
     dev, dt = pipeline.device, pipeline.unet.dtype
     _mask  = mask     if mask     is not None else torch.zeros(B, 1,  mask_ref.shape[-2], mask_ref.shape[-1], device=dev, dtype=dt)
     _mref  = mask_ref if mask_ref is not None else _mask
+    _mcore = (
+        make_inner_core_mask(
+            _mask,
+            erode_frac=float(getattr(pipeline, "ba_target_core_erode_frac", 0.10)),
+        ).to(device=dev, dtype=dt)
+        if variant == "packed_residual_v1"
+        else None
+    )
     # Always provide id_embeds so processor-local weights participate on every rank
     _idem = id_embeds.to(dev, dt) if id_embeds is not None else torch.zeros(B, 2048, device=dev, dtype=dt)   
 
     ba_patch_top_k = float(getattr(pipeline, "ba_patch_top_k", 1.0))
-    patchable_sa_names = select_branched_processor_names(
-        list(pipeline.unet.attn_processors.keys()),
-        include_self_attention=True,
-        include_cross_attention=False,
-        top_k=ba_patch_top_k,
-        param_name="ba_patch_top_k",
-    )
+    all_processor_names = list(pipeline.unet.attn_processors.keys())
+    if variant == "packed_residual_v1":
+        if ba_patch_top_k != 1.0:
+            raise ValueError(
+                "packed_residual_v1 uses ba_site_policy and requires ba_patch_top_k=1.0"
+            )
+        patchable_sa_names = select_branched_self_attention_names(
+            all_processor_names,
+            site_policy,
+        )
+    else:
+        patchable_sa_names = select_branched_processor_names(
+            all_processor_names,
+            include_self_attention=True,
+            include_cross_attention=False,
+            top_k=ba_patch_top_k,
+            param_name="ba_patch_top_k",
+        )
     patchable_sa_name_set = set(patchable_sa_names)
 
     if not has_branched:
@@ -152,26 +199,55 @@ def patch_unet_attention_processors(
                     new_procs[name] = pipeline._original_attn_processors[name]
                 else:
                     # Self-attention: use branched processor
-                    proc = BranchedAttnProcessor(
-                        hidden_size=hidden_size,
-                        cross_attention_dim=hidden_size,
-                        scale=scale,
-                        branched_attn_weight_mode=getattr(pipeline, "branched_attn_weight_mode", "shared"),
-                        branched_attn_new_weight_kind=getattr(pipeline, "branched_attn_new_weight_kind", "full"),
-                        branched_attn_lora_rank=int(
-                            getattr(pipeline, "branched_attn_lora_rank", getattr(pipeline, "lora_rank", 16))
-                        ),
-                        processor_name=name,
-                        ba_sa_ref_token_mode=getattr(pipeline, "ba_sa_ref_token_mode", "full_grid"),
-                        ba_sa_face_mode=getattr(pipeline, "ba_sa_face_mode", "reference"),
-                        ba_sa_ref_layer_scope=getattr(pipeline, "ba_sa_ref_layer_scope", "all"),
-                        ba_sa_roi_grid_size=int(getattr(pipeline, "ba_sa_roi_grid_size", 8)),
-                        ba_sa_core_ratio=float(getattr(pipeline, "ba_sa_core_ratio", 0.7)),
-                        ba_sa_mix_init=float(getattr(pipeline, "ba_sa_mix_init", 0.25)),
-                    )
+                    if variant == "packed_residual_v1":
+                        proc = PackedResidualBranchedAttnProcessor(
+                            hidden_size=hidden_size,
+                            ref_kv_kind="lora",
+                            ref_kv_rank=int(
+                                getattr(
+                                    pipeline,
+                                    "branched_attn_lora_rank",
+                                    getattr(pipeline, "lora_rank", 16),
+                                )
+                            ),
+                            connector_rank=int(getattr(pipeline, "ba_connector_rank", 16)),
+                            gate_max=float(getattr(pipeline, "ba_gate_max", 0.5)),
+                            gate_init_logit=float(
+                                getattr(pipeline, "ba_gate_init_logit", 0.0)
+                            ),
+                            delta_rms_cap=float(
+                                getattr(pipeline, "ba_delta_rms_cap", 0.25)
+                            ),
+                            target_core_erode_frac=float(
+                                getattr(pipeline, "ba_target_core_erode_frac", 0.10)
+                            ),
+                            processor_name=name,
+                            diagnostics=bool(getattr(pipeline, "ba_diagnostics", False)),
+                        )
+                    else:
+                        proc = BranchedAttnProcessor(
+                            hidden_size=hidden_size,
+                            cross_attention_dim=hidden_size,
+                            scale=scale,
+                            branched_attn_weight_mode=getattr(pipeline, "branched_attn_weight_mode", "shared"),
+                            branched_attn_new_weight_kind=getattr(pipeline, "branched_attn_new_weight_kind", "full"),
+                            branched_attn_lora_rank=int(
+                                getattr(pipeline, "branched_attn_lora_rank", getattr(pipeline, "lora_rank", 16))
+                            ),
+                            processor_name=name,
+                            ba_sa_ref_token_mode=getattr(pipeline, "ba_sa_ref_token_mode", "full_grid"),
+                            ba_sa_face_mode=getattr(pipeline, "ba_sa_face_mode", "reference"),
+                            ba_sa_ref_layer_scope=getattr(pipeline, "ba_sa_ref_layer_scope", "all"),
+                            ba_sa_roi_grid_size=int(getattr(pipeline, "ba_sa_roi_grid_size", 8)),
+                            ba_sa_core_ratio=float(getattr(pipeline, "ba_sa_core_ratio", 0.7)),
+                            ba_sa_mix_init=float(getattr(pipeline, "ba_sa_mix_init", 0.25)),
+                        )
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
                     proc = proc.to(pipeline.device, dtype=pipeline.unet.dtype)
-                    proc.set_masks(_mask, _mref)
+                    if variant == "packed_residual_v1":
+                        proc.set_masks(_mask, _mref, _mcore)
+                    else:
+                        proc.set_masks(_mask, _mref)
                     setattr(proc, "strict_face_routing", bool(getattr(pipeline, "strict_face_routing", False)))
                     _apply_runtime_flags(proc, pipeline)
 
@@ -203,9 +279,10 @@ def patch_unet_attention_processors(
                         ),
                     ).to(pipeline.device, dtype=pipeline.unet.dtype)
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
-                    # enable KV equalizer for face branch
-                    setattr(proc, "equalize_face_kv", True)
-                    setattr(proc, "equalize_clip", (1/3, 8.0))
+                    if variant == "legacy":
+                        # Legacy no-op attributes retained for checkpoint parity.
+                        setattr(proc, "equalize_face_kv", True)
+                        setattr(proc, "equalize_clip", (1/3, 8.0))
                     setattr(proc, "strict_face_routing", bool(getattr(pipeline, "strict_face_routing", False)))
                     proc.set_masks(_mask, _mref)
                     # Keep CA path consistent too (even if CA doesn’t always consume id_embeds)
@@ -222,13 +299,29 @@ def patch_unet_attention_processors(
         pipeline.unet.set_attn_processor(new_procs)
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
     else:
+        current_sa = [
+            proc for proc in current_procs.values()
+            if getattr(proc, "_branched_kind", None) == "self"
+        ]
+        expected_sa_class = (
+            PackedResidualBranchedAttnProcessor
+            if variant == "packed_residual_v1"
+            else BranchedAttnProcessor
+        )
+        if current_sa and any(not isinstance(proc, expected_sa_class) for proc in current_sa):
+            raise RuntimeError(
+                f"Live branched processors do not match ba_processor_variant={variant}; "
+                "processor reconstruction during a run is forbidden"
+            )
         patched_proc_names: list[str] = []
         # Update masks on existing processors
         for name, proc in pipeline.unet.attn_processors.items():
-            if isinstance(proc, (BranchedAttnProcessor, BranchedCrossAttnProcessor)):
+            if bool(getattr(proc, "_is_branched_processor", False)):
                 patched_proc_names.append(name)
-                # proc.set_masks(mask, mask_ref)
-                proc.set_masks(_mask, _mref)
+                if isinstance(proc, PackedResidualBranchedAttnProcessor):
+                    proc.set_masks(_mask, _mref, _mcore)
+                else:
+                    proc.set_masks(_mask, _mref)
                 _apply_runtime_flags(proc, pipeline)
 
                 # (Re)apply id_embeds (zeros if missing); actual usage is gated by use_id_embeds
@@ -237,6 +330,38 @@ def patch_unet_attention_processors(
                 if hasattr(proc, "class_tokens_mask"):
                     proc.class_tokens_mask = class_tokens_mask
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
+
+    patched_items = {
+        name: proc
+        for name, proc in pipeline.unet.attn_processors.items()
+        if bool(getattr(proc, "_is_branched_processor", False))
+    }
+    patched_sa = sorted(
+        name for name, proc in patched_items.items()
+        if getattr(proc, "_branched_kind", None) == "self"
+    )
+    patched_ca = sorted(
+        name for name, proc in patched_items.items()
+        if getattr(proc, "_branched_kind", None) == "cross"
+    )
+    pipeline._ba_patched_sa_names = tuple(patched_sa)
+    pipeline._ba_patched_ca_names = tuple(patched_ca)
+    pipeline._ba_processor_object_ids = {
+        name: id(proc) for name, proc in sorted(patched_items.items())
+    }
+    if not hasattr(pipeline, "_ba_processor_object_ids_initial"):
+        pipeline._ba_processor_object_ids_initial = dict(
+            pipeline._ba_processor_object_ids
+        )
+    if not bool(getattr(pipeline, "_ba_architecture_logged", False)):
+        print(
+            "[BA processor install] "
+            f"variant={variant} site_policy={site_policy} "
+            f"SA={len(patched_sa)} CA={len(patched_ca)}"
+        )
+        print(f"[BA processor install] SA names: {', '.join(patched_sa)}")
+        print(f"[BA processor install] CA names: {', '.join(patched_ca)}")
+        pipeline._ba_architecture_logged = True
 
 def encode_face_prompt(
     pipeline,

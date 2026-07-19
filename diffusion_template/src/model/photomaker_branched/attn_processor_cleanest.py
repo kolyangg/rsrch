@@ -101,6 +101,9 @@ class BranchedAttnProcessor(nn.Module):
     Self-attention processor with face/background branching.
     Expects doubled batch: [noise_batch, reference_batch]
     """
+
+    _is_branched_processor = True
+    _branched_kind = "self"
     
     def __init__(
         self,
@@ -734,6 +737,9 @@ class BranchedCrossAttnProcessor(nn.Module):
     Only processes the first half (noise batch) with branching.
     Second half (reference batch) gets standard processing.
     """
+
+    _is_branched_processor = True
+    _branched_kind = "cross"
     
     def __init__(
         self,

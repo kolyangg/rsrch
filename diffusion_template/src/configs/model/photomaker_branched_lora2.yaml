@@ -29,3 +29,14 @@ ba_sa_ref_layer_scope: all
 ba_sa_roi_grid_size: 8
 ba_sa_core_ratio: 0.7
 ba_sa_mix_init: 0.25
+# New processor variants are opt-in; these defaults preserve all legacy runs.
+ba_processor_variant: legacy
+ba_site_policy: all
+ba_connector_rank: 16
+ba_gate_max: 0.5
+ba_gate_init_logit: 0.0
+ba_delta_rms_cap: 0.25
+ba_target_core_erode_frac: 0.10
+ba_reference_token_mode: legacy_zero_mask
+ba_reference_continuation: legacy_ref_projection
+ba_diagnostics: false

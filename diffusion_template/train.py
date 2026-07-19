@@ -171,6 +171,34 @@ def main(config):
         config (DictConfig): hydra experiment config.
     """
     _configure_train_dataset_resolution(config)
+    processor_variant = str(
+        getattr(config.model, "ba_processor_variant", "legacy") or "legacy"
+    ).lower()
+    if processor_variant == "packed_residual_v1":
+        training_base = str(config.model.pretrained_model_name_or_path)
+        pipeline_base = str(config.pipeline.pretrained_model_name_or_path)
+        validation_base = getattr(
+            config,
+            "pretrained_model_for_validation_name_or_path",
+            None,
+        )
+        if validation_base not in {None, "", "null"}:
+            raise ValueError(
+                "NN2-PPR1 requires pretrained_model_for_validation_name_or_path=null"
+            )
+        if training_base != pipeline_base:
+            raise ValueError(
+                "NN2-PPR1 requires the same training and validation pipeline base: "
+                f"model={training_base}, pipeline={pipeline_base}"
+            )
+        if bool(getattr(config, "strict_face_routing", False)):
+            raise ValueError("NN2-PPR1 requires strict_face_routing=false")
+        print(
+            "[NN2-PPR1 preflight] "
+            f"base={training_base} alternate_validation_base=null "
+            f"variant={processor_variant} "
+            f"site_policy={config.model.ba_site_policy}"
+        )
     set_random_seed(config.trainer.seed)
     # Let Accelerate own distributed init; keep long timeout for validation
     ddp_timeout = int(getattr(config, "ddp_timeout_seconds", 3600))

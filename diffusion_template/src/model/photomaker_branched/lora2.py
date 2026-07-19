@@ -80,6 +80,16 @@ class PhotomakerBranchedLora(SDXL):
         ba_sa_roi_grid_size: int = 8,
         ba_sa_core_ratio: float = 0.7,
         ba_sa_mix_init: float = 0.25,
+        ba_processor_variant: str = "legacy",
+        ba_site_policy: str = "all",
+        ba_connector_rank: int = 16,
+        ba_gate_max: float = 0.5,
+        ba_gate_init_logit: float = 0.0,
+        ba_delta_rms_cap: float = 0.25,
+        ba_target_core_erode_frac: float = 0.10,
+        ba_reference_token_mode: str = "legacy_zero_mask",
+        ba_reference_continuation: str = "legacy_ref_projection",
+        ba_diagnostics: bool = False,
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
         ba_uncond_face_fix: bool = False,  # F1: keep plain negative prompt for the uncond face branch under CFG
@@ -210,11 +220,25 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_sa_roi_grid_size = int(ba_sa_roi_grid_size)
         self.ba_sa_core_ratio = float(ba_sa_core_ratio)
         self.ba_sa_mix_init = float(ba_sa_mix_init)
+        self.ba_processor_variant = str(ba_processor_variant or "legacy").lower()
+        self.ba_site_policy = str(ba_site_policy or "all").lower()
+        self.ba_connector_rank = int(ba_connector_rank)
+        self.ba_gate_max = float(ba_gate_max)
+        self.ba_gate_init_logit = float(ba_gate_init_logit)
+        self.ba_delta_rms_cap = float(ba_delta_rms_cap)
+        self.ba_target_core_erode_frac = float(ba_target_core_erode_frac)
+        self.ba_reference_token_mode = str(
+            ba_reference_token_mode or "legacy_zero_mask"
+        ).lower()
+        self.ba_reference_continuation = str(
+            ba_reference_continuation or "legacy_ref_projection"
+        ).lower()
+        self.ba_diagnostics = bool(ba_diagnostics)
         if self.ba_invalid_sample_policy not in {"legacy", "error", "skip_batch"}:
             raise ValueError(f"Unknown ba_invalid_sample_policy: {self.ba_invalid_sample_policy}")
         if self.ba_train_timestep_mode not in {"all", "inference_ba_region"}:
             raise ValueError(f"Unknown ba_train_timestep_mode: {self.ba_train_timestep_mode}")
-        if self.ba_sa_train_mode not in {"all", "ref_kv_only"}:
+        if self.ba_sa_train_mode not in {"all", "ref_kv_only", "packed_residual"}:
             raise ValueError(f"Unknown ba_sa_train_mode: {self.ba_sa_train_mode}")
         if self.ba_sa_ref_token_mode not in {"full_grid", "roi"}:
             raise ValueError(f"Unknown ba_sa_ref_token_mode: {self.ba_sa_ref_token_mode}")
@@ -233,6 +257,39 @@ class PhotomakerBranchedLora(SDXL):
             raise ValueError("ba_sa_core_ratio must be in (0, 1]")
         if not 0.0 < self.ba_sa_mix_init < 1.0:
             raise ValueError("ba_sa_mix_init must be in (0, 1)")
+        if self.ba_processor_variant not in {"legacy", "packed_residual_v1"}:
+            raise ValueError(f"Unknown ba_processor_variant: {self.ba_processor_variant}")
+        if self.ba_site_policy not in {"all", "up_blocks_attn1"}:
+            raise ValueError(f"Unknown ba_site_policy: {self.ba_site_policy}")
+        if self.ba_processor_variant == "packed_residual_v1":
+            if self.ba_site_policy != "up_blocks_attn1":
+                raise ValueError("NN2-PPR1 requires ba_site_policy=up_blocks_attn1")
+            if self.ba_sa_train_mode != "packed_residual":
+                raise ValueError("packed_residual_v1 requires ba_sa_train_mode=packed_residual")
+            if self.ba_reference_token_mode != "packed_bbox_roi":
+                raise ValueError(
+                    "packed_residual_v1 requires ba_reference_token_mode=packed_bbox_roi"
+                )
+            if self.ba_reference_continuation != "frozen_base":
+                raise ValueError(
+                    "packed_residual_v1 requires ba_reference_continuation=frozen_base"
+                )
+            if self.pose_adapt_ratio != 0.0 or self.ca_mixing_for_face:
+                raise ValueError(
+                    "packed_residual_v1 requires pose adaptation and CA face mixing off"
+                )
+            if self.train_branched_ca_lora:
+                raise ValueError("packed_residual_v1 requires frozen branched cross-attention")
+            if self.ba_connector_rank <= 0:
+                raise ValueError("ba_connector_rank must be positive")
+            if not 0.0 < self.ba_gate_max <= 1.0:
+                raise ValueError("ba_gate_max must be in (0, 1]")
+            if not 0.0 < self.ba_delta_rms_cap <= 1.0:
+                raise ValueError("ba_delta_rms_cap must be in (0, 1]")
+            if not 0.0 <= self.ba_target_core_erode_frac < 0.5:
+                raise ValueError("ba_target_core_erode_frac must be in [0, 0.5)")
+            if self.ba_patch_top_k != 1.0 or self.ba_train_top_k != 1.0:
+                raise ValueError("packed_residual_v1 requires BA patch/train top-k equal to 1.0")
         self.use_id_loss = bool(use_id_loss)
         self.id_loss_weight = float(id_loss_weight)
         self.id_loss_max_timestep = int(id_loss_max_timestep)
@@ -309,6 +366,35 @@ class PhotomakerBranchedLora(SDXL):
         noise_wd = config.get("ba_noise_weight_decay", None)
 
         named = [(n, p) for n, p in self.unet.named_parameters() if p.requires_grad]
+        if self.ba_processor_variant == "packed_residual_v1":
+            group_fragments = {
+                "ba_ppr_ref_k": ".attn1.processor.ref_to_k.",
+                "ba_ppr_ref_v": ".attn1.processor.ref_to_v.",
+                "ba_ppr_connector_down": ".attn1.processor.connector_down.",
+                "ba_ppr_connector_up": ".attn1.processor.connector_up.",
+                "ba_ppr_gate": ".attn1.processor.gate_logit",
+            }
+            grouped = []
+            matched_ids = set()
+            for group_name, fragment in group_fragments.items():
+                parameters = [parameter for name, parameter in named if fragment in name]
+                if not parameters:
+                    raise RuntimeError(f"NN2-PPR1 optimizer group is empty: {group_name}")
+                matched_ids.update(id(parameter) for parameter in parameters)
+                grouped.append(
+                    {
+                        "params": parameters,
+                        "lr": config.lr_for_lora,
+                        "name": group_name,
+                    }
+                )
+            unmatched = [name for name, parameter in named if id(parameter) not in matched_ids]
+            if unmatched:
+                raise RuntimeError(
+                    "NN2-PPR1 found unclassified trainable parameters: "
+                    + ", ".join(unmatched[:5])
+                )
+            return grouped
 
         def _is_noise_clone(name: str) -> bool:
             return ".processor." in name and ".noise_to_" in name
@@ -335,6 +421,31 @@ class PhotomakerBranchedLora(SDXL):
             noise_group,
         ]
         ##### BRANCHED ATTENTION - NEW BLOCK 2 #####
+
+    def _ba_architecture_state(self) -> dict:
+        architecture = {
+            "ba_sa_ref_token_mode": self.ba_sa_ref_token_mode,
+            "ba_sa_face_mode": self.ba_sa_face_mode,
+            "ba_sa_ref_layer_scope": self.ba_sa_ref_layer_scope,
+            "ba_sa_roi_grid_size": self.ba_sa_roi_grid_size,
+            "ba_sa_core_ratio": self.ba_sa_core_ratio,
+            "ba_sa_mix_init": self.ba_sa_mix_init,
+        }
+        if self.ba_processor_variant != "legacy":
+            architecture.update(
+                {
+                    "ba_processor_variant": self.ba_processor_variant,
+                    "ba_site_policy": self.ba_site_policy,
+                    "ba_connector_rank": self.ba_connector_rank,
+                    "ba_gate_max": self.ba_gate_max,
+                    "ba_gate_init_logit": self.ba_gate_init_logit,
+                    "ba_delta_rms_cap": self.ba_delta_rms_cap,
+                    "ba_target_core_erode_frac": self.ba_target_core_erode_frac,
+                    "ba_reference_token_mode": self.ba_reference_token_mode,
+                    "ba_reference_continuation": self.ba_reference_continuation,
+                }
+            )
+        return architecture
 
     def get_state_dict(self):
         lora_weights = convert_state_dict_to_diffusers(get_peft_model_state_dict(self.unet, adapter_name="lora_adapter"))
@@ -368,14 +479,7 @@ class PhotomakerBranchedLora(SDXL):
                     "installed_processor_names": sorted(patched_proc_names),
                     "state_processor_names": sorted(proc_sd),
                     "trainable_keys_by_processor": trainable_by_processor,
-                    "architecture": {
-                        "ba_sa_ref_token_mode": self.ba_sa_ref_token_mode,
-                        "ba_sa_face_mode": self.ba_sa_face_mode,
-                        "ba_sa_ref_layer_scope": self.ba_sa_ref_layer_scope,
-                        "ba_sa_roi_grid_size": self.ba_sa_roi_grid_size,
-                        "ba_sa_core_ratio": self.ba_sa_core_ratio,
-                        "ba_sa_mix_init": self.ba_sa_mix_init,
-                    },
+                    "architecture": self._ba_architecture_state(),
                     "processor_classes": {
                         name: self.unet.attn_processors[name].__class__.__name__
                         for name in sorted(patched_proc_names)
@@ -407,14 +511,7 @@ class PhotomakerBranchedLora(SDXL):
                 )
             saved_architecture = manifest.get("architecture")
             if saved_architecture is not None:
-                current_architecture = {
-                    "ba_sa_ref_token_mode": self.ba_sa_ref_token_mode,
-                    "ba_sa_face_mode": self.ba_sa_face_mode,
-                    "ba_sa_ref_layer_scope": self.ba_sa_ref_layer_scope,
-                    "ba_sa_roi_grid_size": self.ba_sa_roi_grid_size,
-                    "ba_sa_core_ratio": self.ba_sa_core_ratio,
-                    "ba_sa_mix_init": self.ba_sa_mix_init,
-                }
+                current_architecture = self._ba_architecture_state()
                 if saved_architecture != current_architecture:
                     raise RuntimeError(
                         "Strict BA restore architecture mismatch: "

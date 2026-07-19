@@ -455,13 +455,9 @@ def set_validation_unet_mode(pipeline, *, branched_active: bool) -> None:
     # (undoubled) batch then fails the doubled-batch split in
     # attn_processor_cleanest._branch_batch_sizes ("Invalid branched batch ...").
     try:
-        from src.model.photomaker_branched.attn_processor_cleanest import (
-            BranchedAttnProcessor,
-            BranchedCrossAttnProcessor,
-        )
         currently_branched = any(
-            isinstance(p, (BranchedAttnProcessor, BranchedCrossAttnProcessor))
-            for p in pipeline.unet.attn_processors.values()
+            bool(getattr(processor, "_is_branched_processor", False))
+            for processor in pipeline.unet.attn_processors.values()
         )
     except Exception:
         currently_branched = getattr(pipeline, "_runtime_uses_branched_unet", None)
@@ -1166,11 +1162,46 @@ def build_pipeline_from_pretrained(
     pipeline.ba_sa_roi_grid_size = int(getattr(unwrapped_model, "ba_sa_roi_grid_size", 8))
     pipeline.ba_sa_core_ratio = float(getattr(unwrapped_model, "ba_sa_core_ratio", 0.7))
     pipeline.ba_sa_mix_init = float(getattr(unwrapped_model, "ba_sa_mix_init", 0.25))
+    pipeline.ba_processor_variant = str(
+        getattr(unwrapped_model, "ba_processor_variant", "legacy") or "legacy"
+    ).lower()
+    pipeline.ba_site_policy = str(
+        getattr(unwrapped_model, "ba_site_policy", "all") or "all"
+    ).lower()
+    pipeline.ba_connector_rank = int(getattr(unwrapped_model, "ba_connector_rank", 16))
+    pipeline.ba_gate_max = float(getattr(unwrapped_model, "ba_gate_max", 0.5))
+    pipeline.ba_gate_init_logit = float(
+        getattr(unwrapped_model, "ba_gate_init_logit", 0.0)
+    )
+    pipeline.ba_delta_rms_cap = float(
+        getattr(unwrapped_model, "ba_delta_rms_cap", 0.25)
+    )
+    pipeline.ba_target_core_erode_frac = float(
+        getattr(unwrapped_model, "ba_target_core_erode_frac", 0.10)
+    )
+    pipeline.ba_reference_token_mode = str(
+        getattr(unwrapped_model, "ba_reference_token_mode", "legacy_zero_mask")
+        or "legacy_zero_mask"
+    ).lower()
+    pipeline.ba_reference_continuation = str(
+        getattr(
+            unwrapped_model,
+            "ba_reference_continuation",
+            "legacy_ref_projection",
+        )
+        or "legacy_ref_projection"
+    ).lower()
+    pipeline.ba_diagnostics = bool(getattr(unwrapped_model, "ba_diagnostics", False))
+    pipeline.ba_patch_top_k = float(getattr(unwrapped_model, "ba_patch_top_k", 1.0))
     pipeline.branched_attn_weight_mode = getattr(unwrapped_model, "branched_attn_weight_mode", "shared")
     pipeline.branched_attn_new_weight_kind = getattr(unwrapped_model, "branched_attn_new_weight_kind", "full")
     pipeline.branched_attn_lora_rank = int(
         getattr(unwrapped_model, "branched_attn_lora_rank", getattr(unwrapped_model, "lora_rank", 16))
     )
+    if pipeline.ba_processor_variant != unwrapped_model.ba_processor_variant:
+        raise RuntimeError("Validation pipeline lost ba_processor_variant")
+    if pipeline.ba_site_policy != unwrapped_model.ba_site_policy:
+        raise RuntimeError("Validation pipeline lost ba_site_policy")
     if hasattr(unwrapped_model, "_original_attn_processors"):
         pipeline._original_attn_processors = dict(unwrapped_model._original_attn_processors)
     if hasattr(unwrapped_model.unet, "attn_processors"):

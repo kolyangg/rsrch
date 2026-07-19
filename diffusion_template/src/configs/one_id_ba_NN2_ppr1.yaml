@@ -1,0 +1,56 @@
+defaults:
+  - one_id_ba_NN1d_frozen_ca
+  - _self_
+
+# NN2-PPR1: preserve ordinary target/reference SA and add only a bounded,
+# packed-reference residual at explicit up-block self-attention sites.
+train_ba_all_steps: true
+train_ba_only: true
+train_branched_ca_lora: false
+branched_attn_weight_mode: ref_only
+branched_attn_new_weight_kind: lora
+ba_patch_top_k: 1.0
+ba_train_top_k: 1.0
+non_ba_train: false
+ba_noise_lr_scale: 1.0
+
+loss_kind: blended_masked
+lambda_face: 0.20
+strict_face_routing: false
+mask_expansion_ratio: 1.0
+mask_softness: 0.0
+
+# Keep training and validation on the same SDXL base.
+pretrained_model_for_validation_name_or_path: null
+update_proc_weights_val: true
+
+model:
+  ba_processor_variant: packed_residual_v1
+  ba_site_policy: up_blocks_attn1
+  ba_sa_train_mode: packed_residual
+  ba_train_timestep_mode: inference_ba_region
+  ba_correctness_guards: true
+  ba_invalid_sample_policy: skip_batch
+  ba_strict_processor_restore: true
+  ba_uncond_face_fix: true
+  ba_face_prompt_mode: id_only
+  ba_face_prompt_attention_mask: false
+
+  ba_connector_rank: 16
+  ba_gate_max: 0.50
+  ba_gate_init_logit: 0.0
+  ba_delta_rms_cap: 0.25
+  ba_target_core_erode_frac: 0.10
+  ba_reference_token_mode: packed_bbox_roi
+  ba_reference_continuation: frozen_base
+  ba_diagnostics: true
+
+  use_id_loss: false
+
+pipeline:
+  pose_adapt_ratio: 0.0
+  ca_mixing_for_face: false
+
+validation_args:
+  use_dynamic_mask: false
+  guidance_rescale: 0.0
