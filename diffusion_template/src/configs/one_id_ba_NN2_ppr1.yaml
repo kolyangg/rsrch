@@ -45,6 +45,9 @@ ppr_reference_noise_test: false
 ppr_reference_noise_output_dir: ppr_8k_reference_vs_noise
 ppr_reference_noise_overwrite: false
 ppr_reference_noise_seeds: [918273, 271828]
+# Inference-only diagnostic ablation. "original" preserves every old path;
+# "zero" removes identity/text conditioning only from the reference CA half.
+ppr_reference_ca_mode: original
 
 model:
   ba_processor_variant: packed_residual_v1

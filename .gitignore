@@ -55,3 +55,6 @@ dataset_full/gathered_data_cosmic_large_filtered.json
 dataset_quality_large_vs_cosmic_results.ipynb
 diffusion_template/full_validation_results
 _ba_scheme/
+
+diffusion_template/ppr_8k_reference_vs_noise2
+diffusion_template/ppr_8k_scale_sweep

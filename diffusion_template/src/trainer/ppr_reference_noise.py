@@ -43,6 +43,7 @@ HASH_FIELDS = (
     "ref_noised_step_15_sha256",
     "ref_noised_step_25_sha256",
     "ref_noised_step_35_sha256",
+    "reference_ca_prompt_sha256",
 )
 METRIC_FIELDS = (
     "sample_index",
@@ -94,6 +95,17 @@ def _noise_seeds(config) -> dict[str, int]:
     return {"N1": values[0], "N2": values[1]}
 
 
+def _reference_ca_mode(config) -> str:
+    mode = str(
+        getattr(config, "ppr_reference_ca_mode", "original") or "original"
+    ).lower()
+    if mode not in {"original", "zero"}:
+        raise ValueError(
+            "ppr_reference_ca_mode must be one of: original, zero"
+        )
+    return mode
+
+
 def _initialize_state(trainer) -> dict[str, Any]:
     root = Path(
         str(trainer.config.ppr_reference_noise_output_dir)
@@ -137,6 +149,7 @@ def _initialize_state(trainer) -> dict[str, Any]:
     state = {
         "root": root,
         "noise_seeds": _noise_seeds(trainer.config),
+        "reference_ca_mode": _reference_ca_mode(trainer.config),
         "swap_map": swap_map,
         "rows": [],
         "pair_rows": [],
@@ -150,7 +163,8 @@ def _initialize_state(trainer) -> dict[str, Any]:
     trainer._ppr_reference_noise_state = state
     print(
         "[PPR reference/noise] "
-        f"output={root} noise_seeds={state['noise_seeds']} samples={len(dataset)}"
+        f"output={root} noise_seeds={state['noise_seeds']} "
+        f"reference_ca={state['reference_ca_mode']} samples={len(dataset)}"
     )
     return state
 
@@ -453,6 +467,7 @@ def _assert_integrity(
     sample: str,
     fingerprints: dict[str, dict[str, Any]],
     diagnostics: dict[str, list[dict[str, Any]]],
+    reference_ca_mode: str,
 ) -> None:
     target_fields = (
         "initial_latents_sha256",
@@ -473,6 +488,20 @@ def _assert_integrity(
             raise RuntimeError(
                 f"{sample}: missing fingerprints in {name}: {missing}"
             )
+        if fingerprint.get("reference_ca_mode") != reference_ca_mode:
+            raise RuntimeError(
+                f"{sample}: reference CA mode mismatch in {name}: "
+                f"{fingerprint.get('reference_ca_mode')!r}"
+            )
+        if reference_ca_mode == "zero":
+            if int(fingerprint.get("reference_ca_prompt_nonzero_count", -1)) != 0:
+                raise RuntimeError(
+                    f"{sample}: neutral reference CA is nonzero in {name}"
+                )
+            if float(fingerprint.get("reference_ca_prompt_rms", -1.0)) != 0.0:
+                raise RuntimeError(
+                    f"{sample}: neutral reference CA has nonzero RMS in {name}"
+                )
 
     def equal(left, right, fields):
         return all(
@@ -595,6 +624,7 @@ def run_ppr_reference_noise_batch(trainer, batch, eval_metrics):
             ),
             diagnostic_variant=name,
             capture_tensor_signatures=name != "PM0",
+            ppr_reference_ca_mode=state["reference_ca_mode"],
         )
         images[name] = variant_images[0]
         diagnostics[name] = records
@@ -605,7 +635,12 @@ def run_ppr_reference_noise_batch(trainer, batch, eval_metrics):
         )
         fingerprints[name] = fingerprint
 
-    _assert_integrity(filename, fingerprints, diagnostics)
+    _assert_integrity(
+        filename,
+        fingerprints,
+        diagnostics,
+        state["reference_ca_mode"],
+    )
     state["tensor_rows"].extend(
         _tensor_comparisons(filename, diagnostics)
     )
@@ -767,6 +802,172 @@ def _bootstrap_ci(values: list[float]) -> tuple[float, float, float]:
     )
 
 
+def _write_effect_and_identity_summaries(state) -> None:
+    root = state["root"]
+
+    def ratio(numerator: float, denominator: float) -> float:
+        if not np.isfinite(denominator) or abs(denominator) < 1e-12:
+            return float("nan")
+        return numerator / denominator
+
+    metric_map = {
+        "pixel_mae_full": (
+            "pixel_mae_full_vs_PM0",
+            "pixel_mae_full",
+        ),
+        "pixel_mae_core": (
+            "pixel_mae_core_vs_PM0",
+            "pixel_mae_core",
+        ),
+        "lpips_core": (
+            "lpips_core_vs_PM0",
+            "lpips_core",
+        ),
+    }
+    effect_rows = []
+    for metric, (variant_field, pair_field) in metric_map.items():
+        ppr_values = [
+            float(row[variant_field])
+            for row in state["rows"]
+            if row["variant"] != "PM0"
+        ]
+        reference_values = [
+            float(row[pair_field])
+            for row in state["pair_rows"]
+            if row["effect"] == "reference_image_effect"
+        ]
+        noise_values = [
+            float(row[pair_field])
+            for row in state["pair_rows"]
+            if row["effect"] == "reference_noise_effect"
+        ]
+        ppr_mean = _bootstrap_ci(ppr_values)[0]
+        reference_mean = _bootstrap_ci(reference_values)[0]
+        noise_mean = _bootstrap_ci(noise_values)[0]
+        effect_rows.append(
+            {
+                "metric": metric,
+                "ppr_effect_S": ppr_mean,
+                "reference_effect_I": reference_mean,
+                "noise_effect_N": noise_mean,
+                "I_over_S": ratio(reference_mean, ppr_mean),
+                "N_over_S": ratio(noise_mean, ppr_mean),
+                "I_over_N": ratio(reference_mean, noise_mean),
+            }
+        )
+    with (root / "effect_decomposition.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as handle:
+        writer = csv.DictWriter(handle, fieldnames=effect_rows[0].keys())
+        writer.writeheader()
+        writer.writerows(effect_rows)
+
+    by_variant = {
+        (row["filename"], row["variant"]): row
+        for row in state["rows"]
+    }
+    direction_rows = []
+    for noise_kind in ("N1", "N2"):
+        left_name, right_name = f"R1{noise_kind}", f"R2{noise_kind}"
+        for filename in state["filenames"]:
+            left = by_variant[(filename, left_name)]
+            right = by_variant[(filename, right_name)]
+            original_change = (
+                float(right["id_similarity_original"])
+                - float(left["id_similarity_original"])
+            )
+            swapped_change = (
+                float(right["id_similarity_swapped"])
+                - float(left["id_similarity_swapped"])
+            )
+            direction_rows.append(
+                {
+                    "filename": filename,
+                    "noise": noise_kind,
+                    "original_similarity_change_R2_minus_R1": original_change,
+                    "swapped_similarity_change_R2_minus_R1": swapped_change,
+                    "directional_gain_toward_R2": (
+                        swapped_change - original_change
+                    ),
+                }
+            )
+    with (root / "identity_direction_per_image.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=direction_rows[0].keys()
+        )
+        writer.writeheader()
+        writer.writerows(direction_rows)
+
+    direction_summary = []
+    for noise_kind in ("N1", "N2", "all"):
+        selected = [
+            row
+            for row in direction_rows
+            if noise_kind == "all" or row["noise"] == noise_kind
+        ]
+        gains = np.asarray(
+            [row["directional_gain_toward_R2"] for row in selected],
+            dtype=np.float64,
+        )
+        gains = gains[np.isfinite(gains)]
+        mean, low, high = _bootstrap_ci(gains.tolist())
+        direction_summary.append(
+            {
+                "noise": noise_kind,
+                "sample_count": int(gains.size),
+                "mean_directional_gain_toward_R2": mean,
+                "median_directional_gain_toward_R2": float(np.median(gains)),
+                "positive_fraction": float(np.mean(gains > 0)),
+                "bootstrap_95_low": low,
+                "bootstrap_95_high": high,
+            }
+        )
+    with (root / "identity_direction_summary.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=direction_summary[0].keys()
+        )
+        writer.writeheader()
+        writer.writerows(direction_summary)
+
+    pm_original = np.asarray(
+        [
+            float(row["id_similarity_original"])
+            for row in state["rows"]
+            if row["variant"] == "PM0"
+        ],
+        dtype=np.float64,
+    )
+    ppr_original = np.asarray(
+        [
+            float(row["id_similarity_original"])
+            for row in state["rows"]
+            if row["variant"] != "PM0"
+        ],
+        dtype=np.float64,
+    )
+    report = f"""# Neutral reference-CA diagnostic summary
+
+- Reference-half CA mode: `{state["reference_ca_mode"]}`
+- Mean original-ID similarity, PM0: `{np.nanmean(pm_original):.6f}`
+- Mean original-ID similarity, scale-4 PPR: `{np.nanmean(ppr_original):.6f}`
+- PPR minus PM0 original-ID similarity: `{np.nanmean(ppr_original) - np.nanmean(pm_original):.6f}`
+- Mean directional gain toward R2: `{direction_summary[-1]["mean_directional_gain_toward_R2"]:.6f}`
+- Fraction with positive directional gain: `{direction_summary[-1]["positive_fraction"]:.3f}`
+
+`effect_decomposition.csv` reports the scale-4 PPR effect `S`, matched-noise
+reference-image effect `I`, matched-reference noise effect `N`, and their
+ratios. `identity_direction_summary.csv` is the decisive identity-transfer
+test. Compare both files with the original-CA run.
+"""
+    (root / "neutral_reference_ca_summary.md").write_text(
+        report, encoding="utf-8"
+    )
+
+
 def _create_contact_sheets(state, rows_per_page: int = 6) -> None:
     cell, label = 256, 24
     names = list(VARIANTS)
@@ -867,6 +1068,7 @@ def finalize_ppr_reference_noise(trainer) -> None:
     ) as handle:
         for row in state["tensor_rows"]:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
+    _write_effect_and_identity_summaries(state)
 
     metric_lookup = {
         (row["effect"], row["metric"]): float(row["mean"])
@@ -923,6 +1125,7 @@ def finalize_ppr_reference_noise(trainer) -> None:
 - Mean reference-noise effect: `{noise_effect:.8f}`
 - First tensor stage with mean swap sensitivity below `1e-3`: `{first_low}`
 - LPIPS status: {state["lpips_status"]}
+- Reference-half CA mode: `{state["reference_ca_mode"]}`
 
 This classification is provisional. Review `contact_sheets/`, `face_crops/`,
 and `difference_heatmaps/`, then compare identity-to-original and
@@ -945,6 +1148,7 @@ SHA-256/RMS plus the same deterministic 512-value sketch at each paired stage.
         "sample_count": int(state["next_index"]),
         "variants": VARIANTS,
         "reference_noise_seeds": state["noise_seeds"],
+        "reference_ca_mode": state["reference_ca_mode"],
         "integrity_assertions_passed": True,
         "tensor_capture": "exact SHA-256/RMS plus deterministic 512-value sketch",
         "lpips_status": state["lpips_status"],

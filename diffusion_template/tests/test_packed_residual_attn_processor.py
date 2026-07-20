@@ -16,6 +16,7 @@ from diffusers.models.attention_processor import Attention, AttnProcessor2_0
 from PIL import Image
 
 from src.model.photomaker_branched.branched_runtime import (
+    apply_ppr_reference_ca_mode,
     patch_unet_attention_processors,
     select_branched_self_attention_names,
     two_branch_predict,
@@ -46,6 +47,7 @@ from src.trainer.ppr_scale_sweep import (
 )
 from src.trainer.ppr_reference_noise import (
     _noise_seeds,
+    _reference_ca_mode,
     _relative_signature,
 )
 
@@ -353,6 +355,33 @@ class PackedResidualProcessorTests(unittest.TestCase):
         doubled = {"sketch": [2.0, 4.0]}
         self.assertEqual(_relative_signature(left, same), 0.0)
         self.assertAlmostEqual(_relative_signature(left, doubled), 1.0)
+
+    def test_neutral_reference_ca_is_explicit_and_diagnostic_only(self) -> None:
+        prompt = torch.randn(2, 4, 8)
+        mask = torch.ones(2, 4, dtype=torch.bool)
+        pipeline = SimpleNamespace(
+            ba_ppr_reference_ca_mode="original",
+            ba_ppr_collect_diagnostics=False,
+        )
+        unchanged, unchanged_mask, mode = apply_ppr_reference_ca_mode(
+            pipeline, prompt, mask
+        )
+        self.assertIs(unchanged, prompt)
+        self.assertIs(unchanged_mask, mask)
+        self.assertEqual(mode, "original")
+
+        pipeline.ba_ppr_reference_ca_mode = "zero"
+        with self.assertRaises(RuntimeError):
+            apply_ppr_reference_ca_mode(pipeline, prompt, mask)
+        pipeline.ba_ppr_collect_diagnostics = True
+        pipeline.ppr_reference_ca_mode = "zero"
+        neutral, neutral_mask, mode = apply_ppr_reference_ca_mode(
+            pipeline, prompt, mask
+        )
+        self.assertEqual(torch.count_nonzero(neutral), 0)
+        self.assertIsNone(neutral_mask)
+        self.assertEqual(mode, "zero")
+        self.assertEqual(_reference_ca_mode(pipeline), "zero")
 
     def test_inner_core_is_soft_and_zero_at_bbox_edges(self) -> None:
         mask = torch.zeros(1, 1, 16, 16)

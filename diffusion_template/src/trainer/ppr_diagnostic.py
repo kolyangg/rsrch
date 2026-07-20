@@ -318,6 +318,7 @@ def _generate(
     runtime_settings: tuple[bool, str, float] | None = None,
     diagnostic_variant: str | None = None,
     capture_tensor_signatures: bool = False,
+    ppr_reference_ca_mode: str | None = None,
 ) -> tuple[list[Image.Image], list[dict[str, Any]]]:
     pipeline = trainer.pipe
     settings = {
@@ -340,6 +341,7 @@ def _generate(
             "ba_ppr_diagnostic_variant",
             "ba_ppr_diagnostic_sample_keys",
             "ba_ppr_tensor_diagnostic_sites",
+            "ba_ppr_reference_ca_mode",
         )
     }
     processor_records: list[dict[str, Any]] = []
@@ -351,6 +353,8 @@ def _generate(
     pipeline.ba_ppr_collect_diagnostics = True
     pipeline.ba_ppr_diagnostic_variant = diagnostic_variant or option
     pipeline.ba_ppr_diagnostic_sample_keys = tuple(sample_keys)
+    if ppr_reference_ca_mode is not None:
+        pipeline.ba_ppr_reference_ca_mode = ppr_reference_ca_mode
     pipeline._ba_ppr_processor_diagnostics = processor_records
     pipeline._ba_ppr_epsilon_diagnostics = epsilon_records
     pipeline._ba_ppr_tensor_diagnostics = tensor_records

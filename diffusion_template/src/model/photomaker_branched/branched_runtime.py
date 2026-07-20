@@ -13,6 +13,61 @@ from PIL import Image
 from .debug_helpers import save_debug_images
 
 
+def apply_ppr_reference_ca_mode(
+    pipeline,
+    face_prompt_embeds: torch.Tensor,
+    face_prompt_attention_mask: Optional[torch.Tensor],
+) -> tuple[torch.Tensor, Optional[torch.Tensor], str]:
+    """Apply the inference-only reference-half cross-attention ablation."""
+    mode = str(
+        getattr(pipeline, "ba_ppr_reference_ca_mode", "original") or "original"
+    ).lower()
+    if mode == "original":
+        return face_prompt_embeds, face_prompt_attention_mask, mode
+    if mode != "zero":
+        raise ValueError(
+            "ba_ppr_reference_ca_mode must be one of: original, zero"
+        )
+    if not bool(getattr(pipeline, "ba_ppr_collect_diagnostics", False)):
+        raise RuntimeError(
+            "ba_ppr_reference_ca_mode=zero is diagnostic-only"
+        )
+    return torch.zeros_like(face_prompt_embeds), None, mode
+
+
+def _record_reference_ca_fingerprint(
+    pipeline,
+    face_prompt_embeds: torch.Tensor,
+    *,
+    generation_batch_size: int,
+    mode: str,
+) -> None:
+    if not bool(getattr(pipeline, "ba_ppr_collect_diagnostics", False)):
+        return
+    fingerprints = getattr(pipeline, "_ba_ppr_randomness_fingerprints", None)
+    if not isinstance(fingerprints, dict):
+        return
+    sample_count = len(
+        getattr(pipeline, "ba_ppr_diagnostic_sample_keys", ())
+    )
+    values = face_prompt_embeds
+    if sample_count > 0 and generation_batch_size == 2 * sample_count:
+        # CFG ordering is [unconditional B, conditional B].
+        values = values[sample_count:]
+    elif sample_count > 0:
+        values = values[:sample_count]
+    hashes, rms_values, nonzero_counts = [], [], []
+    for sample in values.detach().contiguous().cpu():
+        raw = sample.contiguous().view(torch.uint8).numpy().tobytes()
+        hashes.append(hashlib.sha256(raw).hexdigest())
+        rms_values.append(float(sample.float().square().mean().sqrt().item()))
+        nonzero_counts.append(int(torch.count_nonzero(sample).item()))
+    fingerprints["reference_ca_mode"] = [mode] * len(hashes)
+    fingerprints["reference_ca_prompt_sha256"] = hashes
+    fingerprints["reference_ca_prompt_rms"] = rms_values
+    fingerprints["reference_ca_prompt_nonzero_count"] = nonzero_counts
+
+
 def select_branched_processor_names(
     attn_processor_names: Sequence[str],
     *,
@@ -767,6 +822,19 @@ def two_branch_predict(
         
         
     face_prompt_embeds = face_prompt_embeds.to(prompt_embeds.device, prompt_embeds.dtype)
+    face_prompt_embeds, face_prompt_attention_mask, reference_ca_mode = (
+        apply_ppr_reference_ca_mode(
+            pipeline,
+            face_prompt_embeds,
+            face_prompt_attention_mask,
+        )
+    )
+    _record_reference_ca_fingerprint(
+        pipeline,
+        face_prompt_embeds,
+        generation_batch_size=batch_size,
+        mode=reference_ca_mode,
+    )
 
     encoder_hidden_states = torch.cat([prompt_embeds, face_prompt_embeds], dim=0)
 

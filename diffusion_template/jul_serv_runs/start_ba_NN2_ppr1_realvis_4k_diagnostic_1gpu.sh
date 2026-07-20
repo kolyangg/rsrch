@@ -40,6 +40,12 @@ if ! python -c 'import torch, diffusers' >/dev/null 2>&1; then
   echo "Activate the PhotoMaker conda environment or set PHOTOMAKER_ENV_BIN." >&2
   exit 2
 fi
+if [[ "${REQUIRE_LPIPS:-false}" =~ ^(1|true|yes)$ ]] \
+  && ! python -c 'import lpips' >/dev/null 2>&1; then
+  echo "LPIPS is required for this diagnostic. Install it in the PhotoMaker environment:" >&2
+  echo "  python -m pip install lpips" >&2
+  exit 2
+fi
 
 if [[ -z "${PM_PATH:-}" && -f "/home/niko/models/PhotoMaker-V2/photomaker-v2.bin" ]]; then
   PM_PATH="/home/niko/models/PhotoMaker-V2/photomaker-v2.bin"
