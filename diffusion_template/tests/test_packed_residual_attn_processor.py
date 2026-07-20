@@ -49,6 +49,7 @@ from src.trainer.ppr_reference_noise import (
     _noise_seeds,
     _reference_ca_mode,
     _relative_signature,
+    run_ppr_reference_noise_batch,
 )
 
 
@@ -343,6 +344,37 @@ class PackedResidualProcessorTests(unittest.TestCase):
             self.assertEqual(len(records[0][stage]["sha256"]), 64)
             self.assertGreater(len(records[0][stage]["sketch"]), 0)
 
+    def test_tensor_diagnostics_map_batched_cfg_rows_to_samples(self) -> None:
+        torch.manual_seed(53)
+        side = 8
+        attn = _attention()
+        processor = _processor(attn)
+        with torch.no_grad():
+            processor.connector_up.weight.normal_(std=0.05)
+        mask, core = _masks(4, side)
+        processor.set_masks(mask, mask, core)
+        processor.tensor_diagnostics = True
+        processor.diagnostic_step = 15
+        processor.diagnostic_steps = (15,)
+        processor.diagnostic_variant = "R1N1"
+        processor.diagnostic_sample_keys = ("sample0", "sample1")
+        processor.diagnostic_do_cfg = True
+        processor.diagnostic_sink = []
+        processor(attn, torch.randn(8, side * side, 16))
+        records = [
+            value
+            for value in processor.diagnostic_sink
+            if value["record_type"] == "processor_tensor_signature"
+        ]
+        self.assertEqual(
+            [record["sample"] for record in records],
+            ["sample0", "sample1"],
+        )
+        self.assertNotEqual(
+            records[0]["reference_hidden"]["sha256"],
+            records[1]["reference_hidden"]["sha256"],
+        )
+
     def test_reference_noise_helpers_require_two_distinct_seeds(self) -> None:
         config = SimpleNamespace(ppr_reference_noise_seeds=[11, 22])
         self.assertEqual(_noise_seeds(config), {"N1": 11, "N2": 22})
@@ -502,6 +534,130 @@ class _OptimizerConfig(dict):
 
 
 class PackedResidualRuntimeTests(unittest.TestCase):
+    def test_reference_noise_runner_processes_batched_samples(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("PM0", "R1N1", "R2N1", "R1N2", "R2N2"):
+                (root / name).mkdir()
+            for name in (
+                "contact_sheets",
+                "difference_heatmaps",
+                "face_crops",
+            ):
+                (root / name).mkdir()
+            source_paths = []
+            for index in range(2):
+                path = root / f"id{index}.png"
+                Image.new("RGB", (16, 16), (index * 80, 0, 0)).save(path)
+                source_paths.append(path)
+
+            state = {
+                "root": root,
+                "noise_seeds": {"N1": 11, "N2": 22},
+                "reference_ca_mode": "zero",
+                "swap_map": {
+                    "id0": ("id1", source_paths[1], [1, 1, 15, 15]),
+                    "id1": ("id0", source_paths[0], [1, 1, 15, 15]),
+                },
+                "rows": [],
+                "pair_rows": [],
+                "tensor_rows": [],
+                "integrity": {},
+                "filenames": [],
+                "next_index": 0,
+                "device": torch.device("cpu"),
+                "lpips_status": "not attempted",
+                "observed_batch_sizes": [],
+            }
+            trainer = SimpleNamespace(
+                _ppr_reference_noise_state=state,
+                config=SimpleNamespace(validation_args={"seed": 0}),
+                metrics=[],
+            )
+            batch = {
+                "prompt": ["prompt0", "prompt1"],
+                "id": ["id0", "id1"],
+                "seed": [3, 4],
+                "ref_images": [
+                    [Image.open(source_paths[0]).convert("RGB")],
+                    [Image.open(source_paths[1]).convert("RGB")],
+                ],
+                "face_bbox_ref": [[1, 1, 15, 15], [1, 1, 15, 15]],
+                "face_bbox_gen": [[1, 1, 15, 15], [1, 1, 15, 15]],
+            }
+            calls = []
+
+            def fake_generate(*args, **kwargs):
+                del args
+                calls.append(kwargs)
+                sample_keys = kwargs["sample_keys"]
+                variant = kwargs["diagnostic_variant"]
+                images = [
+                    Image.new(
+                        "RGB",
+                        (16, 16),
+                        (20 * list(("PM0", "R1N1", "R2N1", "R1N2", "R2N2")).index(variant), index, 0),
+                    )
+                    for index in range(len(sample_keys))
+                ]
+                records = [
+                    {
+                        "record_type": "generation_randomness",
+                        "sample": sample,
+                    }
+                    for sample in sample_keys
+                ]
+                if variant != "PM0":
+                    records.append(
+                        {
+                            "record_type": "processor_applied_ratio",
+                            "samples": list(sample_keys),
+                            "applied_ratios": [0.1]
+                            * (2 * len(sample_keys)),
+                            "cap_scales": [1.0]
+                            * (2 * len(sample_keys)),
+                        }
+                    )
+                return images, records
+
+            metrics = SimpleNamespace(update=lambda *args, **kwargs: None)
+            with (
+                patch(
+                    "src.trainer.ppr_reference_noise._generate",
+                    side_effect=fake_generate,
+                ),
+                patch(
+                    "src.trainer.ppr_reference_noise._assert_integrity"
+                ),
+                patch(
+                    "src.trainer.ppr_reference_noise._tensor_comparisons",
+                    return_value=[],
+                ),
+                patch(
+                    "src.trainer.ppr_reference_noise._face_lpips",
+                    return_value=0.0,
+                ),
+            ):
+                output = run_ppr_reference_noise_batch(
+                    trainer, batch, metrics
+                )
+
+            self.assertEqual(len(output["generated"]), 2)
+            self.assertEqual(len(state["rows"]), 10)
+            self.assertEqual(len(state["pair_rows"]), 8)
+            self.assertEqual(state["observed_batch_sizes"], [2])
+            swapped_calls = [
+                call for call in calls
+                if call["diagnostic_variant"].startswith("R2")
+            ]
+            self.assertTrue(swapped_calls)
+            self.assertTrue(
+                all(len(call["ppr_reference_image"]) == 2 for call in swapped_calls)
+            )
+            self.assertTrue(
+                all(len(call["ppr_face_bbox_ref"]) == 2 for call in swapped_calls)
+            )
+
     def test_training_installer_skips_plain_diffusers_processors(self) -> None:
         model = _tiny_model()
         install_branched_processors_for_training(model)

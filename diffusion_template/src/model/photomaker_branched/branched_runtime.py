@@ -199,6 +199,15 @@ def patch_unet_attention_processors(
             proc.diagnostic_variant = str(
                 getattr(pipe, "ba_ppr_diagnostic_variant", "")
             )
+            proc.diagnostic_sample_keys = tuple(
+                str(value)
+                for value in getattr(
+                    pipe, "ba_ppr_diagnostic_sample_keys", ()
+                )
+            )
+            proc.diagnostic_do_cfg = bool(
+                getattr(pipe, "do_classifier_free_guidance", False)
+            )
             proc.diagnostic_sink = getattr(
                 pipe,
                 "_ba_ppr_processor_diagnostics",

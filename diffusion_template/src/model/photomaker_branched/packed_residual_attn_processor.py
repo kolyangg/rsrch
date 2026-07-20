@@ -153,6 +153,8 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         self.diagnostic_step = -1
         self.diagnostic_steps = (15, 25, 35, 49)
         self.diagnostic_variant = ""
+        self.diagnostic_sample_keys = ()
+        self.diagnostic_do_cfg = False
         self.diagnostic_sink = None
 
     def init_from_attention(self, attn) -> None:
@@ -516,9 +518,7 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
                 # deterministic bounded sketch; paired relative differences
                 # are calculated from the same tensor positions.
                 def _signature(value: torch.Tensor) -> dict:
-                    # With validation batch=1 and CFG, the last row is the
-                    # conditional sample. This keeps records per image.
-                    value = value[-1].detach().float().contiguous()
+                    value = value.detach().float().contiguous()
                     flat = value.flatten()
                     stride = max(1, math.ceil(flat.numel() / 512))
                     sketch = flat[::stride][:512].cpu()
@@ -531,21 +531,62 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
                         "sketch": sketch.tolist(),
                     }
 
-                self.diagnostic_sink.append(
-                    {
-                        "record_type": "processor_tensor_signature",
-                        "variant": self.diagnostic_variant,
-                        "step": int(self.diagnostic_step),
-                        "processor": self.processor_name,
-                        "roi_tokens": int(lengths[-1].item()),
-                        "reference_hidden": _signature(reference_hidden),
-                        "reference_candidate": _signature(reference_candidate),
-                        "connector_down": _signature(connector_hidden),
-                        "raw_delta": _signature(raw_delta),
-                        "bounded_delta": _signature(bounded_delta),
-                        "applied_delta": _signature(applied_delta),
-                    }
-                )
+                sample_keys = tuple(self.diagnostic_sample_keys)
+                explicit_sample_keys = bool(sample_keys)
+                if not explicit_sample_keys:
+                    # Preserve the direct processor-test/debug behavior.
+                    sample_keys = (None,)
+                sample_count = len(sample_keys)
+
+                def _sample_rows(value: torch.Tensor) -> torch.Tensor:
+                    if not explicit_sample_keys:
+                        return value[-1:]
+                    if (
+                        self.diagnostic_do_cfg
+                        and sample_count > 0
+                        and value.shape[0] == 2 * sample_count
+                    ):
+                        return value[sample_count:]
+                    return value[:sample_count]
+
+                tensors = {
+                    "reference_hidden": _sample_rows(reference_hidden),
+                    "reference_candidate": _sample_rows(reference_candidate),
+                    "connector_down": _sample_rows(connector_hidden),
+                    "raw_delta": _sample_rows(raw_delta),
+                    "bounded_delta": _sample_rows(bounded_delta),
+                    "applied_delta": _sample_rows(applied_delta),
+                }
+                sample_lengths = _sample_rows(lengths)
+                if sample_count <= 0 or any(
+                    value.shape[0] != sample_count
+                    for value in (*tensors.values(), sample_lengths)
+                ):
+                    raise RuntimeError(
+                        "PPR tensor diagnostics could not map processor rows "
+                        f"to {sample_count} samples"
+                    )
+                for sample_index, sample_key in enumerate(sample_keys):
+                    self.diagnostic_sink.append(
+                        {
+                            "record_type": "processor_tensor_signature",
+                            "variant": self.diagnostic_variant,
+                            "step": int(self.diagnostic_step),
+                            "processor": self.processor_name,
+                            "roi_tokens": int(
+                                sample_lengths[sample_index].item()
+                            ),
+                            **{
+                                name: _signature(value[sample_index])
+                                for name, value in tensors.items()
+                            },
+                            **(
+                                {"sample": sample_key}
+                                if sample_key is not None
+                                else {}
+                            ),
+                        }
+                    )
 
         hidden_states = attn.to_out[0](hidden_states)
         hidden_states = attn.to_out[1](hidden_states)

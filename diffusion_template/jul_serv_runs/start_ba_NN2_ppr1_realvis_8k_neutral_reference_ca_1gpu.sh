@@ -15,6 +15,13 @@ export REQUIRE_LPIPS="${REQUIRE_LPIPS:-true}"
 export RUN_NAME="${RUN_NAME:-ba_NN2_ppr1_realvis_8k_neutral_reference_ca}"
 export OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/ppr_8k_neutral_reference_ca}"
 
+# Optional first positional argument: validation batch size.
+# Example: ./start_ba_NN2_ppr1_realvis_8k_neutral_reference_ca_1gpu.sh 12
+if [[ $# -gt 0 && "$1" =~ ^[1-9][0-9]*$ ]]; then
+  export BATCH_SIZE="$1"
+  shift
+fi
+
 exec bash \
   "${SCRIPT_DIR}/start_ba_NN2_ppr1_realvis_8k_reference_vs_noise_1gpu.sh" \
   "ppr_reference_ca_mode=zero" \

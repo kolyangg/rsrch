@@ -159,6 +159,7 @@ def _initialize_state(trainer) -> dict[str, Any]:
         "next_index": 0,
         "device": trainer.device,
         "lpips_status": "not attempted",
+        "observed_batch_sizes": [],
     }
     trainer._ppr_reference_noise_state = state
     print(
@@ -169,7 +170,10 @@ def _initialize_state(trainer) -> dict[str, Any]:
     return state
 
 
-def _processor_stats(records: list[dict[str, Any]]) -> dict[str, float]:
+def _processor_stats(
+    records: list[dict[str, Any]],
+    sample: str | None = None,
+) -> dict[str, float]:
     selected = [
         record
         for record in records
@@ -177,16 +181,26 @@ def _processor_stats(records: list[dict[str, Any]]) -> dict[str, float]:
     ]
     if not selected:
         raise RuntimeError("No PPR applied-residual diagnostics were recorded")
-    ratios = [
-        float(value)
-        for record in selected
-        for value in record.get("applied_ratios", ())
-    ]
-    cap_scales = [
-        float(value)
-        for record in selected
-        for value in record.get("cap_scales", ())
-    ]
+    ratios, cap_scales = [], []
+    for record in selected:
+        record_ratios = list(record.get("applied_ratios", ()))
+        record_caps = list(record.get("cap_scales", ()))
+        samples = list(record.get("samples", ()))
+        if sample is not None and samples:
+            if sample not in samples:
+                continue
+            sample_index = samples.index(sample)
+            # Processor target rows are CFG ordered [uncond B, cond B].
+            if len(record_ratios) == 2 * len(samples):
+                sample_index += len(samples)
+            record_ratios = [record_ratios[sample_index]]
+            record_caps = [record_caps[sample_index]]
+        ratios.extend(float(value) for value in record_ratios)
+        cap_scales.extend(float(value) for value in record_caps)
+    if not ratios or not cap_scales:
+        raise RuntimeError(
+            f"No PPR processor statistics found for sample={sample!r}"
+        )
     return {
         "applied_delta_rms_ratio": float(np.mean(ratios)),
         "cap_fraction": float(
@@ -195,17 +209,38 @@ def _processor_stats(records: list[dict[str, Any]]) -> dict[str, float]:
     }
 
 
-def _randomness_record(records: list[dict[str, Any]]) -> dict[str, Any]:
+def _randomness_record(
+    records: list[dict[str, Any]],
+    sample: str,
+) -> dict[str, Any]:
     matches = [
         record
         for record in records
         if record.get("record_type") == "generation_randomness"
+        and record.get("sample") == sample
     ]
     if len(matches) != 1:
         raise RuntimeError(
-            f"Expected one randomness record for batch_size=1, got {len(matches)}"
+            f"Expected one randomness record for {sample}, got {len(matches)}"
         )
     return dict(matches[0])
+
+
+def _sample_records(
+    records: list[dict[str, Any]],
+    sample: str,
+) -> list[dict[str, Any]]:
+    return [
+        record
+        for record in records
+        if (
+            record.get("sample") == sample
+            or (
+                "sample" not in record
+                and sample in record.get("samples", ())
+            )
+        )
+    ]
 
 
 def _face_observation(trainer, image: Image.Image) -> dict[str, Any]:
@@ -568,7 +603,12 @@ def _assert_integrity(
             int(record.get("roi_tokens", 0)) <= 0 for record in tensor_records
         ):
             raise RuntimeError(f"{sample}: invalid packed ROI in {name}")
-        if _processor_stats(diagnostics[name])["applied_delta_rms_ratio"] <= 0:
+        if (
+            _processor_stats(diagnostics[name], sample)[
+                "applied_delta_rms_ratio"
+            ]
+            <= 0
+        ):
             raise RuntimeError(f"{sample}: zero applied PPR residual in {name}")
 
 
@@ -578,44 +618,75 @@ def run_ppr_reference_noise_batch(trainer, batch, eval_metrics):
     if state is None:
         state = _initialize_state(trainer)
     prompts = batch["prompt"] if isinstance(batch["prompt"], list) else [batch["prompt"]]
-    if len(prompts) != 1:
-        raise RuntimeError("Reference/noise test expects batch_size=1")
-    identity = str(_per_sample(batch.get("id"), 1)[0])
-    target_seed = int(
-        _per_sample(
+    batch_size = len(prompts)
+    state["observed_batch_sizes"].append(batch_size)
+    identities = [
+        str(value)
+        for value in _per_sample(batch.get("id"), batch_size)
+    ]
+    target_seeds = [
+        int(value)
+        for value in _per_sample(
             batch.get("seed", trainer.config.validation_args.get("seed", 0)),
-            1,
-        )[0]
+            batch_size,
+        )
+    ]
+    references = _normalize_refs(batch.get("ref_images"), batch_size)
+    reference_bboxes = _per_sample(
+        batch.get("face_bbox_ref"), batch_size
     )
-    references = _normalize_refs(batch.get("ref_images"), 1)
-    ref_bbox = _per_sample(batch.get("face_bbox_ref"), 1)[0]
-    gen_bbox = _per_sample(batch.get("face_bbox_gen"), 1)[0]
-    if ref_bbox is None or gen_bbox is None:
+    generation_bboxes = _per_sample(
+        batch.get("face_bbox_gen"), batch_size
+    )
+    if any(
+        bbox is None
+        for bbox in (*reference_bboxes, *generation_bboxes)
+    ):
         raise RuntimeError("Reference/noise test requires fixed ref/gen bboxes")
-    swap_identity, swap_path, swap_bbox = state["swap_map"][identity]
-    swap_image = Image.open(swap_path).convert("RGB")
-    sample_index = int(state["next_index"])
-    state["next_index"] += 1
-    filename = f"{sample_index:03d}_{identity}_seed{target_seed}.png"
-    state["filenames"].append(filename)
 
-    images: dict[str, Image.Image] = {}
+    swap_identities, swap_images, swap_bboxes = [], [], []
+    for identity in identities:
+        swap_identity, swap_path, swap_bbox = state["swap_map"][identity]
+        with Image.open(swap_path) as source:
+            swap_image = source.convert("RGB")
+        swap_identities.append(swap_identity)
+        swap_images.append(swap_image)
+        swap_bboxes.append(swap_bbox)
+
+    start_index = int(state["next_index"])
+    sample_indices = list(range(start_index, start_index + batch_size))
+    state["next_index"] += batch_size
+    filenames = [
+        f"{sample_index:03d}_{identity}_seed{target_seed}.png"
+        for sample_index, identity, target_seed in zip(
+            sample_indices,
+            identities,
+            target_seeds,
+        )
+    ]
+    state["filenames"].extend(filenames)
+
+    images: dict[str, list[Image.Image]] = {}
     diagnostics: dict[str, list[dict[str, Any]]] = {}
-    fingerprints: dict[str, dict[str, Any]] = {}
+    fingerprints = {filename: {} for filename in filenames}
     for name, (scale, reference_kind, noise_kind) in VARIANTS.items():
         use_swap = reference_kind == "R2"
         variant_images, records = _generate(
             trainer,
             option="A" if name == "PM0" else "B",
             prompts=prompts,
-            seeds=[target_seed],
-            identities=[identity],
+            seeds=target_seeds,
+            identities=identities,
             references=references,
-            reference_bboxes=[ref_bbox],
-            generation_bboxes=[gen_bbox],
-            sample_keys=[filename],
-            ppr_reference_image=[swap_image] if use_swap else None,
-            ppr_face_bbox_ref=swap_bbox if use_swap else None,
+            reference_bboxes=reference_bboxes,
+            generation_bboxes=generation_bboxes,
+            sample_keys=filenames,
+            ppr_reference_image=swap_images if use_swap else None,
+            ppr_face_bbox_ref=(
+                swap_bboxes
+                if use_swap and batch_size > 1
+                else (swap_bboxes[0] if use_swap else None)
+            ),
             ppr_reference_noise_seed=state["noise_seeds"][noise_kind],
             runtime_settings=(
                 name == "PM0",
@@ -626,160 +697,184 @@ def run_ppr_reference_noise_batch(trainer, batch, eval_metrics):
             capture_tensor_signatures=name != "PM0",
             ppr_reference_ca_mode=state["reference_ca_mode"],
         )
-        images[name] = variant_images[0]
+        images[name] = variant_images
         diagnostics[name] = records
-        fingerprint = _randomness_record(records)
-        reference_image = swap_image if use_swap else references[0][0]
-        fingerprint["spatial_reference_image_sha256"] = _image_hash(
-            reference_image
-        )
-        fingerprints[name] = fingerprint
+        for local_index, filename in enumerate(filenames):
+            fingerprint = _randomness_record(records, filename)
+            reference_image = (
+                swap_images[local_index]
+                if use_swap
+                else references[local_index][0]
+            )
+            fingerprint["spatial_reference_image_sha256"] = _image_hash(
+                reference_image
+            )
+            fingerprints[filename][name] = fingerprint
 
-    _assert_integrity(
-        filename,
-        fingerprints,
-        diagnostics,
-        state["reference_ca_mode"],
-    )
-    state["tensor_rows"].extend(
-        _tensor_comparisons(filename, diagnostics)
-    )
-    state["integrity"][filename] = fingerprints
+    for local_index, filename in enumerate(filenames):
+        sample_diagnostics = {
+            name: _sample_records(records, filename)
+            for name, records in diagnostics.items()
+        }
+        _assert_integrity(
+            filename,
+            fingerprints[filename],
+            sample_diagnostics,
+            state["reference_ca_mode"],
+        )
+        state["tensor_rows"].extend(
+            _tensor_comparisons(filename, sample_diagnostics)
+        )
+        state["integrity"][filename] = fingerprints[filename]
 
-    baseline = images["PM0"]
-    baseline_face = _face_observation(trainer, baseline)
-    observations = {
-        name: _face_observation(trainer, image)
-        for name, image in images.items()
-    }
-    variant_rows = {}
-    for name, image in images.items():
-        output_path = state["root"] / name / filename
-        image.save(output_path)
-        image_sha = hashlib.sha256(output_path.read_bytes()).hexdigest()
-        full_mae, core_mae = _pixel_mae(image, baseline, gen_bbox)
-        observation = observations[name]
-        score_values = _identity_text_scores(
-            trainer,
-            image=image,
-            prompt=prompts[0],
-            original_identity=identity,
-            swapped_identity=swap_identity,
-            observation=observation,
-        )
-        stats = (
-            {"applied_delta_rms_ratio": 0.0, "cap_fraction": 0.0}
-            if name == "PM0"
-            else _processor_stats(diagnostics[name])
-        )
-        state["rows"].append(
-            {
-                "sample_index": sample_index,
-                "filename": filename,
-                "variant": name,
-                "target_identity": identity,
-                "spatial_reference_identity": (
-                    swap_identity if "R2" in name else identity
-                ),
-                "target_seed": target_seed,
-                "reference_noise_seed": state["noise_seeds"][
-                    VARIANTS[name][2]
-                ],
-                "prompt": prompts[0],
-                "sha256": image_sha,
-                "pixel_mae_full_vs_PM0": full_mae,
-                "pixel_mae_core_vs_PM0": core_mae,
-                "lpips_core_vs_PM0": _face_lpips(
-                    state, image, baseline, gen_bbox
-                ),
-                **score_values,
-                "face_detected": observation["face_detected"],
-                "face_confidence": observation["face_confidence"],
-                "landmark_displacement_vs_PM0": _landmark_displacement(
-                    observation["landmarks"],
-                    baseline_face["landmarks"],
+        sample_index = sample_indices[local_index]
+        identity = identities[local_index]
+        target_seed = target_seeds[local_index]
+        swap_identity = swap_identities[local_index]
+        gen_bbox = generation_bboxes[local_index]
+        baseline = images["PM0"][local_index]
+        baseline_face = _face_observation(trainer, baseline)
+        observations = {
+            name: _face_observation(
+                trainer, variant_images[local_index]
+            )
+            for name, variant_images in images.items()
+        }
+        variant_rows = {}
+        for name, variant_images in images.items():
+            image = variant_images[local_index]
+            output_path = state["root"] / name / filename
+            image.save(output_path)
+            image_sha = hashlib.sha256(output_path.read_bytes()).hexdigest()
+            full_mae, core_mae = _pixel_mae(image, baseline, gen_bbox)
+            observation = observations[name]
+            score_values = _identity_text_scores(
+                trainer,
+                image=image,
+                prompt=prompts[local_index],
+                original_identity=identity,
+                swapped_identity=swap_identity,
+                observation=observation,
+            )
+            stats = (
+                {"applied_delta_rms_ratio": 0.0, "cap_fraction": 0.0}
+                if name == "PM0"
+                else _processor_stats(diagnostics[name], filename)
+            )
+            state["rows"].append(
+                {
+                    "sample_index": sample_index,
+                    "filename": filename,
+                    "variant": name,
+                    "target_identity": identity,
+                    "spatial_reference_identity": (
+                        swap_identity if "R2" in name else identity
+                    ),
+                    "target_seed": target_seed,
+                    "reference_noise_seed": state["noise_seeds"][
+                        VARIANTS[name][2]
+                    ],
+                    "prompt": prompts[local_index],
+                    "sha256": image_sha,
+                    "pixel_mae_full_vs_PM0": full_mae,
+                    "pixel_mae_core_vs_PM0": core_mae,
+                    "lpips_core_vs_PM0": _face_lpips(
+                        state, image, baseline, gen_bbox
+                    ),
+                    **score_values,
+                    "face_detected": observation["face_detected"],
+                    "face_confidence": observation["face_confidence"],
+                    "landmark_displacement_vs_PM0": _landmark_displacement(
+                        observation["landmarks"],
+                        baseline_face["landmarks"],
+                        image,
+                    ),
+                    "seam_gradient_proxy_vs_PM0": _seam_proxy(
+                        image, baseline, gen_bbox
+                    ),
+                    **stats,
+                }
+            )
+            variant_rows[name] = state["rows"][-1]
+            if name != "PM0":
+                _save_heatmap(
+                    state["root"]
+                    / "difference_heatmaps"
+                    / f"{name}_{filename}",
                     image,
-                ),
-                "seam_gradient_proxy_vs_PM0": _seam_proxy(
-                    image, baseline, gen_bbox
-                ),
-                **stats,
-            }
-        )
-        variant_rows[name] = state["rows"][-1]
-        if name != "PM0":
-            _save_heatmap(
-                state["root"]
-                / "difference_heatmaps"
-                / f"{name}_{filename}",
-                image,
-                baseline,
-            )
-        crop = _face_crop(image, gen_bbox)
-        if crop is not None:
-            crop.save(
-                state["root"] / "face_crops" / f"{name}_{filename}"
-            )
-        for metric_name in (
-            "id_similarity_original",
-            "id_similarity_swapped",
-            "text_similarity",
-        ):
-            value = state["rows"][-1][metric_name]
-            if np.isfinite(value):
-                eval_metrics.update(f"{name}/{metric_name}", value)
+                    baseline,
+                )
+            crop = _face_crop(image, gen_bbox)
+            if crop is not None:
+                crop.save(
+                    state["root"]
+                    / "face_crops"
+                    / f"{name}_{filename}"
+                )
+            for metric_name in (
+                "id_similarity_original",
+                "id_similarity_swapped",
+                "text_similarity",
+            ):
+                value = state["rows"][-1][metric_name]
+                if np.isfinite(value):
+                    eval_metrics.update(f"{name}/{metric_name}", value)
 
-    pair_definitions = (
-        ("reference_content_N1", "R1N1", "R2N1", "reference_image_effect"),
-        ("reference_content_N2", "R1N2", "R2N2", "reference_image_effect"),
-        ("reference_noise_R1", "R1N1", "R1N2", "reference_noise_effect"),
-        ("reference_noise_R2", "R2N1", "R2N2", "reference_noise_effect"),
-    )
-    for pair, left, right, effect in pair_definitions:
-        full, core = _pixel_mae(images[left], images[right], gen_bbox)
-        left_row, right_row = variant_rows[left], variant_rows[right]
-        state["pair_rows"].append(
-            {
-                "sample_index": sample_index,
-                "filename": filename,
-                "pair": pair,
-                "effect": effect,
-                "left_variant": left,
-                "right_variant": right,
-                "pixel_mae_full": full,
-                "pixel_mae_core": core,
-                "lpips_core": _face_lpips(
-                    state, images[left], images[right], gen_bbox
-                ),
-                "id_original_abs_difference": abs(
-                    float(left_row["id_similarity_original"])
-                    - float(right_row["id_similarity_original"])
-                ),
-                "id_swapped_abs_difference": abs(
-                    float(left_row["id_similarity_swapped"])
-                    - float(right_row["id_similarity_swapped"])
-                ),
-                "text_abs_difference": abs(
-                    float(left_row["text_similarity"])
-                    - float(right_row["text_similarity"])
-                ),
-                "face_confidence_abs_difference": abs(
-                    float(left_row["face_confidence"])
-                    - float(right_row["face_confidence"])
-                ),
-                "landmark_pair_displacement": _landmark_displacement(
-                    observations[left]["landmarks"],
-                    observations[right]["landmarks"],
-                    images[left],
-                ),
-                "seam_gradient_pair_proxy": _seam_proxy(
-                    images[left], images[right], gen_bbox
-                ),
-            }
+        pair_definitions = (
+            ("reference_content_N1", "R1N1", "R2N1", "reference_image_effect"),
+            ("reference_content_N2", "R1N2", "R2N2", "reference_image_effect"),
+            ("reference_noise_R1", "R1N1", "R1N2", "reference_noise_effect"),
+            ("reference_noise_R2", "R2N1", "R2N2", "reference_noise_effect"),
         )
+        for pair, left, right, effect in pair_definitions:
+            left_image = images[left][local_index]
+            right_image = images[right][local_index]
+            full, core = _pixel_mae(
+                left_image, right_image, gen_bbox
+            )
+            left_row, right_row = variant_rows[left], variant_rows[right]
+            state["pair_rows"].append(
+                {
+                    "sample_index": sample_index,
+                    "filename": filename,
+                    "pair": pair,
+                    "effect": effect,
+                    "left_variant": left,
+                    "right_variant": right,
+                    "pixel_mae_full": full,
+                    "pixel_mae_core": core,
+                    "lpips_core": _face_lpips(
+                        state, left_image, right_image, gen_bbox
+                    ),
+                    "id_original_abs_difference": abs(
+                        float(left_row["id_similarity_original"])
+                        - float(right_row["id_similarity_original"])
+                    ),
+                    "id_swapped_abs_difference": abs(
+                        float(left_row["id_similarity_swapped"])
+                        - float(right_row["id_similarity_swapped"])
+                    ),
+                    "text_abs_difference": abs(
+                        float(left_row["text_similarity"])
+                        - float(right_row["text_similarity"])
+                    ),
+                    "face_confidence_abs_difference": abs(
+                        float(left_row["face_confidence"])
+                        - float(right_row["face_confidence"])
+                    ),
+                    "landmark_pair_displacement": _landmark_displacement(
+                        observations[left]["landmarks"],
+                        observations[right]["landmarks"],
+                        left_image,
+                    ),
+                    "seam_gradient_pair_proxy": _seam_proxy(
+                        left_image, right_image, gen_bbox
+                    ),
+                }
+            )
 
-    batch["generated"] = [images["R1N1"]]
-    batch["generated_masks"] = [None]
+    batch["generated"] = images["R1N1"]
+    batch["generated_masks"] = [None] * batch_size
     return batch
 
 
@@ -1149,6 +1244,9 @@ SHA-256/RMS plus the same deterministic 512-value sketch at each paired stage.
         "variants": VARIANTS,
         "reference_noise_seeds": state["noise_seeds"],
         "reference_ca_mode": state["reference_ca_mode"],
+        "observed_batch_sizes": sorted(
+            set(state["observed_batch_sizes"])
+        ),
         "integrity_assertions_passed": True,
         "tensor_capture": "exact SHA-256/RMS plus deterministic 512-value sketch",
         "lpips_status": state["lpips_status"],
