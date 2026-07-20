@@ -426,9 +426,15 @@ def _generate(
         for key, value in fingerprints.items()
         if isinstance(value, (list, tuple))
     }
-    if any(len(values) != batch_size for values in per_sample_fields.values()):
+    malformed = {
+        key: len(values)
+        for key, values in per_sample_fields.items()
+        if len(values) != batch_size
+    }
+    if malformed:
         raise RuntimeError(
-            f"PPR diagnostic {option} recorded malformed per-sample fingerprints"
+            f"PPR diagnostic {option} recorded malformed per-sample "
+            f"fingerprints: expected {batch_size}, got {malformed}"
         )
     for sample_index, sample_key in enumerate(sample_keys):
         randomness_records.append(

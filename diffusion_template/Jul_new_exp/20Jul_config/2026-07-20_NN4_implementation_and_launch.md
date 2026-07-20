@@ -198,6 +198,16 @@ The decisive local outputs are `identity_direction_summary.csv` (whether R2
 moves identity toward R2), `effect_decomposition.csv` (reference-content effect
 versus reference-noise effect), `metrics_summary.csv`, and `contact_sheets/`.
 
+### 21 July diagnostic bookkeeping fix
+
+The first NN4 checkpoint test exposed a diagnostic-only CFG shape mismatch:
+NN4 correctly duplicated reference noise into unconditional/conditional CFG
+halves, but `reference_noise_used_sha256` retained all `2B` hashes while the
+result writer requires one fingerprint per generated image (`B`). The runtime
+now records one CFG half after asserting both halves are exactly equal. This
+does not change inference images, checkpoint loading, or training. The
+regression suite passes with diagnostic collection and CFG noise pairing active.
+
 ## Metrics to watch
 
 In addition to the existing diffusion, identity, and PPR diagnostics:

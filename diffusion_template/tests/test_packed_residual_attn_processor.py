@@ -786,8 +786,14 @@ class PackedResidualRuntimeTests(unittest.TestCase):
             def __init__(self):
                 self.attn_processors = {}
                 self.last_sample = None
+                self.samples = []
                 self.last_encoder = None
+                self.encoders = []
                 self.last_added = None
+                self.addeds = []
+
+            def set_attn_processor(self, processors):
+                self.attn_processors = processors
 
             def __call__(
                 self,
@@ -800,8 +806,11 @@ class PackedResidualRuntimeTests(unittest.TestCase):
             ):
                 del timestep, kwargs
                 self.last_sample = sample
+                self.samples.append(sample)
                 self.last_encoder = encoder_hidden_states
+                self.encoders.append(encoder_hidden_states)
                 self.last_added = added_cond_kwargs
+                self.addeds.append(added_cond_kwargs)
                 return (sample,)
 
         unet = CapturingUNet()
@@ -816,7 +825,14 @@ class PackedResidualRuntimeTests(unittest.TestCase):
             ba_reference_token_text_mode="zero",
             ba_reference_pooled_text_mode="zero",
             ba_output_anchor_mode="none",
-            ba_ppr_collect_diagnostics=False,
+            ba_ppr_collect_diagnostics=True,
+            ba_ppr_diagnostic_steps=(0,),
+            ba_ppr_diagnostic_sample_keys=("sample0",),
+            _ba_ppr_randomness_fingerprints={},
+            _ba_ppr_epsilon_diagnostics=[],
+            _ba_ppr_tensor_diagnostics=[],
+            _original_attn_processors={"plain.processor": object()},
+            guidance_scale=5.0,
             _cross_attention_kwargs=None,
         )
         target = torch.zeros(2, 4, 8, 8)
@@ -847,26 +863,39 @@ class PackedResidualRuntimeTests(unittest.TestCase):
             )
 
         self.assertEqual(tuple(pipeline._ref_noise_base.shape), (1, 4, 8, 8))
+        self.assertTrue(
+            pipeline._ba_ppr_randomness_fingerprints[
+                "cfg_reference_noise_equal"
+            ]
+        )
+        self.assertEqual(
+            len(
+                pipeline._ba_ppr_randomness_fingerprints[
+                    "reference_noise_used_sha256"
+                ]
+            ),
+            1,
+        )
         torch.testing.assert_close(
-            unet.last_sample[2],
-            unet.last_sample[3],
+            unet.samples[0][2],
+            unet.samples[0][3],
             atol=0,
             rtol=0,
         )
         self.assertEqual(
-            int(torch.count_nonzero(unet.last_encoder[2:])),
+            int(torch.count_nonzero(unet.encoders[0][2:])),
             0,
         )
         torch.testing.assert_close(
-            unet.last_added["text_embeds"][:2],
+            unet.addeds[0]["text_embeds"][:2],
             pooled,
         )
         self.assertEqual(
-            int(torch.count_nonzero(unet.last_added["text_embeds"][2:])),
+            int(torch.count_nonzero(unet.addeds[0]["text_embeds"][2:])),
             0,
         )
         torch.testing.assert_close(
-            unet.last_added["time_ids"][2:],
+            unet.addeds[0]["time_ids"][2:],
             time_ids,
         )
 

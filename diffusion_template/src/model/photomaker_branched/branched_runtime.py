@@ -756,6 +756,10 @@ def two_branch_predict(
                         ref_noised[half:],
                     )
                 )
+                # Diagnostics are indexed by generated image, not by the CFG
+                # expanded U-Net batch. The two halves are asserted identical
+                # above, so retain one hash per output sample.
+                reference_noise_for_hash = reference_noise[half:]
                 fingerprints["reference_noise_used_sha256"] = [
                     hashlib.sha256(
                         sample.detach()
@@ -765,7 +769,7 @@ def two_branch_predict(
                         .numpy()
                         .tobytes()
                     ).hexdigest()
-                    for sample in reference_noise
+                    for sample in reference_noise_for_hash
                 ]
             sample_count = len(
                 getattr(
