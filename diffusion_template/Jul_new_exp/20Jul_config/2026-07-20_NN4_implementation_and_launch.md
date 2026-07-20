@@ -160,20 +160,43 @@ the fixed-target five-way `PM0/R1N1/R2N1/R1N2/R2N2` reference-versus-noise
 matrix:
 
 ```bash
-bash jul_serv_runs/start_ba_NN4_checkpoint_reference_vs_noise_1gpu.sh \
+# 2k / RealVis
+CUDA_VISIBLE_DEVICES=0 \
+  bash jul_serv_runs/start_ba_NN4_checkpoint_reference_vs_noise_1gpu.sh \
+  /absolute/path/to/checkpoint-epoch1.pth
+
+# 4k / RealVis
+CUDA_VISIBLE_DEVICES=0 \
+  bash jul_serv_runs/start_ba_NN4_checkpoint_reference_vs_noise_1gpu.sh \
   /absolute/path/to/checkpoint-epoch2.pth
 ```
 
 The checkpoint epoch is inferred from the filename. Defaults are 96 samples,
-validation batch 12, and RealVis. For the recommended same-base companion:
+validation batch 12, and RealVis. The default output directories are
+`ppr_NN4_2000step_realvis_reference_vs_noise` and
+`ppr_NN4_4000step_realvis_reference_vs_noise`.
+
+Run the recommended same-SDXL-base companions with:
 
 ```bash
+NN4_VALIDATION_MODEL=null \
+  bash jul_serv_runs/start_ba_NN4_checkpoint_reference_vs_noise_1gpu.sh \
+  /absolute/path/to/checkpoint-epoch1.pth
+
 NN4_VALIDATION_MODEL=null \
   bash jul_serv_runs/start_ba_NN4_checkpoint_reference_vs_noise_1gpu.sh \
   /absolute/path/to/checkpoint-epoch2.pth
 ```
 
-This helper is inference-only and does not shorten or resume the training run.
+These write to `ppr_NN4_2000step_same_sdxl_reference_vs_noise` and
+`ppr_NN4_4000step_same_sdxl_reference_vs_noise`. This helper is inference-only
+and does not shorten or resume the training run. Set `OUTPUT_DIR` to override
+the destination, or `OVERWRITE_OUTPUT=true` to intentionally replace an
+existing result directory.
+
+The decisive local outputs are `identity_direction_summary.csv` (whether R2
+moves identity toward R2), `effect_decomposition.csv` (reference-content effect
+versus reference-noise effect), `metrics_summary.csv`, and `contact_sheets/`.
 
 ## Metrics to watch
 
