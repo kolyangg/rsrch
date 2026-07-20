@@ -245,6 +245,7 @@ class BaseTrainer:
                 "_face_prompt_embeds",
                 "_ref_latents_all",
                 "_ref_noise",
+                "_ref_noise_base",
                 "_face_mask",
                 "_face_mask_ref",
                 "_face_mask_t",
@@ -587,6 +588,15 @@ class BaseTrainer:
                         device=self.device,
                         **ba_runtime_kwargs,
                     )
+                    for attr in (
+                        "disable_branched_sa",
+                        "disable_branched_ca",
+                    ):
+                        setattr(
+                            _val_model,
+                            attr,
+                            bool(getattr(train_model, attr, False)),
+                        )
                     setattr(_val_model, "strict_face_routing", bool(getattr(self.config, "strict_face_routing", False)))
                     # Ensure adapters are initialized before loading LoRA weights
                     if hasattr(_val_model, "prepare_for_training"):

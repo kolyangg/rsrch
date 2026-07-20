@@ -35,6 +35,7 @@ from src.model.photomaker_branched.packed_residual_attn_processor import (
     make_inner_core_mask,
     pack_valid_tokens,
 )
+from src.loss.diffusion_loss import CoreNormalizedDiffusionLoss
 from src.pipelines.br_pipeline_helpers import reset_branched_generation_caches
 from src.trainer.ppr_diagnostic import (
     METRIC_FIELDS,
@@ -107,6 +108,39 @@ class PackedResidualProcessorTests(unittest.TestCase):
         self.assertIsNotNone(processor.null_memory)
         self.assertIsNotNone(processor.null_memory.grad)
         self.assertGreater(processor.null_memory.grad.abs().sum(), 0)
+
+    def test_learned_null_auxiliary_losses_are_finite_and_differentiable(self) -> None:
+        torch.manual_seed(12)
+        side = 8
+        attn = _attention()
+        processor = PackedResidualBranchedAttnProcessor(
+            16,
+            ref_kv_rank=4,
+            connector_rank=4,
+            connector_input_mode="reference_minus_learned_null",
+            collect_aux_losses=True,
+            match_null_margin=0.02,
+            cap_loss_target=1e-8,
+        )
+        processor.init_from_attention(attn)
+        with torch.no_grad():
+            processor.connector_up.weight.normal_(std=0.05)
+        mask, core = _masks(2, side)
+        processor.set_masks(mask, mask, core)
+        hidden = torch.randn(4, side * side, 16)
+        processor(attn, hidden)
+
+        self.assertEqual(
+            set(processor.last_aux_losses),
+            {"null_residual", "match_null_margin", "cap"},
+        )
+        loss = torch.stack(
+            list(processor.last_aux_losses.values())
+        ).sum()
+        self.assertTrue(torch.isfinite(loss))
+        loss.backward()
+        self.assertIsNotNone(processor.connector_up.weight.grad)
+        self.assertGreater(processor.connector_up.weight.grad.abs().sum(), 0)
 
     def test_photomaker_attenuation_preserves_half_the_batch(self) -> None:
         base = torch.randn(2, 5, 4)
@@ -520,6 +554,28 @@ class PackedResidualProcessorTests(unittest.TestCase):
             select_branched_self_attention_names(names, "up_blocks_attn1"),
             ["up_blocks.0.attn1.processor"],
         )
+        self.assertEqual(
+            select_branched_self_attention_names(
+                names,
+                "up_blocks0_attn1",
+            ),
+            ["up_blocks.0.attn1.processor"],
+        )
+
+    def test_core_normalized_diffusion_loss_ignores_outside_core(self) -> None:
+        target = torch.zeros(2, 4, 4, 4)
+        prediction = target.clone()
+        prediction[:, :, 0, :] = 100
+        prediction[0, :, 1:3, 1:3] = 2
+        prediction[1, :, 1:3, 1:3] = 4
+        core = torch.zeros(2, 1, 4, 4)
+        core[:, :, 1:3, 1:3] = 1
+        loss = CoreNormalizedDiffusionLoss()(
+            prediction,
+            target,
+            core,
+        )["loss"]
+        self.assertEqual(float(loss), 10.0)
 
 
 class _TinyBlock(nn.Module):
@@ -616,6 +672,126 @@ class _OptimizerConfig(dict):
 
 
 class PackedResidualRuntimeTests(unittest.TestCase):
+    def test_nn4_site_policy_and_disabled_ca_install_only_up0_sa(self) -> None:
+        model = _tiny_model()
+        model.ba_site_policy = "up_blocks0_attn1"
+        model.disable_branched_ca = True
+        mask = torch.ones(1, 1, 8, 8)
+        patch_unet_attention_processors(model, mask, mask)
+        configure_branched_trainables(model)
+        _assert_branched_installation(model)
+        self.assertEqual(
+            tuple(model._ba_patched_processor_names),
+            ("up_blocks.0.attn1.processor",),
+        )
+        self.assertTrue(
+            all(
+                not bool(getattr(processor, "_is_branched_processor", False))
+                for name, processor in model.unet.attn_processors.items()
+                if name.endswith("attn2.processor")
+            )
+        )
+
+    def test_cfg_reference_noise_and_reference_text_are_isolated(self) -> None:
+        class FakeScheduler:
+            @staticmethod
+            def add_noise(latents, noise, timesteps):
+                del timesteps
+                return latents + noise
+
+            @staticmethod
+            def scale_model_input(latents, timesteps):
+                del timesteps
+                return latents
+
+        class CapturingUNet:
+            def __init__(self):
+                self.attn_processors = {}
+                self.last_sample = None
+                self.last_encoder = None
+                self.last_added = None
+
+            def __call__(
+                self,
+                sample,
+                timestep,
+                *,
+                encoder_hidden_states,
+                added_cond_kwargs,
+                **kwargs,
+            ):
+                del timestep, kwargs
+                self.last_sample = sample
+                self.last_encoder = encoder_hidden_states
+                self.last_added = added_cond_kwargs
+                return (sample,)
+
+        unet = CapturingUNet()
+        pipeline = SimpleNamespace(
+            unet=unet,
+            scheduler=FakeScheduler(),
+            device=torch.device("cpu"),
+            generator=torch.Generator().manual_seed(123),
+            do_classifier_free_guidance=True,
+            face_embed_strategy="face",
+            ba_cfg_reference_noise_pairing=True,
+            ba_reference_token_text_mode="zero",
+            ba_reference_pooled_text_mode="zero",
+            ba_output_anchor_mode="none",
+            ba_ppr_collect_diagnostics=False,
+            _cross_attention_kwargs=None,
+        )
+        target = torch.zeros(2, 4, 8, 8)
+        reference = torch.ones(1, 4, 8, 8)
+        prompt = torch.randn(2, 4, 8)
+        face_prompt = torch.randn_like(prompt)
+        pooled = torch.randn(2, 6)
+        time_ids = torch.randn(2, 6)
+        mask = torch.ones(1, 1, 8, 8)
+
+        with patch(
+            "src.model.photomaker_branched.branched_runtime."
+            "patch_unet_attention_processors"
+        ):
+            two_branch_predict(
+                pipeline=pipeline,
+                latent_model_input=target,
+                t=torch.tensor([1, 1]),
+                prompt_embeds=prompt,
+                added_cond_kwargs={
+                    "text_embeds": pooled,
+                    "time_ids": time_ids,
+                },
+                mask4=mask,
+                mask4_ref=mask,
+                reference_latents=reference,
+                face_prompt_embeds=face_prompt,
+            )
+
+        self.assertEqual(tuple(pipeline._ref_noise_base.shape), (1, 4, 8, 8))
+        torch.testing.assert_close(
+            unet.last_sample[2],
+            unet.last_sample[3],
+            atol=0,
+            rtol=0,
+        )
+        self.assertEqual(
+            int(torch.count_nonzero(unet.last_encoder[2:])),
+            0,
+        )
+        torch.testing.assert_close(
+            unet.last_added["text_embeds"][:2],
+            pooled,
+        )
+        self.assertEqual(
+            int(torch.count_nonzero(unet.last_added["text_embeds"][2:])),
+            0,
+        )
+        torch.testing.assert_close(
+            unet.last_added["time_ids"][2:],
+            time_ids,
+        )
+
     def test_reference_noise_runner_processes_batched_samples(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

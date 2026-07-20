@@ -1,0 +1,32 @@
+defaults:
+  - one_id_ba_NN3b_learned_null_pm_attenuation
+  - _self_
+
+# NN4: the review's minimal correctness-and-causality run. Preserve PPR's
+# target-Q / packed-reference-KV branch and protected PhotoMaker output, while
+# removing known CFG/text confounds and restricting authority to up_blocks.0.
+disable_branched_ca: true
+loss_kind: core_normalized
+
+model:
+  ba_site_policy: up_blocks0_attn1
+
+  # P0 inference correctness: one base reference noise tensor is duplicated
+  # exactly into CFG's unconditional and conditional reference copies.
+  ba_cfg_reference_noise_pairing: true
+
+  # Isolate the spatial reference stream from target prompt semantics. Target
+  # PhotoMaker conditioning remains unchanged.
+  ba_reference_token_text_mode: zero
+  ba_reference_pooled_text_mode: zero
+
+  # Keep the matched learned-null connector from NN3b and supervise its null
+  # response and pre-cap behavior at the candidate level.
+  ba_null_residual_loss_weight: 0.10
+  ba_match_null_margin_weight: 0.05
+  ba_match_null_margin: 0.02
+  ba_cap_loss_weight: 0.01
+  ba_cap_loss_target: 0.12
+
+  # Lower authority than NN2/NN3's 0.25 cap; the scalar gate remains unchanged.
+  ba_delta_rms_cap: 0.15

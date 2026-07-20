@@ -378,6 +378,44 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 "ba_conditioning/pm_id_attenuated_fraction",
                 gathered_fraction.item(),
             )
+
+        try:
+            unwrapped = self.accelerator.unwrap_model(self.model)
+        except Exception:
+            unwrapped = self.model
+        auxiliary_losses = (
+            (
+                "ba_null_residual_loss",
+                "ba_null_residual_loss_weight",
+                "ba_aux/null_residual",
+            ),
+            (
+                "ba_match_null_margin_loss",
+                "ba_match_null_margin_weight",
+                "ba_aux/match_null_margin",
+            ),
+            (
+                "ba_cap_loss",
+                "ba_cap_loss_weight",
+                "ba_aux/cap_excess",
+            ),
+        )
+        for output_name, weight_name, metric_name in auxiliary_losses:
+            if output_name not in output:
+                continue
+            value = output[output_name]
+            weight = float(getattr(unwrapped, weight_name, 0.0))
+            if not torch.isfinite(value):
+                raise FloatingPointError(
+                    f"Non-finite BA auxiliary loss {output_name}: {value}"
+                )
+            batch["loss"] = batch["loss"] + weight * value
+            gathered = self.accelerator.gather(value.detach()).mean()
+            train_metrics.update(metric_name, gathered.item())
+            train_metrics.update(
+                f"{metric_name}_weighted",
+                (weight * gathered).item(),
+            )
         
         if self.is_train:
             assert torch.isfinite(batch["loss"]) # sum of all losses is always called loss

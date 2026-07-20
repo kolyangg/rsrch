@@ -35,6 +35,16 @@ ba_site_policy: all
 ba_connector_rank: 16
 # NN2 parity: reference_minus_target. NN3 opts into reference_minus_null.
 ba_connector_input_mode: reference_minus_target
+ba_null_memory_tokens: 8
+# NN4 correctness/causality controls. Defaults reproduce NN1-NN3 behavior.
+ba_cfg_reference_noise_pairing: false
+ba_reference_token_text_mode: original
+ba_reference_pooled_text_mode: target
+ba_null_residual_loss_weight: 0.0
+ba_match_null_margin_weight: 0.0
+ba_match_null_margin: 0.02
+ba_cap_loss_weight: 0.0
+ba_cap_loss_target: 0.20
 ba_gate_max: 0.5
 ba_gate_init_logit: 0.0
 ba_delta_rms_cap: 0.25

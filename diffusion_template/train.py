@@ -305,6 +305,7 @@ def main(config):
     loss_target_by_kind = {
         "masked_alternating": "src.loss.diffusion_loss.MaskedDiffusionLoss",
         "blended_masked": "src.loss.diffusion_loss.BlendedMaskedDiffusionLoss",
+        "core_normalized": "src.loss.diffusion_loss.CoreNormalizedDiffusionLoss",
     }
     if loss_kind not in loss_target_by_kind:
         raise ValueError(

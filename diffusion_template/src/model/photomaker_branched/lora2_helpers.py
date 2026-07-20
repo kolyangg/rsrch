@@ -690,8 +690,9 @@ def prepare_branched_training_inputs(
     model._ref_latents_all = reference_latents
     model._face_prompt_embeds = prompt_embeds
     model.do_classifier_free_guidance = False
-    if hasattr(model, "_ref_noise"):
-        delattr(model, "_ref_noise")
+    for attr in ("_ref_noise", "_ref_noise_base"):
+        if hasattr(model, attr):
+            delattr(model, attr)
 
     return (
         prompt_embeds,

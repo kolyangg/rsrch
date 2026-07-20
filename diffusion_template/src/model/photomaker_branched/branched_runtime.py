@@ -112,6 +112,11 @@ def select_branched_self_attention_names(
             name for name in attn_processor_names
             if name.startswith("up_blocks.") and name.endswith("attn1.processor")
         ]
+    if policy == "up_blocks0_attn1":
+        return [
+            name for name in attn_processor_names
+            if name.startswith("up_blocks.0.") and name.endswith("attn1.processor")
+        ]
     raise ValueError(f"Unknown ba_site_policy: {policy}")
 
 
@@ -319,6 +324,15 @@ def patch_unet_attention_processors(
                             ),
                             target_core_erode_frac=float(
                                 getattr(pipeline, "ba_target_core_erode_frac", 0.10)
+                            ),
+                            collect_aux_losses=bool(
+                                getattr(pipeline, "ba_collect_aux_losses", False)
+                            ),
+                            match_null_margin=float(
+                                getattr(pipeline, "ba_match_null_margin", 0.02)
+                            ),
+                            cap_loss_target=float(
+                                getattr(pipeline, "ba_cap_loss_target", 0.20)
                             ),
                             processor_name=name,
                             diagnostics=bool(getattr(pipeline, "ba_diagnostics", False)),
@@ -587,16 +601,57 @@ def two_branch_predict(
             f"{name} batch={cur_batch} is incompatible with reference batch={target_batch}"
         )
 
-    # CFG doubles latent_model_input ([uncond, cond]) while masks are prepared
-    # once per output image. Keep masks aligned with the actual UNet batch
-    # without changing CFG order: [uncond batch, cond batch].
+    # CFG doubles latent_model_input ([uncond, cond]) while masks/references are
+    # prepared once per output image. NN4 caches reference noise at the base
+    # image batch and duplicates it exactly across CFG. The opt-in toggle keeps
+    # old experiment configs reproducible.
+    pair_cfg_reference_noise = bool(
+        getattr(pipeline, "ba_cfg_reference_noise_pairing", False)
+    )
+    do_cfg = bool(getattr(pipeline, "do_classifier_free_guidance", False))
+    if pair_cfg_reference_noise and do_cfg:
+        if batch_size % 2:
+            raise RuntimeError(
+                "CFG reference-noise pairing requires an even generation batch"
+            )
+        reference_batch_size = batch_size // 2
+    else:
+        reference_batch_size = batch_size
+
     mask4 = _match_generation_batch(mask4, batch_size, "mask4")
-    reference_latents = _match_reference_batch(reference_latents, batch_size, "reference_latents")
-    mask4_ref = _match_reference_batch(mask4_ref, batch_size, "mask4_ref")
+    reference_latents_base = _match_reference_batch(
+        reference_latents,
+        reference_batch_size,
+        "reference_latents",
+    )
+    mask4_ref_base = _match_reference_batch(
+        mask4_ref,
+        reference_batch_size,
+        "mask4_ref",
+    )
     
     
     REF_NOISE_ONCE = True  # keep same ref noise across steps within one generation
-    if not hasattr(pipeline, "_ref_noise") or tuple(pipeline._ref_noise.shape) != tuple(reference_latents.shape):
+    noise_cache_name = (
+        "_ref_noise_base" if pair_cfg_reference_noise else "_ref_noise"
+    )
+    cached_noise = getattr(pipeline, noise_cache_name, None)
+    # Setup-time diagnostic/reference noise historically uses `_ref_noise`.
+    # Adopt it as the base cache when its shape is already correct.
+    if (
+        pair_cfg_reference_noise
+        and cached_noise is None
+        and hasattr(pipeline, "_ref_noise")
+        and tuple(pipeline._ref_noise.shape)
+        == tuple(reference_latents_base.shape)
+    ):
+        cached_noise = pipeline._ref_noise
+        setattr(pipeline, noise_cache_name, cached_noise)
+
+    if (
+        cached_noise is None
+        or tuple(cached_noise.shape) != tuple(reference_latents_base.shape)
+    ):
         gen = getattr(pipeline, "generator", None)
         if isinstance(gen, (list, tuple)):
             gen = gen[0] if gen else None
@@ -608,18 +663,37 @@ def two_branch_predict(
                 ref_gen2.set_state(ref_gen.get_state())
                 ref_gen = ref_gen2
             try:
-                pipeline._ref_noise = torch.randn_like(reference_latents, generator=ref_gen)
-            except TypeError:
-                pipeline._ref_noise = torch.randn(
-                    reference_latents.shape,
+                cached_noise = torch.randn_like(
+                    reference_latents_base,
                     generator=ref_gen,
-                    device=reference_latents.device,
-                   dtype=reference_latents.dtype,
+                )
+            except TypeError:
+                cached_noise = torch.randn(
+                    reference_latents_base.shape,
+                    generator=ref_gen,
+                    device=reference_latents_base.device,
+                    dtype=reference_latents_base.dtype,
                 )
         else:
             # IMPORTANT: don't use a fresh unseeded torch.Generator() (it’s deterministic); use global RNG instead.
-            pipeline._ref_noise = torch.randn_like(reference_latents)
+            cached_noise = torch.randn_like(reference_latents_base)
+        setattr(pipeline, noise_cache_name, cached_noise)
 
+    if pair_cfg_reference_noise:
+        # Keep the historical name available to diagnostics, but never compare
+        # it against the expanded CFG shape.
+        pipeline._ref_noise = cached_noise
+    if pair_cfg_reference_noise and do_cfg:
+        reference_latents = torch.cat(
+            [reference_latents_base, reference_latents_base],
+            dim=0,
+        )
+        mask4_ref = torch.cat([mask4_ref_base, mask4_ref_base], dim=0)
+        reference_noise = torch.cat([cached_noise, cached_noise], dim=0)
+    else:
+        reference_latents = reference_latents_base
+        mask4_ref = mask4_ref_base
+        reference_noise = cached_noise
 
 
     
@@ -633,12 +707,22 @@ def two_branch_predict(
     
     ref_noised = pipeline.scheduler.add_noise(
         reference_latents,
-        pipeline._ref_noise[:reference_latents.shape[0]],
+        reference_noise,
         t_ref
     )
 
     
     ref_noised = pipeline.scheduler.scale_model_input(ref_noised, t_ref).to(latent_model_input.dtype) # critical: match UNet’s expected scaling at this timestep
+    if pair_cfg_reference_noise and do_cfg:
+        half = reference_batch_size
+        if not torch.equal(reference_noise[:half], reference_noise[half:]):
+            raise RuntimeError(
+                "CFG unconditional/conditional reference noise differs"
+            )
+        if not torch.equal(ref_noised[:half], ref_noised[half:]):
+            raise RuntimeError(
+                "CFG unconditional/conditional noised reference differs"
+            )
 
     diagnostic_steps = tuple(
         int(value)
@@ -658,6 +742,31 @@ def two_branch_predict(
             None,
         )
         if isinstance(fingerprints, dict):
+            if pair_cfg_reference_noise and do_cfg:
+                half = reference_batch_size
+                fingerprints["cfg_reference_noise_equal"] = bool(
+                    torch.equal(
+                        reference_noise[:half],
+                        reference_noise[half:],
+                    )
+                )
+                fingerprints["cfg_ref_noised_equal"] = bool(
+                    torch.equal(
+                        ref_noised[:half],
+                        ref_noised[half:],
+                    )
+                )
+                fingerprints["reference_noise_used_sha256"] = [
+                    hashlib.sha256(
+                        sample.detach()
+                        .contiguous()
+                        .cpu()
+                        .view(torch.uint8)
+                        .numpy()
+                        .tobytes()
+                    ).hexdigest()
+                    for sample in reference_noise
+                ]
             sample_count = len(
                 getattr(
                     pipeline,
@@ -844,6 +953,17 @@ def two_branch_predict(
         
         
     face_prompt_embeds = face_prompt_embeds.to(prompt_embeds.device, prompt_embeds.dtype)
+    reference_token_text_mode = str(
+        getattr(pipeline, "ba_reference_token_text_mode", "original")
+        or "original"
+    ).lower()
+    if reference_token_text_mode == "zero":
+        face_prompt_embeds = torch.zeros_like(face_prompt_embeds)
+        face_prompt_attention_mask = None
+    elif reference_token_text_mode != "original":
+        raise ValueError(
+            "ba_reference_token_text_mode must be one of: original, zero"
+        )
     face_prompt_embeds, face_prompt_attention_mask, reference_ca_mode = (
         apply_ppr_reference_ca_mode(
             pipeline,
@@ -851,6 +971,12 @@ def two_branch_predict(
             face_prompt_attention_mask,
         )
     )
+    if reference_token_text_mode != "original":
+        reference_ca_mode = (
+            reference_token_text_mode
+            if reference_ca_mode == "original"
+            else f"{reference_token_text_mode}+ppr_{reference_ca_mode}"
+        )
     _record_reference_ca_fingerprint(
         pipeline,
         face_prompt_embeds,
@@ -868,10 +994,24 @@ def two_branch_predict(
 
 
     doubled_kwargs = {}
+    reference_pooled_text_mode = str(
+        getattr(pipeline, "ba_reference_pooled_text_mode", "target")
+        or "target"
+    ).lower()
+    if reference_pooled_text_mode not in {"target", "zero"}:
+        raise ValueError(
+            "ba_reference_pooled_text_mode must be one of: target, zero"
+        )
     for k, v in added_cond_kwargs.items():
         if torch.is_tensor(v):
             if v.shape[0] == batch_size:
-                doubled_kwargs[k] = torch.cat([v, v], dim=0)
+                reference_value = (
+                    torch.zeros_like(v)
+                    if k == "text_embeds"
+                    and reference_pooled_text_mode == "zero"
+                    else v
+                )
+                doubled_kwargs[k] = torch.cat([v, reference_value], dim=0)
             else:
                 doubled_kwargs[k] = v
         else:

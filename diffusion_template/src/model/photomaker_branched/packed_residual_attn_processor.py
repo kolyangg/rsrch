@@ -113,6 +113,9 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         gate_init_logit: float = 0.0,
         delta_rms_cap: float = 0.25,
         target_core_erode_frac: float = 0.10,
+        collect_aux_losses: bool = False,
+        match_null_margin: float = 0.02,
+        cap_loss_target: float = 0.20,
         processor_name: str = "",
         diagnostics: bool = False,
     ):
@@ -140,6 +143,10 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             raise ValueError("delta_rms_cap must be in (0, 1]")
         if not 0.0 <= target_core_erode_frac < 0.5:
             raise ValueError("target_core_erode_frac must be in [0, 0.5)")
+        if float(match_null_margin) < 0.0:
+            raise ValueError("match_null_margin must be non-negative")
+        if float(cap_loss_target) <= 0.0:
+            raise ValueError("cap_loss_target must be positive")
 
         self.hidden_size = int(hidden_size)
         self.ref_kv_kind = ref_kv_kind
@@ -151,6 +158,9 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         self.gate_init_logit = float(gate_init_logit)
         self.delta_rms_cap = float(delta_rms_cap)
         self.target_core_erode_frac = float(target_core_erode_frac)
+        self.collect_aux_losses = bool(collect_aux_losses)
+        self.match_null_margin = float(match_null_margin)
+        self.cap_loss_target = float(cap_loss_target)
         self.processor_name = str(processor_name)
         self.diagnostics = bool(diagnostics)
         self.has_cross_attention_kwargs = True
@@ -165,6 +175,7 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         self.mask_ref: Optional[torch.Tensor] = None
         self.mask_core: Optional[torch.Tensor] = None
         self.last_diagnostics: dict[str, torch.Tensor | float | int] = {}
+        self.last_aux_losses: dict[str, torch.Tensor] = {}
         self._diagnostic_calls = 0
         self.runtime_scale = 1.0
         self.tensor_diagnostics = False
@@ -528,6 +539,47 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             mask=target_core,
             max_ratio=self.delta_rms_cap,
         )
+        self.last_aux_losses = {}
+        if self.collect_aux_losses:
+            valid_rows = sample_has_roi.float()
+            valid_count = valid_rows.sum().clamp_min(1.0)
+            cap_excess = F.relu(pre_ratio - self.cap_loss_target)
+            self.last_aux_losses["cap"] = (
+                cap_excess.square() * valid_rows
+            ).sum() / valid_count
+
+            if null_candidate is None:
+                raise RuntimeError(
+                    "Matched/null auxiliary loss requires learned null memory"
+                )
+            # Candidate-level paired screen: the learned no-person candidate
+            # traverses the same target-Q and reference K/V projections as the
+            # matched candidate. Penalize its connector response, and require
+            # the matched and null responses to remain distinguishable.
+            null_raw_delta = self.connector_up(
+                self.connector_down(null_candidate)
+            )
+            _, _, null_ratio, _ = self._masked_rms_cap(
+                null_raw_delta,
+                base=target_base,
+                mask=target_core,
+                max_ratio=self.delta_rms_cap,
+            )
+            _, _, matched_null_distance, _ = self._masked_rms_cap(
+                raw_delta - null_raw_delta,
+                base=target_base,
+                mask=target_core,
+                max_ratio=self.delta_rms_cap,
+            )
+            self.last_aux_losses["null_residual"] = (
+                null_ratio.square() * valid_rows
+            ).sum() / valid_count
+            margin_error = F.relu(
+                self.match_null_margin - matched_null_distance
+            )
+            self.last_aux_losses["match_null_margin"] = (
+                margin_error.square() * valid_rows
+            ).sum() / valid_count
         gate = self.gate_max * torch.sigmoid(self.gate_logit)
         applied_delta = (
             target_core

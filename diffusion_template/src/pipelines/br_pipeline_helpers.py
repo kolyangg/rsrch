@@ -737,6 +737,7 @@ def reset_branched_generation_caches(pipeline) -> None:
     for attr in (
         "_ba_packed_branch_exactly_off",
         "_ba_output_anchor_logged",
+        "_ref_noise_base",
     ):
         if hasattr(pipeline, attr):
             delattr(pipeline, attr)
@@ -1151,6 +1152,7 @@ def cleanup_branched_runtime(pipeline, *, use_branched_attention: bool) -> None:
         "_face_prompt_embeds",
         "_ref_latents_all",
         "_ref_noise",
+        "_ref_noise_base",
         "_ba_packed_branch_exactly_off",
         "_ba_output_anchor_logged",
     ]:
@@ -1265,6 +1267,26 @@ def build_pipeline_from_pretrained(
     pipeline.ba_null_memory_tokens = int(
         getattr(unwrapped_model, "ba_null_memory_tokens", 8)
     )
+    pipeline.ba_cfg_reference_noise_pairing = bool(
+        getattr(unwrapped_model, "ba_cfg_reference_noise_pairing", False)
+    )
+    pipeline.ba_reference_token_text_mode = str(
+        getattr(unwrapped_model, "ba_reference_token_text_mode", "original")
+        or "original"
+    ).lower()
+    pipeline.ba_reference_pooled_text_mode = str(
+        getattr(unwrapped_model, "ba_reference_pooled_text_mode", "target")
+        or "target"
+    ).lower()
+    pipeline.ba_collect_aux_losses = bool(
+        getattr(unwrapped_model, "ba_collect_aux_losses", False)
+    )
+    pipeline.ba_match_null_margin = float(
+        getattr(unwrapped_model, "ba_match_null_margin", 0.02)
+    )
+    pipeline.ba_cap_loss_target = float(
+        getattr(unwrapped_model, "ba_cap_loss_target", 0.20)
+    )
     pipeline.ba_reference_ca_preserve_full_pm = bool(
         getattr(unwrapped_model, "ba_reference_ca_preserve_full_pm", False)
     )
@@ -1298,6 +1320,12 @@ def build_pipeline_from_pretrained(
     pipeline.ba_ppr_collect_diagnostics = False
     pipeline.ba_ppr_diagnostic_steps = (15, 25, 35, 49)
     pipeline.ba_diagnostics = bool(getattr(unwrapped_model, "ba_diagnostics", False))
+    pipeline.disable_branched_sa = bool(
+        getattr(unwrapped_model, "disable_branched_sa", False)
+    )
+    pipeline.disable_branched_ca = bool(
+        getattr(unwrapped_model, "disable_branched_ca", False)
+    )
     pipeline.ba_patch_top_k = float(getattr(unwrapped_model, "ba_patch_top_k", 1.0))
     pipeline.branched_attn_weight_mode = getattr(unwrapped_model, "branched_attn_weight_mode", "shared")
     pipeline.branched_attn_new_weight_kind = getattr(unwrapped_model, "branched_attn_new_weight_kind", "full")

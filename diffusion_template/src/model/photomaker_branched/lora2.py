@@ -30,6 +30,10 @@ from .lora2_helpers import (
     ensure_branched_after_eval as ensure_branched_after_eval_helper,
 )
 from .model_v2_NS import PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken
+from .packed_residual_attn_processor import (
+    PackedResidualBranchedAttnProcessor,
+    make_inner_core_mask,
+)
 ##### BRANCHED ATTENTION - ADDITIONAL IMPORTS #####
 
 
@@ -123,6 +127,14 @@ class PhotomakerBranchedLora(SDXL):
         ba_connector_rank: int = 16,
         ba_connector_input_mode: str = "reference_minus_target",
         ba_null_memory_tokens: int = 8,
+        ba_cfg_reference_noise_pairing: bool = False,
+        ba_reference_token_text_mode: str = "original",
+        ba_reference_pooled_text_mode: str = "target",
+        ba_null_residual_loss_weight: float = 0.0,
+        ba_match_null_margin_weight: float = 0.0,
+        ba_match_null_margin: float = 0.02,
+        ba_cap_loss_weight: float = 0.0,
+        ba_cap_loss_target: float = 0.20,
         ba_pm_id_attenuation_probability: float = 0.0,
         ba_pm_id_attenuation_scale: float = 1.0,
         ba_reference_ca_preserve_full_pm: bool = False,
@@ -271,6 +283,32 @@ class PhotomakerBranchedLora(SDXL):
             ba_connector_input_mode or "reference_minus_target"
         ).lower()
         self.ba_null_memory_tokens = int(ba_null_memory_tokens)
+        self.ba_cfg_reference_noise_pairing = bool(
+            ba_cfg_reference_noise_pairing
+        )
+        self.ba_reference_token_text_mode = str(
+            ba_reference_token_text_mode or "original"
+        ).lower()
+        self.ba_reference_pooled_text_mode = str(
+            ba_reference_pooled_text_mode or "target"
+        ).lower()
+        self.ba_null_residual_loss_weight = float(
+            ba_null_residual_loss_weight
+        )
+        self.ba_match_null_margin_weight = float(
+            ba_match_null_margin_weight
+        )
+        self.ba_match_null_margin = float(ba_match_null_margin)
+        self.ba_cap_loss_weight = float(ba_cap_loss_weight)
+        self.ba_cap_loss_target = float(ba_cap_loss_target)
+        self.ba_collect_aux_losses = any(
+            weight > 0.0
+            for weight in (
+                self.ba_null_residual_loss_weight,
+                self.ba_match_null_margin_weight,
+                self.ba_cap_loss_weight,
+            )
+        )
         self.ba_pm_id_attenuation_probability = float(
             ba_pm_id_attenuation_probability
         )
@@ -324,7 +362,11 @@ class PhotomakerBranchedLora(SDXL):
             raise ValueError(
                 "ba_output_anchor_mode is only supported by packed_residual_v1"
             )
-        if self.ba_site_policy not in {"all", "up_blocks_attn1"}:
+        if self.ba_site_policy not in {
+            "all",
+            "up_blocks_attn1",
+            "up_blocks0_attn1",
+        }:
             raise ValueError(f"Unknown ba_site_policy: {self.ba_site_policy}")
         if self.ba_connector_input_mode not in {
             "reference_minus_target",
@@ -337,6 +379,36 @@ class PhotomakerBranchedLora(SDXL):
             )
         if self.ba_null_memory_tokens <= 0:
             raise ValueError("ba_null_memory_tokens must be positive")
+        if self.ba_reference_token_text_mode not in {"original", "zero"}:
+            raise ValueError(
+                "ba_reference_token_text_mode must be original or zero"
+            )
+        if self.ba_reference_pooled_text_mode not in {"target", "zero"}:
+            raise ValueError(
+                "ba_reference_pooled_text_mode must be target or zero"
+            )
+        if any(
+            weight < 0.0
+            for weight in (
+                self.ba_null_residual_loss_weight,
+                self.ba_match_null_margin_weight,
+                self.ba_cap_loss_weight,
+            )
+        ):
+            raise ValueError("BA auxiliary-loss weights must be non-negative")
+        if self.ba_match_null_margin < 0.0:
+            raise ValueError("ba_match_null_margin must be non-negative")
+        if self.ba_cap_loss_target <= 0.0:
+            raise ValueError("ba_cap_loss_target must be positive")
+        if (
+            self.ba_collect_aux_losses
+            and self.ba_connector_input_mode
+            != "reference_minus_learned_null"
+        ):
+            raise ValueError(
+                "BA null/cap auxiliary training requires "
+                "reference_minus_learned_null"
+            )
         if not 0.0 <= self.ba_pm_id_attenuation_probability <= 1.0:
             raise ValueError(
                 "ba_pm_id_attenuation_probability must be in [0, 1]"
@@ -352,8 +424,13 @@ class PhotomakerBranchedLora(SDXL):
                 "ba_reference_ca_preserve_full_pm=true"
             )
         if self.ba_processor_variant == "packed_residual_v1":
-            if self.ba_site_policy != "up_blocks_attn1":
-                raise ValueError("NN2-PPR1 requires ba_site_policy=up_blocks_attn1")
+            if self.ba_site_policy not in {
+                "up_blocks_attn1",
+                "up_blocks0_attn1",
+            }:
+                raise ValueError(
+                    "packed_residual_v1 requires an explicit up-block site policy"
+                )
             if self.ba_sa_train_mode != "packed_residual":
                 raise ValueError("packed_residual_v1 requires ba_sa_train_mode=packed_residual")
             if self.ba_reference_token_mode != "packed_bbox_roi":
@@ -539,6 +616,15 @@ class PhotomakerBranchedLora(SDXL):
                     "ba_site_policy": self.ba_site_policy,
                     "ba_connector_rank": self.ba_connector_rank,
                     "ba_connector_input_mode": self.ba_connector_input_mode,
+                    "ba_cfg_reference_noise_pairing": (
+                        self.ba_cfg_reference_noise_pairing
+                    ),
+                    "ba_reference_token_text_mode": (
+                        self.ba_reference_token_text_mode
+                    ),
+                    "ba_reference_pooled_text_mode": (
+                        self.ba_reference_pooled_text_mode
+                    ),
                     "ba_gate_max": self.ba_gate_max,
                     "ba_gate_init_logit": self.ba_gate_init_logit,
                     "ba_delta_rms_cap": self.ba_delta_rms_cap,
@@ -552,6 +638,15 @@ class PhotomakerBranchedLora(SDXL):
                 architecture.update(
                     {
                         "ba_null_memory_tokens": self.ba_null_memory_tokens,
+                        "ba_null_residual_loss_weight": (
+                            self.ba_null_residual_loss_weight
+                        ),
+                        "ba_match_null_margin_weight": (
+                            self.ba_match_null_margin_weight
+                        ),
+                        "ba_match_null_margin": self.ba_match_null_margin,
+                        "ba_cap_loss_weight": self.ba_cap_loss_weight,
+                        "ba_cap_loss_target": self.ba_cap_loss_target,
                         "ba_pm_id_attenuation_probability": (
                             self.ba_pm_id_attenuation_probability
                         ),
@@ -929,6 +1024,38 @@ class PhotomakerBranchedLora(SDXL):
             'model_pred': noise_pred,
             'target': noise,
         }
+        if self.ba_processor_variant == "packed_residual_v1":
+            output["ba_core_mask"] = make_inner_core_mask(
+                mask4,
+                erode_frac=self.ba_target_core_erode_frac,
+            ).to(device=noise_pred.device, dtype=noise_pred.dtype)
+        if self.ba_collect_aux_losses:
+            auxiliary_by_name: dict[str, list[torch.Tensor]] = {}
+            for processor in self.unet.attn_processors.values():
+                if not isinstance(
+                    processor,
+                    PackedResidualBranchedAttnProcessor,
+                ):
+                    continue
+                for name, value in processor.last_aux_losses.items():
+                    auxiliary_by_name.setdefault(name, []).append(value)
+            required = {
+                "null_residual",
+                "match_null_margin",
+                "cap",
+            }
+            missing = required.difference(auxiliary_by_name)
+            if missing:
+                raise RuntimeError(
+                    "PPR auxiliary losses were not produced: "
+                    + ", ".join(sorted(missing))
+                )
+            output.update(
+                {
+                    f"ba_{name}_loss": torch.stack(values).mean()
+                    for name, values in auxiliary_by_name.items()
+                }
+            )
         if pm_id_attenuated is not None:
             output["pm_id_attenuated_fraction"] = (
                 pm_id_attenuated.float().mean()

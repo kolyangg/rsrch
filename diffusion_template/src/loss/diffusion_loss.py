@@ -78,3 +78,45 @@ class BlendedMaskedDiffusionLoss(nn.Module):
         loss = (1.0 - self.lambda_face) * full_loss + self.lambda_face * masked_loss
 
         return {'loss': loss}
+
+
+class CoreNormalizedDiffusionLoss(nn.Module):
+    """Normalize diffusion MSE by each sample's feathered face-core area."""
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(self, model_pred, target, ba_core_mask, **batch):
+        del batch
+        if ba_core_mask is None:
+            raise ValueError("CoreNormalizedDiffusionLoss requires ba_core_mask")
+        mask = ba_core_mask.float()
+        if mask.shape[-2:] != model_pred.shape[-2:]:
+            mask = F.interpolate(
+                mask,
+                size=model_pred.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            )
+        if mask.shape[0] != model_pred.shape[0]:
+            raise ValueError(
+                "Core mask/model batch mismatch: "
+                f"{mask.shape[0]} vs {model_pred.shape[0]}"
+            )
+
+        per_pixel = (
+            model_pred.float() - target.float()
+        ).square().mean(dim=1, keepdim=True)
+        numerator = (per_pixel * mask).flatten(1).sum(dim=1)
+        denominator = mask.flatten(1).sum(dim=1)
+        valid = denominator > 0
+        if not bool(valid.any()):
+            return {
+                "loss": F.mse_loss(
+                    model_pred.float(),
+                    target.float(),
+                    reduction="mean",
+                )
+            }
+        per_sample = numerator[valid] / denominator[valid].clamp_min(1e-6)
+        return {"loss": per_sample.mean()}
