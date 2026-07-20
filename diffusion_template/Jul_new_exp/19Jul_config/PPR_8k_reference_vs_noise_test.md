@@ -220,3 +220,23 @@ The implemented tensor records store an exact SHA-256 and RMS for each
 captured tensor plus a deterministic 512-value sketch. Relative differences
 are calculated from matching sketch positions. This bounds disk/RAM usage
 while retaining exact equality detection through the full-tensor hash.
+
+### Backfill LPIPS without regenerating images
+
+If the original run reports `No module named 'lpips'`, activate the same
+PhotoMaker environment and run:
+
+```bash
+python -m pip install lpips
+python -m src.trainer.backfill_ppr_lpips \
+  /home/niko/rsrch/diffusion_template/ppr_8k_reference_vs_noise
+```
+
+This reads the existing `face_crops/` and updates only:
+
+- `metrics_per_image.csv`;
+- `paired_effects.csv`;
+- the LPIPS rows in `metrics_summary.csv`;
+- LPIPS status in `manifest.json` and `conclusion.md`.
+
+It does not load the diffusion checkpoint or regenerate validation images.
