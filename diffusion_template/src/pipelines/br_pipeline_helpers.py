@@ -1254,6 +1254,14 @@ def build_pipeline_from_pretrained(
         getattr(unwrapped_model, "ba_site_policy", "all") or "all"
     ).lower()
     pipeline.ba_connector_rank = int(getattr(unwrapped_model, "ba_connector_rank", 16))
+    pipeline.ba_connector_input_mode = str(
+        getattr(
+            unwrapped_model,
+            "ba_connector_input_mode",
+            "reference_minus_target",
+        )
+        or "reference_minus_target"
+    ).lower()
     pipeline.ba_gate_max = float(getattr(unwrapped_model, "ba_gate_max", 0.5))
     pipeline.ba_gate_init_logit = float(
         getattr(unwrapped_model, "ba_gate_init_logit", 0.0)
@@ -1294,6 +1302,8 @@ def build_pipeline_from_pretrained(
         raise RuntimeError("Validation pipeline lost ba_processor_variant")
     if pipeline.ba_site_policy != unwrapped_model.ba_site_policy:
         raise RuntimeError("Validation pipeline lost ba_site_policy")
+    if pipeline.ba_connector_input_mode != unwrapped_model.ba_connector_input_mode:
+        raise RuntimeError("Validation pipeline lost ba_connector_input_mode")
     if hasattr(unwrapped_model, "_original_attn_processors"):
         pipeline._original_attn_processors = dict(unwrapped_model._original_attn_processors)
     if hasattr(unwrapped_model.unet, "attn_processors"):

@@ -33,6 +33,8 @@ ba_sa_mix_init: 0.25
 ba_processor_variant: legacy
 ba_site_policy: all
 ba_connector_rank: 16
+# NN2 parity: reference_minus_target. NN3 opts into reference_minus_null.
+ba_connector_input_mode: reference_minus_target
 ba_gate_max: 0.5
 ba_gate_init_logit: 0.0
 ba_delta_rms_cap: 0.25

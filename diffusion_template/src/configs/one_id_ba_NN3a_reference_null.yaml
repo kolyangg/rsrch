@@ -1,0 +1,19 @@
+defaults:
+  - one_id_ba_NN2_ppr1
+  - _self_
+
+# NN3a: keep NN2-PPR1's packed spatial BA and safety envelope, but remove
+# target_base from the trainable connector input. The null-reference residual
+# is exactly zero because both connector projections are bias-free.
+model:
+  ba_connector_input_mode: reference_minus_null
+
+  # A small low-timestep semantic objective is retained because the 8k
+  # diagnostics showed reference-content sensitivity without identity
+  # direction. This is half the failed NN1e weight and runs over a narrower
+  # timestep range; the bounded residual and PM anchor remain active.
+  use_id_loss: true
+  id_loss_weight: 0.05
+  id_loss_max_timestep: 300
+  id_loss_face_size: 160
+  id_loss_identity_source: reference

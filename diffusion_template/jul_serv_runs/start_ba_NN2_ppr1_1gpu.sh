@@ -2,12 +2,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-export NN1_CONFIG_NAME="one_id_ba_NN2_ppr1"
+export NN1_CONFIG_NAME="${NN1_CONFIG_NAME:-one_id_ba_NN2_ppr1}"
 export NN1_RUN_NAME_DEFAULT="${NN1_RUN_NAME_DEFAULT:-ba_NN2_ppr1_1gpu}"
 export NN1_DEFAULT_GPU="${NN1_DEFAULT_GPU:-0}"
 export NN1_DEFAULT_PORT="${NN1_DEFAULT_PORT:-29620}"
 export NN1_DESCRIPTION="${NN1_DESCRIPTION:-NN2-PPR1: up-block packed-reference residual; frozen split CA}"
-export NN1_REQUIRE_ID_LOSS="0"
+export NN1_REQUIRE_ID_LOSS="${NN1_REQUIRE_ID_LOSS:-0}"
 export NN1_LAUNCHER_PATH="${NN1_LAUNCHER_PATH:-${SCRIPT_DIR}/$(basename -- "${BASH_SOURCE[0]}")}"
 export NN1_TRAIN_DATASET_NAME="${NN1_TRAIN_DATASET_NAME:-cosmic_large_neb}"
 

@@ -58,3 +58,4 @@ _ba_scheme/
 
 diffusion_template/ppr_8k_reference_vs_noise2
 diffusion_template/ppr_8k_scale_sweep
+diffusion_template/ppr_8k_neutral_reference_ca

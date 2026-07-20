@@ -13,6 +13,8 @@ const NN2_REPORT =
   "../../Jul_new_exp/2026-07-17_NN1a_NN1f_results_and_NN2_architecture_plan.md";
 const NN2_IMPLEMENTATION =
   "../../Jul_new_exp/2026-07-18_NN2a_NN2f_implementation_and_launch_guide.md";
+const NN3_IMPLEMENTATION =
+  "../../Jul_new_exp/2026-07-20_NN3a_reference_minus_null_architecture_and_launch.md";
 const NN1_FILES = {
   NN1a: {
     config: "../../src/configs/one_id_ba_NN1a_n3a_replay.yaml",
@@ -63,6 +65,16 @@ const NN2_FILES = {
   NN2f: {
     config: "../../src/configs/one_id_ba_NN2f_confidence_residual.yaml",
     launcher: "../../jul_serv_runs/start_ba_NN2f_confidence_residual_1gpu.sh",
+  },
+};
+const PPR_FILES = {
+  NN2PPR1: {
+    config: "../../src/configs/one_id_ba_NN2_ppr1.yaml",
+    launcher: "../../jul_serv_runs/start_ba_NN2_ppr1_realvis_1gpu.sh",
+  },
+  NN3a: {
+    config: "../../src/configs/one_id_ba_NN3a_reference_null.yaml",
+    launcher: "../../jul_serv_runs/start_ba_NN3a_reference_null_realvis_1gpu.sh",
   },
 };
 
@@ -966,6 +978,153 @@ const CONFIGS = {
       layerRouting: "All 70 BranchedAttnProcessor sites",
       queryRegion: "Hard bbox with per-query fallback to target self-attention",
       priority: "Highest · brave safety design",
+    }),
+  },
+  NN2PPR1: {
+    short: "NN2-PPR1",
+    title: "Packed up-block reference residual",
+    subtitle:
+      "Completed bounded-residual baseline: packed target-Q/reference-KV retrieval is active, but Cref−Atarget learns expression and prompt shortcuts rather than reference identity.",
+    family: "NN2 PPR diagnosed",
+    topology: "legacy_spatial",
+    status: "failed",
+    statusLabel: "8k · active, not identity-controlled",
+    sourceCommit: "NN2-PPR1",
+    memory: {
+      label: "Packed reference-face ROI latent",
+      detail: "Full noised reference stream; only valid bbox tokens enter reference K/V retrieval",
+      tokens: null,
+    },
+    sites: {
+      count: 36,
+      effective: 36,
+      label: "36 up-block attn1 PPR sites",
+      detail: "Packed residual at all up-block self-attention sites; 70 split CA sites active/frozen",
+      metricLabel: "36 SA train + 70 CA active/frozen",
+      matrixLabel: "36 SA + 70 frozen CA",
+      diagramLabel: "36 up-block SA residuals · 70 frozen CA",
+      caTrainable: false,
+    },
+    weightMode: "ref K/V LoRA + connector + gate train · split CA active/frozen",
+    selfTraining:
+      "PackedResidual attn1: reference K/V LoRA, connector, and gate train; target base frozen",
+    pmContext: "Full PhotoMaker target prompt; ID-only reference-half prompt",
+    facePromptContext: "ID-only conditional reference-half prompt",
+    facePromptLabel: ["ID-only", "reference prompt"],
+    facePromptSubtitle: "reference-half split CA · frozen",
+    composition:
+      "One doubled BA prediction in the face core plus an independent ordinary PhotoMaker epsilon anchor outside the core",
+    compositionShort: "PM anchor + bounded core PPR",
+    composeLabel: ["PM outside core", "PPR inside core"],
+    composeSubtitle: "independent ordinary PM epsilon anchor",
+    independentPmAnchor: true,
+    pmAuthorityShort: "independent PM outside core",
+    objective: "Blended full/face diffusion MSE; no explicit identity direction objective",
+    objectiveShort: "0.8 full + 0.2 face diffusion MSE",
+    schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    trainingSchedule: "Sample BA-active inference timesteps only (approximately t≤699)",
+    kvMode: "packed variable-length reference bbox ROI; padding excluded from softmax",
+    faceArbitration:
+      "A_target + core · gate · RMSCap(Connector(C_reference − A_target))",
+    layerRouting: "packed residual at 36 up-block attn1 sites",
+    queryRegion: "cosine-feathered inner target-face core",
+    v2FaceMode: "packed_residual",
+    v2RefMode: "roi",
+    selfAttentionSubtitle: "Atarget + bounded Connector(Cref − Atarget)",
+    mechanismNote:
+      "Target Q retrieves packed reference K/V, but the connector also receives −Atarget; diagnostics show this shortcut dominates identity direction.",
+    mechanismHeading:
+      "PackedResidualBranchedAttnProcessor + frozen split cross-attention",
+    usesTargetFaceKv: true,
+    refKvSubtitle: "packed bbox ROI · real tokens only",
+    faceAttentionLabel: ["bounded PPR", "over target SA"],
+    faceAttentionSubtitle: "Connector(Cref − Atarget)",
+    faceMergeSubtitle: "target SA + gated/capped core delta",
+    faceMae: 0.07301,
+    idScore: 0.3467,
+    metricStep: "8k · PPR×4 · 96 imgs",
+    architectureNote:
+      "The branch is alive and localized, but its reference-sensitive variation is not aligned with swapped-reference identity.",
+    details: pprDetails("NN2PPR1", {
+      connectorInput: "C_reference - A_target",
+      idLoss: "Off",
+      purpose: "Diagnosed NN2 packed residual baseline",
+      result:
+        "At 8k and runtime scale 4: face-core MAE 0.0730, original-ID 0.3467, and no directional R2 identity gain",
+    }),
+  },
+  NN3a: {
+    short: "NN3a",
+    title: "Reference-minus-null packed BA",
+    subtitle:
+      "Next one-GPU run: preserve NN2's packed target-Q/reference-KV route and PM safety anchor, but remove the −Atarget connector shortcut and add conservative reference-ID supervision.",
+    family: "NN3 ready",
+    topology: "legacy_spatial",
+    status: "active",
+    statusLabel: "Implemented · ready for 1 GPU",
+    sourceCommit: "working-tree",
+    memory: {
+      label: "Packed reference-face ROI + fixed null",
+      detail: "Cref uses real bbox tokens; Cnull uses zero K/V and the same target query",
+      tokens: null,
+    },
+    sites: {
+      count: 36,
+      effective: 36,
+      label: "36 up-block attn1 contrastive sites",
+      detail: "Reference-minus-null residual at up-block self-attention; 70 split CA sites active/frozen",
+      metricLabel: "36 SA train + 70 CA active/frozen",
+      matrixLabel: "36 SA + 70 frozen CA",
+      diagramLabel: "36 up-block ref−null residuals · 70 frozen CA",
+      caTrainable: false,
+    },
+    weightMode: "ref K/V LoRA + connector + gate train · split CA active/frozen",
+    selfTraining:
+      "PackedResidual attn1: reference K/V LoRA, connector, and gate train; target base frozen",
+    pmContext: "Full PhotoMaker target prompt; ID-only reference-half prompt",
+    facePromptContext: "ID-only conditional reference-half prompt",
+    facePromptLabel: ["ID-only", "reference prompt"],
+    facePromptSubtitle: "reference-half split CA · frozen",
+    composition:
+      "One doubled BA prediction in the face core plus an independent ordinary PhotoMaker epsilon anchor outside the core",
+    compositionShort: "PM anchor + ref−null core residual",
+    composeLabel: ["PM outside core", "ref−null inside core"],
+    composeSubtitle: "independent ordinary PM epsilon anchor",
+    independentPmAnchor: true,
+    pmAuthorityShort: "independent PM outside core",
+    objective:
+      "Blended full/face diffusion MSE plus reference-ID loss 0.05 only at training timesteps t≤300",
+    objectiveShort: "0.8 full + 0.2 face MSE + ID 0.05",
+    schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    trainingSchedule: "Sample BA-active inference timesteps only (approximately t≤699)",
+    kvMode:
+      "packed variable-length reference bbox ROI plus fixed zero-K/V null candidate",
+    faceArbitration:
+      "A_target + core · gate · RMSCap(Connector(C_reference − C_null)); C_null=0",
+    layerRouting: "reference-minus-null residual at 36 up-block attn1 sites",
+    queryRegion: "cosine-feathered inner target-face core",
+    v2FaceMode: "reference_null_residual",
+    v2RefMode: "roi",
+    selfAttentionSubtitle: "Atarget + bounded Connector(Cref − Cnull)",
+    mechanismNote:
+      "Target Q retrieves packed reference K/V. A fixed zero-K/V null candidate removes the explicit −Atarget shortcut; bias-free projections make the null residual exactly zero.",
+    mechanismHeading:
+      "Reference-minus-null PackedResidual processor + frozen split cross-attention",
+    usesTargetFaceKv: true,
+    refKvSubtitle: "packed bbox ROI vs fixed zero K/V",
+    faceAttentionLabel: ["reference − null", "bounded residual"],
+    faceAttentionSubtitle: "Connector(Cref − Cnull), Cnull=0",
+    faceMergeSubtitle: "target SA + gated/capped core delta",
+    faceMae: null,
+    idScore: null,
+    metricStep: "not run",
+    architectureNote:
+      "Highest-priority test: make the trainable correction structurally reference-derived, then use a small low-noise ID objective to align it semantically.",
+    details: pprDetails("NN3a", {
+      connectorInput: "C_reference - C_null, with fixed zero K/V",
+      idLoss: "Reference-ID cosine 0.05 at t≤300",
+      purpose: "Remove the NN2 target-base shortcut without abandoning spatial BA",
+      result: "Implemented for one GPU; no checkpoint or result yet",
     }),
   },
   N31: {
@@ -2086,6 +2245,199 @@ function nn2Details(run, evidence) {
   return details;
 }
 
+function pprDetails(run, evidence) {
+  const files = PPR_FILES[run];
+  const isNN3 = run === "NN3a";
+  const report = isNN3
+    ? NN3_IMPLEMENTATION
+    : "../../Jul_new_exp/2026-07-20_PPR_8k_neutral_reference_CA_results_and_next_steps.md";
+  const connectorSnippet = isNN3
+    ? `ba_connector_input_mode: reference_minus_null\nuse_id_loss: true\nid_loss_weight: 0.05\nid_loss_max_timestep: 300`
+    : `ba_connector_input_mode: reference_minus_target\nuse_id_loss: false`;
+
+  const memory = {
+    title: `${run}: packed reference-face K/V memory`,
+    description:
+      "The reference remains a second noised VAE/U-Net stream. At each selected up-block self-attention site, only valid reference bbox tokens are packed; padding and outside-face positions are excluded from the reference softmax.",
+    facts: {
+      Q: "Target hidden-state queries",
+      "Reference K/V": "Packed variable-length bbox ROI",
+      "Reference continuation": "Frozen ordinary self-attention",
+    },
+    code: [
+      code(
+        "../../src/model/photomaker_branched/packed_residual_attn_processor.py",
+        413,
+        `packed, lengths, pad_mask, sample_has_roi = pack_valid_tokens(\n    reference_hidden, reference_valid\n)\nC_ref = scaled_dot_product_attention(\n    Q_target, K_ref, V_ref, attn_mask=pad_mask\n)`,
+        "Open packed reference retrieval",
+      ),
+      code(files.config, 1, connectorSnippet, "Open run config"),
+    ],
+  };
+
+  const selfAttention = {
+    title: `${run}: connector input and bounded residual`,
+    description: isNN3
+      ? "NN3a subtracts a fixed zero-K/V null candidate instead of target self-attention. The trainable connector can no longer exploit -A_target directly; no reference evidence maps to zero through the bias-free connector."
+      : "NN2-PPR1 subtracts A_target from the retrieved reference candidate. The 8k diagnostics showed that this admits a target/prompt shortcut even though reference content reaches the connector.",
+    facts: {
+      "Connector input": evidence.connectorInput,
+      Output: "A_target + feathered core × gate × RMS-capped delta",
+      Sites: "36 up-block attn1",
+    },
+    code: [
+      code(
+        "../../src/model/photomaker_branched/packed_residual_attn_processor.py",
+        458,
+        isNN3
+          ? `null_candidate = torch.zeros_like(reference_candidate)\nconnector_input = reference_candidate - null_candidate\nraw_delta = connector_up(connector_down(connector_input))`
+          : `connector_input = reference_candidate - target_base\nraw_delta = connector_up(connector_down(connector_input))`,
+        "Open connector arbitration",
+      ),
+      code(files.config, 1, connectorSnippet, "Open architecture toggle"),
+    ],
+  };
+
+  const mask = {
+    title: `${run}: feathered target-face core`,
+    description:
+      "The residual is RMS-capped relative to ordinary target self-attention and applied only inside a cosine-feathered eroded target bbox. Empty reference ROIs fail closed.",
+    facts: {
+      Core: "Target bbox eroded 10% with cosine feather",
+      "RMS cap": "0.25 of target-base RMS",
+      "Maximum gate": "0.5",
+    },
+    code: [
+      code(
+        "../../src/model/photomaker_branched/packed_residual_attn_processor.py",
+        476,
+        `bounded_delta = RMSCap(raw_delta, base=target_base, max_ratio=0.25)\napplied_delta = target_core * has_roi * gate * bounded_delta`,
+        "Open residual safety envelope",
+      ),
+    ],
+  };
+
+  const sites = {
+    title: `${run}: up-block spatial BA with frozen split CA`,
+    description:
+      "Packed residual processors replace all 36 up-block attn1 sites. All split attn2 processors remain forward-active for the doubled target/reference streams, but their cloned projections are frozen.",
+    facts: {
+      "Trainable attn1 sites": "36 up-block processors",
+      "Active attn2 sites": "70 split processors",
+      "Trainable attn2": "0",
+    },
+    code: [
+      code(
+        files.config,
+        1,
+        `ba_site_policy: up_blocks_attn1\ntrain_branched_ca_lora: false\nba_sa_train_mode: packed_residual`,
+        "Open routing config",
+      ),
+    ],
+  };
+
+  const crossAttention = {
+    title: `${run}: frozen split cross-attention`,
+    description:
+      "The target half receives the PhotoMaker generation context and the reference half receives the ID-only face context. Both lanes execute, while their cloned weights stay frozen.",
+    facts: {
+      Target: "Generation PhotoMaker prompt",
+      Reference: "ID-only face prompt",
+      Trainability: "Frozen",
+    },
+    code: [
+      code(
+        "../../src/model/photomaker_branched/branched_runtime.py",
+        330,
+        `proc = BranchedCrossAttnProcessor(...)\n# forward-active; configure_branched_trainables leaves CA frozen`,
+        "Open split CA installation",
+      ),
+    ],
+  };
+
+  const compose = {
+    title: `${run}: independent PhotoMaker outside-core anchor`,
+    description:
+      "A separate ordinary target-batch PhotoMaker prediction is computed. PPR owns only the feathered inner face core; outside it, epsilon is exactly the ordinary PhotoMaker prediction.",
+    facts: {
+      "Inside core": "Bounded packed-reference residual",
+      "Outside core": "Independent ordinary PhotoMaker epsilon",
+      Purpose: "Preserve body, pose, hands, clothing, and background",
+    },
+    code: [
+      code(
+        "../../src/model/photomaker_branched/branched_runtime.py",
+        940,
+        `if output_anchor_mode == "base_outside_core":\n    base_noise_pred = ordinary_target_unet(...)\n    noise_pred = core * branched + (1 - core) * base_noise_pred`,
+        "Open output anchor",
+      ),
+    ],
+  };
+
+  const objective = {
+    title: `${run}: training objective`,
+    description: isNN3
+      ? "NN3a retains blended full/face diffusion supervision and adds a small low-timestep decoded identity loss against the trusted reference. The bounded residual and PM anchor limit the destructive behavior observed with NN1e's absolute spatial BA."
+      : "NN2-PPR1 uses blended full/face diffusion MSE only. That objective rewards a useful generic face correction without requiring reference identity direction.",
+    facts: {
+      Objective: isNN3
+        ? "0.8 full + 0.2 face MSE + reference ID 0.05 at t≤300"
+        : "0.8 full + 0.2 face diffusion MSE",
+      "Identity supervision": evidence.idLoss,
+      Optimizer: "ref K/V LoRA + connector down/up + gate; LR 5e-5",
+    },
+    code: [
+      code(files.config, 1, connectorSnippet, "Open objective config"),
+      code(
+        "../../src/model/photomaker_branched/lora2.py",
+        824,
+        `# Optional low-timestep path:\nx0 = predict_x0(noisy_latents, noise_pred)\nid_loss = IdentityLoss(x0_face, reference_face)`,
+        "Open decoded reference-ID objective",
+      ),
+    ],
+  };
+
+  return {
+    reference: memory,
+    memory,
+    memoryFlow: memory,
+    selfAttention,
+    residualFlow: selfAttention,
+    residual: selfAttention,
+    mask,
+    maskFlow: mask,
+    sites,
+    crossAttention,
+    compose,
+    pmPass: compose,
+    pmFlow: compose,
+    objective,
+    trainFlow: objective,
+    scheduleFlow: {
+      title: `${run}: schedule and launch`,
+      description:
+        "Training samples the BA-active inference timestep region. Validation uses the fixed 96-image RealVis set at step 0 and every 2k optimizer steps.",
+      facts: {
+        Training: "t≈0–699; BA forward active",
+        Inference: "Text 0–9 · PM 10–14 · BA 15–49",
+        Launcher: files.launcher,
+      },
+      code: [
+        code(files.launcher, 1, `# ${evidence.purpose}`, "Open launcher"),
+      ],
+    },
+    history: {
+      title: `${run}: evidence and rationale`,
+      description: `${evidence.result}.`,
+      facts: {
+        Purpose: evidence.purpose,
+        Result: evidence.result,
+      },
+      code: [code(report, 1, `# ${run} evidence and architecture rationale`, "Open report")],
+    },
+  };
+}
+
 function allSiteDetail(run) {
   return {
     title: `${run}: all 70 target-face CA sites`,
@@ -2252,6 +2604,9 @@ function selfTrainingValue(config) {
   if (config.topology !== "legacy_spatial") {
     return "standard self-attention; BranchedAttnProcessor absent";
   }
+  if (config.selfTraining) {
+    return config.selfTraining;
+  }
   if (config.saTrainMode === "ref_kv_only") {
     return "BranchedAttnProcessor active; only reference K/V clones train";
   }
@@ -2415,14 +2770,16 @@ const COMPARISON_GROUPS = [
     keys: ["sites", "baPass", "residual", "residualFlow"],
     fields: [
       {
-        label: "Active CA sites",
-        codeName: "active_ca_sites",
-        value: (config) => `${config.sites.count} / 70`,
+        label: "Active attention sites",
+        codeName: "active_attention_sites",
+        value: (config) =>
+          config.sites.metricLabel || `${config.sites.count} / 70 CA`,
       },
       {
-        label: "Effective gated sites",
-        codeName: "effective_ca_sites",
-        value: (config) => String(config.sites.effective),
+        label: "Effective route",
+        codeName: "effective_attention_route",
+        value: (config) =>
+          String(config.sites.effectiveLabel || config.sites.effective),
       },
     ],
   },
@@ -2653,6 +3010,57 @@ function v2ArchitectureSpec(config) {
       layerTitle: "all 70 SA sites → confidence-gated delta",
       queryTitle: "hard bbox M · low confidence → target fallback",
     },
+    packed_residual: {
+      targetActive: true,
+      faceLanesTitle: "Target base + packed-reference candidate",
+      faceLanesSubtitle:
+        "A_target is the frozen anchor; C_ref uses Q_target with packed reference K/V",
+      arbitrationLines: [
+        "NN2 BOUNDED RESIDUAL",
+        "A_target + core·gate·cap",
+        "Connector(C_ref − A_target)",
+      ],
+      arbitrationSubtitle:
+        "The −A_target connector term admits a target/prompt shortcut",
+      ownershipTitle: "36 up-block attn1 residual sites",
+      ownershipSubtitle:
+        "Independent PhotoMaker epsilon remains exact outside the feathered core",
+      layerTitle: "36 up-block SA sites → bounded packed residual",
+      queryTitle: "cosine-feathered inner target-face core",
+      refPrepTitle: "Pack valid reference bbox tokens → K_ref / V_ref",
+      refPrepSubtitle:
+        "Variable-length real ROI tokens · additive padding mask excludes padding",
+      referencePrepLines: ["Pack valid bbox tokens", "variable-length ROI"],
+      referenceKvNodeSubtitle: "real ROI tokens · padding excluded",
+      referenceLaneSubtitle:
+        "C_ref = Attn(Q_target, K_refROI, V_refROI)",
+    },
+    reference_null_residual: {
+      targetActive: true,
+      nullContrast: true,
+      faceLanesTitle: "Target base + reference/null contrast",
+      faceLanesSubtitle:
+        "C_ref and fixed C_null share Q_target; only C_ref receives person evidence",
+      arbitrationLines: [
+        "NN3 REFERENCE CONTRAST",
+        "A_target + core·gate·cap",
+        "Connector(C_ref − C_null)",
+      ],
+      arbitrationSubtitle:
+        "C_null = Attn(Q_target,K_zero,V_zero) = 0; no −A_target shortcut",
+      ownershipTitle: "36 up-block reference-derived residual sites",
+      ownershipSubtitle:
+        "Null evidence maps exactly to zero; PhotoMaker anchors the outside core",
+      layerTitle: "36 up-block SA sites → ref−null bounded residual",
+      queryTitle: "cosine-feathered inner target-face core",
+      refPrepTitle: "Packed reference ROI + fixed zero-K/V null",
+      refPrepSubtitle:
+        "C_ref uses real bbox tokens · C_null contains no person evidence",
+      referencePrepLines: ["Pack valid bbox tokens", "+ fixed zero-K/V null"],
+      referenceKvNodeSubtitle: "real ROI tokens vs zero null",
+      referenceLaneSubtitle:
+        "C_ref = Attn(Q_target,K_refROI,V_refROI)",
+    },
   };
   const selected = modes[mode] || modes.reference;
   return {
@@ -2740,6 +3148,40 @@ function renderLegacyOverviewV2Svg(config, panelId) {
       ${edge("M714 225 C735 245 735 320 714 350", "selfAttention", "pm", markerId)}
       ${edgeLabel(724, 303, "A_target", "pm")}`
     : "";
+  const nullMemoryNode = spec.nullContrast
+    ? node(
+        332,
+        134,
+        194,
+        54,
+        "selfAttention",
+        ["Fixed null K/V", "C_null = 0"],
+        "same Q_target · no person evidence",
+        "inactive",
+      )
+    : "";
+  const nullMemoryEdge = spec.nullContrast
+    ? `
+      ${edge("M526 161 C565 200 600 318 664 350", "selfAttention", "ba", markerId)}
+      ${edgeLabel(546, 215, "C_null", "ba")}`
+    : "";
+  const pmAnchorNode = config.independentPmAnchor
+    ? node(
+        900,
+        184,
+        160,
+        64,
+        "pmPass",
+        ["Ordinary PM ε"],
+        "separate target-batch pass",
+        "pm",
+      )
+    : "";
+  const pmAnchorEdge = config.independentPmAnchor
+    ? edge("M980 248 C980 270 980 282 980 304", "pmFlow", "pm", markerId)
+    : "";
+  const composeLabel = config.composeLabel || ["Return target", "epsilon half"];
+  const composeSubtitle = config.composeSubtitle || "no outer PM merge";
   const trainingScheduleLabel = String(config.trainingSchedule || "").startsWith(
     "Sample only BA-active",
   )
@@ -2757,6 +3199,7 @@ function renderLegacyOverviewV2Svg(config, panelId) {
     ${node(24, 48, 132, 64, "reference", ["Reference image"], "full spatial evidence", "ba")}
     ${node(178, 48, 130, 64, "memory", ["VAE + noise", "xreference,t"], "second batch half", "ba")}
     ${node(332, 40, 194, 82, "memory", spec.refPrepTitle.split(" → "), spec.refPrepSubtitle, "ba")}
+    ${nullMemoryNode}
     ${node(24, 182, 132, 68, "target", ["Target noisy", "latent xₜ"], "first batch half", "pm")}
     ${node(24, 340, 132, 66, "prompt", ["Generation", "PM prompt"], "target-half CA", "pm")}
     ${node(24, 430, 132, 66, "facePrompt", facePromptLabel, facePromptSubtitle, "ba")}
@@ -2779,7 +3222,8 @@ function renderLegacyOverviewV2Svg(config, panelId) {
     ${node(580, 566, 270, 30, "sites", [spec.layerTitle], "", "output")}
 
     ${node(900, 48, 160, 104, "scheduleFlow", ["Temporal switch", "0–9 text", "10–14 PhotoMaker", "15–49 spatial BA"], trainingScheduleLabel, "train")}
-    ${node(910, 304, 150, 82, "compose", ["Return target", "epsilon half"], "no outer PM merge", "ba")}
+    ${pmAnchorNode}
+    ${node(910, 304, 150, 82, "compose", composeLabel, composeSubtitle, "ba")}
     ${node(910, 470, 150, 72, "output", ["CFG → scheduler"], config.schedule, "output")}
     ${node(324, 632, 204, 66, "history", ["Architecture evidence"], `${LEGACY_SPATIAL.slice(0, 8)} + ${config.sourceCommit}`, "")}
     ${node(550, 632, 310, 66, "objective", ["Training objective"], config.objectiveShort, "train")}
@@ -2791,6 +3235,7 @@ function renderLegacyOverviewV2Svg(config, panelId) {
     ${edge("M715 138 C715 155 650 166 647 190", "selfAttention", "pm", markerId)}
     ${edge("M715 138 C754 150 780 164 788 190", "residualFlow", "ba", markerId)}
     ${targetLaneEdge}
+    ${nullMemoryEdge}
     ${edge("M788 262 C780 293 760 324 750 350", "residualFlow", "ba", markerId)}
     ${edge("M156 576 C360 576 500 390 580 319", "maskFlow", "mask", markerId)}
     ${edge("M715 342 C715 346 715 348 715 350", "maskFlow", "mask", markerId)}
@@ -2798,6 +3243,7 @@ function renderLegacyOverviewV2Svg(config, panelId) {
     ${edge("M156 373 C360 373 470 500 596 510", "prompt", "pm", markerId)}
     ${edge("M156 463 C360 463 470 525 596 525", "facePrompt", "ba", markerId)}
     ${edge("M834 516 C880 516 886 361 910 346", "compose", "ba", markerId)}
+    ${pmAnchorEdge}
     ${edge("M985 386 C985 420 985 438 985 470", "pmFlow", "pm", markerId)}
     ${edge("M900 100 C880 100 875 102 860 107", "scheduleFlow", "train", markerId)}
     ${edge("M705 632 C705 616 705 608 705 596", "trainFlow", "train", markerId)}
@@ -2805,7 +3251,7 @@ function renderLegacyOverviewV2Svg(config, panelId) {
     ${edgeLabel(534, 70, spec.roi ? "packed Kref / Vref" : "masked Kref / Vref", "ba")}
     ${edgeLabel(648, 159, "Qtarget + Ktarget / Vtarget", "pm")}
     ${edgeLabel(777, 159, "Qtarget + Kref / Vref", "ba")}
-    ${edgeLabel(846, 495, "target′ + reference′", "ba")}
+    ${edgeLabel(846, 495, config.independentPmAnchor ? "ε_BA core candidate" : "target′ + reference′", "ba")}
   </svg>`;
 }
 
@@ -2827,6 +3273,8 @@ function renderLegacyOverviewSvg(config, panelId) {
       ? "forward active · cloned weights frozen"
       : "target↔gen · reference↔face";
   const siteLabel = config.sites.diagramLabel || "70 SA + 70 CA processors";
+  const composeLabel = config.composeLabel || ["Return target", "epsilon half"];
+  const composeSubtitle = config.composeSubtitle || "no outer PM merge";
   return `
   <svg class="architecture-svg" viewBox="0 0 920 650" aria-label="${escapeHtml(config.short)} legacy spatial architecture overview">
     <defs>${markerDefs(markerId)}</defs>
@@ -2865,7 +3313,7 @@ function renderLegacyOverviewSvg(config, panelId) {
     <rect class="site-chip" x="436" y="444" width="240" height="24" rx="12"></rect>
     <text class="site-chip-text" x="556" y="460">${escapeHtml(siteLabel)}</text>
 
-    ${node(730, 220, 170, 80, "compose", ["Return target", "epsilon half"], "no outer PM merge", "ba")}
+    ${node(730, 220, 170, 80, "compose", composeLabel, composeSubtitle, "ba")}
     ${node(730, 372, 170, 76, "output", ["CFG → scheduler", "0–9 text · 10–14 PM", "15–49 spatial BA"], "", "output")}
     ${node(716, 72, 184, 96, "scheduleFlow", ["Temporal switch", "0–9 text · 10–14 PM", "15–49 spatial BA"], trainingScheduleLabel, "train")}
     ${node(426, 530, 260, 76, "objective", ["Training objective"], config.objectiveShort, "train")}
@@ -2954,11 +3402,32 @@ function renderLegacyMechanismV2Svg(config, panelId) {
     config.sites.caTrainable === false
       ? "Both split CA lanes execute; cloned CA weights are frozen."
       : "Both split CA lanes execute and their cloned weights train.";
+  const nullCandidateCard = spec.nullContrast
+    ? node(
+        618,
+        78,
+        180,
+        70,
+        "selfAttention",
+        ["C_null = 0", "fixed zero K/V"],
+        "same Q_target · no identity",
+        "inactive",
+      )
+    : `
+      <rect class="formula-card" x="618" y="78" width="180" height="70" rx="8"></rect>
+      <text class="formula-card-text" x="708" y="100">two lanes = two softmaxes</text>
+      <text class="formula-card-text" x="708" y="119">no K/V concatenation</text>
+      <text class="formula-card-text" x="708" y="138">before arbitration</text>`;
+  const nullCandidateEdge = spec.nullContrast
+    ? `
+      ${edge("M798 113 C820 118 828 148 840 169", "selfAttention", "ba", markerId)}
+      ${edgeLabel(805, 103, "C_null", "ba")}`
+    : "";
   return `
   <svg class="mechanism-svg v2-svg" viewBox="0 0 1080 940" aria-label="${escapeHtml(config.short)} explicit branched self and cross attention">
     <defs>${markerDefs(markerId)}</defs>
 
-    <text class="mechanism-title" x="24" y="30">A · BranchedAttnProcessor (attn1) — explicit target/reference face lanes</text>
+    <text class="mechanism-title" x="24" y="30">A · BranchedAttnProcessor (attn1) — ${spec.nullContrast ? "target base plus reference/null contrast" : "explicit target/reference face lanes"}</text>
     <text class="mechanism-note" x="24" y="54">${escapeHtml(spec.faceLanesSubtitle)} Reference preparation and arbitration are shown as separate operations.</text>
 
     ${node(24, 78, 150, 70, "target", ["target_hidden"], "target-coordinate source", "pm")}
@@ -2967,8 +3436,8 @@ function renderLegacyMechanismV2Svg(config, panelId) {
 
     ${node(210, 72, 130, 56, "selfAttention", ["Q_target"], "to_q(target)", "pm")}
     ${node(210, 160, 130, 60, "selfAttention", ["K_target / V_target"], "to_k(target) · to_v(target)", "pm")}
-    ${node(210, 284, 154, 78, "memoryFlow", spec.roi ? ["ROI crop + normalize", "8×8 packed tokens"] : ["Full-grid face mask", "H×W positions retained"], spec.refPrepSubtitle, "ba")}
-    ${node(400, 294, 132, 62, "residualFlow", ["K_ref / V_ref"], spec.roi ? "64 real ROI tokens" : "masked full-grid tokens", "ba")}
+    ${node(210, 284, 154, 78, "memoryFlow", spec.referencePrepLines || (spec.roi ? ["ROI crop + normalize", "8×8 packed tokens"] : ["Full-grid face mask", "H×W positions retained"]), spec.refPrepSubtitle, "ba")}
+    ${node(400, 294, 132, 62, "residualFlow", ["K_ref / V_ref"], spec.referenceKvNodeSubtitle || (spec.roi ? "64 real ROI tokens" : "masked full-grid tokens"), "ba")}
 
     <rect class="lane-shell" x="408" y="70" width="190" height="154" rx="9"></rect>
     <text class="lane-label" x="503" y="88">Target-face candidate lane</text>
@@ -2992,6 +3461,7 @@ function renderLegacyMechanismV2Svg(config, panelId) {
     ${edge("M340 104 C470 212 555 289 630 316", "residualFlow", "ba", markerId)}
     ${edge("M532 325 C570 325 590 327 630 327", "residualFlow", "ba", markerId)}
     ${edge("M778 327 C812 314 820 242 840 222", "residualFlow", "ba", markerId)}
+    ${nullCandidateEdge}
     ${edge("M948 268 C948 286 948 298 948 318", "selfAttention", "ba", markerId)}
     ${edge("M174 126 C265 270 300 466 404 486", "selfAttention", "pm", markerId)}
     ${edge("M174 345 C320 430 500 478 626 486", "selfAttention", "ba", markerId)}
@@ -3005,10 +3475,7 @@ function renderLegacyMechanismV2Svg(config, panelId) {
     ${edgeLabel(790, 309, "A_reference", "ba")}
     ${edgeLabel(782, 454, "M / core / ring / confidence", "mask")}
 
-    <rect class="formula-card" x="618" y="78" width="180" height="70" rx="8"></rect>
-    <text class="formula-card-text" x="708" y="100">two lanes = two softmaxes</text>
-    <text class="formula-card-text" x="708" y="119">no K/V concatenation</text>
-    <text class="formula-card-text" x="708" y="138">before arbitration</text>
+    ${nullCandidateCard}
 
     <line class="mechanism-divider" x1="24" y1="578" x2="1056" y2="578"></line>
     <text class="mechanism-title" x="24" y="614">B · BranchedCrossAttnProcessor (attn2) — split conditioning for the doubled streams</text>
@@ -3243,9 +3710,10 @@ function renderCard(cardId, configId) {
         <div>
           <span>${isV2 ? "V2 · explicit processor internals" : "Processor internals"}</span>
           <strong>${
-            config.topology === "legacy_spatial"
+            config.mechanismHeading ||
+            (config.topology === "legacy_spatial"
               ? "Full spatial branched self- and cross-attention"
-              : "BranchedCrossAttnProcessor only (attn2); attn1 remains standard"
+              : "BranchedCrossAttnProcessor only (attn2); attn1 remains standard")
           }</strong>
         </div>
         <p>Q / K / V routes · click any block or arrow for code</p>
@@ -3275,17 +3743,18 @@ function renderSummary(leftId, rightId) {
       ? "Both retain the full reference-coordinate stream and the original doubled-latent branched-attention topology."
       : "The spatial run carries reference coordinates through a second U-Net stream; the compact run exposes only identity K/V memory."
     : `Right has ${(siteRatio * 100).toFixed(0)}% of the left configuration's unit-gate site equivalents.`;
+  const authorityFor = (config) =>
+    config.pmAuthorityShort ||
+    (config.topology === "legacy_spatial"
+      ? "single absolute BA pass"
+      : "protected PM baseline");
   const pmAuthority = includesLegacy
-    ? `${left.short}: ${
-        left.topology === "legacy_spatial" ? "single absolute BA pass" : "protected PM baseline"
-      } · ${right.short}: ${
-        right.topology === "legacy_spatial" ? "single absolute BA pass" : "protected PM baseline"
-      }`
+    ? `${left.short}: ${authorityFor(left)} · ${right.short}: ${authorityFor(right)}`
     : `${pmSitesLeft} vs ${pmSitesRight}`;
   const pmExplanation = includesLegacy
-    ? bothLegacy
-      ? "Both return the target half of one doubled BA pass directly; neither protects an independent PhotoMaker epsilon baseline."
-      : "The spatial target half is returned directly; the compact-residual run explicitly composes BA with an ordinary PhotoMaker prediction."
+    ? authorityFor(left) === authorityFor(right)
+      ? `Both use ${authorityFor(left)}.`
+      : "The selected runs assign different absolute authority to the doubled BA output and the independent PhotoMaker baseline."
     : `${left.short} left / ${right.short} right. Untouched sites retain full PhotoMaker context.`;
   document.getElementById("comparison-summary").innerHTML = `
     <div class="comparison-fact">

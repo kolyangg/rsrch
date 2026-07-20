@@ -62,6 +62,7 @@ model:
   ba_face_prompt_attention_mask: false
 
   ba_connector_rank: 16
+  ba_connector_input_mode: reference_minus_target
   ba_gate_max: 0.50
   ba_gate_init_logit: 0.0
   ba_delta_rms_cap: 0.25

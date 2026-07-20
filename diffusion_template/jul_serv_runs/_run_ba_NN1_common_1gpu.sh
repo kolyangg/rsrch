@@ -99,7 +99,7 @@ fi
 
 if [[ "${NN1_REQUIRE_ID_LOSS:-0}" == "1" ]]; then
     if ! python -c 'from facenet_pytorch import InceptionResnetV1; InceptionResnetV1(pretrained="vggface2")' >/dev/null; then
-        echo "NN1e/NN1f require facenet-pytorch and cached/downloadable VGGFace2 weights." >&2
+        echo "This run requires facenet-pytorch and cached/downloadable VGGFace2 weights." >&2
         echo "Install safely with: pip install --no-deps facenet-pytorch" >&2
         exit 2
     fi

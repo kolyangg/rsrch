@@ -107,6 +107,7 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         ref_kv_kind: str = "lora",
         ref_kv_rank: int = 32,
         connector_rank: int = 16,
+        connector_input_mode: str = "reference_minus_target",
         gate_max: float = 0.5,
         gate_init_logit: float = 0.0,
         delta_rms_cap: float = 0.25,
@@ -119,6 +120,15 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             raise ValueError("packed_residual_v1 requires LoRA reference K/V")
         if connector_rank <= 0:
             raise ValueError("connector_rank must be positive")
+        connector_input_mode = str(connector_input_mode or "reference_minus_target").lower()
+        if connector_input_mode not in {
+            "reference_minus_target",
+            "reference_minus_null",
+        }:
+            raise ValueError(
+                "connector_input_mode must be reference_minus_target or "
+                f"reference_minus_null, got {connector_input_mode}"
+            )
         if not 0.0 < gate_max <= 1.0:
             raise ValueError("gate_max must be in (0, 1]")
         if not 0.0 < delta_rms_cap <= 1.0:
@@ -130,6 +140,7 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         self.ref_kv_kind = ref_kv_kind
         self.ref_kv_rank = int(ref_kv_rank)
         self.connector_rank = int(connector_rank)
+        self.connector_input_mode = connector_input_mode
         self.gate_max = float(gate_max)
         self.gate_init_logit = float(gate_init_logit)
         self.delta_rms_cap = float(delta_rms_cap)
@@ -449,7 +460,21 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         )
         reference_candidate = self._from_heads(reference_candidate).to(target_base.dtype)
 
-        connector_hidden = self.connector_down(reference_candidate - target_base)
+        if self.connector_input_mode == "reference_minus_target":
+            # NN2-PPR1 parity path. This can learn through the stable
+            # -target_base term even when reference-specific evidence is weak.
+            connector_input = reference_candidate - target_base
+            null_candidate = None
+        else:
+            # NN3: fixed no-person memory has zero K/V, so attention with the
+            # same target query yields an exact zero candidate. The connector
+            # must therefore operate on retrieved reference evidence and cannot
+            # use -target_base as a shortcut. Bias-free connector layers make
+            # the no-reference residual exactly zero by construction.
+            null_candidate = torch.zeros_like(reference_candidate)
+            connector_input = reference_candidate - null_candidate
+
+        connector_hidden = self.connector_down(connector_input)
         raw_delta = self.connector_up(connector_hidden)
         target_core = self._resize_mask(
             self.mask_core,
@@ -552,11 +577,14 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
                 tensors = {
                     "reference_hidden": _sample_rows(reference_hidden),
                     "reference_candidate": _sample_rows(reference_candidate),
+                    "connector_input": _sample_rows(connector_input),
                     "connector_down": _sample_rows(connector_hidden),
                     "raw_delta": _sample_rows(raw_delta),
                     "bounded_delta": _sample_rows(bounded_delta),
                     "applied_delta": _sample_rows(applied_delta),
                 }
+                if null_candidate is not None:
+                    tensors["null_candidate"] = _sample_rows(null_candidate)
                 sample_lengths = _sample_rows(lengths)
                 if sample_count <= 0 or any(
                     value.shape[0] != sample_count

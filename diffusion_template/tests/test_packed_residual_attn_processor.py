@@ -69,11 +69,16 @@ def _masks(batch: int, side: int) -> tuple[torch.Tensor, torch.Tensor]:
     return mask, make_inner_core_mask(mask, erode_frac=0.10)
 
 
-def _processor(attn: Attention, channels: int = 16) -> PackedResidualBranchedAttnProcessor:
+def _processor(
+    attn: Attention,
+    channels: int = 16,
+    connector_input_mode: str = "reference_minus_target",
+) -> PackedResidualBranchedAttnProcessor:
     processor = PackedResidualBranchedAttnProcessor(
         channels,
         ref_kv_rank=4,
         connector_rank=4,
+        connector_input_mode=connector_input_mode,
         gate_max=0.5,
         delta_rms_cap=0.25,
     )
@@ -249,6 +254,48 @@ class PackedResidualProcessorTests(unittest.TestCase):
         self.assertGreater(processor.ref_to_k.lora_B.grad.abs().sum(), 0)
         self.assertGreater(processor.ref_to_v.lora_B.grad.abs().sum(), 0)
 
+    def test_reference_minus_null_removes_target_base_shortcut(self) -> None:
+        torch.manual_seed(31)
+        side = 8
+        channels = 16
+        attn = _attention(channels)
+        legacy = _processor(attn, channels, "reference_minus_target")
+        contrastive = _processor(attn, channels, "reference_minus_null")
+        contrastive.load_state_dict(legacy.state_dict())
+        with torch.no_grad():
+            legacy.connector_up.weight.normal_(std=0.1)
+            contrastive.connector_up.weight.copy_(legacy.connector_up.weight)
+            # Remove all reference values. The NN3 connector must then receive
+            # an exact zero input; NN2 can still act through -target_base.
+            for processor in (legacy, contrastive):
+                processor.ref_to_v.base_weight.zero_()
+                if processor.ref_to_v.base_bias is not None:
+                    processor.ref_to_v.base_bias.zero_()
+                for parameter in processor.ref_to_v.parameters():
+                    parameter.zero_()
+
+        mask, core = _masks(2, side)
+        hidden = torch.randn(4, side * side, channels)
+        base = AttnProcessor2_0()(attn, hidden)
+        legacy.set_masks(mask, mask, core)
+        contrastive.set_masks(mask, mask, core)
+        legacy_output = legacy(attn, hidden)
+        contrastive_output = contrastive(attn, hidden)
+
+        torch.testing.assert_close(
+            contrastive_output[:2],
+            base[:2],
+            atol=0,
+            rtol=0,
+        )
+        self.assertFalse(torch.equal(legacy_output[:2], base[:2]))
+        torch.testing.assert_close(
+            contrastive_output[2:],
+            base[2:],
+            atol=0,
+            rtol=0,
+        )
+
     def test_masked_rms_cap_is_per_sample_and_bounded(self) -> None:
         torch.manual_seed(4)
         base = torch.randn(2, 16, 8)
@@ -336,6 +383,7 @@ class PackedResidualProcessorTests(unittest.TestCase):
         for stage in (
             "reference_hidden",
             "reference_candidate",
+            "connector_input",
             "connector_down",
             "raw_delta",
             "bounded_delta",

@@ -281,7 +281,8 @@ def _assert_branched_installation(model) -> None:
         f"ref_tokens={getattr(model, 'ba_sa_ref_token_mode', 'full_grid')} "
         f"ref_scope={getattr(model, 'ba_sa_ref_layer_scope', 'all')} "
         f"roi_grid={getattr(model, 'ba_sa_roi_grid_size', 8)} "
-        f"core_ratio={getattr(model, 'ba_sa_core_ratio', 0.7)}"
+        f"core_ratio={getattr(model, 'ba_sa_core_ratio', 0.7)} "
+        f"connector_input={getattr(model, 'ba_connector_input_mode', 'reference_minus_target')}"
     )
     print(f"[BA strict install] processor names: {', '.join(expected)}")
     for category, counts in sorted(manifest.items()):

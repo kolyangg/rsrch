@@ -300,6 +300,13 @@ def patch_unet_attention_processors(
                                 )
                             ),
                             connector_rank=int(getattr(pipeline, "ba_connector_rank", 16)),
+                            connector_input_mode=str(
+                                getattr(
+                                    pipeline,
+                                    "ba_connector_input_mode",
+                                    "reference_minus_target",
+                                )
+                            ),
                             gate_max=float(getattr(pipeline, "ba_gate_max", 0.5)),
                             gate_init_logit=float(
                                 getattr(pipeline, "ba_gate_init_logit", 0.0)

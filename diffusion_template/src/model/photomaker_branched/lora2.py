@@ -83,6 +83,7 @@ class PhotomakerBranchedLora(SDXL):
         ba_processor_variant: str = "legacy",
         ba_site_policy: str = "all",
         ba_connector_rank: int = 16,
+        ba_connector_input_mode: str = "reference_minus_target",
         ba_gate_max: float = 0.5,
         ba_gate_init_logit: float = 0.0,
         ba_delta_rms_cap: float = 0.25,
@@ -224,6 +225,9 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_processor_variant = str(ba_processor_variant or "legacy").lower()
         self.ba_site_policy = str(ba_site_policy or "all").lower()
         self.ba_connector_rank = int(ba_connector_rank)
+        self.ba_connector_input_mode = str(
+            ba_connector_input_mode or "reference_minus_target"
+        ).lower()
         self.ba_gate_max = float(ba_gate_max)
         self.ba_gate_init_logit = float(ba_gate_init_logit)
         self.ba_delta_rms_cap = float(ba_delta_rms_cap)
@@ -272,6 +276,14 @@ class PhotomakerBranchedLora(SDXL):
             )
         if self.ba_site_policy not in {"all", "up_blocks_attn1"}:
             raise ValueError(f"Unknown ba_site_policy: {self.ba_site_policy}")
+        if self.ba_connector_input_mode not in {
+            "reference_minus_target",
+            "reference_minus_null",
+        }:
+            raise ValueError(
+                "Unknown ba_connector_input_mode: "
+                f"{self.ba_connector_input_mode}"
+            )
         if self.ba_processor_variant == "packed_residual_v1":
             if self.ba_site_policy != "up_blocks_attn1":
                 raise ValueError("NN2-PPR1 requires ba_site_policy=up_blocks_attn1")
@@ -448,6 +460,7 @@ class PhotomakerBranchedLora(SDXL):
                     "ba_processor_variant": self.ba_processor_variant,
                     "ba_site_policy": self.ba_site_policy,
                     "ba_connector_rank": self.ba_connector_rank,
+                    "ba_connector_input_mode": self.ba_connector_input_mode,
                     "ba_gate_max": self.ba_gate_max,
                     "ba_gate_init_logit": self.ba_gate_init_logit,
                     "ba_delta_rms_cap": self.ba_delta_rms_cap,
@@ -523,6 +536,13 @@ class PhotomakerBranchedLora(SDXL):
                 )
             saved_architecture = manifest.get("architecture")
             if saved_architecture is not None:
+                # Checkpoints written before NN3 did not record this
+                # architecture-only toggle; their behavior is the NN2 default.
+                saved_architecture = dict(saved_architecture)
+                saved_architecture.setdefault(
+                    "ba_connector_input_mode",
+                    "reference_minus_target",
+                )
                 current_architecture = self._ba_architecture_state()
                 if saved_architecture != current_architecture:
                     raise RuntimeError(
