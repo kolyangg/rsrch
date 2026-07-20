@@ -369,6 +369,15 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             train_metrics.update("id_loss", gathered_id.item())
             train_metrics.update("id_loss_applied", gathered_applied.item())
             train_metrics.update("id_loss_weighted", (id_loss_weight * gathered_id).item())
+
+        if "pm_id_attenuated_fraction" in output:
+            gathered_fraction = self.accelerator.gather(
+                output["pm_id_attenuated_fraction"].detach()
+            ).mean()
+            train_metrics.update(
+                "ba_conditioning/pm_id_attenuated_fraction",
+                gathered_fraction.item(),
+            )
         
         if self.is_train:
             assert torch.isfinite(batch["loss"]) # sum of all losses is always called loss

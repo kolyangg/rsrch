@@ -307,6 +307,9 @@ def patch_unet_attention_processors(
                                     "reference_minus_target",
                                 )
                             ),
+                            null_memory_tokens=int(
+                                getattr(pipeline, "ba_null_memory_tokens", 8)
+                            ),
                             gate_max=float(getattr(pipeline, "ba_gate_max", 0.5)),
                             gate_init_logit=float(
                                 getattr(pipeline, "ba_gate_init_logit", 0.0)
@@ -719,10 +722,13 @@ def two_branch_predict(
 
     # Only mirror the main text into the face branch for legacy "id".
     # For "id_embeds" we keep actual "face" text and use the 2048-D ID features.
-    if (face_embed_strategy or "face") in {"id"}:    
+    if (face_embed_strategy or "face") in {"id"}:
         # keep dtype/device aligned with text encoder / UNet
         d, dev = prompt_embeds.dtype, prompt_embeds.device
-        face_prompt_embeds = prompt_embeds.clone()
+        if not bool(
+            getattr(pipeline, "ba_reference_ca_preserve_full_pm", False)
+        ):
+            face_prompt_embeds = prompt_embeds.clone()
         if class_tokens_mask is not None:
             m = class_tokens_mask.to(dev)
             if m.dim() == 1:

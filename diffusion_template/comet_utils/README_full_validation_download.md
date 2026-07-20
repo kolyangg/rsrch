@@ -100,3 +100,34 @@ full_validation_results/
 `comet_export.json` stores run metadata, flattened hyperparameters, complete Comet metric histories, exact requested-step metric snapshots, and per-asset download records. The separate `metrics_<run>_steps.json` uses the established local schema with aggregate, per-identity, and per-image InsightFace scores.
 
 Comet replaces spaces in logged image names with underscores. The downloader restores exact canonical names such as `Angry man _elon.png` using `pm96_bboxes_new.json`, deduplicates repeated assets by newest creation time, rejects incomplete local sets, and computes local scores only for an exact 96-image folder.
+
+## Metrics-only Comet export
+
+Use `export_comet_runs.py` when you only need Comet scalar histories over time and do not want validation images:
+
+```bash
+cd /home/kolyangg/rsrch/diffusion_template
+export COMET_API_KEY="<your-key>"
+
+python comet_utils/export_comet_runs.py \
+  --manifest comet_utils/comet_metrics_only_NN3a.json \
+  --output-dir comet_data/metrics_only_NN3a \
+  --keep-run-dir
+```
+
+Set `"download_images": false` in the JSON. Then `step_number` is optional, and the exporter writes:
+
+```text
+comet_data/metrics_only_NN3a/
+  comet_runs_export.json
+  ba_NN3a_reference_null_1gpu/
+    comet_run_export.json
+    metrics_history.json
+    metrics_summary.json
+    comet_output.log
+    comet_output.json
+```
+
+`metrics_history.json` contains every metric returned by Comet's metric-summary endpoint, with full point histories including value, step, epoch, timestamp, run context, and offset.
+
+Set `"download_output": true` to download the whole Comet stdout/stderr log via the experiment output endpoint. It is saved as `comet_output.log`, with the raw JSON response saved as `comet_output.json`.

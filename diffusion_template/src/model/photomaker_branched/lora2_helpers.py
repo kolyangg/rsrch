@@ -76,6 +76,8 @@ def _processor_trainable_manifest(model) -> dict[str, dict[str, int]]:
             key = "sa_connector_up"
         elif ".attn1.processor.gate_logit" in name:
             key = "sa_gate"
+        elif ".attn1.processor.null_memory" in name:
+            key = "sa_null_memory"
         else:
             attention = "sa" if ".attn1.processor." in name else "ca" if ".attn2.processor." in name else "other"
             branch = "ref" if ".ref_to_" in name else "noise" if ".noise_to_" in name else "other"
@@ -169,7 +171,7 @@ def _assert_branched_installation(model) -> None:
     sa_train_mode = str(getattr(model, "ba_sa_train_mode", "all") or "all").lower()
     manifest = _processor_trainable_manifest(model)
     if sa_train_mode == "packed_residual":
-        allowed_fragments = (
+        allowed_fragments = [
             ".attn1.processor.ref_to_k.lora_A",
             ".attn1.processor.ref_to_k.lora_B",
             ".attn1.processor.ref_to_v.lora_A",
@@ -177,7 +179,19 @@ def _assert_branched_installation(model) -> None:
             ".attn1.processor.connector_down.weight",
             ".attn1.processor.connector_up.weight",
             ".attn1.processor.gate_logit",
+        ]
+        learned_null = (
+            str(
+                getattr(
+                    model,
+                    "ba_connector_input_mode",
+                    "reference_minus_target",
+                )
+            ).lower()
+            == "reference_minus_learned_null"
         )
+        if learned_null:
+            allowed_fragments.append(".attn1.processor.null_memory")
         invalid = [
             name for name in trainable_processor_keys
             if not any(fragment in name for fragment in allowed_fragments)
@@ -203,6 +217,9 @@ def _assert_branched_installation(model) -> None:
             "connector_up.weight",
             "gate_logit",
         }
+        if learned_null:
+            required_categories.add("sa_null_memory")
+            expected_local.add("null_memory")
         for name in sorted(expected_sa):
             local_trainable = {
                 key for key, parameter in processors[name].named_parameters()
@@ -343,6 +360,7 @@ def configure_branched_trainables(model) -> None:
                 or ".attn1.processor.connector_down.weight" in name
                 or ".attn1.processor.connector_up.weight" in name
                 or ".attn1.processor.gate_logit" in name
+                or ".attn1.processor.null_memory" in name
             )
             if is_selected_proc and is_packed_parameter:
                 p.requires_grad_(True)
@@ -465,6 +483,7 @@ def prepare_branched_training_inputs(
     optional ID features, masks, and reference latents.
     """
     prompt_embeds_list = []
+    base_prompt_embeds_list = []
     pooled_prompt_embeds_list = []
     class_tokens_mask_list = []
     mask_list = []
@@ -535,6 +554,10 @@ def prepare_branched_training_inputs(
             num_id_images=1,
             do_cfg=False,
         )
+        if float(
+            getattr(model, "ba_pm_id_attenuation_probability", 0.0)
+        ) > 0.0:
+            base_prompt_embeds_list.append(prompt_embeds)
 
         with torch.no_grad():
             # id_pixel_values = model.id_image_processor(refs, return_tensors="pt").pixel_values.unsqueeze(0)
@@ -629,6 +652,14 @@ def prepare_branched_training_inputs(
         pooled_prompt_embeds_list.append(pooled_prompt_embeds)
 
     prompt_embeds = torch.cat(prompt_embeds_list, dim=0).to(device=model.device, dtype=model.unet.dtype)
+    base_prompt_embeds = (
+        torch.cat(base_prompt_embeds_list, dim=0).to(
+            device=model.device,
+            dtype=model.unet.dtype,
+        )
+        if base_prompt_embeds_list
+        else None
+    )
     pooled_prompt_embeds = torch.cat(pooled_prompt_embeds_list, dim=0).to(device=model.device, dtype=model.unet.dtype)
     class_tokens_mask = torch.cat(class_tokens_mask_list, dim=0).to(device=model.device)
 
@@ -664,6 +695,7 @@ def prepare_branched_training_inputs(
 
     return (
         prompt_embeds,
+        base_prompt_embeds,
         pooled_prompt_embeds,
         class_tokens_mask,
         face_prompt_embeds,

@@ -1,0 +1,17 @@
+defaults:
+  - one_id_ba_NN3a_reference_null
+  - _self_
+
+# NN3b fixes NN3a's post-attention zero subtraction. Both candidates now use
+# the same target query and the same reference K/V projections:
+#   delta = Connector(C_matched_reference - C_learned_no_person_memory)
+#
+# On half of each physical batch (exactly 1/2 when batch_size=2), target-side
+# PhotoMaker identity is removed during training. The spatial/reference route
+# keeps full PM conditioning. Validation and deployment keep full target PM.
+model:
+  ba_connector_input_mode: reference_minus_learned_null
+  ba_null_memory_tokens: 8
+  ba_pm_id_attenuation_probability: 0.50
+  ba_pm_id_attenuation_scale: 0.0
+  ba_reference_ca_preserve_full_pm: true

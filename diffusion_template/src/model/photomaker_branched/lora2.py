@@ -32,6 +32,44 @@ from .lora2_helpers import (
 from .model_v2_NS import PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken
 ##### BRANCHED ATTENTION - ADDITIONAL IMPORTS #####
 
+
+def attenuate_photomaker_identity(
+    prompt_embeds: torch.Tensor,
+    base_prompt_embeds: torch.Tensor,
+    *,
+    probability: float,
+    scale: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Attenuate only PhotoMaker's prompt delta on a sampled training subset."""
+    if prompt_embeds.shape != base_prompt_embeds.shape:
+        raise ValueError(
+            "PhotoMaker/base prompt shapes differ: "
+            f"{tuple(prompt_embeds.shape)} vs {tuple(base_prompt_embeds.shape)}"
+        )
+    probability = float(probability)
+    scale = float(scale)
+    if probability <= 0.0 or scale >= 1.0:
+        mask = torch.zeros(
+            prompt_embeds.shape[0],
+            device=prompt_embeds.device,
+            dtype=torch.bool,
+        )
+        return prompt_embeds, mask
+
+    batch_size = int(prompt_embeds.shape[0])
+    if batch_size > 1:
+        selected = max(0, min(batch_size, round(probability * batch_size)))
+        mask = torch.zeros(batch_size, device=prompt_embeds.device, dtype=torch.bool)
+        mask[torch.randperm(batch_size, device=prompt_embeds.device)[:selected]] = True
+    else:
+        mask = torch.rand(1, device=prompt_embeds.device) < probability
+    weight = mask.to(prompt_embeds.dtype).view(batch_size, 1, 1)
+    attenuated = base_prompt_embeds + scale * (
+        prompt_embeds - base_prompt_embeds
+    )
+    return prompt_embeds * (1.0 - weight) + attenuated * weight, mask
+
+
 ### PhotomakerLora upgraged for BA ###
 class PhotomakerBranchedLora(SDXL):
     """
@@ -84,6 +122,10 @@ class PhotomakerBranchedLora(SDXL):
         ba_site_policy: str = "all",
         ba_connector_rank: int = 16,
         ba_connector_input_mode: str = "reference_minus_target",
+        ba_null_memory_tokens: int = 8,
+        ba_pm_id_attenuation_probability: float = 0.0,
+        ba_pm_id_attenuation_scale: float = 1.0,
+        ba_reference_ca_preserve_full_pm: bool = False,
         ba_gate_max: float = 0.5,
         ba_gate_init_logit: float = 0.0,
         ba_delta_rms_cap: float = 0.25,
@@ -228,6 +270,14 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_connector_input_mode = str(
             ba_connector_input_mode or "reference_minus_target"
         ).lower()
+        self.ba_null_memory_tokens = int(ba_null_memory_tokens)
+        self.ba_pm_id_attenuation_probability = float(
+            ba_pm_id_attenuation_probability
+        )
+        self.ba_pm_id_attenuation_scale = float(ba_pm_id_attenuation_scale)
+        self.ba_reference_ca_preserve_full_pm = bool(
+            ba_reference_ca_preserve_full_pm
+        )
         self.ba_gate_max = float(ba_gate_max)
         self.ba_gate_init_logit = float(ba_gate_init_logit)
         self.ba_delta_rms_cap = float(ba_delta_rms_cap)
@@ -279,10 +329,27 @@ class PhotomakerBranchedLora(SDXL):
         if self.ba_connector_input_mode not in {
             "reference_minus_target",
             "reference_minus_null",
+            "reference_minus_learned_null",
         }:
             raise ValueError(
                 "Unknown ba_connector_input_mode: "
                 f"{self.ba_connector_input_mode}"
+            )
+        if self.ba_null_memory_tokens <= 0:
+            raise ValueError("ba_null_memory_tokens must be positive")
+        if not 0.0 <= self.ba_pm_id_attenuation_probability <= 1.0:
+            raise ValueError(
+                "ba_pm_id_attenuation_probability must be in [0, 1]"
+            )
+        if not 0.0 <= self.ba_pm_id_attenuation_scale <= 1.0:
+            raise ValueError("ba_pm_id_attenuation_scale must be in [0, 1]")
+        if (
+            self.ba_pm_id_attenuation_probability > 0.0
+            and not self.ba_reference_ca_preserve_full_pm
+        ):
+            raise ValueError(
+                "PhotoMaker ID attenuation requires "
+                "ba_reference_ca_preserve_full_pm=true"
             )
         if self.ba_processor_variant == "packed_residual_v1":
             if self.ba_site_policy != "up_blocks_attn1":
@@ -397,6 +464,17 @@ class PhotomakerBranchedLora(SDXL):
                 "ba_ppr_connector_up": ".attn1.processor.connector_up.",
                 "ba_ppr_gate": ".attn1.processor.gate_logit",
             }
+            if (
+                getattr(
+                    self,
+                    "ba_connector_input_mode",
+                    "reference_minus_target",
+                )
+                == "reference_minus_learned_null"
+            ):
+                group_fragments["ba_ppr_null_memory"] = (
+                    ".attn1.processor.null_memory"
+                )
             grouped = []
             matched_ids = set()
             for group_name, fragment in group_fragments.items():
@@ -470,6 +548,21 @@ class PhotomakerBranchedLora(SDXL):
                     "ba_output_anchor_mode": self.ba_output_anchor_mode,
                 }
             )
+            if self.ba_connector_input_mode == "reference_minus_learned_null":
+                architecture.update(
+                    {
+                        "ba_null_memory_tokens": self.ba_null_memory_tokens,
+                        "ba_pm_id_attenuation_probability": (
+                            self.ba_pm_id_attenuation_probability
+                        ),
+                        "ba_pm_id_attenuation_scale": (
+                            self.ba_pm_id_attenuation_scale
+                        ),
+                        "ba_reference_ca_preserve_full_pm": (
+                            self.ba_reference_ca_preserve_full_pm
+                        ),
+                    }
+                )
         return architecture
 
     def get_state_dict(self):
@@ -695,6 +788,7 @@ class PhotomakerBranchedLora(SDXL):
         """NEW BLOCK 4: delegate BA sample preparation (masks, refs, embeddings) to helper utilities."""
         (
             prompt_embeds,
+            base_prompt_embeds,
             pooled_prompt_embeds,
             class_tokens_mask,
             face_prompt_embeds,
@@ -711,6 +805,18 @@ class PhotomakerBranchedLora(SDXL):
             pixel_values=pixel_values,
             noisy_latents=noisy_latents,
         )
+        pm_id_attenuated = None
+        if self.ba_pm_id_attenuation_probability > 0.0:
+            if base_prompt_embeds is None:
+                raise RuntimeError(
+                    "PhotoMaker attenuation requires pre-ID prompt embeddings"
+                )
+            prompt_embeds, pm_id_attenuated = attenuate_photomaker_identity(
+                prompt_embeds,
+                base_prompt_embeds,
+                probability=self.ba_pm_id_attenuation_probability,
+                scale=self.ba_pm_id_attenuation_scale,
+            )
         ##### BRANCHED ATTENTION - NEW BLOCK 4 #####
 
         ##### BRANCHED ATTENTION - NEW BLOCK 5 #####
@@ -823,6 +929,10 @@ class PhotomakerBranchedLora(SDXL):
             'model_pred': noise_pred,
             'target': noise,
         }
+        if pm_id_attenuated is not None:
+            output["pm_id_attenuated_fraction"] = (
+                pm_id_attenuated.float().mean()
+            )
         if self.use_id_loss:
             apply_id_loss = int(t_scalar.item()) <= self.id_loss_max_timestep
             output["id_loss_applied"] = noise_pred.new_tensor(float(apply_id_loss))

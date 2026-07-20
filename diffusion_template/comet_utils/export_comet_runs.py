@@ -8,11 +8,15 @@ Usage:
 
 Manifest format:
 {
+  "download_images": true,
+  "download_output": false,
   "runs": [
     {
       "run_id": "COMET_EXPERIMENT_KEY",
       "run_name": "optional local override",
-      "step_number": 500
+      "step_number": 500,
+      "download_images": true,
+      "download_output": false
     }
   ]
 }
@@ -20,6 +24,12 @@ Manifest format:
 If the requested step is missing for a run, the exporter falls back to the
 nearest lower available image step for that run and records the fallback in the
 output JSON.
+
+For metrics-only exports, set "download_images": false at the top level or on
+individual runs. In that mode step_number is optional and all Comet metric
+histories are still downloaded.
+
+Set "download_output": true to download the Comet experiment stdout/stderr log.
 """
 
 from __future__ import annotations
@@ -203,10 +213,25 @@ def load_manifest(path: Path) -> list[dict[str, Any]]:
     except json.JSONDecodeError as exc:
         raise ManifestError(f"Manifest is not valid JSON: {path}") from exc
 
+    manifest_defaults: dict[str, Any] = {}
     if isinstance(raw_data, list):
         runs = raw_data
     elif isinstance(raw_data, dict) and isinstance(raw_data.get("runs"), list):
         runs = raw_data["runs"]
+        manifest_defaults = {
+            "download_images": parse_bool(
+                raw_data.get("download_images"), "download_images", True
+            ),
+            "download_metrics": parse_bool(
+                raw_data.get("download_metrics"), "download_metrics", True
+            ),
+            "download_parameters": parse_bool(
+                raw_data.get("download_parameters"), "download_parameters", True
+            ),
+            "download_output": parse_bool(
+                raw_data.get("download_output"), "download_output", False
+            ),
+        }
     else:
         raise ManifestError("Manifest must be a JSON list or an object with a 'runs' list")
 
@@ -239,10 +264,38 @@ def load_manifest(path: Path) -> list[dict[str, Any]]:
                 "run_id": run_id,
                 "run_name": run_name,
                 "step_number": step_number,
+                "download_images": parse_bool(
+                    run.get("download_images"),
+                    f"runs[{index}].download_images",
+                    manifest_defaults.get("download_images", True),
+                ),
+                "download_metrics": parse_bool(
+                    run.get("download_metrics"),
+                    f"runs[{index}].download_metrics",
+                    manifest_defaults.get("download_metrics", True),
+                ),
+                "download_parameters": parse_bool(
+                    run.get("download_parameters"),
+                    f"runs[{index}].download_parameters",
+                    manifest_defaults.get("download_parameters", True),
+                ),
+                "download_output": parse_bool(
+                    run.get("download_output"),
+                    f"runs[{index}].download_output",
+                    manifest_defaults.get("download_output", False),
+                ),
             }
         )
 
     return normalized_runs
+
+
+def parse_bool(value: Any, field_name: str, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    raise ManifestError(f"{field_name} must be true or false")
 
 
 def parse_required_int(value: Any, field_name: str) -> int:
@@ -461,6 +514,11 @@ def maybe_clean_directory(path: Path) -> None:
             child.unlink()
 
 
+def write_json(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+
 def force_download_to_png(downloaded_path: Path) -> Path:
     normalized_file_name = normalized_export_image_file_name(downloaded_path.name)
     if downloaded_path.name == normalized_file_name:
@@ -504,13 +562,17 @@ def export_run(
     clean_run_dir: bool,
 ) -> tuple[dict[str, Any], bool]:
     run_id = run_config["run_id"]
+    download_images = run_config.get("download_images", True)
+    download_metrics = run_config.get("download_metrics", True)
+    download_parameters = run_config.get("download_parameters", True)
+    download_output = run_config.get("download_output", False)
     manifest_step_number = run_config.get("step_number")
     requested_step = step_override if step_override is not None else manifest_step_number
     step_number_source = "global_override" if step_override is not None else "manifest"
     errors: list[str] = []
     warnings: list[str] = []
 
-    if requested_step is None:
+    if download_images and requested_step is None:
         return (
             {
                 "id": run_id,
@@ -523,6 +585,10 @@ def export_run(
                 "manifest_step_number": manifest_step_number,
                 "global_step_number_override": step_override,
                 "step_number_source": step_number_source,
+                "download_images": download_images,
+                "download_metrics": download_metrics,
+                "download_parameters": download_parameters,
+                "download_output": download_output,
                 "requested_step_number": None,
                 "resolved_step_number": None,
                 "step_selection": {
@@ -557,6 +623,10 @@ def export_run(
                 "manifest_step_number": manifest_step_number,
                 "global_step_number_override": step_override,
                 "step_number_source": step_number_source,
+                "download_images": download_images,
+                "download_metrics": download_metrics,
+                "download_parameters": download_parameters,
+                "download_output": download_output,
                 "requested_step_number": requested_step,
                 "resolved_step_number": None,
                 "step_selection": {
@@ -586,37 +656,48 @@ def export_run(
         maybe_clean_directory(run_dir)
 
     LOGGER.info(
-        "Exporting run %s into %s using step %s from %s",
+        "Exporting run %s into %s using step %s from %s; images=%s metrics=%s output=%s",
         run_id,
         run_dir,
         requested_step,
         step_number_source,
+        download_images,
+        download_metrics,
+        download_output,
     )
 
-    try:
-        parameter_payload = client.get_json("/experiment/parameters", experimentKey=run_id)
-        parameter_entries = parameter_payload.get("values", [])
-        hyperparameters, hyperparameter_summary = extract_hyperparameters(parameter_entries)
-    except Exception as exc:
+    if download_parameters:
+        try:
+            parameter_payload = client.get_json("/experiment/parameters", experimentKey=run_id)
+            parameter_entries = parameter_payload.get("values", [])
+            hyperparameters, hyperparameter_summary = extract_hyperparameters(parameter_entries)
+        except Exception as exc:
+            hyperparameters = {}
+            hyperparameter_summary = {}
+            errors.append(f"Failed to fetch hyperparameters: {exc}")
+    else:
         hyperparameters = {}
         hyperparameter_summary = {}
-        errors.append(f"Failed to fetch hyperparameters: {exc}")
 
-    try:
-        metric_summary_payload = client.get_json("/experiment/metrics/summary", experimentKey=run_id)
-        metric_summary_entries = metric_summary_payload.get("values", [])
-        metrics_summary = {
-            entry["name"]: normalize_summary_entry(entry)
-            for entry in metric_summary_entries
-            if entry.get("name")
-        }
-    except Exception as exc:
+    if download_metrics:
+        try:
+            metric_summary_payload = client.get_json("/experiment/metrics/summary", experimentKey=run_id)
+            metric_summary_entries = metric_summary_payload.get("values", [])
+            metrics_summary = {
+                entry["name"]: normalize_summary_entry(entry)
+                for entry in metric_summary_entries
+                if entry.get("name")
+            }
+        except Exception as exc:
+            metrics_summary = {}
+            metric_summary_entries = []
+            errors.append(f"Failed to fetch metric summary: {exc}")
+    else:
         metrics_summary = {}
         metric_summary_entries = []
-        errors.append(f"Failed to fetch metric summary: {exc}")
 
     metrics: dict[str, Any] = {}
-    for entry in metric_summary_entries:
+    for entry in (metric_summary_entries if download_metrics else []):
         metric_name = entry.get("name")
         if not metric_name:
             continue
@@ -635,30 +716,39 @@ def export_run(
         ]
 
     downloaded_images_by_name: dict[str, dict[str, Any]] = {}
-    try:
-        asset_payload = client.get_json(
-            "/experiment/asset/list",
-            experimentKey=run_id,
-            type="image",
-        )
-        assets = asset_payload.get("assets", [])
-    except Exception as exc:
+    assets = []
+    if download_images:
+        try:
+            asset_payload = client.get_json(
+                "/experiment/asset/list",
+                experimentKey=run_id,
+                type="image",
+            )
+            assets = asset_payload.get("assets", [])
+        except Exception as exc:
+            errors.append(f"Failed to fetch image assets: {exc}")
+    else:
         assets = []
-        errors.append(f"Failed to fetch image assets: {exc}")
 
-    matching_assets, resolved_step, available_image_steps, fallback_used = select_assets_for_step(
-        assets,
-        requested_step,
-    )
+    matching_assets: list[dict[str, Any]] = []
+    resolved_step = None
+    available_image_steps: list[int] = []
+    fallback_used = False
+    if download_images:
+        assert requested_step is not None
+        matching_assets, resolved_step, available_image_steps, fallback_used = select_assets_for_step(
+            assets,
+            requested_step,
+        )
 
-    if fallback_used and resolved_step is not None:
+    if download_images and fallback_used and resolved_step is not None:
         warning_message = (
             f"Requested step {requested_step} was not found for run {run_id}; "
             f"using nearest lower available step {resolved_step}."
         )
         LOGGER.warning(warning_message)
         warnings.append(warning_message)
-    elif resolved_step is None:
+    elif download_images and resolved_step is None:
         if available_image_steps:
             warning_message = (
                 f"Requested step {requested_step} was not found for run {run_id}, and there are "
@@ -713,6 +803,27 @@ def export_run(
         }
 
     downloaded_images = list(downloaded_images_by_name.values())
+    output_log_info = None
+    if download_output:
+        try:
+            output_payload = client.get_json("/experiment/output", experimentKey=run_id)
+            output_text = output_payload.get("output")
+            if output_text is None:
+                output_text = ""
+                warnings.append("Comet output endpoint returned no 'output' field.")
+            elif not isinstance(output_text, str):
+                output_text = str(output_text)
+            log_path = run_dir / "comet_output.log"
+            log_path.write_text(output_text, encoding="utf-8")
+            write_json(run_dir / "comet_output.json", output_payload)
+            output_log_info = {
+                "saved_path": str(log_path.relative_to(output_dir)),
+                "json_saved_path": str((run_dir / "comet_output.json").relative_to(output_dir)),
+                "num_chars": len(output_text),
+                "num_lines": output_text.count("\n") + (1 if output_text else 0),
+            }
+        except Exception as exc:
+            errors.append(f"Failed to fetch experiment output log: {exc}")
 
     duration_millis = parse_optional_int(metadata.get("durationMillis"))
     running_time = {
@@ -735,6 +846,10 @@ def export_run(
         "manifest_step_number": manifest_step_number,
         "global_step_number_override": step_override,
         "step_number_source": step_number_source,
+        "download_images": download_images,
+        "download_metrics": download_metrics,
+        "download_parameters": download_parameters,
+        "download_output": download_output,
         "requested_step_number": requested_step,
         "resolved_step_number": resolved_step,
         "step_selection": {
@@ -753,9 +868,13 @@ def export_run(
         "metrics_summary": metrics_summary,
         "metrics": metrics,
         "downloaded_images": downloaded_images,
+        "output_log": output_log_info,
         "warnings": warnings,
         "errors": errors,
     }
+    write_json(run_dir / "comet_run_export.json", result)
+    write_json(run_dir / "metrics_history.json", metrics)
+    write_json(run_dir / "metrics_summary.json", metrics_summary)
     return result, bool(errors)
 
 

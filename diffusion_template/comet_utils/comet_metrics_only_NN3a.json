@@ -1,0 +1,12 @@
+{
+  "download_images": false,
+  "download_metrics": true,
+  "download_parameters": true,
+  "download_output": true,
+  "runs": [
+    {
+      "run_id": "d208b88f0ef646549930003bded059cb",
+      "run_name": "ba_NN3a_reference_null_1gpu"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "download_images": false,
+  "download_metrics": true,
+  "download_parameters": true,
+  "download_output": true,
+  "runs": [
+    {
+      "run_id": "REPLACE_WITH_COMET_EXPERIMENT_KEY",
+      "run_name": "optional_run_name_override"
+    }
+  ]
+}

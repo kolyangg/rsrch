@@ -108,6 +108,7 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         ref_kv_rank: int = 32,
         connector_rank: int = 16,
         connector_input_mode: str = "reference_minus_target",
+        null_memory_tokens: int = 8,
         gate_max: float = 0.5,
         gate_init_logit: float = 0.0,
         delta_rms_cap: float = 0.25,
@@ -124,11 +125,15 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         if connector_input_mode not in {
             "reference_minus_target",
             "reference_minus_null",
+            "reference_minus_learned_null",
         }:
             raise ValueError(
-                "connector_input_mode must be reference_minus_target or "
-                f"reference_minus_null, got {connector_input_mode}"
+                "connector_input_mode must be reference_minus_target, "
+                "reference_minus_null, or reference_minus_learned_null; "
+                f"got {connector_input_mode}"
             )
+        if int(null_memory_tokens) <= 0:
+            raise ValueError("null_memory_tokens must be positive")
         if not 0.0 < gate_max <= 1.0:
             raise ValueError("gate_max must be in (0, 1]")
         if not 0.0 < delta_rms_cap <= 1.0:
@@ -141,6 +146,7 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         self.ref_kv_rank = int(ref_kv_rank)
         self.connector_rank = int(connector_rank)
         self.connector_input_mode = connector_input_mode
+        self.null_memory_tokens = int(null_memory_tokens)
         self.gate_max = float(gate_max)
         self.gate_init_logit = float(gate_init_logit)
         self.delta_rms_cap = float(delta_rms_cap)
@@ -154,6 +160,7 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         self.connector_down: Optional[nn.Linear] = None
         self.connector_up: Optional[nn.Linear] = None
         self.gate_logit: Optional[nn.Parameter] = None
+        self.register_parameter("null_memory", None)
         self.mask: Optional[torch.Tensor] = None
         self.mask_ref: Optional[torch.Tensor] = None
         self.mask_core: Optional[torch.Tensor] = None
@@ -209,6 +216,17 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
                 dtype=base_q.weight.dtype,
             )
         )
+        if self.connector_input_mode == "reference_minus_learned_null":
+            # A query-dependent generic/no-person baseline. It is projected by
+            # the exact same K/V route as the packed reference tokens.
+            self.null_memory = nn.Parameter(
+                torch.zeros(
+                    self.null_memory_tokens,
+                    self.hidden_size,
+                    device=base_q.weight.device,
+                    dtype=base_q.weight.dtype,
+                )
+            )
 
     def set_masks(
         self,
@@ -465,13 +483,34 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             # -target_base term even when reference-specific evidence is weak.
             connector_input = reference_candidate - target_base
             null_candidate = None
-        else:
+        elif self.connector_input_mode == "reference_minus_null":
             # NN3: fixed no-person memory has zero K/V, so attention with the
             # same target query yields an exact zero candidate. The connector
             # must therefore operate on retrieved reference evidence and cannot
             # use -target_base as a shortcut. Bias-free connector layers make
             # the no-reference residual exactly zero by construction.
             null_candidate = torch.zeros_like(reference_candidate)
+            connector_input = reference_candidate - null_candidate
+        else:
+            if self.null_memory is None:
+                raise RuntimeError("Learned null memory was not initialized")
+            null_hidden = self.null_memory.unsqueeze(0).expand(
+                generation_batch,
+                -1,
+                -1,
+            )
+            null_key = self._to_heads(self.ref_to_k(null_hidden), attn.heads)
+            null_value = self._to_heads(self.ref_to_v(null_hidden), attn.heads)
+            null_key = self._apply_k_norm(attn, null_key)
+            null_candidate = F.scaled_dot_product_attention(
+                target_query,
+                null_key,
+                null_value,
+                attn_mask=None,
+                dropout_p=0.0,
+                is_causal=False,
+            )
+            null_candidate = self._from_heads(null_candidate).to(target_base.dtype)
             connector_input = reference_candidate - null_candidate
 
         connector_hidden = self.connector_down(connector_input)

@@ -26,7 +26,10 @@ from src.model.photomaker_branched.lora2_helpers import (
     configure_branched_trainables,
     install_branched_processors_for_training,
 )
-from src.model.photomaker_branched.lora2 import PhotomakerBranchedLora
+from src.model.photomaker_branched.lora2 import (
+    PhotomakerBranchedLora,
+    attenuate_photomaker_identity,
+)
 from src.model.photomaker_branched.packed_residual_attn_processor import (
     PackedResidualBranchedAttnProcessor,
     make_inner_core_mask,
@@ -87,6 +90,37 @@ def _processor(
 
 
 class PackedResidualProcessorTests(unittest.TestCase):
+    def test_learned_null_uses_same_kv_route_and_receives_gradients(self) -> None:
+        torch.manual_seed(11)
+        side = 8
+        attn = _attention()
+        processor = _processor(
+            attn,
+            connector_input_mode="reference_minus_learned_null",
+        )
+        with torch.no_grad():
+            processor.connector_up.weight.normal_()
+        mask, core = _masks(2, side)
+        processor.set_masks(mask, mask, core)
+        hidden = torch.randn(4, side * side, 16)
+        processor(attn, hidden)[:2].square().mean().backward()
+        self.assertIsNotNone(processor.null_memory)
+        self.assertIsNotNone(processor.null_memory.grad)
+        self.assertGreater(processor.null_memory.grad.abs().sum(), 0)
+
+    def test_photomaker_attenuation_preserves_half_the_batch(self) -> None:
+        base = torch.randn(2, 5, 4)
+        fused = base + 3.0
+        output, mask = attenuate_photomaker_identity(
+            fused,
+            base,
+            probability=0.5,
+            scale=0.0,
+        )
+        self.assertEqual(int(mask.sum().item()), 1)
+        torch.testing.assert_close(output[mask], base[mask])
+        torch.testing.assert_close(output[~mask], fused[~mask])
+
     def test_exact_branch_off_parity_fp32(self) -> None:
         for input_ndim in (3, 4):
             for batch in (1, 2):
@@ -767,6 +801,25 @@ class PackedResidualRuntimeTests(unittest.TestCase):
                 if ".attn2.processor." in name
             )
         )
+
+    def test_learned_null_is_registered_in_manifest_and_optimizer(self) -> None:
+        model = _tiny_model()
+        model.ba_connector_input_mode = "reference_minus_learned_null"
+        model.ba_null_memory_tokens = 3
+        mask = torch.ones(1, 1, 8, 8)
+        patch_unet_attention_processors(model, mask, mask)
+        configure_branched_trainables(model)
+        _assert_branched_installation(model)
+        groups = PhotomakerBranchedLora.get_trainable_params(
+            SimpleNamespace(
+                unet=model.unet,
+                ba_processor_variant="packed_residual_v1",
+                ba_connector_input_mode="reference_minus_learned_null",
+            ),
+            _OptimizerConfig(lr_for_lora=5e-5),
+        )
+        self.assertEqual(groups[-1]["name"], "ba_ppr_null_memory")
+        self.assertEqual(len(groups[-1]["params"]), 1)
 
     def test_legacy_variant_remains_available(self) -> None:
         model = _tiny_model()

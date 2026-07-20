@@ -1262,6 +1262,12 @@ def build_pipeline_from_pretrained(
         )
         or "reference_minus_target"
     ).lower()
+    pipeline.ba_null_memory_tokens = int(
+        getattr(unwrapped_model, "ba_null_memory_tokens", 8)
+    )
+    pipeline.ba_reference_ca_preserve_full_pm = bool(
+        getattr(unwrapped_model, "ba_reference_ca_preserve_full_pm", False)
+    )
     pipeline.ba_gate_max = float(getattr(unwrapped_model, "ba_gate_max", 0.5))
     pipeline.ba_gate_init_logit = float(
         getattr(unwrapped_model, "ba_gate_init_logit", 0.0)
