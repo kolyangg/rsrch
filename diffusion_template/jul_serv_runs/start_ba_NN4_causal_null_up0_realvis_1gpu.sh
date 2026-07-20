@@ -15,7 +15,7 @@ export NN1_DESCRIPTION="NN4: CFG/text-isolated learned-null PPR at up_blocks.0"
 export NN1_REQUIRE_ID_LOSS="1"
 export NN1_LAUNCHER_PATH="${SCRIPT_DIR}/$(basename -- "${BASH_SOURCE[0]}")"
 export NN1_TRAIN_DATASET_NAME="cosmic_large_neb"
-export NN1_VALIDATION_MODEL="SG161222/RealVisXL_V4.0"
+export NN1_VALIDATION_MODEL="${NN4_VALIDATION_MODEL:-SG161222/RealVisXL_V4.0}"
 
 export PM_PATH="${PM_PATH:-/home/niko/models/PhotoMaker-V2/photomaker-v2.bin}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
@@ -25,5 +25,11 @@ export VAL_BATCH_SIZE_PER_GPU="${VAL_BATCH_SIZE_PER_GPU:-12}"
 export NUM_EPOCHS="${NUM_EPOCHS:-10}"
 export OPTIMIZER_STEPS_PER_EPOCH="${OPTIMIZER_STEPS_PER_EPOCH:-2000}"
 export FULL_STEP0_VAL="${FULL_STEP0_VAL:-true}"
+
+if (( NUM_EPOCHS * OPTIMIZER_STEPS_PER_EPOCH != 20000 )); then
+  echo "NN4 training launchers require exactly 20,000 optimizer steps." >&2
+  echo "Set NUM_EPOCHS and OPTIMIZER_STEPS_PER_EPOCH so their product is 20000." >&2
+  exit 2
+fi
 
 source "${SCRIPT_DIR}/start_ba_NN2_ppr1_1gpu.sh" "$@"

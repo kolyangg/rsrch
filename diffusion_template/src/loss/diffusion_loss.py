@@ -110,13 +110,10 @@ class CoreNormalizedDiffusionLoss(nn.Module):
         numerator = (per_pixel * mask).flatten(1).sum(dim=1)
         denominator = mask.flatten(1).sum(dim=1)
         valid = denominator > 0
-        if not bool(valid.any()):
-            return {
-                "loss": F.mse_loss(
-                    model_pred.float(),
-                    target.float(),
-                    reduction="mean",
-                )
-            }
-        per_sample = numerator[valid] / denominator[valid].clamp_min(1e-6)
+        if not bool(valid.all()):
+            bad = (~valid).nonzero(as_tuple=False).flatten().tolist()
+            raise ValueError(
+                f"CoreNormalizedDiffusionLoss received empty cores at rows {bad}"
+            )
+        per_sample = numerator / denominator.clamp_min(1e-6)
         return {"loss": per_sample.mean()}

@@ -63,11 +63,16 @@ STEPS_PER_EPOCH="${STEPS_PER_EPOCH:-2000}"
 NUM_EPOCHS="${NUM_EPOCHS:-10}"
 TRAIN_SEED="${TRAIN_SEED:-0}"
 VAL_SEEDS="${VAL_SEEDS:-[0]}"
+NN4_VALIDATION_MODEL="${NN4_VALIDATION_MODEL:-SG161222/RealVisXL_V4.0}"
+
+if (( STEPS_PER_EPOCH * NUM_EPOCHS != 20000 )); then
+    fail "NN4 requires exactly 20,000 optimizer steps; got $((STEPS_PER_EPOCH * NUM_EPOCHS))"
+fi
 
 cd "${PROJECT_DIR}"
 log "NN4 server run: name=${NN4_RUN_NAME} GPUs=${NN4_CUDA_DEVICES} processes=${NN4_NUM_PROCESSES}"
 log "Dataset=cosmic_large (NFS paths), batch/rank=${TRAIN_BATCH_SIZE}, global_batch=$((TRAIN_BATCH_SIZE * NN4_NUM_PROCESSES))"
-log "Budget=$((STEPS_PER_EPOCH * NUM_EPOCHS)) steps; RealVis validation=96 images at step 0 and every ${STEPS_PER_EPOCH}"
+log "Budget=20000 steps; validation_base=${NN4_VALIDATION_MODEL}; 96 images at step 0 and every ${STEPS_PER_EPOCH}"
 
 ACCELERATE_LOG_LEVEL=error \
 TRANSFORMERS_VERBOSITY=error \
@@ -115,7 +120,7 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml \
     automatic_bboxes_every_val=false \
     force_log_first_auto_bbox=false \
     trainer.masked_loss_step=2 \
-    pretrained_model_for_validation_name_or_path=SG161222/RealVisXL_V4.0 \
+    pretrained_model_for_validation_name_or_path="${NN4_VALIDATION_MODEL}" \
     metrics=all_metrics \
     writer=cometml \
     writer.run_name="${NN4_RUN_NAME}" \

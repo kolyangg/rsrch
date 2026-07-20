@@ -541,7 +541,8 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         )
         self.last_aux_losses = {}
         if self.collect_aux_losses:
-            valid_rows = sample_has_roi.float()
+            core_has_support = target_core.float().sum(dim=(1, 2)) > 0
+            valid_rows = (sample_has_roi & core_has_support).float()
             valid_count = valid_rows.sum().clamp_min(1.0)
             cap_excess = F.relu(pre_ratio - self.cap_loss_target)
             self.last_aux_losses["cap"] = (
@@ -565,12 +566,11 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
                 mask=target_core,
                 max_ratio=self.delta_rms_cap,
             )
-            _, _, matched_null_distance, _ = self._masked_rms_cap(
-                raw_delta - null_raw_delta,
-                base=target_base,
-                mask=target_core,
-                max_ratio=self.delta_rms_cap,
-            )
+            # raw_delta is already D(C_ref - C_null). Since both connector
+            # projections are bias-free linear maps, pre_ratio is exactly the
+            # normalized magnitude of D(C_ref) - D(C_null). Subtracting
+            # null_raw_delta again would measure D(C_ref) - 2*D(C_null).
+            matched_null_distance = pre_ratio
             self.last_aux_losses["null_residual"] = (
                 null_ratio.square() * valid_rows
             ).sum() / valid_count

@@ -12,6 +12,7 @@ from .branched_runtime import (
     select_branched_self_attention_names,
     two_branch_predict,
 )
+from .packed_residual_attn_processor import make_inner_core_mask
 from .insightface_package import analyze_faces
 
 from copy import deepcopy
@@ -288,7 +289,8 @@ def _assert_branched_installation(model) -> None:
     )
     print(
         "[BA validity] rejection counters initialized: "
-        "target_bbox=0 reference_bbox=0 reference_recognition=0"
+        "target_bbox=0 target_core=0 reference_bbox=0 "
+        "reference_recognition=0"
     )
     print(
         "[BA architecture] "
@@ -686,6 +688,26 @@ def prepare_branched_training_inputs(
             _reject_invalid_sample(model, "target_bbox", "target mask is empty or non-finite after resize")
         if not torch.isfinite(mask4_ref).all() or not bool((mask4_ref > 0).flatten(1).any(dim=1).all()):
             _reject_invalid_sample(model, "reference_bbox", "reference mask is empty or non-finite after resize")
+        if str(getattr(model, "ba_processor_variant", "legacy")) == "packed_residual_v1":
+            target_core = make_inner_core_mask(
+                mask4,
+                erode_frac=float(
+                    getattr(model, "ba_target_core_erode_frac", 0.10)
+                ),
+            )
+            core_has_support = target_core.float().flatten(1).sum(dim=1) > 0
+            if not bool(core_has_support.all()):
+                bad_rows = (
+                    (~core_has_support)
+                    .nonzero(as_tuple=False)
+                    .flatten()
+                    .tolist()
+                )
+                _reject_invalid_sample(
+                    model,
+                    "target_core",
+                    f"feathered target core is empty at rows {bad_rows}",
+                )
 
     model._ref_latents_all = reference_latents
     model._face_prompt_embeds = prompt_embeds

@@ -91,6 +91,77 @@ def _processor(
 
 
 class PackedResidualProcessorTests(unittest.TestCase):
+    def test_match_null_margin_uses_main_difference_pre_ratio(self) -> None:
+        torch.manual_seed(13)
+        side = 8
+        attn = _attention()
+        processor = PackedResidualBranchedAttnProcessor(
+            16,
+            ref_kv_rank=4,
+            connector_rank=4,
+            connector_input_mode="reference_minus_learned_null",
+            collect_aux_losses=True,
+            match_null_margin=0.02,
+        )
+        processor.init_from_attention(attn)
+        mask, core = _masks(2, side)
+        processor.set_masks(mask, mask, core)
+
+        # The first cap call is D(C_ref-C_null); the second is D(C_null).
+        # The margin must use the first pre-ratio without a third cap call.
+        ratios = iter((0.01, 0.50))
+
+        def fake_cap(delta, *, base, mask, max_ratio):
+            del base, mask, max_ratio
+            ratio = delta.new_full((delta.shape[0],), next(ratios))
+            return delta, torch.ones_like(ratio), ratio, ratio
+
+        processor._masked_rms_cap = fake_cap
+        processor(attn, torch.randn(4, side * side, 16))
+
+        self.assertAlmostEqual(
+            float(processor.last_aux_losses["match_null_margin"]),
+            (0.02 - 0.01) ** 2,
+            places=7,
+        )
+
+    def test_auxiliary_losses_exclude_rows_without_target_core(self) -> None:
+        torch.manual_seed(14)
+        side = 8
+        attn = _attention()
+        processor = PackedResidualBranchedAttnProcessor(
+            16,
+            ref_kv_rank=4,
+            connector_rank=4,
+            connector_input_mode="reference_minus_learned_null",
+            collect_aux_losses=True,
+            match_null_margin=0.02,
+        )
+        processor.init_from_attention(attn)
+        mask, core = _masks(2, side)
+        core[0].zero_()
+        processor.set_masks(mask, mask, core)
+
+        ratios = iter(
+            (
+                torch.tensor([0.0, 0.01]),
+                torch.tensor([0.5, 0.5]),
+            )
+        )
+
+        def fake_cap(delta, *, base, mask, max_ratio):
+            del base, mask, max_ratio
+            ratio = next(ratios).to(delta)
+            return delta, torch.ones_like(ratio), ratio, ratio
+
+        processor._masked_rms_cap = fake_cap
+        processor(attn, torch.randn(4, side * side, 16))
+        self.assertAlmostEqual(
+            float(processor.last_aux_losses["match_null_margin"]),
+            (0.02 - 0.01) ** 2,
+            places=7,
+        )
+
     def test_learned_null_uses_same_kv_route_and_receives_gradients(self) -> None:
         torch.manual_seed(11)
         side = 8
@@ -576,6 +647,13 @@ class PackedResidualProcessorTests(unittest.TestCase):
             core,
         )["loss"]
         self.assertEqual(float(loss), 10.0)
+
+    def test_core_normalized_diffusion_loss_rejects_empty_rows(self) -> None:
+        target = torch.zeros(2, 4, 4, 4)
+        core = torch.ones(2, 1, 4, 4)
+        core[1].zero_()
+        with self.assertRaisesRegex(ValueError, r"rows \[1\]"):
+            CoreNormalizedDiffusionLoss()(target, target, core)
 
 
 class _TinyBlock(nn.Module):

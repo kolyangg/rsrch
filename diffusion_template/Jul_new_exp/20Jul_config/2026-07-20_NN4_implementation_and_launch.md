@@ -58,6 +58,21 @@ NN4 changes:
 7. **Lower the residual cap.** `ba_delta_rms_cap` is reduced from `0.25` to
    `0.15`; the supervised pre-cap target is `0.12`.
 
+## Post-audit corrections
+
+The follow-up NN4 code audit identified and corrected three objective-safety
+issues before training:
+
+1. The matched/null margin now uses the main connector response
+   `D(C_ref - C_null)` directly. The previous expression subtracted
+   `D(C_null)` a second time and therefore measured
+   `D(C_ref) - 2*D(C_null)`.
+2. Auxiliary losses include a sample only when both its packed reference ROI
+   and its target face core have support.
+3. An empty feathered target core is rejected during sample preparation through
+   the existing DDP-safe invalid-batch path. The core-normalized criterion also
+   rejects empty rows as a defensive invariant.
+
 The auxiliary objective is deliberately a low-memory candidate-level paired
 screen inside each attention processor. It is not yet a second full U-Net pass
 with a separately encoded null reference image. That larger experiment should
@@ -80,6 +95,10 @@ Defaults:
 - 96-image RealVis validation at step 0 and every 2,000 steps;
 - validation batch `12`;
 - PhotoMaker conda environment selected by the shared launcher.
+
+The launcher checks that `NUM_EPOCHS * OPTIMIZER_STEPS_PER_EPOCH == 20000`.
+Shorter training invocations are intentionally rejected; 2k/4k are evaluation
+checkpoints within the 20k run rather than separate training budgets.
 
 Run:
 
@@ -122,6 +141,40 @@ serv_new_runs/start_ba_NN4_causal_null_up0_2gpu.sh
 Per-rank train batch is `2`, so the default global batch is `2` on one GPU and
 `4` on two GPUs. No gradient accumulation is enabled.
 
+The NFS launcher enforces the same 20,000-step total. Validation defaults to
+RealVis. For a same-SDXL-base checkpoint validation without editing scripts,
+set:
+
+```bash
+NN4_VALIDATION_MODEL=null
+```
+
+This changes only the validation base; it does not change the training base or
+the 20k training schedule.
+
+## 2k/4k causal checkpoint gate
+
+Training still runs with a 20k budget and saves/validates every 2k. Use the
+validation-only helper on the epoch-1 (2k) and epoch-2 (4k) checkpoints to run
+the fixed-target five-way `PM0/R1N1/R2N1/R1N2/R2N2` reference-versus-noise
+matrix:
+
+```bash
+bash jul_serv_runs/start_ba_NN4_checkpoint_reference_vs_noise_1gpu.sh \
+  /absolute/path/to/checkpoint-epoch2.pth
+```
+
+The checkpoint epoch is inferred from the filename. Defaults are 96 samples,
+validation batch 12, and RealVis. For the recommended same-base companion:
+
+```bash
+NN4_VALIDATION_MODEL=null \
+  bash jul_serv_runs/start_ba_NN4_checkpoint_reference_vs_noise_1gpu.sh \
+  /absolute/path/to/checkpoint-epoch2.pth
+```
+
+This helper is inference-only and does not shorten or resume the training run.
+
 ## Metrics to watch
 
 In addition to the existing diffusion, identity, and PPR diagnostics:
@@ -143,8 +196,8 @@ identity direction at fixed target seed—not simply larger face differences.
 - Hydra NN4 config resolves successfully.
 - Python compilation passes in the PhotoMaker conda environment.
 - Shell syntax checks pass for all launchers.
-- The packed-residual regression suite passes: 31 tests, one optional full
+- The packed-residual regression suite passes: 35 tests, one optional full
   parity matrix skipped.
 - Added tests cover CFG reference-noise equality, reference token/pooled-text
-  isolation, `up_blocks.0` selection, core-normalized loss, and auxiliary-loss
-  gradients.
+  isolation, `up_blocks.0` selection, core-normalized loss, the corrected
+  matched/null algebra, empty-core handling, and auxiliary-loss gradients.
