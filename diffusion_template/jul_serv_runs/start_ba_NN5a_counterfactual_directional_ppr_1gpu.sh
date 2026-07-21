@@ -28,7 +28,7 @@ export OPTIMIZER_STEPS_PER_EPOCH="${OPTIMIZER_STEPS_PER_EPOCH:-2000}"
 export FULL_STEP0_VAL="${FULL_STEP0_VAL:-true}"
 
 source "${SCRIPT_DIR}/start_ba_NN2_ppr1_1gpu.sh" \
-  +datasets.train.cosmic_large_neb.return_counterfactual_ref=true \
-  +datasets.train.cosmic_large_neb.counterfactual_same_class_probability=0.8 \
-  +datasets.train.cosmic_large_neb.counterfactual_max_resample_attempts=20 \
+  ++datasets.train.cosmic_large_neb.return_counterfactual_ref=true \
+  ++datasets.train.cosmic_large_neb.counterfactual_same_class_probability=0.8 \
+  ++datasets.train.cosmic_large_neb.counterfactual_max_resample_attempts=20 \
   "$@"
