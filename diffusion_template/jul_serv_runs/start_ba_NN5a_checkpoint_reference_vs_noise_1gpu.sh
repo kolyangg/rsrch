@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Same-SDXL, scale-1 five-way approval test for an NN5a 2k/4k checkpoint.
+# RealVisXL, scale-1 five-way approval test for an NN5a 2k/4k checkpoint.
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
@@ -26,9 +26,9 @@ CHECKPOINT_STEP=$((CHECKPOINT_EPOCH * 2000))
 export RUN_FOREGROUND=1
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export MASTER_PORT="${MASTER_PORT:-29653}"
-export NN5_VALIDATION_MODEL=null
-export RUN_NAME="${RUN_NAME:-ba_NN5a_${CHECKPOINT_STEP}step_same_sdxl_scale1_reference_vs_noise}"
-OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/ppr_NN5a_${CHECKPOINT_STEP}step_same_sdxl_scale1_reference_vs_noise}"
+export NN5_VALIDATION_MODEL="SG161222/RealVisXL_V4.0"
+export RUN_NAME="${RUN_NAME:-ba_NN5a_${CHECKPOINT_STEP}step_realvis_scale1_reference_vs_noise}"
+OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/ppr_NN5a_${CHECKPOINT_STEP}step_realvis_scale1_reference_vs_noise}"
 
 exec bash "${SCRIPT_DIR}/start_ba_NN5a_counterfactual_directional_ppr_1gpu.sh" \
   validation_only=true \

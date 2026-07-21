@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Same-SDXL, scale-1 five-way approval test for an NN5b 2k/4k checkpoint.
+# RealVisXL, scale-1 five-way approval test for an NN5b 2k/4k checkpoint.
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
@@ -30,7 +30,7 @@ fi
 
 CHECKPOINT_STEP=$((CHECKPOINT_EPOCH * 2000))
 export NN5_NUM_PROCESSES=1
-export NN5_RUN_NAME="${RUN_NAME:-ba_NN5b_${CHECKPOINT_STEP}step_same_sdxl_scale1_reference_vs_noise}"
+export NN5_RUN_NAME="${RUN_NAME:-ba_NN5b_${CHECKPOINT_STEP}step_realvis_scale1_reference_vs_noise}"
 export NN5_CUDA_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export NN5_MASTER_PORT="${MASTER_PORT:-29664}"
 export GLOBAL_EFFECTIVE_BATCH=2
@@ -38,7 +38,7 @@ export TRAIN_BATCH_SIZE=1
 export STEPS_PER_EPOCH=2000
 export NUM_EPOCHS=2
 
-OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/ppr_NN5b_${CHECKPOINT_STEP}step_same_sdxl_scale1_reference_vs_noise}"
+OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/ppr_NN5b_${CHECKPOINT_STEP}step_realvis_scale1_reference_vs_noise}"
 
 exec bash "${SCRIPT_DIR}/_start_ba_NN5b_server_common.sh" \
     validation_only=true \

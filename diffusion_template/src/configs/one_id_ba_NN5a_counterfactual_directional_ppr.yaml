@@ -7,6 +7,10 @@ defaults:
 loss_kind: core_normalized
 ppr_reference_noise_scale: 1.0
 
+# The fixed manual-validation generation bboxes were measured on RealVisXL.
+# Always validate NN5 on that base so target face masks remain aligned.
+pretrained_model_for_validation_name_or_path: SG161222/RealVisXL_V4.0
+
 model:
   ba_counterfactual_enabled: true
   ba_counterfactual_max_timestep: 300

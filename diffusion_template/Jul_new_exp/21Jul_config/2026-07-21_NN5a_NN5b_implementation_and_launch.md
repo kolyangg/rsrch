@@ -3,6 +3,11 @@
 **Date:** 21 July 2026  
 **Source specification:** `2026-07-21_NN4_independent_results_review_and_NN5a_implementation_spec.md`
 
+**Validation-base decision:** NN5 validation uses `SG161222/RealVisXL_V4.0`
+for normal validation and checkpoint diagnostics. The fixed `face_bbox_gen`
+annotations were measured on RealVisXL generations, so validating on the base
+SDXL checkpoint would misalign the target branched-attention masks.
+
 ## Implemented experiments
 
 ### NN5a — counterfactual directional PPR
@@ -74,7 +79,7 @@ Main server, NN5a:
 bash jul_serv_runs/start_ba_NN5a_counterfactual_directional_ppr_1gpu.sh
 ```
 
-NN5a same-SDXL scale-1 causal gate at 2k or 4k:
+NN5a RealVisXL scale-1 causal gate at 2k or 4k:
 
 ```bash
 bash jul_serv_runs/start_ba_NN5a_checkpoint_reference_vs_noise_1gpu.sh \

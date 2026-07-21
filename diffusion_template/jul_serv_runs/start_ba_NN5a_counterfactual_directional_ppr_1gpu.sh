@@ -13,7 +13,7 @@ export NN1_DESCRIPTION="NN5a: counterfactual directional supervision on protecte
 export NN1_REQUIRE_ID_LOSS="1"
 export NN1_LAUNCHER_PATH="${SCRIPT_DIR}/$(basename -- "${BASH_SOURCE[0]}")"
 export NN1_TRAIN_DATASET_NAME="cosmic_large_neb"
-export NN1_VALIDATION_MODEL="${NN5_VALIDATION_MODEL:-null}"
+export NN1_VALIDATION_MODEL="SG161222/RealVisXL_V4.0"
 
 export PM_PATH="${PM_PATH:-/home/niko/models/PhotoMaker-V2/photomaker-v2.bin}"
 if [[ -z "${PHOTOMAKER_ENV_BIN:-}" && -x /home/niko/miniconda3/envs/photomaker_NS/bin/python ]]; then

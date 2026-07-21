@@ -55,6 +55,7 @@ STEPS_PER_EPOCH="${STEPS_PER_EPOCH:-2000}"
 NUM_EPOCHS="${NUM_EPOCHS:-2}"
 TRAIN_SEED="${TRAIN_SEED:-0}"
 VAL_SEEDS="${VAL_SEEDS:-[0]}"
+NN5_VALIDATION_MODEL="SG161222/RealVisXL_V4.0"
 
 (( GLOBAL_EFFECTIVE_BATCH % NN5_NUM_PROCESSES == 0 )) || \
     fail "GLOBAL_EFFECTIVE_BATCH must be divisible by NN5_NUM_PROCESSES"
@@ -119,7 +120,7 @@ accelerate launch --config_file=src/configs/ddp/accelerate.yaml \
     automatic_bboxes_every_val=false \
     force_log_first_auto_bbox=false \
     trainer.masked_loss_step=2 \
-    pretrained_model_for_validation_name_or_path=null \
+    pretrained_model_for_validation_name_or_path="${NN5_VALIDATION_MODEL}" \
     metrics=all_metrics \
     writer=cometml \
     writer.run_name="${NN5_RUN_NAME}" \
