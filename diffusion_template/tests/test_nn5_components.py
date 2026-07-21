@@ -4,6 +4,8 @@ import unittest
 import json
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import torch
@@ -18,7 +20,10 @@ from src.model.photomaker_branched.packed_residual_attn_processor import (
     PackedResidualBranchedAttnProcessor,
     make_inner_core_mask,
 )
-from src.trainer.ppr_reference_noise import _variants
+from src.metrics.tracker import MetricTracker
+from src.pipelines.br_pipeline_helpers import prepare_spatial_identity_tokens
+from src.trainer.base_trainer import BaseTrainer
+from src.trainer.ppr_reference_noise import _assert_integrity, _variants
 
 
 class _MeanEmbedding(nn.Module):
@@ -31,7 +36,77 @@ class _MeanEmbedding(nn.Module):
         return torch.cat([means, means.square()], dim=1)
 
 
+class _CountingOptimizer:
+    def __init__(self):
+        self.steps = 0
+        self.zero_grad_calls = 0
+
+    def zero_grad(self, *args, **kwargs):
+        del args, kwargs
+        self.zero_grad_calls += 1
+
+    def step(self):
+        self.steps += 1
+
+
+class _CountingScheduler:
+    def __init__(self):
+        self.steps = 0
+
+    def step(self):
+        self.steps += 1
+
+
+class _AccumulationHarness(BaseTrainer):
+    def __init__(self):
+        self.is_train = True
+        self.grad_accum_steps = 2
+        self.epoch_len = 2
+        self.train_dataloader = [{}, {}, {}, {}]
+        self.evaluation_dataloaders = {}
+        self.train_metrics = MetricTracker()
+        self.optimizer = _CountingOptimizer()
+        self.lr_scheduler = _CountingScheduler()
+        self.processed_indices = []
+        self.process_calls = 0
+        self.model = nn.Identity()
+        self.accelerator = SimpleNamespace(
+            is_main_process=False,
+            unwrap_model=lambda model: model,
+            wait_for_everyone=lambda: None,
+        )
+        self.config = SimpleNamespace(
+            pretrained_model_for_validation_name_or_path=None,
+        )
+        self.log_step = 1000
+
+    def process_batch(self, batch, train_metrics):
+        del train_metrics
+        self.process_calls += 1
+        batch_idx = int(batch["batch_idx"])
+        self.processed_indices.append(batch_idx)
+        if self.process_calls == 2:
+            return {"skip_batch": True}
+        if batch_idx % self.grad_accum_steps == 0:
+            self.optimizer.zero_grad()
+        if (batch_idx + 1) % self.grad_accum_steps == 0:
+            self.optimizer.step()
+            self.lr_scheduler.step()
+        return {"loss": torch.ones(())}
+
+    def _get_grad_norms(self):
+        return {}
+
+
 class NN5ComponentTests(unittest.TestCase):
+    def test_accumulation_window_rewinds_after_second_microbatch_skip(self):
+        trainer = _AccumulationHarness()
+        trainer._train_epoch(epoch=2)
+        self.assertEqual(trainer.processed_indices, [0, 1, 0, 1])
+        self.assertEqual(trainer.optimizer.steps, 1)
+        self.assertEqual(trainer.lr_scheduler.steps, 1)
+        self.assertEqual(trainer._optimizer_step_from_microbatches(4), 2)
+
     def test_identity_key_precedence_and_prompt_class(self):
         record = {
             "identity_id": "stable-id",
@@ -150,6 +225,139 @@ class NN5ComponentTests(unittest.TestCase):
         processor.identity_tokens = torch.ones(1, 2, 2048)
         one_tokens = processor(attention, hidden.clone())
         self.assertFalse(torch.equal(zero_tokens, one_tokens))
+
+    def test_identity_lane_projection_weights_receive_gradients(self):
+        torch.manual_seed(17)
+        channels, side = 16, 4
+        attention = Attention(
+            query_dim=channels,
+            heads=4,
+            dim_head=4,
+            residual_connection=True,
+        )
+        processor = PackedResidualBranchedAttnProcessor(
+            channels,
+            ref_kv_rank=4,
+            connector_rank=4,
+            connector_input_mode="reference_minus_learned_null",
+            identity_token_lane=True,
+            identity_token_rank=4,
+            identity_token_weight=0.5,
+        )
+        processor.init_from_attention(attention)
+        with torch.no_grad():
+            processor.connector_up.weight.normal_(std=0.1)
+        mask = torch.ones(1, 1, side, side)
+        processor.set_masks(mask, mask, make_inner_core_mask(mask))
+        processor.identity_tokens = torch.randn(1, 2, 2048)
+        output = processor(
+            attention,
+            torch.randn(2, side * side, channels),
+        )
+        output[:1].square().mean().backward()
+        for projection in (processor.identity_to_k, processor.identity_to_v):
+            for layer_index in (0, 2):
+                gradient = projection[layer_index].weight.grad
+                self.assertIsNotNone(gradient)
+                self.assertTrue(torch.isfinite(gradient).all())
+                self.assertGreater(float(gradient.abs().sum()), 0.0)
+
+    def test_invalid_spatial_identity_embedding_is_rejected(self):
+        class _ImageProcessor:
+            def __call__(self, images, return_tensors):
+                del return_tensors
+                return SimpleNamespace(
+                    pixel_values=torch.ones(len(images), 3, 4, 4)
+                )
+
+        pipeline = SimpleNamespace(
+            ba_identity_token_lane=True,
+            id_encoder=SimpleNamespace(
+                dtype=torch.float32,
+                extract_id_tokens=lambda pixels, embeds: torch.ones(
+                    pixels.shape[0], 2, 2048
+                ),
+            ),
+            id_image_processor=_ImageProcessor(),
+            unet=SimpleNamespace(dtype=torch.float32),
+        )
+        refs = [Image.new("RGB", (4, 4)) for _ in range(2)]
+        with patch(
+            "src.pipelines.br_pipeline_helpers.ensure_id_embeds",
+            return_value=torch.zeros(2, 1, 512),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "valid spatial-reference"):
+                prepare_spatial_identity_tokens(
+                    pipeline,
+                    input_id_images=refs,
+                    device=torch.device("cpu"),
+                )
+
+    def test_identity_token_swap_integrity(self):
+        sample = "sample.png"
+        content = {
+            "PM0": ("r1", "l1", "m1", "n1", "r1n1", "token-r1"),
+            "R1N1": ("r1", "l1", "m1", "n1", "r1n1", "token-r1"),
+            "R2N1": ("r2", "l2", "m2", "n1", "r2n1", "token-r2"),
+            "R1N2": ("r1", "l1", "m1", "n2", "r1n2", "token-r1"),
+            "R2N2": ("r2", "l2", "m2", "n2", "r2n2", "token-r2"),
+        }
+        fingerprints = {}
+        for name, (image, latent, mask, noise, noised, token) in content.items():
+            fingerprints[name] = {
+                "initial_latents_sha256": "target-latent",
+                "target_prompt_embeds_sha256": "target-prompt",
+                "target_photomaker_id_embeds_sha256": "target-pm-id",
+                "spatial_reference_image_sha256": image,
+                "reference_latents_sha256": latent,
+                "reference_mask_sha256": mask,
+                "reference_mask_nonempty": True,
+                "reference_noise_sha256": noise,
+                "ref_noised_step_15_sha256": noised + "-15",
+                "ref_noised_step_25_sha256": noised + "-25",
+                "ref_noised_step_35_sha256": noised + "-35",
+                "reference_ca_prompt_sha256": "reference-ca",
+                "reference_ca_mode": "original",
+                "spatial_identity_tokens_sha256": token,
+            }
+        diagnostics = {
+            "PM0": [
+                {
+                    "record_type": "epsilon_ratio",
+                    "output_control": "diagnostic-force-base",
+                }
+            ]
+        }
+        for name in ("R1N1", "R2N1", "R1N2", "R2N2"):
+            diagnostics[name] = [
+                {
+                    "record_type": "processor_tensor_signature",
+                    "roi_tokens": 1,
+                },
+                {
+                    "record_type": "processor_applied_ratio",
+                    "samples": [sample],
+                    "applied_ratios": [0.1],
+                    "cap_scales": [1.0],
+                },
+            ]
+
+        _assert_integrity(
+            sample,
+            fingerprints,
+            diagnostics,
+            "original",
+            identity_token_lane=True,
+        )
+        fingerprints["R2N1"]["spatial_identity_tokens_sha256"] = "token-r1"
+        with self.assertRaisesRegex(RuntimeError, "did not change identity tokens"):
+            _assert_integrity(
+                sample,
+                fingerprints,
+                diagnostics,
+                "original",
+                identity_token_lane=True,
+            )
 
     def test_reference_noise_variants_use_requested_scale(self):
         variants = _variants(1.0)

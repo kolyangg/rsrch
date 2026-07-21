@@ -449,10 +449,31 @@ def prepare_spatial_identity_tokens(
         device=device,
         dtype=dtype,
     )
+    flat_identity = spatial_id_embeds.detach().float().flatten(1)
+    valid_identity = (
+        torch.isfinite(flat_identity).all(dim=1)
+        & (flat_identity.norm(dim=1) > 0)
+    )
+    if not bool(valid_identity.all()):
+        bad = (~valid_identity).nonzero(as_tuple=False).flatten().tolist()
+        raise RuntimeError(
+            "Identity-token PPR could not extract a valid spatial-reference "
+            f"recognition embedding at rows {bad}"
+        )
     with torch.no_grad():
         tokens = pipeline.id_encoder.extract_id_tokens(
             pixels,
             spatial_id_embeds,
+        )
+    flat_tokens = tokens.detach().float().flatten(1)
+    valid_tokens = (
+        torch.isfinite(flat_tokens).all(dim=1)
+        & (flat_tokens.norm(dim=1) > 0)
+    )
+    if not bool(valid_tokens.all()):
+        bad = (~valid_tokens).nonzero(as_tuple=False).flatten().tolist()
+        raise RuntimeError(
+            f"Identity-token PPR produced invalid tokens at rows {bad}"
         )
     pipeline._ppr_identity_tokens = tokens.to(
         device=device,
@@ -720,11 +741,14 @@ def run_branched_setup(
         id_embeds=id_embeds,
         class_tokens_mask=class_tokens_mask,
     )
-    prepare_spatial_identity_tokens(
-        pipeline,
-        input_id_images=input_id_images,
-        device=device,
-    )
+    if use_branched_attention:
+        prepare_spatial_identity_tokens(
+            pipeline,
+            input_id_images=input_id_images,
+            device=device,
+        )
+    else:
+        pipeline._ppr_identity_tokens = None
 
     if (
         bool(getattr(pipeline, "ba_ppr_collect_diagnostics", False))
@@ -750,6 +774,11 @@ def run_branched_setup(
 
         mask_ref = getattr(pipeline, "_face_mask_t_ref", None)
         pm_id = getattr(pipeline, "_pm_id_embeds_2048", None)
+        spatial_identity_tokens = getattr(
+            pipeline,
+            "_ppr_identity_tokens",
+            None,
+        )
         fingerprints = {
             "initial_latents_sha256": _sample_hashes(latents),
             "target_prompt_embeds_sha256": _sample_hashes(
@@ -772,6 +801,10 @@ def run_branched_setup(
             fingerprints["target_photomaker_id_embeds_sha256"] = _sample_hashes(
                 _match_samples(pm_id)
             )
+        if spatial_identity_tokens is not None:
+            fingerprints["spatial_identity_tokens_sha256"] = _sample_hashes(
+                _match_samples(spatial_identity_tokens)
+            )
         pipeline._ba_ppr_randomness_fingerprints = fingerprints
 
 
@@ -781,6 +814,7 @@ def reset_branched_generation_caches(pipeline) -> None:
         "_ba_packed_branch_exactly_off",
         "_ba_output_anchor_logged",
         "_ref_noise_base",
+        "_ppr_identity_tokens",
     ):
         if hasattr(pipeline, attr):
             delattr(pipeline, attr)
@@ -1217,6 +1251,7 @@ def cleanup_branched_runtime(pipeline, *, use_branched_attention: bool) -> None:
         "_ref_latents_all",
         "_ref_noise",
         "_ref_noise_base",
+        "_ppr_identity_tokens",
         "_ba_packed_branch_exactly_off",
         "_ba_output_anchor_logged",
     ]:

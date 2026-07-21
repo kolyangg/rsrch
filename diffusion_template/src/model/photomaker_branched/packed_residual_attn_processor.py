@@ -528,6 +528,8 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             is_causal=False,
         )
         reference_candidate = self._from_heads(reference_candidate).to(target_base.dtype)
+        spatial_reference_candidate = reference_candidate
+        identity_candidate = None
 
         if self.identity_token_lane:
             if self.identity_to_k is None or self.identity_to_v is None:
@@ -747,6 +749,13 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
                     "bounded_delta": _sample_rows(bounded_delta),
                     "applied_delta": _sample_rows(applied_delta),
                 }
+                if identity_candidate is not None:
+                    tensors["spatial_reference_candidate"] = _sample_rows(
+                        spatial_reference_candidate
+                    )
+                    tensors["identity_candidate"] = _sample_rows(
+                        identity_candidate
+                    )
                 if null_candidate is not None:
                     tensors["null_candidate"] = _sample_rows(null_candidate)
                 sample_lengths = _sample_rows(lengths)

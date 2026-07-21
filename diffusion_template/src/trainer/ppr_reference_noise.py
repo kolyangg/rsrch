@@ -195,6 +195,13 @@ def _initialize_state(trainer) -> dict[str, Any]:
         "device": trainer.device,
         "lpips_status": "not attempted",
         "observed_batch_sizes": [],
+        "identity_token_lane": bool(
+            getattr(
+                getattr(trainer.config, "model", None),
+                "ba_identity_token_lane",
+                False,
+            )
+        ),
     }
     trainer._ppr_reference_noise_state = state
     print(
@@ -498,21 +505,26 @@ def _tensor_comparisons(
             )
         for key in sorted(left_records):
             left, right = left_records[key], right_records[key]
-            stages = (
-                (
+            if key[0] == "processor_tensor_signature":
+                stages = [
                     "reference_hidden",
                     "reference_candidate",
                     "connector_down",
                     "raw_delta",
                     "bounded_delta",
                     "applied_delta",
-                )
-                if key[0] == "processor_tensor_signature"
-                else (
+                ]
+                for optional_stage in (
+                    "spatial_reference_candidate",
+                    "identity_candidate",
+                ):
+                    if optional_stage in left and optional_stage in right:
+                        stages.append(optional_stage)
+            else:
+                stages = [
                     "target_epsilon_pre_anchor",
                     "target_epsilon_post_anchor",
-                )
-            )
+                ]
             for stage in stages:
                 output.append(
                     {
@@ -540,6 +552,7 @@ def _assert_integrity(
     fingerprints: dict[str, dict[str, Any]],
     diagnostics: dict[str, list[dict[str, Any]]],
     reference_ca_mode: str,
+    identity_token_lane: bool = False,
 ) -> None:
     target_fields = (
         "initial_latents_sha256",
@@ -555,7 +568,14 @@ def _assert_integrity(
     for name, fingerprint in fingerprints.items():
         if not bool(fingerprint.get("reference_mask_nonempty", False)):
             raise RuntimeError(f"{sample}: empty reference mask in {name}")
-        missing = [field for field in HASH_FIELDS if field not in fingerprint]
+        required_fields = list(HASH_FIELDS)
+        if identity_token_lane:
+            required_fields.append("spatial_identity_tokens_sha256")
+        missing = [
+            field
+            for field in required_fields
+            if field not in fingerprint
+        ]
         if missing:
             raise RuntimeError(
                 f"{sample}: missing fingerprints in {name}: {missing}"
@@ -590,6 +610,16 @@ def _assert_integrity(
         if equal("R1N1", "R2N1", (field,)):
             raise RuntimeError(
                 f"{sample}: R1/R2 spatial-reference swap did not change {field}"
+            )
+    if identity_token_lane:
+        token_field = ("spatial_identity_tokens_sha256",)
+        if equal("R1N1", "R2N1", token_field):
+            raise RuntimeError(
+                f"{sample}: R1/R2 swap did not change identity tokens"
+            )
+        if not equal("R1N1", "R1N2", token_field):
+            raise RuntimeError(
+                f"{sample}: reference-noise swap changed identity tokens"
             )
     if not equal(
         "R1N1",
@@ -657,6 +687,16 @@ def run_ppr_reference_noise_batch(trainer, batch, eval_metrics):
     if "variants" not in state:
         state["scale"] = float(state.get("scale", 4.0))
         state["variants"] = _variants(state["scale"])
+    state.setdefault(
+        "identity_token_lane",
+        bool(
+            getattr(
+                getattr(trainer.config, "model", None),
+                "ba_identity_token_lane",
+                False,
+            )
+        ),
+    )
     prompts = batch["prompt"] if isinstance(batch["prompt"], list) else [batch["prompt"]]
     batch_size = len(prompts)
     state["observed_batch_sizes"].append(batch_size)
@@ -761,6 +801,7 @@ def run_ppr_reference_noise_batch(trainer, batch, eval_metrics):
             fingerprints[filename],
             sample_diagnostics,
             state["reference_ca_mode"],
+            identity_token_lane=state["identity_token_lane"],
         )
         state["tensor_rows"].extend(
             _tensor_comparisons(filename, sample_diagnostics)
@@ -1292,6 +1333,10 @@ SHA-256/RMS plus the same deterministic 512-value sketch at each paired stage.
             set(state["observed_batch_sizes"])
         ),
         "integrity_assertions_passed": True,
+        "identity_token_lane": state["identity_token_lane"],
+        "identity_token_swap_integrity_checked": state[
+            "identity_token_lane"
+        ],
         "tensor_capture": "exact SHA-256/RMS plus deterministic 512-value sketch",
         "lpips_status": state["lpips_status"],
         "validation_args": OmegaConf.to_container(

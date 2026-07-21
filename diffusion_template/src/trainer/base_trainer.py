@@ -20,6 +20,12 @@ class BaseTrainer:
     """
     Base class for all trainers.
     """
+
+    def _optimizer_step_from_microbatches(self, microbatches: int) -> int:
+        """Map accepted logical microbatches to completed optimizer updates."""
+        accumulation = max(1, int(getattr(self, "grad_accum_steps", 1)))
+        return int(microbatches) // accumulation
+
     def __init__(
         self,
         model,
@@ -357,7 +363,11 @@ class BaseTrainer:
         self.train_metrics.reset()
 
         if self.accelerator.is_main_process:
-            self.writer.set_step((epoch - 1) * self.epoch_len)
+            self.writer.set_step(
+                self._optimizer_step_from_microbatches(
+                    (epoch - 1) * self.epoch_len
+                )
+            )
             self.writer.add_scalar("general/epoch", epoch)
 
         if epoch == 1:
@@ -404,6 +414,21 @@ class BaseTrainer:
                 train_metrics=self.train_metrics,
             )
             if batch.get("skip_batch", False):
+                # process_batch() clears partial gradients after a rejected/OOM
+                # microbatch. Rewind to the start of the accumulation window so
+                # replacement data cannot trigger a half optimizer update.
+                accumulation = max(
+                    1, int(getattr(self, "grad_accum_steps", 1))
+                )
+                partial = completed_batches % accumulation
+                if partial:
+                    completed_batches -= partial
+                    self.optimizer.zero_grad(set_to_none=True)
+                    progress_bar.update(-partial)
+                    self.train_metrics.update(
+                        "accumulation/rewound_microbatches",
+                        float(partial),
+                    )
                 continue
 
             ### Modified to fix accelerate error after adding training of attn processors ###
@@ -447,7 +472,13 @@ class BaseTrainer:
             # log current results
             if batch_idx % self.log_step == 0:
                 if self.accelerator.is_main_process:
-                    self.writer.set_step((epoch - 1) * self.epoch_len + batch_idx)
+                    self.writer.set_step(
+                        self._optimizer_step_from_microbatches(
+                            (epoch - 1) * self.epoch_len
+                            + batch_idx
+                            + 1
+                        )
+                    )
                     self.logger.debug(
                         "Train Epoch: {} {} Reduced Loss: {:.6f}".format(
                             epoch, self._progress(batch_idx), batch["loss"].item()
@@ -524,7 +555,12 @@ class BaseTrainer:
             metric.to_cuda()
 
         if self.writer is not None:
-            self.writer.set_step(epoch * self.epoch_len, part)
+            self.writer.set_step(
+                self._optimizer_step_from_microbatches(
+                    epoch * self.epoch_len
+                ),
+                part,
+            )
         prev_time = time.time()
         with torch.no_grad():
             # Optionally swap to an alternate base model for validation only
