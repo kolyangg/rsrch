@@ -208,6 +208,14 @@ now records one CFG half after asserting both halves are exactly equal. This
 does not change inference images, checkpoint loading, or training. The
 regression suite passes with diagnostic collection and CFG noise pairing active.
 
+The follow-up run exposed a second diagnostic-only invariant mismatch. NN4's
+architecture already sets `ba_reference_token_text_mode=zero`, while the
+reference/noise test's separate CA override defaults to `original`. Generation
+correctly reported an effective mode of `zero`, but the integrity check compared
+it with the override alone. The test now tracks the requested override and the
+effective architecture-plus-override mode separately. Images and conditioning
+are unchanged.
+
 ## Metrics to watch
 
 In addition to the existing diffusion, identity, and PPR diagnostics:

@@ -50,6 +50,7 @@ from src.trainer.ppr_scale_sweep import (
     _scale_label,
 )
 from src.trainer.ppr_reference_noise import (
+    _effective_reference_ca_mode,
     _noise_seeds,
     _reference_ca_mode,
     _relative_signature,
@@ -601,6 +602,11 @@ class PackedResidualProcessorTests(unittest.TestCase):
         self.assertIsNone(neutral_mask)
         self.assertEqual(mode, "zero")
         self.assertEqual(_reference_ca_mode(pipeline), "zero")
+        nn4_config = SimpleNamespace(
+            ppr_reference_ca_mode="original",
+            model=SimpleNamespace(ba_reference_token_text_mode="zero"),
+        )
+        self.assertEqual(_effective_reference_ca_mode(nn4_config), "zero")
 
     def test_inner_core_is_soft_and_zero_at_bbox_edges(self) -> None:
         mask = torch.zeros(1, 1, 16, 16)
@@ -876,6 +882,10 @@ class PackedResidualRuntimeTests(unittest.TestCase):
             ),
             1,
         )
+        self.assertEqual(
+            pipeline._ba_ppr_randomness_fingerprints["reference_ca_mode"],
+            ["zero"],
+        )
         torch.testing.assert_close(
             unet.samples[0][2],
             unet.samples[0][3],
@@ -920,6 +930,7 @@ class PackedResidualRuntimeTests(unittest.TestCase):
                 "root": root,
                 "noise_seeds": {"N1": 11, "N2": 22},
                 "reference_ca_mode": "zero",
+                "reference_ca_override": "zero",
                 "swap_map": {
                     "id0": ("id1", source_paths[1], [1, 1, 15, 15]),
                     "id1": ("id0", source_paths[0], [1, 1, 15, 15]),

@@ -106,6 +106,27 @@ def _reference_ca_mode(config) -> str:
     return mode
 
 
+def _effective_reference_ca_mode(config) -> str:
+    """Describe the CA tensor after architecture and diagnostic controls."""
+    diagnostic_mode = _reference_ca_mode(config)
+    model_config = getattr(config, "model", None)
+    token_mode = str(
+        getattr(model_config, "ba_reference_token_text_mode", "original")
+        or "original"
+    ).lower()
+    if token_mode not in {"original", "zero"}:
+        raise ValueError(
+            "model.ba_reference_token_text_mode must be original or zero"
+        )
+    if token_mode == "original":
+        return diagnostic_mode
+    return (
+        token_mode
+        if diagnostic_mode == "original"
+        else f"{token_mode}+ppr_{diagnostic_mode}"
+    )
+
+
 def _initialize_state(trainer) -> dict[str, Any]:
     root = Path(
         str(trainer.config.ppr_reference_noise_output_dir)
@@ -149,7 +170,8 @@ def _initialize_state(trainer) -> dict[str, Any]:
     state = {
         "root": root,
         "noise_seeds": _noise_seeds(trainer.config),
-        "reference_ca_mode": _reference_ca_mode(trainer.config),
+        "reference_ca_override": _reference_ca_mode(trainer.config),
+        "reference_ca_mode": _effective_reference_ca_mode(trainer.config),
         "swap_map": swap_map,
         "rows": [],
         "pair_rows": [],
@@ -165,7 +187,9 @@ def _initialize_state(trainer) -> dict[str, Any]:
     print(
         "[PPR reference/noise] "
         f"output={root} noise_seeds={state['noise_seeds']} "
-        f"reference_ca={state['reference_ca_mode']} samples={len(dataset)}"
+        f"reference_ca={state['reference_ca_mode']} "
+        f"diagnostic_override={state['reference_ca_override']} "
+        f"samples={len(dataset)}"
     )
     return state
 
@@ -528,7 +552,7 @@ def _assert_integrity(
                 f"{sample}: reference CA mode mismatch in {name}: "
                 f"{fingerprint.get('reference_ca_mode')!r}"
             )
-        if reference_ca_mode == "zero":
+        if reference_ca_mode != "original":
             if int(fingerprint.get("reference_ca_prompt_nonzero_count", -1)) != 0:
                 raise RuntimeError(
                     f"{sample}: neutral reference CA is nonzero in {name}"
@@ -695,7 +719,7 @@ def run_ppr_reference_noise_batch(trainer, batch, eval_metrics):
             ),
             diagnostic_variant=name,
             capture_tensor_signatures=name != "PM0",
-            ppr_reference_ca_mode=state["reference_ca_mode"],
+            ppr_reference_ca_mode=state["reference_ca_override"],
         )
         images[name] = variant_images
         diagnostics[name] = records
@@ -1244,6 +1268,9 @@ SHA-256/RMS plus the same deterministic 512-value sketch at each paired stage.
         "variants": VARIANTS,
         "reference_noise_seeds": state["noise_seeds"],
         "reference_ca_mode": state["reference_ca_mode"],
+        "reference_ca_diagnostic_override": state[
+            "reference_ca_override"
+        ],
         "observed_batch_sizes": sorted(
             set(state["observed_batch_sizes"])
         ),
