@@ -118,6 +118,10 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         cap_loss_target: float = 0.20,
         processor_name: str = "",
         diagnostics: bool = False,
+        identity_token_lane: bool = False,
+        identity_token_dim: int = 2048,
+        identity_token_rank: int = 32,
+        identity_token_weight: float = 0.5,
     ):
         super().__init__()
         if ref_kv_kind != "lora":
@@ -147,6 +151,10 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             raise ValueError("match_null_margin must be non-negative")
         if float(cap_loss_target) <= 0.0:
             raise ValueError("cap_loss_target must be positive")
+        if int(identity_token_rank) <= 0:
+            raise ValueError("identity_token_rank must be positive")
+        if not 0.0 <= float(identity_token_weight) <= 1.0:
+            raise ValueError("identity_token_weight must be in [0, 1]")
 
         self.hidden_size = int(hidden_size)
         self.ref_kv_kind = ref_kv_kind
@@ -163,6 +171,10 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         self.cap_loss_target = float(cap_loss_target)
         self.processor_name = str(processor_name)
         self.diagnostics = bool(diagnostics)
+        self.identity_token_lane = bool(identity_token_lane)
+        self.identity_token_dim = int(identity_token_dim)
+        self.identity_token_rank = int(identity_token_rank)
+        self.identity_token_weight = float(identity_token_weight)
         self.has_cross_attention_kwargs = True
 
         self.ref_to_k: Optional[nn.Module] = None
@@ -171,6 +183,9 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         self.connector_up: Optional[nn.Linear] = None
         self.gate_logit: Optional[nn.Parameter] = None
         self.register_parameter("null_memory", None)
+        self.identity_to_k: Optional[nn.Module] = None
+        self.identity_to_v: Optional[nn.Module] = None
+        self.identity_tokens: Optional[torch.Tensor] = None
         self.mask: Optional[torch.Tensor] = None
         self.mask_ref: Optional[torch.Tensor] = None
         self.mask_core: Optional[torch.Tensor] = None
@@ -238,6 +253,31 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
                     dtype=base_q.weight.dtype,
                 )
             )
+        if self.identity_token_lane:
+            def make_identity_projection():
+                projection = nn.Sequential(
+                    nn.Linear(
+                        self.identity_token_dim,
+                        self.identity_token_rank,
+                        bias=False,
+                        device=base_q.weight.device,
+                        dtype=base_q.weight.dtype,
+                    ),
+                    nn.SiLU(),
+                    nn.Linear(
+                        self.identity_token_rank,
+                        self.hidden_size,
+                        bias=False,
+                        device=base_q.weight.device,
+                        dtype=base_q.weight.dtype,
+                    ),
+                )
+                nn.init.kaiming_uniform_(projection[0].weight, a=math.sqrt(5))
+                nn.init.kaiming_uniform_(projection[2].weight, a=math.sqrt(5))
+                return projection
+
+            self.identity_to_k = make_identity_projection()
+            self.identity_to_v = make_identity_projection()
 
     def set_masks(
         self,
@@ -488,6 +528,39 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             is_causal=False,
         )
         reference_candidate = self._from_heads(reference_candidate).to(target_base.dtype)
+
+        if self.identity_token_lane:
+            if self.identity_to_k is None or self.identity_to_v is None:
+                raise RuntimeError("Identity-token K/V projections were not initialized")
+            if self.identity_tokens is None:
+                raise RuntimeError("Identity-token lane is enabled but no identity tokens were supplied")
+            identity_tokens = self.identity_tokens
+            if identity_tokens.ndim != 3 or identity_tokens.shape[0] != generation_batch:
+                raise ValueError(
+                    f"{self.processor_name}: identity tokens must be [B,T,D] with "
+                    f"B={generation_batch}; got {tuple(identity_tokens.shape)}"
+                )
+            identity_tokens = identity_tokens.to(
+                device=reference_hidden.device,
+                dtype=reference_hidden.dtype,
+            )
+            identity_key = self._to_heads(self.identity_to_k(identity_tokens), attn.heads)
+            identity_value = self._to_heads(self.identity_to_v(identity_tokens), attn.heads)
+            identity_key = self._apply_k_norm(attn, identity_key)
+            identity_candidate = F.scaled_dot_product_attention(
+                target_query,
+                identity_key,
+                identity_value,
+                attn_mask=None,
+                dropout_p=0.0,
+                is_causal=False,
+            )
+            identity_candidate = self._from_heads(identity_candidate).to(target_base.dtype)
+            weight = self.identity_token_weight
+            reference_candidate = (
+                (1.0 - weight) * reference_candidate
+                + weight * identity_candidate
+            )
 
         if self.connector_input_mode == "reference_minus_target":
             # NN2-PPR1 parity path. This can learn through the stable

@@ -158,8 +158,20 @@ class PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken(CLIPVisionModelWithProjecti
     
 
     @torch.no_grad()
-    # def extract_id_features(self, id_pixel_values, class_tokens_mask=None, reduce: str = "mean"):
-    def extract_id_features(self, id_pixel_values, id_embeds=None, class_tokens_mask=None, reduce: str = "mean"): # 01 FEB fix
+    def extract_id_tokens(self, id_pixel_values, id_embeds):
+        """Return the two clean PhotoMaker-V2 identity tokens as [B, 2, 2048]."""
+        b, n, c, h, w = id_pixel_values.shape
+        pixels = id_pixel_values.view(b * n, c, h, w)
+        last_hidden_state = self.vision_model(pixels)[0]
+        id_flat = id_embeds.view(b * n, -1).to(
+            device=last_hidden_state.device,
+            dtype=last_hidden_state.dtype,
+        )
+        tokens = self.qformer_perceiver(id_flat, last_hidden_state)
+        return tokens.view(b, n, self.num_tokens, self.cross_attention_dim).mean(dim=1)
+
+    @torch.no_grad()
+    def extract_id_features(self, id_pixel_values, id_embeds=None, class_tokens_mask=None, reduce: str = "mean"):
 
         """
         Return per-sample 2048-D PhotoMaker ID features (NOT fused text).
@@ -177,12 +189,11 @@ class PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken(CLIPVisionModelWithProjecti
 
         ### 01 FEB fix
         if id_embeds is not None:
-            last_hidden_state = self.vision_model(x)[0]          # [B*N, T, 1024]
-            id_flat = id_embeds.view(b * n, -1).to(
-                device=last_hidden_state.device, dtype=last_hidden_state.dtype
-            )                                                    # [B*N, 512]
-            toks = self.qformer_perceiver(id_flat, last_hidden_state)  # [B*N, num_tokens, 2048]
-            e = toks.mean(dim=1)                                 # [B*N, 2048]
+            tokens = self.extract_id_tokens(id_pixel_values, id_embeds)
+            e = tokens.mean(dim=1)
+            if reduce == "none":
+                return tokens
+            return e
         else:
             shared = self.vision_model(x)[1]                     # [B*N, 1024]
             e1 = self.visual_projection(shared)                  # [B*N,  768]
@@ -206,8 +217,6 @@ class PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken(CLIPVisionModelWithProjecti
             e = e.max(dim=1).values
         ### 01 FEB fix
        
-
-        print('[DEBUG] id features from PM extracted')
 
         return e
 

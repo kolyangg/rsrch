@@ -5,6 +5,7 @@ from typing import Sequence
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from .branched_runtime import (
     patch_unet_attention_processors,
@@ -79,6 +80,8 @@ def _processor_trainable_manifest(model) -> dict[str, dict[str, int]]:
             key = "sa_gate"
         elif ".attn1.processor.null_memory" in name:
             key = "sa_null_memory"
+        elif ".attn1.processor.identity_to_" in name:
+            key = "sa_identity_token_projection"
         else:
             attention = "sa" if ".attn1.processor." in name else "ca" if ".attn2.processor." in name else "other"
             branch = "ref" if ".ref_to_" in name else "noise" if ".noise_to_" in name else "other"
@@ -193,6 +196,9 @@ def _assert_branched_installation(model) -> None:
         )
         if learned_null:
             allowed_fragments.append(".attn1.processor.null_memory")
+        identity_token_lane = bool(getattr(model, "ba_identity_token_lane", False))
+        if identity_token_lane:
+            allowed_fragments.append(".attn1.processor.identity_to_")
         invalid = [
             name for name in trainable_processor_keys
             if not any(fragment in name for fragment in allowed_fragments)
@@ -221,6 +227,16 @@ def _assert_branched_installation(model) -> None:
         if learned_null:
             required_categories.add("sa_null_memory")
             expected_local.add("null_memory")
+        if identity_token_lane:
+            required_categories.add("sa_identity_token_projection")
+            expected_local.update(
+                {
+                    "identity_to_k.0.weight",
+                    "identity_to_k.2.weight",
+                    "identity_to_v.0.weight",
+                    "identity_to_v.2.weight",
+                }
+            )
         for name in sorted(expected_sa):
             local_trainable = {
                 key for key, parameter in processors[name].named_parameters()
@@ -363,6 +379,7 @@ def configure_branched_trainables(model) -> None:
                 or ".attn1.processor.connector_up.weight" in name
                 or ".attn1.processor.gate_logit" in name
                 or ".attn1.processor.null_memory" in name
+                or ".attn1.processor.identity_to_" in name
             )
             if is_selected_proc and is_packed_parameter:
                 p.requires_grad_(True)
@@ -492,6 +509,8 @@ def prepare_branched_training_inputs(
     ref_mask_list = []
     ref_latents_list = []
     pm_feature_list = []
+    recognition_embedding_list = []
+    identity_token_list = []
 
     image_h, image_w = pixel_values.shape[-2:]
     latent_h, latent_w = noisy_latents.shape[-2:]
@@ -608,6 +627,9 @@ def prepare_branched_training_inputs(
 
             id_embeds = torch.stack(id_embed_list, dim=0).unsqueeze(0)
             id_embeds = id_embeds.to(device=model.device, dtype=model.id_encoder.dtype)
+            recognition_embedding_list.append(
+                F.normalize(id_embeds.float().mean(dim=1), dim=-1)
+            )
 
             prompt_embeds = model.id_encoder(
                 id_pixel_values,
@@ -635,6 +657,13 @@ def prepare_branched_training_inputs(
                     class_tokens_mask=class_tokens_mask,
                 )
                 pm_feature_list.append(pm_features.to(device=model.device, dtype=model.unet.dtype))
+            if bool(getattr(model, "ba_identity_token_lane", False)):
+                identity_token_list.append(
+                    model.id_encoder.extract_id_tokens(
+                        id_pixel_values,
+                        id_embeds,
+                    ).to(device=model.device, dtype=model.unet.dtype)
+                )
 
         class_tokens_mask_list.append(class_tokens_mask)
         ref_latents_list.append(reference_latent)
@@ -683,6 +712,15 @@ def prepare_branched_training_inputs(
     mask4 = torch.cat(mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
     mask4_ref = torch.cat(ref_mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
     reference_latents = torch.cat(ref_latents_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
+    recognition_embeddings = torch.cat(recognition_embedding_list, dim=0).to(
+        device=model.device,
+        dtype=torch.float32,
+    )
+    identity_tokens = (
+        torch.cat(identity_token_list, dim=0)
+        if identity_token_list
+        else None
+    )
     if bool(getattr(model, "ba_correctness_guards", False)):
         if not torch.isfinite(mask4).all() or not bool((mask4 > 0).flatten(1).any(dim=1).all()):
             _reject_invalid_sample(model, "target_bbox", "target mask is empty or non-finite after resize")
@@ -726,6 +764,125 @@ def prepare_branched_training_inputs(
         mask4,
         mask4_ref,
         reference_latents,
+        recognition_embeddings,
+        identity_tokens,
+    )
+
+
+def prepare_spatial_reference_batch(
+    model,
+    *,
+    ref_images: Sequence[Sequence],
+    face_bbox_ref: Sequence[Sequence[float]],
+    latent_shape: tuple[int, int],
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]:
+    """Encode spatial references without changing target PhotoMaker conditioning."""
+    policy = str(getattr(model, "ba_invalid_sample_policy", "legacy") or "legacy").lower()
+    latents, masks, embeddings, identity_tokens = [], [], [], []
+    latent_h, latent_w = latent_shape
+    for index, (refs, bbox) in enumerate(zip(ref_images, face_bbox_ref)):
+        refs = refs if isinstance(refs, (list, tuple)) else [refs]
+        if len(refs) != 1:
+            raise ValueError("Spatial reference batch requires exactly one image per sample")
+        ref = refs[0]
+        ref_w, ref_h = ref.size
+        try:
+            _validated_bbox(
+                bbox,
+                image_shape=(ref_h, ref_w),
+                label=f"spatial reference bbox for sample {index}",
+            )
+        except ValueError as exc:
+            if policy != "legacy":
+                _reject_invalid_sample(model, "reference_bbox", str(exc))
+            raise
+        with torch.no_grad():
+            pixels = model.id_image_processor(
+                deepcopy(refs),
+                return_tensors="pt",
+            ).pixel_values.unsqueeze(0).to(
+                model.device,
+                dtype=model.id_encoder.dtype,
+            )
+            faces = analyze_faces(
+                model.face_analyzer,
+                np.array(ref.convert("RGB"))[:, :, ::-1],
+            )
+            raw_embedding = None
+            if faces:
+                try:
+                    raw_embedding = faces[0]["embedding"]
+                except (KeyError, TypeError):
+                    raw_embedding = getattr(faces[0], "embedding", None)
+            if raw_embedding is None:
+                _reject_invalid_sample(
+                    model,
+                    "reference_recognition",
+                    f"No recognition embedding for spatial reference sample {index}",
+                )
+            embedding = torch.as_tensor(raw_embedding, dtype=torch.float32)
+            if (
+                embedding.numel() != 512
+                or not torch.isfinite(embedding).all()
+                or float(embedding.norm().item()) <= 0.0
+            ):
+                _reject_invalid_sample(
+                    model,
+                    "reference_recognition",
+                    f"Invalid recognition embedding for spatial reference sample {index}",
+                )
+            id_embeds = embedding.view(1, 1, 512).to(
+                model.device,
+                dtype=model.id_encoder.dtype,
+            )
+            reference_latent = model._encode_reference_latent(
+                ref,
+                target_shape=(latent_h, latent_w),
+            )
+            reference_mask = model._bbox_to_ref_mask(
+                bbox,
+                latent_shape=(latent_h, latent_w),
+                image_shape=(ref_h, ref_w),
+            )
+            if (
+                not torch.isfinite(reference_mask).all()
+                or not bool((reference_mask > 0).any())
+            ):
+                _reject_invalid_sample(
+                    model,
+                    "reference_bbox",
+                    f"Empty/non-finite spatial reference mask for sample {index}",
+                )
+            if bool(getattr(model, "ba_identity_token_lane", False)):
+                identity_tokens.append(
+                    model.id_encoder.extract_id_tokens(pixels, id_embeds).to(
+                        device=model.device,
+                        dtype=model.unet.dtype,
+                    )
+                )
+        latents.append(reference_latent)
+        masks.append(reference_mask)
+        embeddings.append(F.normalize(embedding, dim=-1).unsqueeze(0))
+
+    reference_latents = torch.cat(latents, dim=0).to(
+        device=model.device,
+        dtype=model.unet.dtype,
+    )
+    reference_masks = torch.cat(masks, dim=0).to(
+        device=model.device,
+        dtype=model.unet.dtype,
+    )
+    recognition_embeddings = torch.cat(embeddings, dim=0).to(
+        device=model.device,
+        dtype=torch.float32,
+    )
+    if not torch.isfinite(recognition_embeddings).all():
+        raise FloatingPointError("Spatial-reference recognition embeddings are non-finite")
+    return (
+        reference_latents,
+        reference_masks,
+        recognition_embeddings,
+        torch.cat(identity_tokens, dim=0) if identity_tokens else None,
     )
 
 
@@ -742,6 +899,8 @@ def run_branched_forward_pass(
     face_prompt_embeds: torch.Tensor,
     class_tokens_mask: torch.Tensor,
     id_features: torch.Tensor | None,
+    identity_tokens: torch.Tensor | None = None,
+    reference_noise_override: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Run branched two-branch prediction and return merged noise prediction."""
     noise_pred, _, _ = two_branch_predict(
@@ -757,6 +916,8 @@ def run_branched_forward_pass(
         class_tokens_mask=class_tokens_mask,
         face_embed_strategy=model.face_embed_strategy,
         id_embeds=id_features if model.face_embed_strategy == "id_embeds" else None,
+        identity_tokens=identity_tokens,
+        reference_noise_override=reference_noise_override,
         step_idx=0,
         scale=1.0,
         timestep_cond=None,

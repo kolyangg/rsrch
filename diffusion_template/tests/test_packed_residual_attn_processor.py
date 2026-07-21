@@ -1115,6 +1115,30 @@ class PackedResidualRuntimeTests(unittest.TestCase):
         self.assertEqual(groups[-1]["name"], "ba_ppr_null_memory")
         self.assertEqual(len(groups[-1]["params"]), 1)
 
+    def test_nn5b_identity_kv_are_registered_in_manifest_and_optimizer(self) -> None:
+        model = _tiny_model()
+        model.ba_connector_input_mode = "reference_minus_learned_null"
+        model.ba_null_memory_tokens = 3
+        model.ba_identity_token_lane = True
+        model.ba_identity_token_dim = 2048
+        model.ba_identity_token_rank = 4
+        model.ba_identity_token_weight = 0.5
+        mask = torch.ones(1, 1, 8, 8)
+        patch_unet_attention_processors(model, mask, mask)
+        configure_branched_trainables(model)
+        _assert_branched_installation(model)
+        groups = PhotomakerBranchedLora.get_trainable_params(
+            SimpleNamespace(
+                unet=model.unet,
+                ba_processor_variant="packed_residual_v1",
+                ba_connector_input_mode="reference_minus_learned_null",
+                ba_identity_token_lane=True,
+            ),
+            _OptimizerConfig(lr_for_lora=5e-5),
+        )
+        self.assertEqual(groups[-1]["name"], "ba_ppr_identity_tokens")
+        self.assertEqual(len(groups[-1]["params"]), 4)
+
     def test_legacy_variant_remains_available(self) -> None:
         model = _tiny_model()
         model.ba_processor_variant = "legacy"

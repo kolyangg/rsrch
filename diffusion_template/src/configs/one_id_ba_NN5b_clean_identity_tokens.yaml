@@ -1,0 +1,12 @@
+defaults:
+  - one_id_ba_NN5a_counterfactual_directional_ppr
+  - _self_
+
+# NN5b is the report's separate representation fallback: retain all NN5a
+# counterfactual routing and add the two clean PMv2 QFormer identity tokens as
+# an independent target-Q attention candidate at the same up_blocks.0 PPR sites.
+model:
+  ba_identity_token_lane: true
+  ba_identity_token_dim: 2048
+  ba_identity_token_rank: 32
+  ba_identity_token_weight: 0.5

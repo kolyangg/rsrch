@@ -26,13 +26,20 @@ from src.utils.id_utils import analyze_faces
 from src.utils.model_utils import cos_sim
 
 
-VARIANTS = {
-    "PM0": (0.0, "R1", "N1"),
-    "R1N1": (4.0, "R1", "N1"),
-    "R2N1": (4.0, "R2", "N1"),
-    "R1N2": (4.0, "R1", "N2"),
-    "R2N2": (4.0, "R2", "N2"),
-}
+VARIANT_NAMES = ("PM0", "R1N1", "R2N1", "R1N2", "R2N2")
+
+
+def _variants(scale: float):
+    scale = float(scale)
+    if not math.isfinite(scale) or scale < 0.0:
+        raise ValueError("ppr_reference_noise_scale must be finite and non-negative")
+    return {
+        "PM0": (0.0, "R1", "N1"),
+        "R1N1": (scale, "R1", "N1"),
+        "R2N1": (scale, "R2", "N1"),
+        "R1N2": (scale, "R1", "N2"),
+        "R2N2": (scale, "R2", "N2"),
+    }
 HASH_FIELDS = (
     "initial_latents_sha256",
     "target_prompt_embeds_sha256",
@@ -128,6 +135,10 @@ def _effective_reference_ca_mode(config) -> str:
 
 
 def _initialize_state(trainer) -> dict[str, Any]:
+    # Missing key preserves NN2-NN4's historical 4x diagnostic. NN5 configs
+    # opt into the approval-scale value explicitly.
+    scale = float(getattr(trainer.config, "ppr_reference_noise_scale", 4.0))
+    variants = _variants(scale)
     root = Path(
         str(trainer.config.ppr_reference_noise_output_dir)
     ).expanduser().resolve()
@@ -142,7 +153,7 @@ def _initialize_state(trainer) -> dict[str, Any]:
             )
         shutil.rmtree(root)
     root.mkdir(parents=True)
-    for name in VARIANTS:
+    for name in variants:
         (root / name).mkdir()
     for name in ("contact_sheets", "difference_heatmaps", "face_crops"):
         (root / name).mkdir()
@@ -169,6 +180,8 @@ def _initialize_state(trainer) -> dict[str, Any]:
     }
     state = {
         "root": root,
+        "scale": scale,
+        "variants": variants,
         "noise_seeds": _noise_seeds(trainer.config),
         "reference_ca_override": _reference_ca_mode(trainer.config),
         "reference_ca_mode": _effective_reference_ca_mode(trainer.config),
@@ -534,7 +547,7 @@ def _assert_integrity(
         "target_photomaker_id_embeds_sha256",
     )
     for field in target_fields:
-        values = {fingerprints[name].get(field) for name in VARIANTS}
+        values = {fingerprints[name].get(field) for name in VARIANT_NAMES}
         if None in values or len(values) != 1:
             raise RuntimeError(
                 f"{sample}: target invariant failed for {field}: {values}"
@@ -641,6 +654,9 @@ def run_ppr_reference_noise_batch(trainer, batch, eval_metrics):
     state = getattr(trainer, "_ppr_reference_noise_state", None)
     if state is None:
         state = _initialize_state(trainer)
+    if "variants" not in state:
+        state["scale"] = float(state.get("scale", 4.0))
+        state["variants"] = _variants(state["scale"])
     prompts = batch["prompt"] if isinstance(batch["prompt"], list) else [batch["prompt"]]
     batch_size = len(prompts)
     state["observed_batch_sizes"].append(batch_size)
@@ -693,7 +709,7 @@ def run_ppr_reference_noise_batch(trainer, batch, eval_metrics):
     images: dict[str, list[Image.Image]] = {}
     diagnostics: dict[str, list[dict[str, Any]]] = {}
     fingerprints = {filename: {} for filename in filenames}
-    for name, (scale, reference_kind, noise_kind) in VARIANTS.items():
+    for name, (scale, reference_kind, noise_kind) in state["variants"].items():
         use_swap = reference_kind == "R2"
         variant_images, records = _generate(
             trainer,
@@ -796,7 +812,7 @@ def run_ppr_reference_noise_batch(trainer, batch, eval_metrics):
                     ),
                     "target_seed": target_seed,
                     "reference_noise_seed": state["noise_seeds"][
-                        VARIANTS[name][2]
+                        state["variants"][name][2]
                     ],
                     "prompt": prompts[local_index],
                     "sha256": image_sha,
@@ -1072,12 +1088,12 @@ def _write_effect_and_identity_summaries(state) -> None:
 
 - Reference-half CA mode: `{state["reference_ca_mode"]}`
 - Mean original-ID similarity, PM0: `{np.nanmean(pm_original):.6f}`
-- Mean original-ID similarity, scale-4 PPR: `{np.nanmean(ppr_original):.6f}`
+- Mean original-ID similarity, scale-{state.get("scale", 4.0):g} PPR: `{np.nanmean(ppr_original):.6f}`
 - PPR minus PM0 original-ID similarity: `{np.nanmean(ppr_original) - np.nanmean(pm_original):.6f}`
 - Mean directional gain toward R2: `{direction_summary[-1]["mean_directional_gain_toward_R2"]:.6f}`
 - Fraction with positive directional gain: `{direction_summary[-1]["positive_fraction"]:.3f}`
 
-`effect_decomposition.csv` reports the scale-4 PPR effect `S`, matched-noise
+`effect_decomposition.csv` reports the configured-scale PPR effect `S`, matched-noise
 reference-image effect `I`, matched-reference noise effect `N`, and their
 ratios. `identity_direction_summary.csv` is the decisive identity-transfer
 test. Compare both files with the original-CA run.
@@ -1089,7 +1105,7 @@ test. Compare both files with the original-CA run.
 
 def _create_contact_sheets(state, rows_per_page: int = 6) -> None:
     cell, label = 256, 24
-    names = list(VARIANTS)
+    names = list(VARIANT_NAMES)
     for start in range(0, len(state["filenames"]), rows_per_page):
         filenames = state["filenames"][start:start + rows_per_page]
         sheet = Image.new(
@@ -1265,7 +1281,8 @@ SHA-256/RMS plus the same deterministic 512-value sketch at each paired stage.
             )
         ),
         "sample_count": int(state["next_index"]),
-        "variants": VARIANTS,
+        "variants": state.get("variants", _variants(state.get("scale", 4.0))),
+        "ppr_reference_noise_scale": state.get("scale", 4.0),
         "reference_noise_seeds": state["noise_seeds"],
         "reference_ca_mode": state["reference_ca_mode"],
         "reference_ca_diagnostic_override": state[

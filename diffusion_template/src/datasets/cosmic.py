@@ -945,6 +945,9 @@ class CosmicLargeTrain(BaseDataset):
         ref_crop_margin_min=0.2,
         ref_crop_margin_max=None,
         ref_downscale_jitter=0.0,
+        return_counterfactual_ref=False,
+        counterfactual_same_class_probability=0.8,
+        counterfactual_max_resample_attempts=20,
         train_on_separate_image=False,
         same_id_ref_map_json_pth=None,
         *args,
@@ -1000,6 +1003,17 @@ class CosmicLargeTrain(BaseDataset):
             raise ValueError(
                 f"ref_downscale_jitter must be in [0, 1], got {self.ref_downscale_jitter}"
             )
+        self.return_counterfactual_ref = bool(return_counterfactual_ref)
+        self.counterfactual_same_class_probability = float(
+            counterfactual_same_class_probability
+        )
+        self.counterfactual_max_resample_attempts = int(
+            counterfactual_max_resample_attempts
+        )
+        if not 0.0 <= self.counterfactual_same_class_probability <= 1.0:
+            raise ValueError("counterfactual_same_class_probability must be in [0, 1]")
+        if self.counterfactual_max_resample_attempts <= 0:
+            raise ValueError("counterfactual_max_resample_attempts must be positive")
 
         images_root = Path(self.images_path) if self.images_path is not None else None
         self.dataset_root = images_root.parents[1] if images_root is not None and len(images_root.parents) >= 2 else images_root
@@ -1024,6 +1038,8 @@ class CosmicLargeTrain(BaseDataset):
                 continue
 
             img_data["image_path"] = img_path
+            img_data["_identity_key"] = self._identity_key(img_data, img_path)
+            img_data["_prompt_class"] = self._prompt_class(img_data)
             index.append(img_data)
 
         if self.target_crop_256:
@@ -1033,6 +1049,38 @@ class CosmicLargeTrain(BaseDataset):
             )
 
         super().__init__(index, *args, **kwargs)
+        self.identity_records = list(self._index)
+        self.records_by_prompt_class = {}
+        for record in self.identity_records:
+            self.records_by_prompt_class.setdefault(
+                record["_prompt_class"], []
+            ).append(record)
+        if self.return_counterfactual_ref:
+            unique_identities = {record["_identity_key"] for record in self.identity_records}
+            if len(unique_identities) < 2:
+                raise ValueError(
+                    "Counterfactual references require at least two distinct identities"
+                )
+
+    @staticmethod
+    def _identity_key(img_data, img_path):
+        explicit = (
+            img_data.get("identity_id")
+            or img_data.get("person_id")
+            or img_data.get("id")
+        )
+        if explicit is not None:
+            return str(explicit)
+        face_paths = img_data.get("face_paths") or []
+        if face_paths:
+            return str(Path(str(face_paths[0])).parent)
+        return str(img_path)
+
+    @staticmethod
+    def _prompt_class(img_data):
+        text = str(img_data.get("facial_caption", ""))
+        match = PROMPT_CLASS_RE.search(text)
+        return match.group(1).lower() if match else "person"
 
     @staticmethod
     def _remove_resize_from_transform(transform):
@@ -1338,6 +1386,43 @@ class CosmicLargeTrain(BaseDataset):
             ref_bbox = [w - x1, y0, w - x0, y1]
         return ref_face, ref_bbox
 
+    def get_counterfactual_ref_image(self, matched_img_data, matched_identity_key):
+        """Sample an augmented reference from a guaranteed different identity."""
+        prompt_class = matched_img_data.get("_prompt_class", "person")
+        prefer_same_class = (
+            random.random() < self.counterfactual_same_class_probability
+        )
+        preferred = self.records_by_prompt_class.get(prompt_class, [])
+        pools = [preferred, self.identity_records] if prefer_same_class else [self.identity_records]
+        last_error = None
+        for pool in pools:
+            if not pool:
+                continue
+            for _ in range(self.counterfactual_max_resample_attempts):
+                candidate = random.choice(pool)
+                candidate_key = candidate["_identity_key"]
+                if candidate_key == matched_identity_key:
+                    continue
+                try:
+                    image, bbox = self.get_ref_image(candidate)
+                except (OSError, KeyError, ValueError) as exc:
+                    last_error = exc
+                    continue
+                if (
+                    bbox is None
+                    or min(float(v) for v in bbox) < 0
+                    or float(bbox[2]) > image.size[0]
+                    or float(bbox[3]) > image.size[1]
+                ):
+                    last_error = ValueError("counterfactual reference bbox is invalid")
+                    continue
+                return image, bbox, candidate_key
+        detail = f": {last_error}" if last_error is not None else ""
+        raise RuntimeError(
+            "Could not sample a valid different-identity counterfactual reference"
+            + detail
+        )
+
     def get_face_mask_from_bbox(self, bbox):
         scale = max(float(self.train_image_size) / 32.0, 1.0)
         scaled_box = [
@@ -1405,6 +1490,21 @@ class CosmicLargeTrain(BaseDataset):
         instance_data["ref_images"] = [ref_image]
         instance_data["face_bbox_ref"] = deepcopy(ref_bbox)
 
+        if self.return_counterfactual_ref:
+            matched_identity_key = img_data["_identity_key"]
+            wrong_image, wrong_bbox, wrong_identity_key = (
+                self.get_counterfactual_ref_image(
+                    img_data,
+                    matched_identity_key,
+                )
+            )
+            if wrong_identity_key == matched_identity_key:
+                raise RuntimeError("Counterfactual sampler returned the matched identity")
+            instance_data["matched_identity_key"] = matched_identity_key
+            instance_data["counterfactual_identity_key"] = wrong_identity_key
+            instance_data["counterfactual_ref_images"] = [wrong_image]
+            instance_data["face_bbox_counterfactual_ref"] = deepcopy(wrong_bbox)
+
 
         if self.target_crop_256:
             instance_data["original_sizes"] = (self.train_image_size, self.train_image_size)
@@ -1430,6 +1530,8 @@ class CosmicLargeTrain(BaseDataset):
         assert min(instance_data["face_bbox"]) >= 0
         assert max(instance_data["face_bbox"]) <= self.train_image_size
         assert min(instance_data["face_bbox_ref"]) >= 0
+        if self.return_counterfactual_ref:
+            assert min(instance_data["face_bbox_counterfactual_ref"]) >= 0
 
         return instance_data
 ### MODIFIED ###

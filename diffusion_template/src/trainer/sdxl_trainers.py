@@ -416,6 +416,62 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 f"{metric_name}_weighted",
                 (weight * gathered).item(),
             )
+
+        counterfactual_losses = (
+            (
+                "ba_counterfactual_abs_id_loss",
+                "ba_counterfactual_abs_id_weight",
+                "ba_cf/absolute_id",
+            ),
+            (
+                "ba_counterfactual_direction_loss",
+                "ba_counterfactual_direction_weight",
+                "ba_cf/directional",
+            ),
+            (
+                "ba_counterfactual_ring_loss",
+                "ba_counterfactual_ring_weight",
+                "ba_cf/ring",
+            ),
+        )
+        for output_name, weight_name, metric_name in counterfactual_losses:
+            if output_name not in output:
+                continue
+            value = output[output_name]
+            weight = float(getattr(unwrapped, weight_name, 0.0))
+            if not torch.isfinite(value):
+                raise FloatingPointError(
+                    f"Non-finite counterfactual loss {output_name}: {value}"
+                )
+            batch["loss"] = batch["loss"] + weight * value
+            gathered = self.accelerator.gather(value.detach()).mean()
+            train_metrics.update(metric_name, gathered.item())
+            train_metrics.update(
+                f"{metric_name}_weighted",
+                (weight * gathered).item(),
+            )
+
+        counterfactual_metrics = {
+            "ba_cf_applied_fraction": "ba_cf/applied_fraction",
+            "ba_cf_sim_to_matched": "ba_cf/sim_to_matched",
+            "ba_cf_sim_to_wrong": "ba_cf/sim_to_wrong",
+            "ba_cf_directional_gain": "ba_cf/directional_gain",
+            "ba_cf_generated_embedding_norm": "ba_cf/generated_embedding_norm",
+            "ba_cf_reference_identity_cosine_A_B": (
+                "ba_cf/reference_identity_cosine_A_B"
+            ),
+            "ba_cf_reference_noise_equal": "ba_cf/reference_noise_equal",
+        }
+        for output_name, metric_name in counterfactual_metrics.items():
+            if output_name not in output:
+                continue
+            value = output[output_name]
+            if not torch.isfinite(value):
+                raise FloatingPointError(
+                    f"Non-finite counterfactual metric {output_name}: {value}"
+                )
+            gathered = self.accelerator.gather(value.detach()).mean()
+            train_metrics.update(metric_name, gathered.item())
         
         if self.is_train:
             assert torch.isfinite(batch["loss"]) # sum of all losses is always called loss

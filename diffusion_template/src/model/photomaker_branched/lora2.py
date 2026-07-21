@@ -26,6 +26,7 @@ from .insightface_package import create_face_analyzer
 from .lora2_helpers import (
     install_branched_processors_for_training,
     prepare_branched_training_inputs,
+    prepare_spatial_reference_batch,
     run_branched_forward_pass,
     ensure_branched_after_eval as ensure_branched_after_eval_helper,
 )
@@ -146,6 +147,16 @@ class PhotomakerBranchedLora(SDXL):
         ba_reference_continuation: str = "legacy_ref_projection",
         ba_output_anchor_mode: str = "none",
         ba_diagnostics: bool = False,
+        ba_counterfactual_enabled: bool = False,
+        ba_counterfactual_max_timestep: int = 300,
+        ba_counterfactual_abs_id_weight: float = 0.0,
+        ba_counterfactual_direction_weight: float = 0.0,
+        ba_counterfactual_direction_margin: float = 0.03,
+        ba_counterfactual_ring_weight: float = 0.0,
+        ba_identity_token_lane: bool = False,
+        ba_identity_token_dim: int = 2048,
+        ba_identity_token_rank: int = 32,
+        ba_identity_token_weight: float = 0.5,
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
         ba_uncond_face_fix: bool = False,  # F1: keep plain negative prompt for the uncond face branch under CFG
@@ -328,6 +339,16 @@ class PhotomakerBranchedLora(SDXL):
         ).lower()
         self.ba_output_anchor_mode = str(ba_output_anchor_mode or "none").lower()
         self.ba_diagnostics = bool(ba_diagnostics)
+        self.ba_counterfactual_enabled = bool(ba_counterfactual_enabled)
+        self.ba_counterfactual_max_timestep = int(ba_counterfactual_max_timestep)
+        self.ba_counterfactual_abs_id_weight = float(ba_counterfactual_abs_id_weight)
+        self.ba_counterfactual_direction_weight = float(ba_counterfactual_direction_weight)
+        self.ba_counterfactual_direction_margin = float(ba_counterfactual_direction_margin)
+        self.ba_counterfactual_ring_weight = float(ba_counterfactual_ring_weight)
+        self.ba_identity_token_lane = bool(ba_identity_token_lane)
+        self.ba_identity_token_dim = int(ba_identity_token_dim)
+        self.ba_identity_token_rank = int(ba_identity_token_rank)
+        self.ba_identity_token_weight = float(ba_identity_token_weight)
         if self.ba_invalid_sample_policy not in {"legacy", "error", "skip_batch"}:
             raise ValueError(f"Unknown ba_invalid_sample_policy: {self.ba_invalid_sample_policy}")
         if self.ba_train_timestep_mode not in {"all", "inference_ba_region"}:
@@ -400,6 +421,22 @@ class PhotomakerBranchedLora(SDXL):
             raise ValueError("ba_match_null_margin must be non-negative")
         if self.ba_cap_loss_target <= 0.0:
             raise ValueError("ba_cap_loss_target must be positive")
+        if self.ba_counterfactual_max_timestep < 0:
+            raise ValueError("ba_counterfactual_max_timestep must be non-negative")
+        if any(
+            value < 0.0
+            for value in (
+                self.ba_counterfactual_abs_id_weight,
+                self.ba_counterfactual_direction_weight,
+                self.ba_counterfactual_direction_margin,
+                self.ba_counterfactual_ring_weight,
+            )
+        ):
+            raise ValueError("Counterfactual weights and margin must be non-negative")
+        if self.ba_identity_token_dim <= 0 or self.ba_identity_token_rank <= 0:
+            raise ValueError("Identity-token dimensions must be positive")
+        if not 0.0 <= self.ba_identity_token_weight <= 1.0:
+            raise ValueError("ba_identity_token_weight must be in [0, 1]")
         if (
             self.ba_collect_aux_losses
             and self.ba_connector_input_mode
@@ -457,6 +494,40 @@ class PhotomakerBranchedLora(SDXL):
                 raise ValueError("ba_target_core_erode_frac must be in [0, 0.5)")
             if self.ba_patch_top_k != 1.0 or self.ba_train_top_k != 1.0:
                 raise ValueError("packed_residual_v1 requires BA patch/train top-k equal to 1.0")
+        if self.ba_counterfactual_enabled:
+            required = {
+                "ba_processor_variant": (self.ba_processor_variant, "packed_residual_v1"),
+                "ba_site_policy": (self.ba_site_policy, "up_blocks0_attn1"),
+                "ba_connector_input_mode": (
+                    self.ba_connector_input_mode,
+                    "reference_minus_learned_null",
+                ),
+                "ba_reference_token_text_mode": (
+                    self.ba_reference_token_text_mode,
+                    "zero",
+                ),
+                "ba_reference_pooled_text_mode": (
+                    self.ba_reference_pooled_text_mode,
+                    "zero",
+                ),
+                "ba_output_anchor_mode": (
+                    self.ba_output_anchor_mode,
+                    "base_outside_core",
+                ),
+            }
+            mismatches = [
+                f"{name}={actual!r} (expected {expected!r})"
+                for name, (actual, expected) in required.items()
+                if actual != expected
+            ]
+            if not self.ba_cfg_reference_noise_pairing:
+                mismatches.append("ba_cfg_reference_noise_pairing=false")
+            if self.train_branched_ca_lora:
+                mismatches.append("train_branched_ca_lora=true")
+            if mismatches:
+                raise ValueError(
+                    "Counterfactual PPR architecture mismatch: " + "; ".join(mismatches)
+                )
         self.use_id_loss = bool(use_id_loss)
         self.id_loss_weight = float(id_loss_weight)
         self.id_loss_max_timestep = int(id_loss_max_timestep)
@@ -465,6 +536,7 @@ class PhotomakerBranchedLora(SDXL):
         if self.id_loss_identity_source not in {"ground_truth_target", "reference"}:
             raise ValueError(f"Unknown id_loss_identity_source: {self.id_loss_identity_source}")
         self._id_loss_net = None
+        self._counterfactual_id_loss_net = None
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 
         photomaker_lora_config = LoraConfig(
@@ -552,6 +624,10 @@ class PhotomakerBranchedLora(SDXL):
                 group_fragments["ba_ppr_null_memory"] = (
                     ".attn1.processor.null_memory"
                 )
+            if bool(getattr(self, "ba_identity_token_lane", False)):
+                group_fragments["ba_ppr_identity_tokens"] = (
+                    ".attn1.processor.identity_to_"
+                )
             grouped = []
             matched_ids = set()
             for group_name, fragment in group_fragments.items():
@@ -632,6 +708,16 @@ class PhotomakerBranchedLora(SDXL):
                     "ba_reference_token_mode": self.ba_reference_token_mode,
                     "ba_reference_continuation": self.ba_reference_continuation,
                     "ba_output_anchor_mode": self.ba_output_anchor_mode,
+                    "ba_counterfactual_enabled": self.ba_counterfactual_enabled,
+                    "ba_counterfactual_max_timestep": self.ba_counterfactual_max_timestep,
+                    "ba_counterfactual_abs_id_weight": self.ba_counterfactual_abs_id_weight,
+                    "ba_counterfactual_direction_weight": self.ba_counterfactual_direction_weight,
+                    "ba_counterfactual_direction_margin": self.ba_counterfactual_direction_margin,
+                    "ba_counterfactual_ring_weight": self.ba_counterfactual_ring_weight,
+                    "ba_identity_token_lane": self.ba_identity_token_lane,
+                    "ba_identity_token_dim": self.ba_identity_token_dim,
+                    "ba_identity_token_rank": self.ba_identity_token_rank,
+                    "ba_identity_token_weight": self.ba_identity_token_weight,
                 }
             )
             if self.ba_connector_input_mode == "reference_minus_learned_null":
@@ -828,6 +914,10 @@ class PhotomakerBranchedLora(SDXL):
         crop_top_lefts: Sequence[Sequence[int]],
         face_bbox: Sequence[Sequence[float]],
         face_bbox_ref: Sequence[Sequence[float]] | None = None,
+        counterfactual_ref_images: Sequence[Sequence[Image.Image]] | None = None,
+        face_bbox_counterfactual_ref: Sequence[Sequence[float]] | None = None,
+        matched_identity_key: Sequence[str] | None = None,
+        counterfactual_identity_key: Sequence[str] | None = None,
         do_cfg: bool = False,
         *args,
         **kwargs,
@@ -891,6 +981,8 @@ class PhotomakerBranchedLora(SDXL):
             mask4,
             mask4_ref,
             reference_latents,
+            matched_reference_embeddings,
+            matched_identity_tokens,
         ) = prepare_branched_training_inputs(
             self,
             prompts=prompts,
@@ -912,6 +1004,56 @@ class PhotomakerBranchedLora(SDXL):
                 probability=self.ba_pm_id_attenuation_probability,
                 scale=self.ba_pm_id_attenuation_scale,
             )
+        counterfactual_active = (
+            self.ba_counterfactual_enabled
+            and int(t_scalar.item()) <= self.ba_counterfactual_max_timestep
+        )
+        wrong_reference_latents = None
+        wrong_reference_masks = None
+        wrong_reference_embeddings = None
+        wrong_identity_tokens = None
+        if counterfactual_active:
+            if batch_size != 1:
+                raise RuntimeError(
+                    "NN5 counterfactual pairing requires physical batch size 1"
+                )
+            if (
+                counterfactual_ref_images is None
+                or face_bbox_counterfactual_ref is None
+                or matched_identity_key is None
+                or counterfactual_identity_key is None
+            ):
+                raise RuntimeError("NN5 counterfactual fields are missing from the training batch")
+            matched_keys = list(matched_identity_key)
+            wrong_keys = list(counterfactual_identity_key)
+            if len(matched_keys) != 1 or len(wrong_keys) != 1:
+                raise RuntimeError("NN5 counterfactual identity-key batch must have one row")
+            if matched_keys[0] == wrong_keys[0]:
+                raise RuntimeError("NN5 matched and counterfactual identity keys are equal")
+            (
+                wrong_reference_latents,
+                wrong_reference_masks,
+                wrong_reference_embeddings,
+                wrong_identity_tokens,
+            ) = prepare_spatial_reference_batch(
+                self,
+                ref_images=counterfactual_ref_images,
+                face_bbox_ref=face_bbox_counterfactual_ref,
+                latent_shape=tuple(noisy_latents.shape[-2:]),
+            )
+            if torch.allclose(
+                matched_reference_embeddings,
+                wrong_reference_embeddings,
+                rtol=1e-5,
+                atol=1e-6,
+            ):
+                raise RuntimeError(
+                    "NN5 different identity keys produced indistinguishable recognition embeddings"
+                )
+            if torch.equal(reference_latents, wrong_reference_latents):
+                raise RuntimeError(
+                    "NN5 matched and counterfactual reference latents are byte-identical"
+                )
         ##### BRANCHED ATTENTION - NEW BLOCK 4 #####
 
         ##### BRANCHED ATTENTION - NEW BLOCK 5 #####
@@ -958,7 +1100,86 @@ class PhotomakerBranchedLora(SDXL):
         # )[0]
         ### MEMO: INITIAL LORA UNet pass ###
 
-        if self.train_ba_all_steps:
+        counterfactual_noise_pred = None
+        reference_noise_pair = None
+        if counterfactual_active:
+            noisy_pair = torch.cat([noisy_latents, noisy_latents], dim=0)
+            timestep_pair = torch.cat([timesteps, timesteps], dim=0)
+            prompt_pair = torch.cat([prompt_embeds, prompt_embeds], dim=0)
+            pooled_pair = torch.cat(
+                [pooled_prompt_embeds, pooled_prompt_embeds], dim=0
+            )
+            time_id_pair = torch.cat([add_time_ids, add_time_ids], dim=0).to(
+                device=self.device,
+                dtype=self.unet.dtype,
+            )
+            mask_pair = torch.cat([mask4, mask4], dim=0)
+            reference_pair = torch.cat(
+                [reference_latents, wrong_reference_latents], dim=0
+            )
+            reference_mask_pair = torch.cat(
+                [mask4_ref, wrong_reference_masks], dim=0
+            )
+            face_prompt_pair = torch.cat(
+                [face_prompt_embeds, face_prompt_embeds], dim=0
+            )
+            class_mask_pair = torch.cat(
+                [class_tokens_mask, class_tokens_mask], dim=0
+            )
+            id_feature_pair = (
+                torch.cat([id_features, id_features], dim=0)
+                if id_features is not None
+                else None
+            )
+            identity_token_pair = None
+            if self.ba_identity_token_lane:
+                if matched_identity_tokens is None or wrong_identity_tokens is None:
+                    raise RuntimeError("NN5b identity-token pair was not prepared")
+                identity_token_pair = torch.cat(
+                    [matched_identity_tokens, wrong_identity_tokens], dim=0
+                )
+            base_reference_noise = torch.randn_like(reference_latents)
+            reference_noise_pair = torch.cat(
+                [base_reference_noise, base_reference_noise], dim=0
+            )
+            exact_pairs = {
+                "target_latent": (noisy_pair[:1], noisy_pair[1:]),
+                "timestep": (timestep_pair[:1], timestep_pair[1:]),
+                "prompt": (prompt_pair[:1], prompt_pair[1:]),
+                "target_mask": (mask_pair[:1], mask_pair[1:]),
+                "reference_noise": (
+                    reference_noise_pair[:1],
+                    reference_noise_pair[1:],
+                ),
+            }
+            mismatched = [
+                name for name, (left, right) in exact_pairs.items()
+                if not torch.equal(left, right)
+            ]
+            if mismatched:
+                raise RuntimeError(
+                    "NN5 paired-forward invariants failed: " + ", ".join(mismatched)
+                )
+            pair_pred = run_branched_forward_pass(
+                self,
+                noisy_latents=noisy_pair,
+                timesteps=timestep_pair,
+                prompt_embeds=prompt_pair,
+                added_cond_kwargs={
+                    "text_embeds": pooled_pair,
+                    "time_ids": time_id_pair,
+                },
+                mask4=mask_pair,
+                mask4_ref=reference_mask_pair,
+                reference_latents=reference_pair,
+                face_prompt_embeds=face_prompt_pair,
+                class_tokens_mask=class_mask_pair,
+                id_features=id_feature_pair,
+                identity_tokens=identity_token_pair,
+                reference_noise_override=reference_noise_pair,
+            )
+            noise_pred, counterfactual_noise_pred = pair_pred.chunk(2, dim=0)
+        elif self.train_ba_all_steps:
             noise_pred = run_branched_forward_pass(
                 self,
                 noisy_latents=noisy_latents,
@@ -971,6 +1192,7 @@ class PhotomakerBranchedLora(SDXL):
                 face_prompt_embeds=face_prompt_embeds,
                 class_tokens_mask=class_tokens_mask,
                 id_features=id_features,
+                identity_tokens=matched_identity_tokens,
             )
         elif denoise_progress < photomaker_start_ratio:
             text_only_kwargs = {
@@ -1007,6 +1229,7 @@ class PhotomakerBranchedLora(SDXL):
                 face_prompt_embeds=face_prompt_embeds,
                 class_tokens_mask=class_tokens_mask,
                 id_features=id_features,
+                identity_tokens=matched_identity_tokens,
             )
             ##### BRANCHED ATTENTION - FORWARD PASS #####
 
@@ -1060,11 +1283,32 @@ class PhotomakerBranchedLora(SDXL):
             output["pm_id_attenuated_fraction"] = (
                 pm_id_attenuated.float().mean()
             )
+        apply_id_loss = (
+            self.use_id_loss
+            and int(t_scalar.item()) <= self.id_loss_max_timestep
+        )
+        generated_match = generated_swap = None
+        if counterfactual_active:
+            generated_pair = self._decode_predicted_x0(
+                noise_pred=torch.cat(
+                    [noise_pred, counterfactual_noise_pred], dim=0
+                ),
+                noisy_latents=torch.cat([noisy_latents, noisy_latents], dim=0),
+                timesteps=torch.cat([timesteps, timesteps], dim=0),
+            )
+            generated_match, generated_swap = generated_pair.chunk(2, dim=0)
         if self.use_id_loss:
-            apply_id_loss = int(t_scalar.item()) <= self.id_loss_max_timestep
             output["id_loss_applied"] = noise_pred.new_tensor(float(apply_id_loss))
             output["id_loss"] = (
-                self._compute_id_loss(
+                self._compute_id_loss_from_generated(
+                    generated=generated_match,
+                    pixel_values=pixel_values,
+                    face_bbox=face_bbox,
+                    ref_images=ref_images,
+                    face_bbox_ref=face_bbox_ref,
+                )
+                if apply_id_loss and generated_match is not None
+                else self._compute_id_loss(
                     noise_pred=noise_pred,
                     noisy_latents=noisy_latents,
                     timesteps=timesteps,
@@ -1076,20 +1320,71 @@ class PhotomakerBranchedLora(SDXL):
                 if apply_id_loss
                 else noise_pred.new_zeros(())
             )
+        if self.ba_counterfactual_enabled:
+            output["ba_cf_applied_fraction"] = noise_pred.new_tensor(
+                float(counterfactual_active)
+            )
+        if counterfactual_active:
+            if generated_swap is None:
+                raise RuntimeError("NN5 counterfactual output was not decoded")
+            self._ensure_identity_loss()
+            if self._counterfactual_id_loss_net is None:
+                from src.loss.id_loss import CounterfactualIdentityLoss
+
+                self._counterfactual_id_loss_net = CounterfactualIdentityLoss(
+                    self._id_loss_net
+                )
+            device_type = self.device.type if hasattr(self.device, "type") else "cuda"
+            with torch.autocast(device_type=device_type, enabled=False):
+                cf_values = self._counterfactual_id_loss_net(
+                    generated_swap.float(),
+                    face_bbox,
+                    ref_images,
+                    face_bbox_ref,
+                    counterfactual_ref_images,
+                    face_bbox_counterfactual_ref,
+                    self.ba_counterfactual_direction_margin,
+                )
+            core_mask = make_inner_core_mask(
+                mask4,
+                erode_frac=self.ba_target_core_erode_frac,
+            ).to(device=noise_pred.device, dtype=noise_pred.dtype)
+            ring_mask = (mask4.to(core_mask) - core_mask).clamp(0.0, 1.0)
+            ring_denominator = (
+                ring_mask.float().sum() * counterfactual_noise_pred.shape[1]
+            ).clamp_min(1.0)
+            ring_loss = (
+                ring_mask.float()
+                * (counterfactual_noise_pred.float() - noise_pred.float()).square()
+            ).sum() / ring_denominator
+            reference_cosine = (
+                matched_reference_embeddings * wrong_reference_embeddings
+            ).sum(dim=-1).mean()
+            output.update(
+                {
+                    "ba_counterfactual_abs_id_loss": cf_values["absolute_loss"],
+                    "ba_counterfactual_direction_loss": cf_values["directional_loss"],
+                    "ba_counterfactual_ring_loss": ring_loss,
+                    "ba_cf_sim_to_matched": cf_values["sim_to_matched"],
+                    "ba_cf_sim_to_wrong": cf_values["sim_to_wrong"],
+                    "ba_cf_directional_gain": cf_values["directional_gain"],
+                    "ba_cf_generated_embedding_norm": cf_values[
+                        "generated_embedding_norm"
+                    ],
+                    "ba_cf_reference_identity_cosine_A_B": reference_cosine,
+                    "ba_cf_reference_noise_equal": noise_pred.new_tensor(
+                        float(
+                            torch.equal(
+                                reference_noise_pair[:1],
+                                reference_noise_pair[1:],
+                            )
+                        )
+                    ),
+                }
+            )
         return output
 
-    def _compute_id_loss(
-        self,
-        *,
-        noise_pred,
-        noisy_latents,
-        timesteps,
-        pixel_values,
-        face_bbox,
-        ref_images,
-        face_bbox_ref,
-    ):
-        """Decode predicted x0 and compare its target face to the trusted reference identity."""
+    def _ensure_identity_loss(self):
         if self._id_loss_net is None:
             from src.loss.id_loss import IdentityLoss
 
@@ -1098,6 +1393,8 @@ class PhotomakerBranchedLora(SDXL):
                 device=self.device,
             )
 
+    def _decode_predicted_x0(self, *, noise_pred, noisy_latents, timesteps):
+        """Decode an epsilon prediction to differentiable VAE-space x0 images."""
         alpha_bar = self.noise_scheduler.alphas_cumprod.to(noise_pred.device)[timesteps].float()
         alpha_bar = alpha_bar.view(-1, 1, 1, 1)
         x0 = (
@@ -1112,7 +1409,7 @@ class PhotomakerBranchedLora(SDXL):
         if slicing:
             self.vae.enable_slicing()
         try:
-            generated = self.vae.decode(
+            return self.vae.decode(
                 (x0 / self.vae.config.scaling_factor).to(self.vae.dtype)
             ).sample
         finally:
@@ -1121,6 +1418,16 @@ class PhotomakerBranchedLora(SDXL):
             if slicing:
                 self.vae.disable_slicing()
 
+    def _compute_id_loss_from_generated(
+        self,
+        *,
+        generated,
+        pixel_values,
+        face_bbox,
+        ref_images,
+        face_bbox_ref,
+    ):
+        self._ensure_identity_loss()
         targets = pixel_values.to(device=generated.device, dtype=generated.dtype)
         bboxes = face_bbox if isinstance(face_bbox, (list, tuple)) else [face_bbox]
         device_type = self.device.type if hasattr(self.device, "type") else "cuda"
@@ -1134,6 +1441,31 @@ class PhotomakerBranchedLora(SDXL):
                     reference_bboxes=face_bbox_ref,
                 )
             return self._id_loss_net(generated.float(), targets.float(), bboxes)
+
+    def _compute_id_loss(
+        self,
+        *,
+        noise_pred,
+        noisy_latents,
+        timesteps,
+        pixel_values,
+        face_bbox,
+        ref_images,
+        face_bbox_ref,
+    ):
+        """Decode predicted x0 and compare its target face to the trusted reference identity."""
+        generated = self._decode_predicted_x0(
+            noise_pred=noise_pred,
+            noisy_latents=noisy_latents,
+            timesteps=timesteps,
+        )
+        return self._compute_id_loss_from_generated(
+            generated=generated,
+            pixel_values=pixel_values,
+            face_bbox=face_bbox,
+            ref_images=ref_images,
+            face_bbox_ref=face_bbox_ref,
+        )
 
     def encode_prompt_with_trigger_word(
         self,

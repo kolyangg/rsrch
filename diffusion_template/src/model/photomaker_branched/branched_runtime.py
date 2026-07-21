@@ -126,6 +126,7 @@ def patch_unet_attention_processors(
     mask_ref: torch.Tensor,
     scale: float = 1.0,
     id_embeds: Optional[torch.Tensor] = None,
+    identity_tokens: Optional[torch.Tensor] = None,
     class_tokens_mask: Optional[torch.Tensor] = None,
 )-> None:
     """
@@ -242,6 +243,11 @@ def patch_unet_attention_processors(
     )
     # Always provide id_embeds so processor-local weights participate on every rank
     _idem = id_embeds.to(dev, dt) if id_embeds is not None else torch.zeros(B, 2048, device=dev, dtype=dt)   
+    _identity_tokens = (
+        identity_tokens.to(device=dev, dtype=dt)
+        if identity_tokens is not None
+        else None
+    )
 
     ba_patch_top_k = float(getattr(pipeline, "ba_patch_top_k", 1.0))
     all_processor_names = list(pipeline.unet.attn_processors.keys())
@@ -336,6 +342,18 @@ def patch_unet_attention_processors(
                             ),
                             processor_name=name,
                             diagnostics=bool(getattr(pipeline, "ba_diagnostics", False)),
+                            identity_token_lane=bool(
+                                getattr(pipeline, "ba_identity_token_lane", False)
+                            ),
+                            identity_token_dim=int(
+                                getattr(pipeline, "ba_identity_token_dim", 2048)
+                            ),
+                            identity_token_rank=int(
+                                getattr(pipeline, "ba_identity_token_rank", 32)
+                            ),
+                            identity_token_weight=float(
+                                getattr(pipeline, "ba_identity_token_weight", 0.5)
+                            ),
                         )
                     else:
                         proc = BranchedAttnProcessor(
@@ -366,6 +384,8 @@ def patch_unet_attention_processors(
 
                     # Wire id_embeds (zeros if missing); whether they are used is controlled by use_id_embeds
                     proc.id_embeds = _idem
+                    if isinstance(proc, PackedResidualBranchedAttnProcessor):
+                        proc.identity_tokens = _identity_tokens
 
                     new_procs[name] = proc
                     patched_proc_names.append(name)
@@ -440,6 +460,8 @@ def patch_unet_attention_processors(
                 # (Re)apply id_embeds (zeros if missing); actual usage is gated by use_id_embeds
                 if hasattr(proc, "id_embeds"):
                     proc.id_embeds = _idem
+                if isinstance(proc, PackedResidualBranchedAttnProcessor):
+                    proc.identity_tokens = _identity_tokens
                 if hasattr(proc, "class_tokens_mask"):
                     proc.class_tokens_mask = class_tokens_mask
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
@@ -531,6 +553,8 @@ def two_branch_predict(
     class_tokens_mask: Optional[torch.Tensor] = None,
     face_embed_strategy: str = "face",
     id_embeds: Optional[torch.Tensor] = None, 
+    identity_tokens: Optional[torch.Tensor] = None,
+    reference_noise_override: Optional[torch.Tensor] = None,
     step_idx: int = 0,
     scale: float = 1.0,
     timestep_cond: Optional[torch.Tensor] = None,
@@ -648,7 +672,19 @@ def two_branch_predict(
         cached_noise = pipeline._ref_noise
         setattr(pipeline, noise_cache_name, cached_noise)
 
-    if (
+    if reference_noise_override is not None:
+        if tuple(reference_noise_override.shape) != tuple(reference_latents_base.shape):
+            raise ValueError(
+                "reference_noise_override shape mismatch: "
+                f"{tuple(reference_noise_override.shape)} vs "
+                f"{tuple(reference_latents_base.shape)}"
+            )
+        if reference_noise_override.device != reference_latents_base.device:
+            raise ValueError("reference_noise_override must be on the reference-latent device")
+        if reference_noise_override.dtype != reference_latents_base.dtype:
+            raise ValueError("reference_noise_override must match reference-latent dtype")
+        cached_noise = reference_noise_override
+    elif (
         cached_noise is None
         or tuple(cached_noise.shape) != tuple(reference_latents_base.shape)
     ):
@@ -804,6 +840,7 @@ def two_branch_predict(
     patch_unet_attention_processors(
         pipeline, mask4, mask4_ref, scale,
         id_embeds=id_embeds if face_embed_strategy == "id_embeds" else None,
+        identity_tokens=identity_tokens,
         class_tokens_mask=class_tokens_mask,
     )
 

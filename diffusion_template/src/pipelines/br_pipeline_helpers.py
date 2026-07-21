@@ -422,6 +422,44 @@ def prepare_id_features(
         pipeline._pm_id_embeds_2048 = pm_feats.to(device=pipeline.device, dtype=pipeline.unet.dtype)
 
 
+def prepare_spatial_identity_tokens(
+    pipeline,
+    *,
+    input_id_images: Sequence[Any],
+    device: torch.device,
+) -> None:
+    """Cache clean PMv2 tokens from the spatial (possibly swapped) reference."""
+    if not bool(getattr(pipeline, "ba_identity_token_lane", False)):
+        pipeline._ppr_identity_tokens = None
+        return
+    refs = list(input_id_images)
+    if refs and isinstance(refs[0], (list, tuple)):
+        refs = [group[0] for group in refs]
+    if not refs:
+        raise ValueError("Identity-token PPR requires at least one spatial reference")
+    dtype = pipeline.id_encoder.dtype
+    pixels = pipeline.id_image_processor(
+        refs,
+        return_tensors="pt",
+    ).pixel_values.unsqueeze(1).to(device=device, dtype=dtype)
+    spatial_id_embeds = ensure_id_embeds(
+        pipeline,
+        id_embeds=None,
+        input_id_images=[[ref] for ref in refs],
+        device=device,
+        dtype=dtype,
+    )
+    with torch.no_grad():
+        tokens = pipeline.id_encoder.extract_id_tokens(
+            pixels,
+            spatial_id_embeds,
+        )
+    pipeline._ppr_identity_tokens = tokens.to(
+        device=device,
+        dtype=pipeline.unet.dtype,
+    )
+
+
 def _set_unet_adapters(unet, adapter_names) -> None:
     if not hasattr(unet, "set_adapter"):
         return
@@ -682,6 +720,11 @@ def run_branched_setup(
         id_embeds=id_embeds,
         class_tokens_mask=class_tokens_mask,
     )
+    prepare_spatial_identity_tokens(
+        pipeline,
+        input_id_images=input_id_images,
+        device=device,
+    )
 
     if (
         bool(getattr(pipeline, "ba_ppr_collect_diagnostics", False))
@@ -887,6 +930,26 @@ def run_branched_step(
 
     id_face_ehs = None
     proc_id_embeds = None
+    spatial_identity_tokens = getattr(pipeline, "_ppr_identity_tokens", None)
+    if spatial_identity_tokens is not None:
+        expected_positive = (
+            latent_model_input.shape[0] // 2
+            if pipeline.do_classifier_free_guidance
+            else latent_model_input.shape[0]
+        )
+        if spatial_identity_tokens.shape[0] == 1 and expected_positive > 1:
+            spatial_identity_tokens = spatial_identity_tokens.expand(
+                expected_positive, -1, -1
+            )
+        if spatial_identity_tokens.shape[0] != expected_positive:
+            raise RuntimeError(
+                "Spatial identity-token batch mismatch: "
+                f"{spatial_identity_tokens.shape[0]} vs {expected_positive}"
+            )
+        if pipeline.do_classifier_free_guidance:
+            spatial_identity_tokens = torch.cat(
+                [spatial_identity_tokens, spatial_identity_tokens], dim=0
+            )
     if fes_step == "id_embeds":
         pm = getattr(pipeline, "_pm_id_embeds_2048", None)
         if pm is None:
@@ -936,6 +999,7 @@ def run_branched_step(
         class_tokens_mask=class_tokens_mask,
         face_embed_strategy=fes_step,
         id_embeds=proc_id_embeds,
+        identity_tokens=spatial_identity_tokens,
         step_idx=i,
         scale=photomaker_scale,
         timestep_cond=timestep_cond,
@@ -1315,6 +1379,18 @@ def build_pipeline_from_pretrained(
     pipeline.ba_output_anchor_mode = str(
         getattr(unwrapped_model, "ba_output_anchor_mode", "none") or "none"
     ).lower()
+    pipeline.ba_identity_token_lane = bool(
+        getattr(unwrapped_model, "ba_identity_token_lane", False)
+    )
+    pipeline.ba_identity_token_dim = int(
+        getattr(unwrapped_model, "ba_identity_token_dim", 2048)
+    )
+    pipeline.ba_identity_token_rank = int(
+        getattr(unwrapped_model, "ba_identity_token_rank", 32)
+    )
+    pipeline.ba_identity_token_weight = float(
+        getattr(unwrapped_model, "ba_identity_token_weight", 0.5)
+    )
     pipeline.ba_ppr_runtime_scale = 1.0
     pipeline.ba_ppr_force_base_output = False
     pipeline.ba_ppr_collect_diagnostics = False

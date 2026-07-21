@@ -123,3 +123,94 @@ class IdentityLoss(nn.Module):
         with torch.no_grad():
             identity_embeddings = self._embed(torch.cat(identity_faces, dim=0))
         return (1.0 - (generated_embeddings * identity_embeddings).sum(dim=-1)).mean()
+
+
+class CounterfactualIdentityLoss(nn.Module):
+    """Absolute and directional identity supervision for a swapped reference."""
+
+    def __init__(self, identity_loss: IdentityLoss):
+        super().__init__()
+        self.identity_loss = identity_loss
+
+    @staticmethod
+    def _as_batch(values, batch_size, name):
+        values = list(values)
+        if len(values) == 1 and batch_size > 1:
+            values *= batch_size
+        if len(values) != batch_size:
+            raise ValueError(f"{name} expected {batch_size} values, got {len(values)}")
+        return values
+
+    def _reference_faces(self, images, bboxes, *, device, batch_size, label):
+        images = self._as_batch(images, batch_size, f"{label} images")
+        bboxes = self._as_batch(bboxes, batch_size, f"{label} bboxes")
+        faces = []
+        for image, bbox in zip(images, bboxes):
+            tensor = self.identity_loss._reference_tensor(image, device=device)
+            face = self.identity_loss._crop_resize(tensor, bbox)
+            if face is None:
+                raise ValueError(f"Counterfactual identity loss received an invalid {label} crop")
+            faces.append(face)
+        return torch.cat(faces, dim=0)
+
+    def forward(
+        self,
+        generated_images,
+        target_bboxes,
+        matched_reference_images,
+        matched_reference_bboxes,
+        wrong_reference_images,
+        wrong_reference_bboxes,
+        margin: float,
+    ) -> dict[str, torch.Tensor]:
+        batch_size = int(generated_images.shape[0])
+        target_bboxes = self._as_batch(target_bboxes, batch_size, "target bboxes")
+        generated_faces = []
+        for image, bbox in zip(generated_images, target_bboxes):
+            face = self.identity_loss._crop_resize(image, bbox)
+            if face is None:
+                raise ValueError("Counterfactual identity loss received an invalid generated crop")
+            generated_faces.append(face)
+
+        matched_faces = self._reference_faces(
+            matched_reference_images,
+            matched_reference_bboxes,
+            device=generated_images.device,
+            batch_size=batch_size,
+            label="matched-reference",
+        )
+        wrong_faces = self._reference_faces(
+            wrong_reference_images,
+            wrong_reference_bboxes,
+            device=generated_images.device,
+            batch_size=batch_size,
+            label="wrong-reference",
+        )
+
+        generated_faces = torch.cat(generated_faces, dim=0)
+        self.identity_loss.net.eval()
+        net_dtype = next(self.identity_loss.net.parameters()).dtype
+        raw_generated = self.identity_loss.net(
+            self.identity_loss._standardize(generated_faces).to(dtype=net_dtype)
+        )
+        if not torch.isfinite(raw_generated).all():
+            raise FloatingPointError("Generated counterfactual identity embeddings are non-finite")
+        generated_norm = raw_generated.norm(dim=-1)
+        if bool((generated_norm <= 0).any()):
+            raise FloatingPointError("Generated counterfactual identity embedding has zero norm")
+        generated_embedding = F.normalize(raw_generated, dim=-1)
+        with torch.no_grad():
+            matched_embedding = self.identity_loss._embed(matched_faces)
+            wrong_embedding = self.identity_loss._embed(wrong_faces)
+
+        sim_a = (generated_embedding * matched_embedding).sum(dim=-1)
+        sim_b = (generated_embedding * wrong_embedding).sum(dim=-1)
+        gain = sim_b - sim_a
+        return {
+            "absolute_loss": (1.0 - sim_b).mean(),
+            "directional_loss": F.relu(float(margin) - gain).square().mean(),
+            "sim_to_matched": sim_a.mean(),
+            "sim_to_wrong": sim_b.mean(),
+            "directional_gain": gain.mean(),
+            "generated_embedding_norm": generated_norm.mean(),
+        }
