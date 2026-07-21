@@ -1,0 +1,80 @@
+{
+  "checkpoint": "/home/niko/rsrch/diffusion_template/saved/ba_NN4_causal_null_up0_realvis_1gpu/checkpoint-epoch2.pth",
+  "integrity_assertions_passed": true,
+  "lpips_status": "available",
+  "observed_batch_sizes": [
+    12
+  ],
+  "reference_ca_diagnostic_override": "original",
+  "reference_ca_mode": "zero",
+  "reference_noise_seeds": {
+    "N1": 918273,
+    "N2": 271828
+  },
+  "sample_count": 96,
+  "tensor_capture": "exact SHA-256/RMS plus deterministic 512-value sketch",
+  "validation_args": {
+    "auto_mask_ref": false,
+    "branched_attn_start_step": 15,
+    "branched_start_mode": "both",
+    "crops_coords_top_left": [
+      0,
+      0
+    ],
+    "debug_dir": "hm_debug",
+    "face_embed_strategy": "id",
+    "guidance_rescale": 0.0,
+    "guidance_scale": 5,
+    "height": 1024,
+    "mask_expansion_ratio": 1.0,
+    "mask_softness": 0.0,
+    "merge_start_step": 10,
+    "negative_prompt": "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry",
+    "num_images_per_prompt": 1,
+    "num_inference_steps": 50,
+    "original_size": [
+      1024,
+      1024
+    ],
+    "photomaker_start_step": 10,
+    "photomaker_use_lora_adapter": false,
+    "target_size": [
+      1024,
+      1024
+    ],
+    "use_bbox_mask_gen": true,
+    "use_bbox_mask_ref": true,
+    "use_branched_attention": true,
+    "use_dynamic_mask": false,
+    "val_debug": false,
+    "width": 1024
+  },
+  "validation_base": "None",
+  "variants": {
+    "PM0": [
+      0.0,
+      "R1",
+      "N1"
+    ],
+    "R1N1": [
+      4.0,
+      "R1",
+      "N1"
+    ],
+    "R1N2": [
+      4.0,
+      "R1",
+      "N2"
+    ],
+    "R2N1": [
+      4.0,
+      "R2",
+      "N1"
+    ],
+    "R2N2": [
+      4.0,
+      "R2",
+      "N2"
+    ]
+  }
+}
