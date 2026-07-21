@@ -9,29 +9,5 @@ job:
     instance_type: a100.2gpu.16C.486G
     processes: 1
     workers: 1
-  script: |
-    set -euo pipefail
-    PROJECT_DIR=/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch/diffusion_template
-    LOG_DIR=/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs
-    CHECKPOINT_PATH=${PROJECT_DIR}/saved/ba_NN5b_clean_identity_tokens_nfs_2gpu/checkpoint-epoch1.pth
-    COMETML_ID=49e415ef5db24aba96d4cd1554a53123
-    mkdir -p "${LOG_DIR}"
-    test -f "${CHECKPOINT_PATH}" || {
-      echo "Missing checkpoint: ${CHECKPOINT_PATH}" >&2
-      exit 2
-    }
-    CUDA_LAUNCH_BLOCKING=1 \
-    TORCH_SHOW_CPP_STACKTRACES=1 \
-    NCCL_ASYNC_ERROR_HANDLING=1 \
-    NUM_EPOCHS=15 \
-    STEPS_PER_EPOCH=2000 \
-    bash "${PROJECT_DIR}/serv_new_runs/start_ba_NN5b_clean_identity_tokens_2gpu.sh" \
-      continue_run=true \
-      saved_checkpoint="${CHECKPOINT_PATH}" \
-      ppr_checkpoint_require_nonzero=true \
-      strict_checkpoint_model_config=true \
-      ppr_expected_checkpoint_epoch=1 \
-      cometml_id="${COMETML_ID}" \
-      >> "${LOG_DIR}/logs_NN5b_clean_identity_tokens_2gpu.txt" \
-      2>> "${LOG_DIR}/err_NN5b_clean_identity_tokens_2gpu.txt"
+  script: 'mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs && test -f /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch/diffusion_template/saved/ba_NN5b_clean_identity_tokens_nfs_2gpu/checkpoint-epoch1.pth && CUDA_LAUNCH_BLOCKING=1 TORCH_SHOW_CPP_STACKTRACES=1 NCCL_ASYNC_ERROR_HANDLING=1 NUM_EPOCHS=15 STEPS_PER_EPOCH=2000 bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch/diffusion_template/serv_new_runs/start_ba_NN5b_clean_identity_tokens_2gpu.sh continue_run=true saved_checkpoint=/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch/diffusion_template/saved/ba_NN5b_clean_identity_tokens_nfs_2gpu/checkpoint-epoch1.pth ppr_checkpoint_require_nonzero=true strict_checkpoint_model_config=true ppr_expected_checkpoint_epoch=1 cometml_id=49e415ef5db24aba96d4cd1554a53123 >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/logs_NN5b_clean_identity_tokens_2gpu.txt 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/err_NN5b_clean_identity_tokens_2gpu.txt'
   type: binary
