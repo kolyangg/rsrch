@@ -133,6 +133,10 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         spatial_gate_max: Optional[float] = None,
         spatial_delta_rms_cap: Optional[float] = None,
         total_delta_rms_cap: float = 0.15,
+        spatial_memory_mode: str = "reference_unet",
+        spatial_patch_dim: int = 1024,
+        spatial_local_window: int = 5,
+        spatial_mix_mode: str = "connector_residual",
     ):
         super().__init__()
         if ref_kv_kind != "lora":
@@ -183,6 +187,20 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             raise ValueError("spatial_delta_rms_cap must be in (0, 1]")
         if not 0.0 < float(total_delta_rms_cap) <= 1.0:
             raise ValueError("total_delta_rms_cap must be in (0, 1]")
+        spatial_memory_mode = str(spatial_memory_mode or "reference_unet").lower()
+        if spatial_memory_mode not in {"reference_unet", "clean_clip_patches"}:
+            raise ValueError(f"Unknown spatial_memory_mode: {spatial_memory_mode}")
+        spatial_mix_mode = str(spatial_mix_mode or "connector_residual").lower()
+        if spatial_mix_mode not in {"connector_residual", "direct_candidate_takeover"}:
+            raise ValueError(f"Unknown spatial_mix_mode: {spatial_mix_mode}")
+        if int(spatial_patch_dim) <= 0:
+            raise ValueError("spatial_patch_dim must be positive")
+        if int(spatial_local_window) <= 0 or int(spatial_local_window) % 2 == 0:
+            raise ValueError("spatial_local_window must be a positive odd integer")
+        if spatial_mix_mode == "direct_candidate_takeover" and spatial_memory_mode != "clean_clip_patches":
+            raise ValueError(
+                "direct_candidate_takeover requires clean_clip_patches memory"
+            )
 
         self.hidden_size = int(hidden_size)
         self.ref_kv_kind = ref_kv_kind
@@ -218,6 +236,10 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             delta_rms_cap if spatial_delta_rms_cap is None else spatial_delta_rms_cap
         )
         self.total_delta_rms_cap = float(total_delta_rms_cap)
+        self.spatial_memory_mode = spatial_memory_mode
+        self.spatial_patch_dim = int(spatial_patch_dim)
+        self.spatial_local_window = int(spatial_local_window)
+        self.spatial_mix_mode = spatial_mix_mode
         if self.identity_fusion_mode == "identity_only":
             if not self.enable_identity or self.enable_spatial:
                 raise ValueError("identity_only requires identity enabled and spatial disabled")
@@ -240,6 +262,7 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         self.identity_connector_up: Optional[nn.Linear] = None
         self.identity_gate_logit: Optional[nn.Parameter] = None
         self.identity_tokens: Optional[torch.Tensor] = None
+        self.spatial_patch_tokens: Optional[torch.Tensor] = None
         self.mask: Optional[torch.Tensor] = None
         self.mask_ref: Optional[torch.Tensor] = None
         self.mask_core: Optional[torch.Tensor] = None
@@ -265,32 +288,51 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             )
         initialize_spatial = self.identity_fusion_mode == "blend" or self.enable_spatial
         if initialize_spatial:
-            self.ref_to_k = _clone_effective_linear(
-                attn.to_k,
-                kind=self.ref_kv_kind,
-                rank=self.ref_kv_rank,
-            )
-            self.ref_to_v = _clone_effective_linear(
-                attn.to_v,
-                kind=self.ref_kv_kind,
-                rank=self.ref_kv_rank,
-            )
-            self.connector_down = nn.Linear(
-                projection_dim,
-                self.connector_rank,
-                bias=False,
-                device=base_q.weight.device,
-                dtype=base_q.weight.dtype,
-            )
-            self.connector_up = nn.Linear(
-                self.connector_rank,
-                projection_dim,
-                bias=False,
-                device=base_q.weight.device,
-                dtype=base_q.weight.dtype,
-            )
-            nn.init.kaiming_uniform_(self.connector_down.weight, a=math.sqrt(5))
-            nn.init.zeros_(self.connector_up.weight)
+            if self.spatial_memory_mode == "clean_clip_patches":
+                self.ref_to_k = nn.Linear(
+                    self.spatial_patch_dim,
+                    projection_dim,
+                    bias=False,
+                    device=base_q.weight.device,
+                    dtype=base_q.weight.dtype,
+                )
+                self.ref_to_v = nn.Linear(
+                    self.spatial_patch_dim,
+                    projection_dim,
+                    bias=False,
+                    device=base_q.weight.device,
+                    dtype=base_q.weight.dtype,
+                )
+                nn.init.xavier_uniform_(self.ref_to_k.weight)
+                nn.init.xavier_uniform_(self.ref_to_v.weight)
+            else:
+                self.ref_to_k = _clone_effective_linear(
+                    attn.to_k,
+                    kind=self.ref_kv_kind,
+                    rank=self.ref_kv_rank,
+                )
+                self.ref_to_v = _clone_effective_linear(
+                    attn.to_v,
+                    kind=self.ref_kv_kind,
+                    rank=self.ref_kv_rank,
+                )
+            if self.spatial_mix_mode == "connector_residual":
+                self.connector_down = nn.Linear(
+                    projection_dim,
+                    self.connector_rank,
+                    bias=False,
+                    device=base_q.weight.device,
+                    dtype=base_q.weight.dtype,
+                )
+                self.connector_up = nn.Linear(
+                    self.connector_rank,
+                    projection_dim,
+                    bias=False,
+                    device=base_q.weight.device,
+                    dtype=base_q.weight.dtype,
+                )
+                nn.init.kaiming_uniform_(self.connector_down.weight, a=math.sqrt(5))
+                nn.init.zeros_(self.connector_up.weight)
             self.gate_logit = nn.Parameter(
                 torch.tensor(
                     self.gate_init_logit,
@@ -605,6 +647,95 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         )
         return identity_candidate, identity_null_candidate, lengths
 
+    def _clean_local_spatial_candidate(
+        self,
+        attn,
+        target_query: torch.Tensor,
+        target_base: torch.Tensor,
+        target_core: torch.Tensor,
+        target_face: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Attend to a local clean-CLIP window at the same bbox-relative coordinate.
+
+        This is the inspectable NN7a correspondence MVP: both the target query
+        and face-cropped reference patch grid use normalized inner-face
+        coordinates. It deliberately fails closed outside the target core.
+        """
+        if self.ref_to_k is None or self.ref_to_v is None:
+            raise RuntimeError("Clean spatial K/V projections were not initialized")
+        if self.spatial_patch_tokens is None:
+            raise RuntimeError("Clean spatial memory is enabled but no patch tokens were supplied")
+        patches = self.spatial_patch_tokens.to(
+            device=target_base.device,
+            dtype=target_base.dtype,
+        )
+        batch_size, patch_count, patch_dim = patches.shape
+        if batch_size != target_base.shape[0] or patch_dim != self.spatial_patch_dim:
+            raise ValueError(
+                f"{self.processor_name}: clean patches must be "
+                f"[B,P,{self.spatial_patch_dim}] with B={target_base.shape[0]}; "
+                f"got {tuple(patches.shape)}"
+            )
+        patch_side = int(math.isqrt(patch_count))
+        query_side = int(math.isqrt(target_base.shape[1]))
+        if patch_side * patch_side != patch_count:
+            raise ValueError(f"Clean patch count {patch_count} is not square")
+        if query_side * query_side != target_base.shape[1]:
+            raise ValueError(f"Target token count {target_base.shape[1]} is not square")
+
+        key = self._to_heads(self.ref_to_k(patches), attn.heads)
+        value = self._to_heads(self.ref_to_v(patches), attn.heads)
+        key = self._apply_k_norm(attn, key)
+        candidate = target_base.clone()
+        lengths = torch.zeros(batch_size, device=target_base.device, dtype=torch.long)
+        support = torch.zeros(batch_size, device=target_base.device, dtype=torch.bool)
+        radius = self.spatial_local_window // 2
+        offsets_y, offsets_x = torch.meshgrid(
+            torch.arange(-radius, radius + 1, device=target_base.device),
+            torch.arange(-radius, radius + 1, device=target_base.device),
+            indexing="ij",
+        )
+        offsets_y = offsets_y.flatten()
+        offsets_x = offsets_x.flatten()
+
+        for sample_index in range(batch_size):
+            active = target_core[sample_index, :, 0] > 0
+            face = target_face[sample_index, :, 0] > 0
+            face_indices = face.nonzero(as_tuple=False).flatten()
+            query_indices = active.nonzero(as_tuple=False).flatten()
+            if face_indices.numel() == 0 or query_indices.numel() == 0:
+                continue
+            face_y = torch.div(face_indices, query_side, rounding_mode="floor")
+            face_x = face_indices.remainder(query_side)
+            y0, y1 = face_y.min(), face_y.max()
+            x0, x1 = face_x.min(), face_x.max()
+            query_y = torch.div(query_indices, query_side, rounding_mode="floor")
+            query_x = query_indices.remainder(query_side)
+            ref_y = torch.round(
+                (query_y - y0).float() / float(max(int((y1 - y0).item()), 1))
+                * float(patch_side - 1)
+            ).long()
+            ref_x = torch.round(
+                (query_x - x0).float() / float(max(int((x1 - x0).item()), 1))
+                * float(patch_side - 1)
+            ).long()
+            local_y = (ref_y[:, None] + offsets_y[None]).clamp(0, patch_side - 1)
+            local_x = (ref_x[:, None] + offsets_x[None]).clamp(0, patch_side - 1)
+            local_indices = local_y * patch_side + local_x
+            local_key = key[sample_index][:, local_indices, :]
+            local_value = value[sample_index][:, local_indices, :]
+            query = target_query[sample_index, :, query_indices, :]
+            scores = torch.einsum("hqd,hqwd->hqw", query, local_key)
+            scores = scores / math.sqrt(float(query.shape[-1]))
+            weights = scores.softmax(dim=-1)
+            local_output = torch.einsum("hqw,hqwd->hqd", weights, local_value)
+            candidate[sample_index, query_indices] = local_output.transpose(0, 1).reshape(
+                query_indices.numel(), -1
+            )
+            lengths[sample_index] = self.spatial_local_window ** 2
+            support[sample_index] = True
+        return candidate, lengths, support
+
     def forward(
         self,
         attn,
@@ -663,6 +794,13 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             mode="bilinear",
             binary=False,
         ).to(dtype=target_base.dtype, device=target_base.device)
+        target_face = self._resize_mask(
+            self.mask,
+            target_length=sequence_length,
+            batch_size=generation_batch,
+            mode="nearest",
+            binary=True,
+        ).to(device=target_base.device)
         spatial_reference_candidate = None
         spatial_null_candidate = None
         spatial_connector_input = None
@@ -681,6 +819,25 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         def spatial_candidates():
             if self.ref_to_k is None or self.ref_to_v is None:
                 raise RuntimeError("Spatial reference K/V was not initialized")
+            if self.spatial_memory_mode == "clean_clip_patches":
+                candidate, lengths_local, has_roi = (
+                    self._clean_local_spatial_candidate(
+                        attn,
+                        target_query,
+                        target_base,
+                        target_core,
+                        target_face,
+                    )
+                )
+                connector_value = candidate - target_base
+                return (
+                    candidate,
+                    None,
+                    connector_value,
+                    self.spatial_patch_tokens,
+                    lengths_local,
+                    has_roi,
+                )
             reference_valid = self._resize_mask(
                 self.mask_ref,
                 target_length=sequence_length,
@@ -836,8 +993,8 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
                 lane_lengths.append(identity_lengths)
                 lane_support.append(torch.ones_like(identity_lengths, dtype=torch.bool))
             if self.enable_spatial:
-                if self.connector_down is None or self.connector_up is None or self.gate_logit is None:
-                    raise RuntimeError("Dedicated spatial connector is not initialized")
+                if self.gate_logit is None:
+                    raise RuntimeError("Dedicated spatial gate is not initialized")
                 (
                     spatial_reference_candidate,
                     spatial_null_candidate,
@@ -846,8 +1003,19 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
                     spatial_lengths,
                     spatial_has_roi,
                 ) = spatial_candidates()
-                spatial_connector_hidden = self.connector_down(spatial_connector_input)
-                spatial_raw_delta = self.connector_up(spatial_connector_hidden)
+                if self.spatial_mix_mode == "direct_candidate_takeover":
+                    # NN7a keeps the full-dimensional attention-candidate
+                    # difference. There is intentionally no rank-16 connector
+                    # bottleneck between reference evidence and face ownership.
+                    spatial_connector_hidden = spatial_connector_input
+                    spatial_raw_delta = spatial_connector_input
+                else:
+                    if self.connector_down is None or self.connector_up is None:
+                        raise RuntimeError("Dedicated spatial connector is not initialized")
+                    spatial_connector_hidden = self.connector_down(
+                        spatial_connector_input
+                    )
+                    spatial_raw_delta = self.connector_up(spatial_connector_hidden)
                 (
                     spatial_bounded_delta,
                     spatial_cap_scale,
@@ -1045,14 +1213,22 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
                 tensors = {
                     "reference_candidate": _sample_rows(reference_candidate),
                     "connector_input": _sample_rows(connector_input),
-                    "connector_down": _sample_rows(connector_hidden),
                     "raw_delta": _sample_rows(raw_delta),
                     "bounded_delta": _sample_rows(bounded_delta),
                     "applied_delta": _sample_rows(applied_delta),
                     "combined_applied_delta": _sample_rows(applied_delta),
                 }
-                if self.identity_fusion_mode != "identity_only":
+                if self.spatial_mix_mode != "direct_candidate_takeover":
+                    tensors["connector_down"] = _sample_rows(connector_hidden)
+                if (
+                    self.identity_fusion_mode != "identity_only"
+                    and self.spatial_memory_mode == "reference_unet"
+                ):
                     tensors["reference_hidden"] = _sample_rows(reference_hidden)
+                if self.spatial_patch_tokens is not None:
+                    tensors["clean_spatial_patch_tokens"] = _sample_rows(
+                        self.spatial_patch_tokens
+                    )
                 if identity_candidate is not None:
                     tensors["identity_candidate"] = _sample_rows(
                         identity_candidate

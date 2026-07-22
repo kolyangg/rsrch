@@ -92,6 +92,43 @@ def _processor(
 
 
 class PackedResidualProcessorTests(unittest.TestCase):
+    def test_nn7_clean_local_takeover_is_face_local_and_trainable(self) -> None:
+        torch.manual_seed(27)
+        side = 8
+        attn = _attention()
+        processor = PackedResidualBranchedAttnProcessor(
+            16,
+            identity_fusion_mode="factorized_dual",
+            enable_identity=False,
+            enable_spatial=True,
+            spatial_memory_mode="clean_clip_patches",
+            spatial_patch_dim=8,
+            spatial_local_window=3,
+            spatial_mix_mode="direct_candidate_takeover",
+            spatial_gate_max=0.8,
+            spatial_delta_rms_cap=0.45,
+            total_delta_rms_cap=0.45,
+        )
+        processor.init_from_attention(attn)
+        mask, core = _masks(1, side)
+        processor.set_masks(mask, mask, core)
+        hidden = torch.randn(2, side * side, 16)
+
+        processor.spatial_patch_tokens = torch.randn(1, 16, 8)
+        first = processor(attn, hidden)[:1]
+        processor.spatial_patch_tokens = torch.randn(1, 16, 8)
+        second = processor(attn, hidden)[:1]
+        outside = (core.flatten(2).transpose(1, 2) == 0).expand_as(first)
+        inside = ~outside
+        self.assertTrue(torch.equal(first[outside], second[outside]))
+        self.assertGreater(float((first[inside] - second[inside]).abs().max()), 0.0)
+
+        second.square().mean().backward()
+        self.assertIsNotNone(processor.ref_to_k.weight.grad)
+        self.assertGreater(float(processor.ref_to_k.weight.grad.abs().sum()), 0.0)
+        self.assertIsNotNone(processor.gate_logit.grad)
+        self.assertIsNone(processor.connector_down)
+
     def test_match_null_margin_uses_main_difference_pre_ratio(self) -> None:
         torch.manual_seed(13)
         side = 8
@@ -764,6 +801,53 @@ class _OptimizerConfig(dict):
 
 
 class PackedResidualRuntimeTests(unittest.TestCase):
+    def test_nn7_direct_clean_spatial_trainability_is_exact(self) -> None:
+        model = _tiny_model()
+        model.ba_site_policy = "up_blocks0_attn1"
+        model.disable_branched_ca = True
+        model.ba_identity_fusion_mode = "factorized_dual"
+        model.ba_identity_token_lane = False
+        model.ba_spatial_lane_enabled = True
+        model.ba_identity_site_policy = "up_blocks0_attn1"
+        model.ba_spatial_site_policy = "up_blocks0_attn1"
+        model.ba_spatial_memory_mode = "clean_clip_patches"
+        model.ba_spatial_patch_dim = 8
+        model.ba_spatial_local_window = 3
+        model.ba_spatial_mix_mode = "direct_candidate_takeover"
+        model.ba_spatial_gate_max = 0.8
+        model.ba_spatial_delta_rms_cap = 0.45
+        model.ba_total_delta_rms_cap = 0.45
+        mask = torch.ones(1, 1, 8, 8)
+        patch_unet_attention_processors(
+            model,
+            mask,
+            mask,
+            spatial_patch_tokens=torch.ones(1, 16, 8),
+        )
+        configure_branched_trainables(model)
+        _assert_branched_installation(model)
+        processor = model.unet.attn_processors["up_blocks.0.attn1.processor"]
+        self.assertEqual(
+            {name for name, parameter in processor.named_parameters() if parameter.requires_grad},
+            {"ref_to_k.weight", "ref_to_v.weight", "gate_logit"},
+        )
+        groups = PhotomakerBranchedLora.get_trainable_params(
+            SimpleNamespace(
+                unet=model.unet,
+                ba_processor_variant="packed_residual_v1",
+                ba_identity_fusion_mode="factorized_dual",
+                ba_spatial_lane_enabled=True,
+                ba_spatial_mix_mode="direct_candidate_takeover",
+                ba_connector_input_mode="reference_minus_target",
+                ba_identity_token_lane=False,
+            ),
+            _OptimizerConfig(lr_for_lora=5e-5),
+        )
+        self.assertEqual(
+            [group["name"] for group in groups],
+            ["ba_ppr_ref_k", "ba_ppr_ref_v", "ba_ppr_gate"],
+        )
+
     def test_nn4_site_policy_and_disabled_ca_install_only_up0_sa(self) -> None:
         model = _tiny_model()
         model.ba_site_policy = "up_blocks0_attn1"

@@ -63,6 +63,23 @@ def _validated_bbox(bbox, *, image_shape, label: str) -> tuple[float, float, flo
     return x0, y0, x1, y1
 
 
+def _face_crop(image, bbox):
+    """Crop a validated face bbox for clean spatial-token extraction."""
+    width, height = image.size
+    x0, y0, x1, y1 = _validated_bbox(
+        bbox,
+        image_shape=(height, width),
+        label="clean spatial reference bbox",
+    )
+    box = (
+        max(0, int(math.floor(x0))),
+        max(0, int(math.floor(y0))),
+        min(width, int(math.ceil(x1))),
+        min(height, int(math.ceil(y1))),
+    )
+    return image.convert("RGB").crop(box)
+
+
 def _processor_trainable_manifest(model) -> dict[str, dict[str, int]]:
     categories: dict[str, dict[str, int]] = {}
     for name, parameter in model.unet.named_parameters():
@@ -109,6 +126,13 @@ def _assert_branched_installation(model) -> None:
         fusion_mode = str(
             getattr(model, "ba_identity_fusion_mode", "blend") or "blend"
         ).lower()
+        direct_spatial = (
+            str(
+                getattr(model, "ba_spatial_mix_mode", "connector_residual")
+                or "connector_residual"
+            ).lower()
+            == "direct_candidate_takeover"
+        )
         if fusion_mode == "blend":
             expected_sa = set(
                 select_branched_self_attention_names(
@@ -218,15 +242,23 @@ def _assert_branched_installation(model) -> None:
         if fusion_mode == "identity_only":
             allowed_fragments = [f".attn1.processor.{name}" for name in identity_exact]
         else:
-            allowed_fragments = [
-                ".attn1.processor.ref_to_k.lora_A",
-                ".attn1.processor.ref_to_k.lora_B",
-                ".attn1.processor.ref_to_v.lora_A",
-                ".attn1.processor.ref_to_v.lora_B",
-                ".attn1.processor.connector_down.weight",
-                ".attn1.processor.connector_up.weight",
-                ".attn1.processor.gate_logit",
-            ]
+            allowed_fragments = (
+                [
+                    ".attn1.processor.ref_to_k.weight",
+                    ".attn1.processor.ref_to_v.weight",
+                    ".attn1.processor.gate_logit",
+                ]
+                if direct_spatial
+                else [
+                    ".attn1.processor.ref_to_k.lora_A",
+                    ".attn1.processor.ref_to_k.lora_B",
+                    ".attn1.processor.ref_to_v.lora_A",
+                    ".attn1.processor.ref_to_v.lora_B",
+                    ".attn1.processor.connector_down.weight",
+                    ".attn1.processor.connector_up.weight",
+                    ".attn1.processor.gate_logit",
+                ]
+            )
         learned_null = (
             str(
                 getattr(
@@ -270,22 +302,30 @@ def _assert_branched_installation(model) -> None:
             }
             expected_local = set(identity_exact)
         else:
-            required_categories = {
-                "sa_ref_k",
-                "sa_ref_v",
-                "sa_connector_down",
-                "sa_connector_up",
-                "sa_gate",
-            }
-            expected_local = {
-                "ref_to_k.lora_A",
-                "ref_to_k.lora_B",
-                "ref_to_v.lora_A",
-                "ref_to_v.lora_B",
-                "connector_down.weight",
-                "connector_up.weight",
-                "gate_logit",
-            }
+            if direct_spatial:
+                required_categories = {"sa_ref_k", "sa_ref_v", "sa_gate"}
+                expected_local = {
+                    "ref_to_k.weight",
+                    "ref_to_v.weight",
+                    "gate_logit",
+                }
+            else:
+                required_categories = {
+                    "sa_ref_k",
+                    "sa_ref_v",
+                    "sa_connector_down",
+                    "sa_connector_up",
+                    "sa_gate",
+                }
+                expected_local = {
+                    "ref_to_k.lora_A",
+                    "ref_to_k.lora_B",
+                    "ref_to_v.lora_A",
+                    "ref_to_v.lora_B",
+                    "connector_down.weight",
+                    "connector_up.weight",
+                    "gate_logit",
+                }
         if learned_null and fusion_mode != "identity_only":
             required_categories.add("sa_null_memory")
             expected_local.add("null_memory")
@@ -317,6 +357,12 @@ def _assert_branched_installation(model) -> None:
                 if bool(getattr(processor, "enable_spatial", False)):
                     expected_local.update(
                         {
+                            "ref_to_k.weight",
+                            "ref_to_v.weight",
+                            "gate_logit",
+                        }
+                        if direct_spatial
+                        else {
                             "ref_to_k.lora_A",
                             "ref_to_k.lora_B",
                             "ref_to_v.lora_A",
@@ -466,6 +512,13 @@ def configure_branched_trainables(model) -> None:
             fusion_mode = str(
                 getattr(model, "ba_identity_fusion_mode", "blend") or "blend"
             ).lower()
+            direct_spatial = (
+                str(
+                    getattr(model, "ba_spatial_mix_mode", "connector_residual")
+                    or "connector_residual"
+                ).lower()
+                == "direct_candidate_takeover"
+            )
             if fusion_mode == "identity_only":
                 is_packed_parameter = any(
                     fragment in name
@@ -482,12 +535,24 @@ def configure_branched_trainables(model) -> None:
                 )
             else:
                 is_packed_parameter = (
-                    ".attn1.processor.ref_to_k.lora_A" in name
-                    or ".attn1.processor.ref_to_k.lora_B" in name
-                    or ".attn1.processor.ref_to_v.lora_A" in name
-                    or ".attn1.processor.ref_to_v.lora_B" in name
-                    or ".attn1.processor.connector_down.weight" in name
-                    or ".attn1.processor.connector_up.weight" in name
+                    (
+                        direct_spatial
+                        and (
+                            ".attn1.processor.ref_to_k.weight" in name
+                            or ".attn1.processor.ref_to_v.weight" in name
+                        )
+                    )
+                    or (
+                        not direct_spatial
+                        and (
+                            ".attn1.processor.ref_to_k.lora_A" in name
+                            or ".attn1.processor.ref_to_k.lora_B" in name
+                            or ".attn1.processor.ref_to_v.lora_A" in name
+                            or ".attn1.processor.ref_to_v.lora_B" in name
+                            or ".attn1.processor.connector_down.weight" in name
+                            or ".attn1.processor.connector_up.weight" in name
+                        )
+                    )
                     or ".attn1.processor.gate_logit" in name
                     or ".attn1.processor.null_memory" in name
                     or ".attn1.processor.identity_to_" in name
@@ -625,6 +690,7 @@ def prepare_branched_training_inputs(
     pm_feature_list = []
     recognition_embedding_list = []
     identity_token_list = []
+    spatial_patch_token_list = []
 
     image_h, image_w = pixel_values.shape[-2:]
     latent_h, latent_w = noisy_latents.shape[-2:]
@@ -778,6 +844,23 @@ def prepare_branched_training_inputs(
                         id_embeds,
                     ).to(device=model.device, dtype=model.unet.dtype)
                 )
+            if (
+                getattr(model, "ba_spatial_memory_mode", "reference_unet")
+                == "clean_clip_patches"
+            ):
+                crop_pixels = model.id_image_processor(
+                    [_face_crop(ref, ref_bbox)],
+                    return_tensors="pt",
+                ).pixel_values.unsqueeze(0).to(
+                    model.device,
+                    dtype=model.id_encoder.dtype,
+                )
+                spatial_patch_token_list.append(
+                    model.id_encoder.extract_spatial_patch_tokens(crop_pixels).to(
+                        device=model.device,
+                        dtype=model.unet.dtype,
+                    )
+                )
 
         class_tokens_mask_list.append(class_tokens_mask)
         ref_latents_list.append(reference_latent)
@@ -835,6 +918,11 @@ def prepare_branched_training_inputs(
         if identity_token_list
         else None
     )
+    spatial_patch_tokens = (
+        torch.cat(spatial_patch_token_list, dim=0)
+        if spatial_patch_token_list
+        else None
+    )
     if bool(getattr(model, "ba_correctness_guards", False)):
         if not torch.isfinite(mask4).all() or not bool((mask4 > 0).flatten(1).any(dim=1).all()):
             _reject_invalid_sample(model, "target_bbox", "target mask is empty or non-finite after resize")
@@ -880,6 +968,7 @@ def prepare_branched_training_inputs(
         reference_latents,
         recognition_embeddings,
         identity_tokens,
+        spatial_patch_tokens,
     )
 
 
@@ -889,10 +978,16 @@ def prepare_spatial_reference_batch(
     ref_images: Sequence[Sequence],
     face_bbox_ref: Sequence[Sequence[float]],
     latent_shape: tuple[int, int],
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]:
+) -> tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor | None,
+    torch.Tensor | None,
+]:
     """Encode spatial references without changing target PhotoMaker conditioning."""
     policy = str(getattr(model, "ba_invalid_sample_policy", "legacy") or "legacy").lower()
-    latents, masks, embeddings, identity_tokens = [], [], [], []
+    latents, masks, embeddings, identity_tokens, spatial_patch_tokens = [], [], [], [], []
     latent_h, latent_w = latent_shape
     for index, (refs, bbox) in enumerate(zip(ref_images, face_bbox_ref)):
         refs = refs if isinstance(refs, (list, tuple)) else [refs]
@@ -974,6 +1069,23 @@ def prepare_spatial_reference_batch(
                         dtype=model.unet.dtype,
                     )
                 )
+            if (
+                getattr(model, "ba_spatial_memory_mode", "reference_unet")
+                == "clean_clip_patches"
+            ):
+                crop_pixels = model.id_image_processor(
+                    [_face_crop(ref, bbox)],
+                    return_tensors="pt",
+                ).pixel_values.unsqueeze(0).to(
+                    model.device,
+                    dtype=model.id_encoder.dtype,
+                )
+                spatial_patch_tokens.append(
+                    model.id_encoder.extract_spatial_patch_tokens(crop_pixels).to(
+                        device=model.device,
+                        dtype=model.unet.dtype,
+                    )
+                )
         latents.append(reference_latent)
         masks.append(reference_mask)
         embeddings.append(F.normalize(embedding, dim=-1).unsqueeze(0))
@@ -997,6 +1109,7 @@ def prepare_spatial_reference_batch(
         reference_masks,
         recognition_embeddings,
         torch.cat(identity_tokens, dim=0) if identity_tokens else None,
+        torch.cat(spatial_patch_tokens, dim=0) if spatial_patch_tokens else None,
     )
 
 
@@ -1014,6 +1127,7 @@ def run_branched_forward_pass(
     class_tokens_mask: torch.Tensor,
     id_features: torch.Tensor | None,
     identity_tokens: torch.Tensor | None = None,
+    spatial_patch_tokens: torch.Tensor | None = None,
     reference_noise_override: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Run branched two-branch prediction and return merged noise prediction."""
@@ -1031,6 +1145,7 @@ def run_branched_forward_pass(
         face_embed_strategy=model.face_embed_strategy,
         id_embeds=id_features if model.face_embed_strategy == "id_embeds" else None,
         identity_tokens=identity_tokens,
+        spatial_patch_tokens=spatial_patch_tokens,
         reference_noise_override=reference_noise_override,
         step_idx=0,
         scale=1.0,

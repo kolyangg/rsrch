@@ -1,7 +1,7 @@
 # Submit with:
 # mls job submit --config ./serv_new_runs/run_ba_NN6a_factorized_identity_only_up0_combined_2gpu.yaml
 job:
-  description: "NN6a identity only train 4k and RealVis causal diagnostic 2gpu #nasilaev"
+  description: "NN6a identity only train 4k and RealVis 2k 4k causal diagnostics 2gpu #nasilaev"
   environment:
     image: cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36
   resource:

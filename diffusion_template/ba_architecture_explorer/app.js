@@ -99,7 +99,7 @@ const PPR_FILES = {
   },
   NN6a: {
     config: "../src/configs/one_id_ba_NN6a_factorized_identity_only_up0.yaml",
-    launcher: "../serv_new_runs/run_ba_NN6a_factorized_identity_only_up0_combined_1gpu.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN6a_train_then_diagnose_1gpu.sh",
     report: NN6_SPEC,
   },
 };

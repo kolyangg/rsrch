@@ -474,8 +474,15 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             gathered = gathered_values.mean()
             train_metrics.update(metric_name, gathered.item())
             if output_name == "ba_cf_applied_fraction":
-                active = int((gathered_values > 0.5).sum().item())
-                inactive = int(gathered_values.numel()) - active
+                active_flags = gathered_values > 0.5
+                if not bool(
+                    (active_flags == active_flags[:1]).all().item()
+                ):
+                    raise RuntimeError(
+                        "Counterfactual activation differs across DDP ranks"
+                    )
+                active = int(active_flags[0].item())
+                inactive = 1 - active
                 self._ba_cf_active_updates = int(
                     getattr(self, "_ba_cf_active_updates", 0)
                 ) + active

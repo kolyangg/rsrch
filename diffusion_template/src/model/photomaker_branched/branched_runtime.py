@@ -132,6 +132,7 @@ def patch_unet_attention_processors(
     scale: float = 1.0,
     id_embeds: Optional[torch.Tensor] = None,
     identity_tokens: Optional[torch.Tensor] = None,
+    spatial_patch_tokens: Optional[torch.Tensor] = None,
     class_tokens_mask: Optional[torch.Tensor] = None,
 )-> None:
     """
@@ -251,6 +252,11 @@ def patch_unet_attention_processors(
     _identity_tokens = (
         identity_tokens.to(device=dev, dtype=dt)
         if identity_tokens is not None
+        else None
+    )
+    _spatial_patch_tokens = (
+        spatial_patch_tokens.to(device=dev, dtype=dt)
+        if spatial_patch_tokens is not None
         else None
     )
 
@@ -428,6 +434,26 @@ def patch_unet_attention_processors(
                             total_delta_rms_cap=float(
                                 getattr(pipeline, "ba_total_delta_rms_cap", 0.15)
                             ),
+                            spatial_memory_mode=str(
+                                getattr(
+                                    pipeline,
+                                    "ba_spatial_memory_mode",
+                                    "reference_unet",
+                                )
+                            ),
+                            spatial_patch_dim=int(
+                                getattr(pipeline, "ba_spatial_patch_dim", 1024)
+                            ),
+                            spatial_local_window=int(
+                                getattr(pipeline, "ba_spatial_local_window", 5)
+                            ),
+                            spatial_mix_mode=str(
+                                getattr(
+                                    pipeline,
+                                    "ba_spatial_mix_mode",
+                                    "connector_residual",
+                                )
+                            ),
                         )
                     else:
                         proc = BranchedAttnProcessor(
@@ -460,6 +486,7 @@ def patch_unet_attention_processors(
                     proc.id_embeds = _idem
                     if isinstance(proc, PackedResidualBranchedAttnProcessor):
                         proc.identity_tokens = _identity_tokens
+                        proc.spatial_patch_tokens = _spatial_patch_tokens
 
                     new_procs[name] = proc
                     patched_proc_names.append(name)
@@ -536,6 +563,7 @@ def patch_unet_attention_processors(
                     proc.id_embeds = _idem
                 if isinstance(proc, PackedResidualBranchedAttnProcessor):
                     proc.identity_tokens = _identity_tokens
+                    proc.spatial_patch_tokens = _spatial_patch_tokens
                 if hasattr(proc, "class_tokens_mask"):
                     proc.class_tokens_mask = class_tokens_mask
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
@@ -629,6 +657,7 @@ def two_branch_predict(
     face_embed_strategy: str = "face",
     id_embeds: Optional[torch.Tensor] = None, 
     identity_tokens: Optional[torch.Tensor] = None,
+    spatial_patch_tokens: Optional[torch.Tensor] = None,
     reference_noise_override: Optional[torch.Tensor] = None,
     step_idx: int = 0,
     scale: float = 1.0,
@@ -916,6 +945,7 @@ def two_branch_predict(
         pipeline, mask4, mask4_ref, scale,
         id_embeds=id_embeds if face_embed_strategy == "id_embeds" else None,
         identity_tokens=identity_tokens,
+        spatial_patch_tokens=spatial_patch_tokens,
         class_tokens_mask=class_tokens_mask,
     )
 

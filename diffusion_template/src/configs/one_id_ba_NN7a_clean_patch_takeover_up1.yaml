@@ -1,0 +1,51 @@
+defaults:
+  - one_id_ba_NN5a_counterfactual_directional_ppr
+  - _self_
+
+# NN7a is the proposal's first ablation rung: restore rich spatial reference
+# evidence without restoring the noised reference U-Net as the active memory.
+# A face-cropped clean PMv2/CLIP patch grid supplies local K/V; target self-
+# attention remains the explicit fallback and PhotoMaker epsilon is preserved
+# exactly outside the feathered manual-bbox core. Landmark/UV registration and
+# semantic occluder masks are intentionally deferred to NN7b/c.
+pretrained_model_for_validation_name_or_path: SG161222/RealVisXL_V4.0
+
+model:
+  ba_identity_token_lane: false
+  ba_identity_fusion_mode: factorized_dual
+  ba_spatial_lane_enabled: true
+
+  # NN7a operates only where local identity detail is formed.
+  ba_site_policy: up_blocks1_attn1
+  ba_spatial_site_policy: up_blocks1_attn1
+  ba_identity_site_policy: up_blocks1_attn1
+
+  # Clean face-cropped CLIP grid with a bbox-normalized 5x5 correspondence
+  # window. The old evolving/noised reference hidden states remain available
+  # behind the default reference_unet toggle but are ignored in this run.
+  ba_spatial_memory_mode: clean_clip_patches
+  ba_spatial_patch_dim: 1024
+  ba_spatial_local_window: 5
+  ba_spatial_mix_mode: direct_candidate_takeover
+
+  # Direct full-dimensional candidate takeover: alpha starts at ~0.02 and can
+  # learn up to 0.80. The candidate difference is capped before application.
+  ba_spatial_gate_max: 0.80
+  ba_gate_init_logit: -3.6635616461
+  ba_spatial_delta_rms_cap: 0.45
+  ba_total_delta_rms_cap: 0.45
+  ba_target_core_erode_frac: 0.15
+
+  # Direct takeover has no learned-null/connector bottleneck or related losses.
+  ba_connector_input_mode: reference_minus_target
+  ba_null_residual_loss_weight: 0.0
+  ba_match_null_margin_weight: 0.0
+  ba_cap_loss_weight: 0.0
+
+  # Preserve the safe NN5/NN6 topology and exact causal A/B supervision.
+  train_branched_ca_lora: false
+  pose_adapt_ratio: 0.0
+  ca_mixing_for_face: false
+  ba_output_anchor_mode: base_outside_core
+  ba_pm_id_attenuation_probability: 0.0
+  ba_pm_id_attenuation_scale: 1.0

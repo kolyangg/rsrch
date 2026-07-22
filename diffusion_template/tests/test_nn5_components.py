@@ -430,6 +430,103 @@ class NN5ComponentTests(unittest.TestCase):
                 identity_token_lane=True,
             )
 
+    def test_identity_only_zero_tolerance_requires_exact_tensor_hashes(self):
+        sample = "sample.png"
+        content = {
+            "PM0": ("r1", "l1", "m1", "n1", "r1n1", "token-r1"),
+            "R1N1": ("r1", "l1", "m1", "n1", "r1n1", "token-r1"),
+            "R2N1": ("r2", "l2", "m2", "n1", "r2n1", "token-r2"),
+            "R1N2": ("r1", "l1", "m1", "n2", "r1n2", "token-r1"),
+            "R2N2": ("r2", "l2", "m2", "n2", "r2n2", "token-r2"),
+        }
+        fingerprints = {
+            name: {
+                "initial_latents_sha256": "target-latent",
+                "target_prompt_embeds_sha256": "target-prompt",
+                "target_photomaker_id_embeds_sha256": "target-pm-id",
+                "spatial_reference_image_sha256": image,
+                "reference_latents_sha256": latent,
+                "reference_mask_sha256": mask,
+                "reference_mask_nonempty": True,
+                "reference_noise_sha256": noise,
+                "ref_noised_step_15_sha256": noised + "-15",
+                "ref_noised_step_25_sha256": noised + "-25",
+                "ref_noised_step_35_sha256": noised + "-35",
+                "reference_ca_prompt_sha256": "reference-ca",
+                "reference_ca_mode": "original",
+                "spatial_identity_tokens_sha256": token,
+            }
+            for name, (image, latent, mask, noise, noised, token) in content.items()
+        }
+        stages = (
+            "identity_candidate",
+            "identity_null_candidate",
+            "identity_connector_input",
+            "identity_raw_delta",
+            "identity_bounded_delta",
+            "identity_applied_delta",
+            "combined_applied_delta",
+        )
+
+        def signature(digest):
+            return {"sha256": digest, "sketch": [1.0, 2.0]}
+
+        diagnostics = {
+            "PM0": [
+                {
+                    "record_type": "epsilon_ratio",
+                    "output_control": "diagnostic-force-base",
+                }
+            ]
+        }
+        for name in ("R1N1", "R2N1", "R1N2", "R2N2"):
+            processor_record = {
+                "record_type": "processor_tensor_signature",
+                "step": 15,
+                "processor": "up_blocks.0.attn1",
+                "roi_tokens": 2,
+            }
+            processor_record.update(
+                {stage: signature(f"{name[:2]}-{stage}") for stage in stages}
+            )
+            # Same identity and identical 512-value sketch, but a different
+            # full-tensor hash under N2: exact tolerance must reject this.
+            if name == "R1N2":
+                processor_record["identity_candidate"] = signature(
+                    "different-full-tensor-hash"
+                )
+            epsilon_record = {
+                "record_type": "epsilon_tensor_signature",
+                "step": 15,
+                "processor": "",
+                "target_epsilon_pre_anchor": signature(f"{name[:2]}-pre"),
+                "target_epsilon_post_anchor": signature(f"{name[:2]}-post"),
+            }
+            diagnostics[name] = [
+                processor_record,
+                epsilon_record,
+                {
+                    "record_type": "processor_applied_ratio",
+                    "samples": [sample],
+                    "applied_ratios": [0.1],
+                    "cap_scales": [1.0],
+                },
+            ]
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "identity-only reference-noise leak.*exact=False",
+        ):
+            _assert_integrity(
+                sample,
+                fingerprints,
+                diagnostics,
+                "original",
+                identity_token_lane=True,
+                identity_fusion_mode="identity_only",
+                identity_noise_tolerance=0.0,
+            )
+
     def test_reference_noise_variants_use_requested_scale(self):
         variants = _variants(1.0)
         self.assertEqual(variants["PM0"][0], 0.0)

@@ -521,6 +521,7 @@ def _tensor_comparisons(
                 stages = []
                 for optional_stage in (
                     "reference_hidden",
+                    "clean_spatial_patch_tokens",
                     "reference_candidate",
                     "connector_input",
                     "connector_down",
@@ -579,6 +580,7 @@ def _assert_integrity(
     identity_token_lane: bool = False,
     identity_fusion_mode: str = "blend",
     identity_noise_tolerance: float = 0.0,
+    spatial_memory_mode: str = "reference_unet",
 ) -> None:
     target_fields = (
         "initial_latents_sha256",
@@ -597,6 +599,8 @@ def _assert_integrity(
         required_fields = list(HASH_FIELDS)
         if identity_token_lane:
             required_fields.append("spatial_identity_tokens_sha256")
+        if spatial_memory_mode == "clean_clip_patches":
+            required_fields.append("clean_spatial_patch_tokens_sha256")
         missing = [
             field
             for field in required_fields
@@ -647,6 +651,26 @@ def _assert_integrity(
             raise RuntimeError(
                 f"{sample}: reference-noise swap changed identity tokens"
             )
+        if not equal("R2N1", "R2N2", token_field):
+            raise RuntimeError(
+                f"{sample}: R2 reference-noise swap changed identity tokens"
+            )
+        if equal("R1N2", "R2N2", token_field):
+            raise RuntimeError(
+                f"{sample}: N2 R1/R2 swap did not change identity tokens"
+            )
+    if spatial_memory_mode == "clean_clip_patches":
+        patch_field = ("clean_spatial_patch_tokens_sha256",)
+        if equal("R1N1", "R2N1", patch_field):
+            raise RuntimeError(
+                f"{sample}: R1/R2 swap did not change clean spatial patches"
+            )
+        for left_name, right_name in (("R1N1", "R1N2"), ("R2N1", "R2N2")):
+            if not equal(left_name, right_name, patch_field):
+                raise RuntimeError(
+                    f"{sample}: reference noise changed clean spatial patches in "
+                    f"{left_name}/{right_name}"
+                )
     if not equal(
         "R1N1",
         "R1N2",
@@ -763,10 +787,18 @@ def _assert_integrity(
                         continue
                     exact = left[field]["sha256"] == right[field]["sha256"]
                     relative = _relative_signature(left[field], right[field])
-                    if not exact and relative > float(identity_noise_tolerance):
+                    tolerance = float(identity_noise_tolerance)
+                    violates_invariant = (
+                        (not exact)
+                        if tolerance <= 0.0
+                        else ((not exact) and relative > tolerance)
+                    )
+                    if violates_invariant:
                         raise RuntimeError(
                             f"{sample}: identity-only reference-noise leak at "
-                            f"{field} {left_name}/{right_name}: relative={relative}"
+                            f"{field} {left_name}/{right_name}: "
+                            f"exact={exact}, relative={relative}, "
+                            f"tolerance={tolerance}"
                         )
 
 
@@ -804,6 +836,17 @@ def run_ppr_reference_noise_batch(trainer, batch, eval_metrics):
         float(getattr(trainer.config, "ppr_identity_noise_tolerance", 0.0)),
     )
     state.setdefault("identity_noise_invariant", {})
+    state.setdefault(
+        "spatial_memory_mode",
+        str(
+            getattr(
+                getattr(trainer.config, "model", None),
+                "ba_spatial_memory_mode",
+                "reference_unet",
+            )
+            or "reference_unet"
+        ).lower(),
+    )
     prompts = batch["prompt"] if isinstance(batch["prompt"], list) else [batch["prompt"]]
     batch_size = len(prompts)
     state["observed_batch_sizes"].append(batch_size)
@@ -841,7 +884,12 @@ def run_ppr_reference_noise_batch(trainer, batch, eval_metrics):
         swap_bboxes.append(swap_bbox)
 
     start_index = int(state["next_index"])
-    sample_indices = list(range(start_index, start_index + batch_size))
+    validation_indices = batch.get("validation_index")
+    sample_indices = (
+        [int(value) for value in _per_sample(validation_indices, batch_size)]
+        if validation_indices is not None
+        else list(range(start_index, start_index + batch_size))
+    )
     state["next_index"] += batch_size
     filenames = [
         f"{sample_index:03d}_{identity}_seed{target_seed}.png"
@@ -911,6 +959,7 @@ def run_ppr_reference_noise_batch(trainer, batch, eval_metrics):
             identity_token_lane=state["identity_token_lane"],
             identity_fusion_mode=state["identity_fusion_mode"],
             identity_noise_tolerance=state["identity_noise_tolerance"],
+            spatial_memory_mode=state["spatial_memory_mode"],
         )
         if state["identity_fusion_mode"] == "identity_only":
             sample_invariants = {}

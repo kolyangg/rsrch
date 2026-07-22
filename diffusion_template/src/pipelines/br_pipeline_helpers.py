@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -427,21 +428,26 @@ def prepare_spatial_identity_tokens(
     *,
     input_id_images: Sequence[Any],
     device: torch.device,
+    face_bbox_ref=None,
 ) -> None:
-    """Cache clean PMv2 tokens from the spatial (possibly swapped) reference."""
-    if not bool(getattr(pipeline, "ba_identity_token_lane", False)):
+    """Cache clean PMv2 identity and/or spatial tokens from the active reference."""
+    need_identity = bool(getattr(pipeline, "ba_identity_token_lane", False))
+    need_spatial = (
+        getattr(pipeline, "ba_spatial_memory_mode", "reference_unet")
+        == "clean_clip_patches"
+    )
+    if not need_identity and not need_spatial:
         pipeline._ppr_identity_tokens = None
+        pipeline._ppr_spatial_patch_tokens = None
         return
     refs = list(input_id_images)
     if refs and isinstance(refs[0], (list, tuple)):
         refs = [group[0] for group in refs]
     if not refs:
-        raise ValueError("Identity-token PPR requires at least one spatial reference")
+        raise ValueError("Clean-token BA requires at least one spatial reference")
     dtype = pipeline.id_encoder.dtype
-    pixels = pipeline.id_image_processor(
-        refs,
-        return_tensors="pt",
-    ).pixel_values.unsqueeze(1).to(device=device, dtype=dtype)
+    pixels = pipeline.id_image_processor(refs, return_tensors="pt").pixel_values
+    pixels = pixels.unsqueeze(1).to(device=device, dtype=dtype)
     spatial_id_embeds = ensure_id_embeds(
         pipeline,
         id_embeds=None,
@@ -460,25 +466,67 @@ def prepare_spatial_identity_tokens(
             "Identity-token PPR could not extract a valid spatial-reference "
             f"recognition embedding at rows {bad}"
         )
-    with torch.no_grad():
-        tokens = pipeline.id_encoder.extract_id_tokens(
-            pixels,
-            spatial_id_embeds,
+    if need_identity:
+        with torch.no_grad():
+            tokens = pipeline.id_encoder.extract_id_tokens(
+                pixels,
+                spatial_id_embeds,
+            )
+        flat_tokens = tokens.detach().float().flatten(1)
+        valid_tokens = (
+            torch.isfinite(flat_tokens).all(dim=1)
+            & (flat_tokens.norm(dim=1) > 0)
         )
-    flat_tokens = tokens.detach().float().flatten(1)
-    valid_tokens = (
-        torch.isfinite(flat_tokens).all(dim=1)
-        & (flat_tokens.norm(dim=1) > 0)
-    )
-    if not bool(valid_tokens.all()):
-        bad = (~valid_tokens).nonzero(as_tuple=False).flatten().tolist()
-        raise RuntimeError(
-            f"Identity-token PPR produced invalid tokens at rows {bad}"
+        if not bool(valid_tokens.all()):
+            bad = (~valid_tokens).nonzero(as_tuple=False).flatten().tolist()
+            raise RuntimeError(
+                f"Identity-token PPR produced invalid tokens at rows {bad}"
+            )
+        pipeline._ppr_identity_tokens = tokens.to(
+            device=device,
+            dtype=pipeline.unet.dtype,
         )
-    pipeline._ppr_identity_tokens = tokens.to(
-        device=device,
-        dtype=pipeline.unet.dtype,
-    )
+    else:
+        pipeline._ppr_identity_tokens = None
+
+    if need_spatial:
+        per_sample_boxes = (
+            isinstance(face_bbox_ref, (list, tuple))
+            and len(face_bbox_ref) == len(refs)
+            and all(isinstance(box, (list, tuple)) for box in face_bbox_ref)
+        )
+        boxes = list(face_bbox_ref) if per_sample_boxes else [face_bbox_ref] * len(refs)
+        crops = []
+        for ref, box in zip(refs, boxes):
+            if not isinstance(box, (list, tuple)) or len(box) != 4:
+                raise ValueError("NN7 clean spatial memory requires one reference bbox per image")
+            width, height = ref.size
+            x0, y0, x1, y1 = (float(value) for value in box)
+            crop_box = (
+                max(0, int(math.floor(x0))),
+                max(0, int(math.floor(y0))),
+                min(width, int(math.ceil(x1))),
+                min(height, int(math.ceil(y1))),
+            )
+            if crop_box[2] <= crop_box[0] or crop_box[3] <= crop_box[1]:
+                raise ValueError(f"NN7 reference bbox is empty after clamping: {box}")
+            crops.append(ref.convert("RGB").crop(crop_box))
+        crop_pixels = pipeline.id_image_processor(
+            crops,
+            return_tensors="pt",
+        ).pixel_values.unsqueeze(1).to(device=device, dtype=dtype)
+        with torch.no_grad():
+            patch_tokens = pipeline.id_encoder.extract_spatial_patch_tokens(
+                crop_pixels
+            )
+        if not torch.isfinite(patch_tokens).all():
+            raise RuntimeError("NN7 clean spatial patch tokens are non-finite")
+        pipeline._ppr_spatial_patch_tokens = patch_tokens.to(
+            device=device,
+            dtype=pipeline.unet.dtype,
+        )
+    else:
+        pipeline._ppr_spatial_patch_tokens = None
 
 
 def _set_unet_adapters(unet, adapter_names) -> None:
@@ -745,10 +793,12 @@ def run_branched_setup(
         prepare_spatial_identity_tokens(
             pipeline,
             input_id_images=input_id_images,
+            face_bbox_ref=face_bbox_ref,
             device=device,
         )
     else:
         pipeline._ppr_identity_tokens = None
+        pipeline._ppr_spatial_patch_tokens = None
 
     if (
         bool(getattr(pipeline, "ba_ppr_collect_diagnostics", False))
@@ -779,6 +829,11 @@ def run_branched_setup(
             "_ppr_identity_tokens",
             None,
         )
+        spatial_patch_tokens = getattr(
+            pipeline,
+            "_ppr_spatial_patch_tokens",
+            None,
+        )
         fingerprints = {
             "initial_latents_sha256": _sample_hashes(latents),
             "target_prompt_embeds_sha256": _sample_hashes(
@@ -805,6 +860,10 @@ def run_branched_setup(
             fingerprints["spatial_identity_tokens_sha256"] = _sample_hashes(
                 _match_samples(spatial_identity_tokens)
             )
+        if spatial_patch_tokens is not None:
+            fingerprints["clean_spatial_patch_tokens_sha256"] = _sample_hashes(
+                _match_samples(spatial_patch_tokens)
+            )
         pipeline._ba_ppr_randomness_fingerprints = fingerprints
 
 
@@ -815,6 +874,7 @@ def reset_branched_generation_caches(pipeline) -> None:
         "_ba_output_anchor_logged",
         "_ref_noise_base",
         "_ppr_identity_tokens",
+        "_ppr_spatial_patch_tokens",
     ):
         if hasattr(pipeline, attr):
             delattr(pipeline, attr)
@@ -965,6 +1025,7 @@ def run_branched_step(
     id_face_ehs = None
     proc_id_embeds = None
     spatial_identity_tokens = getattr(pipeline, "_ppr_identity_tokens", None)
+    spatial_patch_tokens = getattr(pipeline, "_ppr_spatial_patch_tokens", None)
     if spatial_identity_tokens is not None:
         expected_positive = (
             latent_model_input.shape[0] // 2
@@ -983,6 +1044,25 @@ def run_branched_step(
         if pipeline.do_classifier_free_guidance:
             spatial_identity_tokens = torch.cat(
                 [spatial_identity_tokens, spatial_identity_tokens], dim=0
+            )
+    if spatial_patch_tokens is not None:
+        expected_positive = (
+            latent_model_input.shape[0] // 2
+            if pipeline.do_classifier_free_guidance
+            else latent_model_input.shape[0]
+        )
+        if spatial_patch_tokens.shape[0] == 1 and expected_positive > 1:
+            spatial_patch_tokens = spatial_patch_tokens.expand(
+                expected_positive, -1, -1
+            )
+        if spatial_patch_tokens.shape[0] != expected_positive:
+            raise RuntimeError(
+                "Clean spatial patch batch mismatch: "
+                f"{spatial_patch_tokens.shape[0]} vs {expected_positive}"
+            )
+        if pipeline.do_classifier_free_guidance:
+            spatial_patch_tokens = torch.cat(
+                [spatial_patch_tokens, spatial_patch_tokens], dim=0
             )
     if fes_step == "id_embeds":
         pm = getattr(pipeline, "_pm_id_embeds_2048", None)
@@ -1034,6 +1114,7 @@ def run_branched_step(
         face_embed_strategy=fes_step,
         id_embeds=proc_id_embeds,
         identity_tokens=spatial_identity_tokens,
+        spatial_patch_tokens=spatial_patch_tokens,
         step_idx=i,
         scale=photomaker_scale,
         timestep_cond=timestep_cond,
@@ -1462,6 +1543,20 @@ def build_pipeline_from_pretrained(
     pipeline.ba_total_delta_rms_cap = float(
         getattr(unwrapped_model, "ba_total_delta_rms_cap", 0.15)
     )
+    pipeline.ba_spatial_memory_mode = str(
+        getattr(unwrapped_model, "ba_spatial_memory_mode", "reference_unet")
+        or "reference_unet"
+    ).lower()
+    pipeline.ba_spatial_patch_dim = int(
+        getattr(unwrapped_model, "ba_spatial_patch_dim", 1024)
+    )
+    pipeline.ba_spatial_local_window = int(
+        getattr(unwrapped_model, "ba_spatial_local_window", 5)
+    )
+    pipeline.ba_spatial_mix_mode = str(
+        getattr(unwrapped_model, "ba_spatial_mix_mode", "connector_residual")
+        or "connector_residual"
+    ).lower()
     pipeline.ba_ppr_runtime_scale = 1.0
     pipeline.ba_ppr_force_base_output = False
     pipeline.ba_ppr_collect_diagnostics = False
@@ -1493,6 +1588,10 @@ def build_pipeline_from_pretrained(
         raise RuntimeError("Validation pipeline lost ba_spatial_site_policy")
     if pipeline.ba_spatial_lane_enabled != unwrapped_model.ba_spatial_lane_enabled:
         raise RuntimeError("Validation pipeline lost ba_spatial_lane_enabled")
+    if pipeline.ba_spatial_memory_mode != unwrapped_model.ba_spatial_memory_mode:
+        raise RuntimeError("Validation pipeline lost ba_spatial_memory_mode")
+    if pipeline.ba_spatial_mix_mode != unwrapped_model.ba_spatial_mix_mode:
+        raise RuntimeError("Validation pipeline lost ba_spatial_mix_mode")
     if hasattr(unwrapped_model, "_original_attn_processors"):
         pipeline._original_attn_processors = dict(unwrapped_model._original_attn_processors)
     if hasattr(unwrapped_model.unet, "attn_processors"):

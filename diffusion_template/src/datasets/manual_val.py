@@ -1,4 +1,5 @@
 from pathlib import Path
+import random
 from typing import Sequence
 
 from PIL import Image
@@ -23,6 +24,8 @@ class ManualPhotoMakerValDataset(Dataset):
         bbox_mask_gen: str | None = None,
         seeds: Sequence[int] = (0, 1, 2),
         limit: int | None = None,
+        subset_size: int | None = None,
+        subset_seed: int = 20260722,
         instance_transforms=None,
     ):
         self.images_dir = Path(images_dir)
@@ -110,10 +113,24 @@ class ManualPhotoMakerValDataset(Dataset):
                             "id": img_id,
                             # Optional per-image face bbox for reference (by stem)
                             "face_bbox_ref": self._bbox_map_ref.get(img_id),
+                            "validation_index": len(self.samples),
                         }
                     )
-                    if limit is not None and len(self.samples) >= limit:
-                        return
+        if limit is not None:
+            self.samples = self.samples[: int(limit)]
+        if subset_size is not None:
+            subset_size = int(subset_size)
+            if subset_size <= 0 or subset_size > len(self.samples):
+                raise ValueError(
+                    f"subset_size must be in [1, {len(self.samples)}], got {subset_size}"
+                )
+            selected = sorted(
+                random.Random(int(subset_seed)).sample(
+                    range(len(self.samples)),
+                    subset_size,
+                )
+            )
+            self.samples = [self.samples[index] for index in selected]
 
     def _resolve_prompt(self, prompt: str, class_value: str | None) -> str:
         if "<class>" not in prompt:
@@ -130,7 +147,8 @@ class ManualPhotoMakerValDataset(Dataset):
         # Derive generation bbox by validation ordering if JSON provided
         face_bbox_gen = None
         if self._bbox_gen_json is not None:
-            key = f"{idx:02d}.png"
+            validation_index = int(sample.get("validation_index", idx))
+            key = f"{validation_index:02d}.png"
             record = self._bbox_gen_json.get(key)
             if record is None:
                 prompt = sample.get("prompt")
@@ -146,4 +164,5 @@ class ManualPhotoMakerValDataset(Dataset):
             "id": sample["id"],
             "face_bbox_ref": sample.get("face_bbox_ref"),
             "face_bbox_gen": face_bbox_gen,
+            "validation_index": int(sample.get("validation_index", idx)),
         }

@@ -169,6 +169,10 @@ class PhotomakerBranchedLora(SDXL):
         ba_spatial_gate_max: float = 0.15,
         ba_spatial_delta_rms_cap: float = 0.03,
         ba_total_delta_rms_cap: float = 0.15,
+        ba_spatial_memory_mode: str = "reference_unet",
+        ba_spatial_patch_dim: int = 1024,
+        ba_spatial_local_window: int = 5,
+        ba_spatial_mix_mode: str = "connector_residual",
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
         ba_uncond_face_fix: bool = False,  # F1: keep plain negative prompt for the uncond face branch under CFG
@@ -379,6 +383,14 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_spatial_gate_max = float(ba_spatial_gate_max)
         self.ba_spatial_delta_rms_cap = float(ba_spatial_delta_rms_cap)
         self.ba_total_delta_rms_cap = float(ba_total_delta_rms_cap)
+        self.ba_spatial_memory_mode = str(
+            ba_spatial_memory_mode or "reference_unet"
+        ).lower()
+        self.ba_spatial_patch_dim = int(ba_spatial_patch_dim)
+        self.ba_spatial_local_window = int(ba_spatial_local_window)
+        self.ba_spatial_mix_mode = str(
+            ba_spatial_mix_mode or "connector_residual"
+        ).lower()
         if self.ba_invalid_sample_policy not in {"legacy", "error", "skip_batch"}:
             raise ValueError(f"Unknown ba_invalid_sample_policy: {self.ba_invalid_sample_policy}")
         if self.ba_train_timestep_mode not in {"all", "inference_ba_region"}:
@@ -511,6 +523,39 @@ class PhotomakerBranchedLora(SDXL):
             self.ba_identity_token_lane or self.ba_spatial_lane_enabled
         ):
             raise ValueError("factorized_dual requires at least one enabled lane")
+        if self.ba_spatial_memory_mode not in {
+            "reference_unet",
+            "clean_clip_patches",
+        }:
+            raise ValueError(
+                f"Unknown ba_spatial_memory_mode: {self.ba_spatial_memory_mode}"
+            )
+        if self.ba_spatial_mix_mode not in {
+            "connector_residual",
+            "direct_candidate_takeover",
+        }:
+            raise ValueError(
+                f"Unknown ba_spatial_mix_mode: {self.ba_spatial_mix_mode}"
+            )
+        if self.ba_spatial_patch_dim <= 0:
+            raise ValueError("ba_spatial_patch_dim must be positive")
+        if self.ba_spatial_local_window <= 0 or self.ba_spatial_local_window % 2 == 0:
+            raise ValueError("ba_spatial_local_window must be a positive odd integer")
+        if (
+            self.ba_spatial_mix_mode == "direct_candidate_takeover"
+            and self.ba_spatial_memory_mode != "clean_clip_patches"
+        ):
+            raise ValueError(
+                "direct_candidate_takeover requires clean_clip_patches memory"
+            )
+        if (
+            self.ba_spatial_mix_mode == "direct_candidate_takeover"
+            and self.ba_collect_aux_losses
+        ):
+            raise ValueError(
+                "direct_candidate_takeover is incompatible with connector/null "
+                "auxiliary losses; set their weights to zero"
+            )
         if (
             self.ba_collect_aux_losses
             and self.ba_connector_input_mode
@@ -570,12 +615,15 @@ class PhotomakerBranchedLora(SDXL):
             if self.ba_patch_top_k != 1.0 or self.ba_train_top_k != 1.0:
                 raise ValueError("packed_residual_v1 requires BA patch/train top-k equal to 1.0")
         if self.ba_counterfactual_enabled:
+            clean_spatial_takeover = (
+                self.ba_spatial_memory_mode == "clean_clip_patches"
+                and self.ba_spatial_mix_mode == "direct_candidate_takeover"
+            )
             required = {
                 "ba_processor_variant": (self.ba_processor_variant, "packed_residual_v1"),
-                "ba_site_policy": (self.ba_site_policy, "up_blocks0_attn1"),
-                "ba_connector_input_mode": (
-                    self.ba_connector_input_mode,
-                    "reference_minus_learned_null",
+                "ba_site_policy": (
+                    self.ba_site_policy,
+                    "up_blocks1_attn1" if clean_spatial_takeover else "up_blocks0_attn1",
                 ),
                 "ba_reference_token_text_mode": (
                     self.ba_reference_token_text_mode,
@@ -590,6 +638,11 @@ class PhotomakerBranchedLora(SDXL):
                     "base_outside_core",
                 ),
             }
+            if not clean_spatial_takeover:
+                required["ba_connector_input_mode"] = (
+                    self.ba_connector_input_mode,
+                    "reference_minus_learned_null",
+                )
             mismatches = [
                 f"{name}={actual!r} (expected {expected!r})"
                 for name, (actual, expected) in required.items()
@@ -696,15 +749,23 @@ class PhotomakerBranchedLora(SDXL):
                 if fusion_mode == "blend" or bool(
                     getattr(self, "ba_spatial_lane_enabled", True)
                 ):
-                    group_fragments.update(
-                        {
-                            "ba_ppr_ref_k": ".attn1.processor.ref_to_k.",
-                            "ba_ppr_ref_v": ".attn1.processor.ref_to_v.",
+                    group_fragments.update({
+                        "ba_ppr_ref_k": ".attn1.processor.ref_to_k.",
+                        "ba_ppr_ref_v": ".attn1.processor.ref_to_v.",
+                    })
+                    if (
+                        getattr(
+                            self,
+                            "ba_spatial_mix_mode",
+                            "connector_residual",
+                        )
+                        == "connector_residual"
+                    ):
+                        group_fragments.update({
                             "ba_ppr_connector_down": ".attn1.processor.connector_down.",
                             "ba_ppr_connector_up": ".attn1.processor.connector_up.",
-                            "ba_ppr_gate": ".attn1.processor.gate_logit",
-                        }
-                    )
+                        })
+                    group_fragments["ba_ppr_gate"] = ".attn1.processor.gate_logit"
                     if getattr(
                         self,
                         "ba_connector_input_mode",
@@ -860,6 +921,10 @@ class PhotomakerBranchedLora(SDXL):
                         "ba_spatial_gate_max": self.ba_spatial_gate_max,
                         "ba_spatial_delta_rms_cap": self.ba_spatial_delta_rms_cap,
                         "ba_total_delta_rms_cap": self.ba_total_delta_rms_cap,
+                        "ba_spatial_memory_mode": self.ba_spatial_memory_mode,
+                        "ba_spatial_patch_dim": self.ba_spatial_patch_dim,
+                        "ba_spatial_local_window": self.ba_spatial_local_window,
+                        "ba_spatial_mix_mode": self.ba_spatial_mix_mode,
                     }
                 )
         return architecture
@@ -1079,6 +1144,13 @@ class PhotomakerBranchedLora(SDXL):
             (1,),
             device=latents.device,
         ).long()
+        # Counterfactual outputs are conditionally emitted and gathered by the
+        # trainer. Keep that control-flow decision identical on every DDP rank.
+        if (
+            torch.distributed.is_available()
+            and torch.distributed.is_initialized()
+        ):
+            torch.distributed.broadcast(t_scalar, src=0)
         timesteps = t_scalar.repeat(batch_size)
         denoise_progress = 1.0 - (
             float(t_scalar.item()) / float(self.noise_scheduler.config.num_train_timesteps - 1)
@@ -1107,6 +1179,7 @@ class PhotomakerBranchedLora(SDXL):
             reference_latents,
             matched_reference_embeddings,
             matched_identity_tokens,
+            matched_spatial_patch_tokens,
         ) = prepare_branched_training_inputs(
             self,
             prompts=prompts,
@@ -1136,6 +1209,7 @@ class PhotomakerBranchedLora(SDXL):
         wrong_reference_masks = None
         wrong_reference_embeddings = None
         wrong_identity_tokens = None
+        wrong_spatial_patch_tokens = None
         if counterfactual_active:
             if batch_size != 1:
                 raise RuntimeError(
@@ -1159,6 +1233,7 @@ class PhotomakerBranchedLora(SDXL):
                 wrong_reference_masks,
                 wrong_reference_embeddings,
                 wrong_identity_tokens,
+                wrong_spatial_patch_tokens,
             ) = prepare_spatial_reference_batch(
                 self,
                 ref_images=counterfactual_ref_images,
@@ -1262,6 +1337,16 @@ class PhotomakerBranchedLora(SDXL):
                 identity_token_pair = torch.cat(
                     [matched_identity_tokens, wrong_identity_tokens], dim=0
                 )
+            spatial_patch_pair = None
+            if self.ba_spatial_memory_mode == "clean_clip_patches":
+                if (
+                    matched_spatial_patch_tokens is None
+                    or wrong_spatial_patch_tokens is None
+                ):
+                    raise RuntimeError("NN7 clean spatial patch pair was not prepared")
+                spatial_patch_pair = torch.cat(
+                    [matched_spatial_patch_tokens, wrong_spatial_patch_tokens], dim=0
+                )
             base_reference_noise = torch.randn_like(reference_latents)
             reference_noise_pair = torch.cat(
                 [base_reference_noise, base_reference_noise], dim=0
@@ -1300,6 +1385,7 @@ class PhotomakerBranchedLora(SDXL):
                 class_tokens_mask=class_mask_pair,
                 id_features=id_feature_pair,
                 identity_tokens=identity_token_pair,
+                spatial_patch_tokens=spatial_patch_pair,
                 reference_noise_override=reference_noise_pair,
             )
             noise_pred, counterfactual_noise_pred = pair_pred.chunk(2, dim=0)
@@ -1317,6 +1403,7 @@ class PhotomakerBranchedLora(SDXL):
                 class_tokens_mask=class_tokens_mask,
                 id_features=id_features,
                 identity_tokens=matched_identity_tokens,
+                spatial_patch_tokens=matched_spatial_patch_tokens,
             )
         elif denoise_progress < photomaker_start_ratio:
             text_only_kwargs = {
@@ -1354,6 +1441,7 @@ class PhotomakerBranchedLora(SDXL):
                 class_tokens_mask=class_tokens_mask,
                 id_features=id_features,
                 identity_tokens=matched_identity_tokens,
+                spatial_patch_tokens=matched_spatial_patch_tokens,
             )
             ##### BRANCHED ATTENTION - FORWARD PASS #####
 
