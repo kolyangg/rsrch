@@ -1488,6 +1488,9 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         if (
             self.spatial_kv_init == "sibling_attn2"
             and not self._warm_runtime_checked
+            # PM0 intentionally disables BA with runtime_scale=0. Defer the
+            # warm-start integrity check to the first branch-enabled variant.
+            and float(self.runtime_scale) > 0.0
             and spatial_reference_candidate is not None
             and spatial_applied_delta is not None
         ):

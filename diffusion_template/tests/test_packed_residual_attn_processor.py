@@ -257,7 +257,13 @@ class PackedResidualProcessorTests(unittest.TestCase):
         hidden = torch.randn(2, side * side, channels)
 
         processor.spatial_patch_tokens = torch.randn(1, 16, channels)
+        processor.runtime_scale = 0.0
+        processor(attn1, hidden)
+        self.assertFalse(processor._warm_runtime_checked)
+
+        processor.runtime_scale = 1.0
         first = processor(attn1, hidden)[:1]
+        self.assertTrue(processor._warm_runtime_checked)
         processor.spatial_patch_tokens = torch.randn(1, 16, channels)
         second = processor(attn1, hidden)[:1]
         outside = (core.flatten(2).transpose(1, 2) == 0).expand_as(first)
