@@ -176,6 +176,8 @@ class PhotomakerBranchedLora(SDXL):
         ba_spatial_kv_kind: str = "full",
         ba_spatial_local_window: int = 5,
         ba_spatial_mix_mode: str = "connector_residual",
+        ba_spatial_attention_space: str = "attn1_hybrid",
+        ba_spatial_gate_position: str = "post_cap",
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
         ba_uncond_face_fix: bool = False,  # F1: keep plain negative prompt for the uncond face branch under CFG
@@ -403,6 +405,12 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_spatial_mix_mode = str(
             ba_spatial_mix_mode or "connector_residual"
         ).lower()
+        self.ba_spatial_attention_space = str(
+            ba_spatial_attention_space or "attn1_hybrid"
+        ).lower()
+        self.ba_spatial_gate_position = str(
+            ba_spatial_gate_position or "post_cap"
+        ).lower()
         if self.ba_invalid_sample_policy not in {"legacy", "error", "skip_batch"}:
             raise ValueError(f"Unknown ba_invalid_sample_policy: {self.ba_invalid_sample_policy}")
         if self.ba_train_timestep_mode not in {"all", "inference_ba_region"}:
@@ -587,6 +595,40 @@ class PhotomakerBranchedLora(SDXL):
                 "sibling_attn2 spatial K/V initialization requires "
                 "clean_clip_patches memory"
             )
+        if self.ba_spatial_attention_space not in {
+            "attn1_hybrid",
+            "sibling_attn2_full",
+        }:
+            raise ValueError(
+                "Unknown ba_spatial_attention_space: "
+                f"{self.ba_spatial_attention_space}"
+            )
+        if self.ba_spatial_gate_position not in {"post_cap", "pre_cap"}:
+            raise ValueError(
+                "Unknown ba_spatial_gate_position: "
+                f"{self.ba_spatial_gate_position}"
+            )
+        if self.ba_spatial_attention_space == "sibling_attn2_full" and not (
+            self.ba_spatial_memory_mode == "clean_clip_patches"
+            and self.ba_spatial_kv_init == "sibling_attn2"
+            and self.ba_spatial_mix_mode == "direct_candidate_takeover"
+        ):
+            raise ValueError(
+                "sibling_attn2_full requires clean_clip_patches, "
+                "sibling_attn2 K/V initialization and direct_candidate_takeover"
+            )
+        if self.ba_spatial_attention_space == "sibling_attn2_full" and (
+            self.ba_identity_fusion_mode != "factorized_dual"
+            or self.ba_identity_token_lane
+        ):
+            raise ValueError(
+                "sibling_attn2_full requires a factorized spatial-only lane"
+            )
+        if (
+            self.ba_spatial_gate_position == "pre_cap"
+            and self.ba_spatial_mix_mode != "direct_candidate_takeover"
+        ):
+            raise ValueError("pre_cap spatial gating requires direct_candidate_takeover")
         if self.ba_spatial_local_window <= 0 or self.ba_spatial_local_window % 2 == 0:
             raise ValueError("ba_spatial_local_window must be a positive odd integer")
         if (
@@ -978,6 +1020,10 @@ class PhotomakerBranchedLora(SDXL):
                         "ba_spatial_kv_kind": self.ba_spatial_kv_kind,
                         "ba_spatial_local_window": self.ba_spatial_local_window,
                         "ba_spatial_mix_mode": self.ba_spatial_mix_mode,
+                        "ba_spatial_attention_space": (
+                            self.ba_spatial_attention_space
+                        ),
+                        "ba_spatial_gate_position": self.ba_spatial_gate_position,
                     }
                 )
         return architecture
@@ -1060,6 +1106,14 @@ class PhotomakerBranchedLora(SDXL):
                     )
                     saved_architecture.setdefault("ba_spatial_kv_init", "xavier")
                     saved_architecture.setdefault("ba_spatial_kv_kind", "full")
+                    saved_architecture.setdefault(
+                        "ba_spatial_attention_space",
+                        "attn1_hybrid",
+                    )
+                    saved_architecture.setdefault(
+                        "ba_spatial_gate_position",
+                        "post_cap",
+                    )
                 current_architecture = self._ba_architecture_state()
                 if saved_architecture != current_architecture:
                     raise RuntimeError(
@@ -1103,6 +1157,9 @@ class PhotomakerBranchedLora(SDXL):
         ppr_connector_nonzero = 0
         ppr_connector_l2_sq = 0.0
         ppr_connector_tensors = 0
+        direct_spatial_nonzero = 0
+        direct_spatial_l2_sq = 0.0
+        direct_spatial_tensors = 0
         ppr_gate_values = []
         for name, sd in processor_state.items():
             proc = self.unet.attn_processors.get(name)
@@ -1136,8 +1193,22 @@ class PhotomakerBranchedLora(SDXL):
                 ppr_connector_tensors += 1
                 ppr_connector_nonzero += int(torch.count_nonzero(connector_fp32).item())
                 ppr_connector_l2_sq += float(connector_fp32.square().sum().item())
+            for key in ("ref_to_k.lora_B", "ref_to_v.lora_B"):
+                direct_spatial = sd.get(key)
+                if direct_spatial is None:
+                    continue
+                direct_fp32 = direct_spatial.detach().float()
+                direct_spatial_tensors += 1
+                direct_spatial_nonzero += int(
+                    torch.count_nonzero(direct_fp32).item()
+                )
+                direct_spatial_l2_sq += float(direct_fp32.square().sum().item())
             gate_logit = sd.get("gate_logit")
-            gate_max = self.ba_gate_max
+            gate_max = (
+                self.ba_spatial_gate_max
+                if self.ba_identity_fusion_mode != "blend"
+                else self.ba_gate_max
+            )
             if gate_logit is None:
                 gate_logit = sd.get("identity_gate_logit")
                 gate_max = self.ba_identity_gate_max
@@ -1150,6 +1221,9 @@ class PhotomakerBranchedLora(SDXL):
             "connector_up_tensors": ppr_connector_tensors,
             "connector_up_nonzero": ppr_connector_nonzero,
             "connector_up_l2": ppr_connector_l2_sq ** 0.5,
+            "direct_spatial_tensors": direct_spatial_tensors,
+            "direct_spatial_nonzero": direct_spatial_nonzero,
+            "direct_spatial_l2": direct_spatial_l2_sq ** 0.5,
             "gate_min": min(ppr_gate_values) if ppr_gate_values else 0.0,
             "gate_max": max(ppr_gate_values) if ppr_gate_values else 0.0,
         }

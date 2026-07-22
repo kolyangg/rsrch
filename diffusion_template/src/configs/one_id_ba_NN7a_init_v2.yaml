@@ -1,0 +1,38 @@
+defaults:
+  - one_id_ba_NN7a_init
+  - _self_
+
+# Visible warm-start correction: use a complete frozen sibling-attn2 operator,
+# arbitrate after each candidate's own output mapping, and gate before the final
+# local residual cap. NN7a and NN7a_init v1 remain unchanged controls.
+model:
+  ba_spatial_attention_space: sibling_attn2_full
+  ba_spatial_gate_position: pre_cap
+
+  # 0.80 * sigmoid(-1.9459101490553132) = 0.10.
+  ba_spatial_gate_max: 0.80
+  ba_gate_init_logit: -1.9459101490553132
+
+  ba_spatial_delta_rms_cap: 0.20
+  ba_total_delta_rms_cap: 0.20
+
+  ba_spatial_patch_projection: pmv2_perceiver_context
+  ba_spatial_patch_dim: 2048
+  ba_spatial_kv_init: sibling_attn2
+  ba_spatial_kv_kind: lora
+  ba_spatial_memory_mode: clean_clip_patches
+  ba_spatial_local_window: 5
+  ba_spatial_mix_mode: direct_candidate_takeover
+
+  ba_site_policy: up_blocks1_attn1
+  ba_spatial_site_policy: up_blocks1_attn1
+  ba_identity_token_lane: false
+  ba_spatial_lane_enabled: true
+  ba_target_core_erode_frac: 0.15
+
+  train_branched_ca_lora: false
+  pose_adapt_ratio: 0.0
+  ca_mixing_for_face: false
+  ba_output_anchor_mode: base_outside_core
+  ba_pm_id_attenuation_probability: 0.0
+  ba_pm_id_attenuation_scale: 1.0

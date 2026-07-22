@@ -93,6 +93,179 @@ def _processor(
 
 
 class PackedResidualProcessorTests(unittest.TestCase):
+    def test_nn7a_init_v2_uses_complete_sibling_attention_space(self) -> None:
+        torch.manual_seed(37)
+        channels = 16
+        attn1 = _attention(channels)
+        attn2 = Attention(
+            query_dim=channels,
+            cross_attention_dim=channels,
+            heads=4,
+            dim_head=4,
+            residual_connection=True,
+        )
+        with torch.no_grad():
+            attn1.to_q.weight.mul_(0.1)
+            attn1.to_out[0].weight.mul_(0.2)
+            attn2.to_q.weight.mul_(1.7)
+            attn2.to_out[0].weight.mul_(1.9)
+        processor = PackedResidualBranchedAttnProcessor(
+            channels,
+            ref_kv_rank=4,
+            identity_fusion_mode="factorized_dual",
+            enable_identity=False,
+            enable_spatial=True,
+            spatial_memory_mode="clean_clip_patches",
+            spatial_patch_dim=channels,
+            spatial_patch_projection="pmv2_perceiver_context",
+            spatial_kv_init="sibling_attn2",
+            spatial_kv_kind="lora",
+            spatial_local_window=3,
+            spatial_mix_mode="direct_candidate_takeover",
+            spatial_attention_space="sibling_attn2_full",
+            spatial_gate_position="pre_cap",
+            spatial_gate_max=0.8,
+            gate_init_logit=-1.9459101490553132,
+            spatial_delta_rms_cap=1.0,
+            total_delta_rms_cap=1.0,
+        )
+        processor.init_from_attention(attn1, sibling_attn2=attn2)
+        self.assertFalse(any(p.requires_grad for p in processor.spatial_to_q.parameters()))
+        self.assertFalse(any(p.requires_grad for p in processor.spatial_to_out.parameters()))
+
+        target_hidden = torch.randn(1, 1, channels)
+        reference_hidden = torch.randn_like(target_hidden)
+        patches = torch.randn(1, 4, channels)
+        processor.spatial_patch_tokens = patches
+        mask = torch.ones(1, 1, 1, 1)
+        processor.set_masks(mask, mask, mask)
+
+        target_pre, attn1_query = processor._base_self_attention_pre_out(
+            attn1,
+            target_hidden,
+            None,
+        )
+        target_post = attn1.to_out[1](attn1.to_out[0](target_pre))
+        candidate, _, _ = processor._clean_local_spatial_candidate(
+            attn1,
+            attn1_query,
+            target_post,
+            mask.flatten(2).transpose(1, 2),
+            mask.flatten(2).transpose(1, 2).bool(),
+            target_hidden,
+        )
+
+        query = processor._to_heads(attn2.to_q(target_hidden), attn2.heads)
+        key = processor._to_heads(attn2.to_k(patches), attn2.heads)
+        value = processor._to_heads(attn2.to_v(patches), attn2.heads)
+        local_indices = torch.tensor([[0, 0, 1, 0, 0, 1, 2, 2, 3]])
+        local_key = key[0][:, local_indices, :]
+        local_value = value[0][:, local_indices, :]
+        scores = torch.einsum("hqd,hqwd->hqw", query[0], local_key)
+        weights = (scores / (channels // attn2.heads) ** 0.5).softmax(dim=-1)
+        expected_pre = torch.einsum("hqw,hqwd->hqd", weights, local_value)
+        expected_pre = processor._from_heads(expected_pre.unsqueeze(0))
+        expected_candidate = attn2.to_out[0](expected_pre)
+        torch.testing.assert_close(candidate, expected_candidate)
+
+        output = processor(
+            attn1,
+            torch.cat([target_hidden, reference_hidden], dim=0),
+        )[:1]
+        alpha = 0.8 * torch.sigmoid(torch.tensor(-1.9459101490553132))
+        scaled = alpha * (expected_candidate - target_post)
+        bounded, _, _, _ = processor._masked_rms_cap(
+            scaled,
+            base=target_post,
+            mask=torch.ones_like(mask.flatten(2).transpose(1, 2)),
+            max_ratio=1.0,
+        )
+        expected = target_post + bounded + target_hidden
+        torch.testing.assert_close(output, expected)
+
+        output.square().mean().backward()
+        for parameter in (
+            processor.ref_to_k.lora_B,
+            processor.ref_to_v.lora_B,
+            processor.gate_logit,
+        ):
+            self.assertIsNotNone(parameter.grad)
+            self.assertGreater(float(parameter.grad.abs().sum()), 0.0)
+
+    def test_nn7a_init_v2_gate_before_cap_has_interpretable_authority(self) -> None:
+        base = torch.ones(1, 4, 8)
+        mask = torch.ones(1, 4, 1)
+        alpha = 0.10
+        small_raw = torch.full_like(base, 0.5)
+        small, scale, _, ratio = PackedResidualBranchedAttnProcessor._masked_rms_cap(
+            alpha * small_raw,
+            base=base,
+            mask=mask,
+            max_ratio=0.20,
+        )
+        torch.testing.assert_close(small, alpha * small_raw)
+        torch.testing.assert_close(scale, torch.ones_like(scale))
+        torch.testing.assert_close(ratio, torch.full_like(ratio, 0.05))
+
+        large_raw = torch.full_like(base, 10.0)
+        large, scale, _, ratio = PackedResidualBranchedAttnProcessor._masked_rms_cap(
+            alpha * large_raw,
+            base=base,
+            mask=mask,
+            max_ratio=0.20,
+        )
+        torch.testing.assert_close(large, torch.full_like(large, 0.20))
+        torch.testing.assert_close(scale, torch.full_like(scale, 0.20))
+        torch.testing.assert_close(ratio, torch.full_like(ratio, 0.20))
+
+    def test_nn7a_init_v2_reference_sensitivity_is_core_local(self) -> None:
+        torch.manual_seed(41)
+        channels, side = 16, 4
+        attn1 = _attention(channels)
+        attn2 = Attention(
+            query_dim=channels,
+            cross_attention_dim=channels,
+            heads=4,
+            dim_head=4,
+            residual_connection=True,
+        )
+        processor = PackedResidualBranchedAttnProcessor(
+            channels,
+            ref_kv_rank=4,
+            identity_fusion_mode="factorized_dual",
+            enable_identity=False,
+            enable_spatial=True,
+            spatial_memory_mode="clean_clip_patches",
+            spatial_patch_dim=channels,
+            spatial_patch_projection="pmv2_perceiver_context",
+            spatial_kv_init="sibling_attn2",
+            spatial_kv_kind="lora",
+            spatial_local_window=3,
+            spatial_mix_mode="direct_candidate_takeover",
+            spatial_attention_space="sibling_attn2_full",
+            spatial_gate_position="pre_cap",
+            spatial_gate_max=0.8,
+            gate_init_logit=-1.9459101490553132,
+            spatial_delta_rms_cap=0.20,
+            total_delta_rms_cap=0.20,
+        )
+        processor.init_from_attention(attn1, sibling_attn2=attn2)
+        face = torch.ones(1, 1, side, side)
+        core = torch.zeros_like(face)
+        core[:, :, 1:3, 1:3] = 1
+        processor.set_masks(face, face, core)
+        hidden = torch.randn(2, side * side, channels)
+
+        processor.spatial_patch_tokens = torch.randn(1, 16, channels)
+        first = processor(attn1, hidden)[:1]
+        processor.spatial_patch_tokens = torch.randn(1, 16, channels)
+        second = processor(attn1, hidden)[:1]
+        outside = (core.flatten(2).transpose(1, 2) == 0).expand_as(first)
+        inside = ~outside
+        self.assertTrue(torch.equal(first[outside], second[outside]))
+        difference = first[inside] - second[inside]
+        self.assertGreater(float(difference.square().mean().sqrt()), 1e-4)
+
     def test_nn7a_init_warm_kv_is_active_local_and_trainable(self) -> None:
         torch.manual_seed(31)
         side = 8
@@ -875,6 +1048,65 @@ class _OptimizerConfig(dict):
 
 
 class PackedResidualRuntimeTests(unittest.TestCase):
+    def test_direct_spatial_checkpoint_diagnostics_track_lora_b(self) -> None:
+        attn1 = _attention()
+        attn2 = Attention(
+            query_dim=16,
+            cross_attention_dim=16,
+            heads=4,
+            dim_head=4,
+        )
+        processor = PackedResidualBranchedAttnProcessor(
+            16,
+            ref_kv_rank=4,
+            identity_fusion_mode="factorized_dual",
+            enable_identity=False,
+            enable_spatial=True,
+            spatial_memory_mode="clean_clip_patches",
+            spatial_patch_dim=16,
+            spatial_kv_init="sibling_attn2",
+            spatial_kv_kind="lora",
+            spatial_mix_mode="direct_candidate_takeover",
+            spatial_attention_space="sibling_attn2_full",
+            spatial_gate_position="pre_cap",
+            spatial_gate_max=0.8,
+        )
+        processor.init_from_attention(attn1, sibling_attn2=attn2)
+        k_delta = torch.full_like(processor.ref_to_k.lora_B, 0.01)
+        v_delta = torch.full_like(processor.ref_to_v.lora_B, -0.02)
+        model = SimpleNamespace(
+            unet=SimpleNamespace(attn_processors={"site": processor}),
+            ba_strict_processor_restore=False,
+            ba_identity_fusion_mode="factorized_dual",
+            ba_gate_max=0.5,
+            ba_spatial_gate_max=0.8,
+            ba_identity_gate_max=0.5,
+        )
+        checkpoint = {
+            "lora_weights": {},
+            "attn_processors": {
+                "site": {
+                    "ref_to_k.lora_B": k_delta,
+                    "ref_to_v.lora_B": v_delta,
+                    "gate_logit": torch.tensor(-1.9459101490553132),
+                }
+            },
+        }
+        with patch(
+            "src.model.photomaker_branched.lora2.convert_unet_state_dict_to_peft",
+            return_value={},
+        ), patch(
+            "src.model.photomaker_branched.lora2.set_peft_model_state_dict",
+            return_value=None,
+        ):
+            PhotomakerBranchedLora.load_state_dict_(model, checkpoint)
+        diagnostics = model._last_ppr_checkpoint_diagnostics
+        self.assertEqual(diagnostics["connector_up_tensors"], 0)
+        self.assertEqual(diagnostics["direct_spatial_tensors"], 2)
+        self.assertGreater(diagnostics["direct_spatial_nonzero"], 0)
+        self.assertGreater(diagnostics["direct_spatial_l2"], 0.0)
+        self.assertAlmostEqual(diagnostics["gate_min"], 0.1, places=6)
+
     def test_nn7a_init_checkpoint_architecture_is_strictly_separated(self) -> None:
         nn7a_architecture = {
             "ba_connector_input_mode": "reference_minus_target",
@@ -883,6 +1115,8 @@ class PackedResidualRuntimeTests(unittest.TestCase):
             "ba_spatial_patch_projection": "raw_clip",
             "ba_spatial_kv_init": "xavier",
             "ba_spatial_kv_kind": "full",
+            "ba_spatial_attention_space": "attn1_hybrid",
+            "ba_spatial_gate_position": "post_cap",
         }
         nn7a_init_architecture = {
             **nn7a_architecture,
@@ -890,6 +1124,11 @@ class PackedResidualRuntimeTests(unittest.TestCase):
             "ba_spatial_patch_projection": "pmv2_perceiver_context",
             "ba_spatial_kv_init": "sibling_attn2",
             "ba_spatial_kv_kind": "lora",
+        }
+        nn7a_init_v2_architecture = {
+            **nn7a_init_architecture,
+            "ba_spatial_attention_space": "sibling_attn2_full",
+            "ba_spatial_gate_position": "pre_cap",
         }
 
         def restore(current_architecture, saved_architecture) -> None:
@@ -924,15 +1163,22 @@ class PackedResidualRuntimeTests(unittest.TestCase):
 
         restore(nn7a_architecture, nn7a_architecture)
         restore(nn7a_init_architecture, nn7a_init_architecture)
+        restore(nn7a_init_v2_architecture, nn7a_init_v2_architecture)
         legacy_nn7a_architecture = dict(nn7a_architecture)
         legacy_nn7a_architecture.pop("ba_spatial_patch_projection")
         legacy_nn7a_architecture.pop("ba_spatial_kv_init")
         legacy_nn7a_architecture.pop("ba_spatial_kv_kind")
+        legacy_nn7a_architecture.pop("ba_spatial_attention_space")
+        legacy_nn7a_architecture.pop("ba_spatial_gate_position")
         restore(nn7a_architecture, legacy_nn7a_architecture)
         with self.assertRaisesRegex(RuntimeError, "architecture mismatch"):
             restore(nn7a_init_architecture, nn7a_architecture)
         with self.assertRaisesRegex(RuntimeError, "architecture mismatch"):
             restore(nn7a_architecture, nn7a_init_architecture)
+        with self.assertRaisesRegex(RuntimeError, "architecture mismatch"):
+            restore(nn7a_init_v2_architecture, nn7a_init_architecture)
+        with self.assertRaisesRegex(RuntimeError, "architecture mismatch"):
+            restore(nn7a_init_architecture, nn7a_init_v2_architecture)
 
     def test_nn7a_init_warm_lora_trainability_is_exact(self) -> None:
         model = _tiny_model()
@@ -974,6 +1220,53 @@ class PackedResidualRuntimeTests(unittest.TestCase):
                 "gate_logit",
             },
         )
+        self.assertEqual(processor.spatial_attention_space, "attn1_hybrid")
+        self.assertEqual(processor.spatial_gate_position, "post_cap")
+
+    def test_nn7a_init_v2_trainability_excludes_warm_q_and_out(self) -> None:
+        model = _tiny_model()
+        model.ba_site_policy = "up_blocks0_attn1"
+        model.disable_branched_ca = True
+        model.ba_identity_fusion_mode = "factorized_dual"
+        model.ba_identity_token_lane = False
+        model.ba_spatial_lane_enabled = True
+        model.ba_identity_site_policy = "up_blocks0_attn1"
+        model.ba_spatial_site_policy = "up_blocks0_attn1"
+        model.ba_spatial_memory_mode = "clean_clip_patches"
+        model.ba_spatial_patch_dim = 16
+        model.ba_spatial_patch_projection = "pmv2_perceiver_context"
+        model.ba_spatial_kv_init = "sibling_attn2"
+        model.ba_spatial_kv_kind = "lora"
+        model.ba_spatial_local_window = 3
+        model.ba_spatial_mix_mode = "direct_candidate_takeover"
+        model.ba_spatial_attention_space = "sibling_attn2_full"
+        model.ba_spatial_gate_position = "pre_cap"
+        model.ba_spatial_gate_max = 0.8
+        model.ba_gate_init_logit = -1.9459101490553132
+        model.ba_spatial_delta_rms_cap = 0.20
+        model.ba_total_delta_rms_cap = 0.20
+        mask = torch.ones(1, 1, 8, 8)
+        patch_unet_attention_processors(
+            model,
+            mask,
+            mask,
+            spatial_patch_tokens=torch.ones(1, 16, 16),
+        )
+        configure_branched_trainables(model)
+        _assert_branched_installation(model)
+        processor = model.unet.attn_processors["up_blocks.0.attn1.processor"]
+        self.assertEqual(
+            {name for name, parameter in processor.named_parameters() if parameter.requires_grad},
+            {
+                "ref_to_k.lora_A",
+                "ref_to_k.lora_B",
+                "ref_to_v.lora_A",
+                "ref_to_v.lora_B",
+                "gate_logit",
+            },
+        )
+        self.assertFalse(any(p.requires_grad for p in processor.spatial_to_q.parameters()))
+        self.assertFalse(any(p.requires_grad for p in processor.spatial_to_out.parameters()))
 
     def test_nn7_direct_clean_spatial_trainability_is_exact(self) -> None:
         model = _tiny_model()

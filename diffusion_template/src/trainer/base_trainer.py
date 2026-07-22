@@ -220,15 +220,37 @@ class BaseTrainer:
         except Exception:
             model = self.model
         diagnostics = getattr(model, "_last_ppr_checkpoint_diagnostics", None)
-        if not diagnostics or int(diagnostics.get("connector_up_tensors", 0)) == 0:
-            raise RuntimeError("PPR checkpoint preflight found no connector_up tensors")
-        if int(diagnostics.get("connector_up_nonzero", 0)) == 0:
-            raise RuntimeError("PPR checkpoint preflight found only zero connector_up tensors")
+        if not diagnostics:
+            raise RuntimeError("PPR checkpoint preflight found no learned-state diagnostics")
+        connector_count = int(diagnostics.get("connector_up_tensors", 0))
+        direct_count = int(diagnostics.get("direct_spatial_tensors", 0))
+        if connector_count > 0:
+            if int(diagnostics.get("connector_up_nonzero", 0)) == 0:
+                raise RuntimeError(
+                    "PPR checkpoint preflight found only zero connector_up tensors"
+                )
+            learned_state = (
+                f"connector_up_tensors={connector_count} "
+                f"nonzero={diagnostics['connector_up_nonzero']} "
+                f"l2={diagnostics['connector_up_l2']:.6f}"
+            )
+        elif direct_count > 0:
+            if int(diagnostics.get("direct_spatial_nonzero", 0)) == 0:
+                raise RuntimeError(
+                    "Direct-spatial checkpoint has only zero K/V LoRA-B tensors"
+                )
+            learned_state = (
+                f"direct_spatial_tensors={direct_count} "
+                f"nonzero={diagnostics['direct_spatial_nonzero']} "
+                f"l2={diagnostics['direct_spatial_l2']:.6f}"
+            )
+        else:
+            raise RuntimeError(
+                "PPR checkpoint contains neither connector nor direct-spatial learned state"
+            )
         message = (
             "[PPR checkpoint preflight] "
-            f"connector_up_tensors={diagnostics['connector_up_tensors']} "
-            f"nonzero={diagnostics['connector_up_nonzero']} "
-            f"l2={diagnostics['connector_up_l2']:.6f} "
+            f"{learned_state} "
             f"gate={diagnostics['gate_min']:.6f}..{diagnostics['gate_max']:.6f}"
         )
         if self.accelerator.is_main_process and self.logger is not None:

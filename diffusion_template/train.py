@@ -420,8 +420,20 @@ def main(config):
     from_pretrained = getattr(config.trainer, "from_pretrained", None)
     if validation_only:
         from_pretrained = getattr(config, "saved_checkpoint", None)
-        if not from_pretrained:
+        allow_untrained_validation = bool(
+            getattr(config, "ppr_allow_untrained_validation", False)
+        )
+        if not from_pretrained and not allow_untrained_validation:
             raise ValueError("validation_only=true requires saved_checkpoint")
+        if not from_pretrained and allow_untrained_validation:
+            if bool(getattr(config, "ppr_checkpoint_require_nonzero", False)):
+                raise ValueError(
+                    "Untrained validation cannot require a nonzero checkpoint"
+                )
+            if not bool(getattr(config, "ppr_reference_noise_test", False)):
+                raise ValueError(
+                    "Untrained validation is restricted to the PPR reference/noise preflight"
+                )
 
     trainer = instantiate(
         config.trainer,

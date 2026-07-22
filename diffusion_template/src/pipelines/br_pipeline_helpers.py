@@ -1581,6 +1581,18 @@ def build_pipeline_from_pretrained(
         getattr(unwrapped_model, "ba_spatial_kv_kind", "full")
         or "full"
     ).lower()
+    pipeline.ba_spatial_attention_space = str(
+        getattr(
+            unwrapped_model,
+            "ba_spatial_attention_space",
+            "attn1_hybrid",
+        )
+        or "attn1_hybrid"
+    ).lower()
+    pipeline.ba_spatial_gate_position = str(
+        getattr(unwrapped_model, "ba_spatial_gate_position", "post_cap")
+        or "post_cap"
+    ).lower()
     pipeline.ba_spatial_local_window = int(
         getattr(unwrapped_model, "ba_spatial_local_window", 5)
     )
@@ -1630,6 +1642,13 @@ def build_pipeline_from_pretrained(
         raise RuntimeError("Validation pipeline lost ba_spatial_kv_init")
     if pipeline.ba_spatial_kv_kind != unwrapped_model.ba_spatial_kv_kind:
         raise RuntimeError("Validation pipeline lost ba_spatial_kv_kind")
+    if (
+        pipeline.ba_spatial_attention_space
+        != unwrapped_model.ba_spatial_attention_space
+    ):
+        raise RuntimeError("Validation pipeline lost ba_spatial_attention_space")
+    if pipeline.ba_spatial_gate_position != unwrapped_model.ba_spatial_gate_position:
+        raise RuntimeError("Validation pipeline lost ba_spatial_gate_position")
     if pipeline.ba_spatial_mix_mode != unwrapped_model.ba_spatial_mix_mode:
         raise RuntimeError("Validation pipeline lost ba_spatial_mix_mode")
     if hasattr(unwrapped_model, "_original_attn_processors"):

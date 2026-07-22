@@ -475,6 +475,20 @@ def patch_unet_attention_processors(
                                     "connector_residual",
                                 )
                             ),
+                            spatial_attention_space=str(
+                                getattr(
+                                    pipeline,
+                                    "ba_spatial_attention_space",
+                                    "attn1_hybrid",
+                                )
+                            ),
+                            spatial_gate_position=str(
+                                getattr(
+                                    pipeline,
+                                    "ba_spatial_gate_position",
+                                    "post_cap",
+                                )
+                            ),
                         )
                     else:
                         proc = BranchedAttnProcessor(

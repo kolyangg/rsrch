@@ -102,6 +102,34 @@ class _AccumulationHarness(BaseTrainer):
 
 
 class NN5ComponentTests(unittest.TestCase):
+    def test_direct_spatial_checkpoint_preflight_uses_lora_b(self):
+        trainer = SimpleNamespace(
+            config=SimpleNamespace(ppr_checkpoint_require_nonzero=True),
+            model=SimpleNamespace(
+                _last_ppr_checkpoint_diagnostics={
+                    "connector_up_tensors": 0,
+                    "connector_up_nonzero": 0,
+                    "connector_up_l2": 0.0,
+                    "direct_spatial_tensors": 2,
+                    "direct_spatial_nonzero": 8,
+                    "direct_spatial_l2": 0.125,
+                    "gate_min": 0.09,
+                    "gate_max": 0.11,
+                }
+            ),
+            accelerator=SimpleNamespace(
+                unwrap_model=lambda model: model,
+                is_main_process=False,
+            ),
+            logger=None,
+        )
+        BaseTrainer._check_ppr_checkpoint_preflight(trainer)
+        trainer.model._last_ppr_checkpoint_diagnostics[
+            "direct_spatial_nonzero"
+        ] = 0
+        with self.assertRaisesRegex(RuntimeError, "zero K/V LoRA-B"):
+            BaseTrainer._check_ppr_checkpoint_preflight(trainer)
+
     def test_nn7_spatial_patch_projection_modes(self):
         class Vision(nn.Module):
             def forward(self, pixels):
