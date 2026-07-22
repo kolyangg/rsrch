@@ -2914,6 +2914,27 @@ function modernPprDetails(run, ppr, spec) {
       ),
     ],
   };
+  const processorTopology = {
+    title: `${run}: doubled-U-Net compatibility with packed target residuals`,
+    description:
+      "The runtime still executes the doubled target/reference shell for compatibility, but only selected target self-attention sites receive a bounded PPR correction. Unlike N3a, the target half is not replaced by absolute reference attention and an independent PhotoMaker pass anchors output outside the core.",
+    facts: {
+      Shell: "Doubled target/reference U-Net",
+      Processor: "PackedResidualBranchedAttnProcessor",
+      Sites: ppr.sitePolicy,
+      "Reference-half target influence": ppr.spatialEnabled
+        ? "Only through packed spatial candidate"
+        : "None in identity-only mode",
+    },
+    code: [
+      code(
+        "../src/model/photomaker_branched/branched_runtime.py",
+        264,
+        `fusion_mode = pipeline.ba_identity_fusion_mode\n# install packed residual only at resolved identity/spatial site policies`,
+        "Open processor installation",
+      ),
+    ],
+  };
   return {
     reference: combinedMemory,
     referenceInput,
@@ -2936,7 +2957,7 @@ function modernPprDetails(run, ppr, spec) {
     sites,
     crossAttention,
     standardSelfAttention: crossAttention,
-    baPass: laneFusion,
+    baPass: processorTopology,
     compose,
     pmPass: compose,
     pmFlow: compose,
@@ -4151,7 +4172,7 @@ function renderPprOverviewSvg(config, panelId) {
 
     <g class="unet-shell clickable" data-inspect="baPass" tabindex="0" role="button">
       <rect x="430" y="48" width="426" height="550" rx="9"></rect>
-      <text class="shell-title" x="643" y="70">PackedResidualBranchedAttnProcessor · 30 attn1 sites</text>
+      <text class="shell-title" x="643" y="70">Doubled U-Net compatibility shell · PPR at 30 attn1 sites</text>
     </g>
     ${node(452, 92, 168, 74, "targetAttention", ["A_target"], "Attn(Qtarget,Ktarget,Vtarget)", "pm")}
     ${node(452, 238, 168, 80, "spatialCandidate", spatialTitle, ppr.spatialEnabled ? "Qtarget × packed spatial K/V" : "not computed", spatialClass)}
