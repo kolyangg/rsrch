@@ -458,6 +458,18 @@ select {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.v2-architecture-strip.ppr-strip {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ppr-strip .v2-architecture-fact:nth-child(3n) {
+  border-right: 0;
+}
+
+.ppr-strip .v2-architecture-fact:nth-child(-n + 3) {
+  border-bottom: 1px solid var(--line);
+}
+
 .v2-architecture-fact {
   border-right: 1px solid var(--line);
   min-height: 102px;
@@ -524,6 +536,11 @@ select {
   display: block;
   min-width: 690px;
   width: 100%;
+}
+
+.ppr-overview-svg,
+.ppr-mechanism-svg {
+  min-width: 860px;
 }
 
 :is(.architecture-svg, .mechanism-svg) .node rect {
@@ -1333,6 +1350,22 @@ footer code {
 
   .v2-architecture-strip {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .v2-architecture-strip.ppr-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .ppr-strip .v2-architecture-fact:nth-child(3n) {
+    border-right: 1px solid var(--line);
+  }
+
+  .ppr-strip .v2-architecture-fact:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .ppr-strip .v2-architecture-fact:nth-child(-n + 4) {
+    border-bottom: 1px solid var(--line);
   }
 
   .v2-architecture-fact:nth-child(2) {

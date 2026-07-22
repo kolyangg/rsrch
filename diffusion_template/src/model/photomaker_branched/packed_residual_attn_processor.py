@@ -122,6 +122,17 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         identity_token_dim: int = 2048,
         identity_token_rank: int = 32,
         identity_token_weight: float = 0.5,
+        identity_fusion_mode: str = "blend",
+        enable_identity: Optional[bool] = None,
+        enable_spatial: bool = True,
+        identity_null_tokens: int = 2,
+        identity_connector_rank: int = 16,
+        identity_gate_max: float = 0.5,
+        identity_gate_init_logit: float = 0.0,
+        identity_delta_rms_cap: float = 0.15,
+        spatial_gate_max: Optional[float] = None,
+        spatial_delta_rms_cap: Optional[float] = None,
+        total_delta_rms_cap: float = 0.15,
     ):
         super().__init__()
         if ref_kv_kind != "lora":
@@ -155,6 +166,23 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             raise ValueError("identity_token_rank must be positive")
         if not 0.0 <= float(identity_token_weight) <= 1.0:
             raise ValueError("identity_token_weight must be in [0, 1]")
+        identity_fusion_mode = str(identity_fusion_mode or "blend").lower()
+        if identity_fusion_mode not in {"blend", "identity_only", "factorized_dual"}:
+            raise ValueError(f"Unknown identity_fusion_mode: {identity_fusion_mode}")
+        if int(identity_null_tokens) <= 0:
+            raise ValueError("identity_null_tokens must be positive")
+        if int(identity_connector_rank) <= 0:
+            raise ValueError("identity_connector_rank must be positive")
+        if not 0.0 < float(identity_gate_max) <= 1.0:
+            raise ValueError("identity_gate_max must be in (0, 1]")
+        if not 0.0 < float(identity_delta_rms_cap) <= 1.0:
+            raise ValueError("identity_delta_rms_cap must be in (0, 1]")
+        if spatial_gate_max is not None and not 0.0 < float(spatial_gate_max) <= 1.0:
+            raise ValueError("spatial_gate_max must be in (0, 1]")
+        if spatial_delta_rms_cap is not None and not 0.0 < float(spatial_delta_rms_cap) <= 1.0:
+            raise ValueError("spatial_delta_rms_cap must be in (0, 1]")
+        if not 0.0 < float(total_delta_rms_cap) <= 1.0:
+            raise ValueError("total_delta_rms_cap must be in (0, 1]")
 
         self.hidden_size = int(hidden_size)
         self.ref_kv_kind = ref_kv_kind
@@ -175,6 +203,28 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         self.identity_token_dim = int(identity_token_dim)
         self.identity_token_rank = int(identity_token_rank)
         self.identity_token_weight = float(identity_token_weight)
+        self.identity_fusion_mode = identity_fusion_mode
+        self.enable_identity = (
+            self.identity_token_lane if enable_identity is None else bool(enable_identity)
+        )
+        self.enable_spatial = bool(enable_spatial)
+        self.identity_null_tokens = int(identity_null_tokens)
+        self.identity_connector_rank = int(identity_connector_rank)
+        self.identity_gate_max = float(identity_gate_max)
+        self.identity_gate_init_logit = float(identity_gate_init_logit)
+        self.identity_delta_rms_cap = float(identity_delta_rms_cap)
+        self.spatial_gate_max = float(gate_max if spatial_gate_max is None else spatial_gate_max)
+        self.spatial_delta_rms_cap = float(
+            delta_rms_cap if spatial_delta_rms_cap is None else spatial_delta_rms_cap
+        )
+        self.total_delta_rms_cap = float(total_delta_rms_cap)
+        if self.identity_fusion_mode == "identity_only":
+            if not self.enable_identity or self.enable_spatial:
+                raise ValueError("identity_only requires identity enabled and spatial disabled")
+        if self.identity_fusion_mode == "factorized_dual" and not (
+            self.enable_identity or self.enable_spatial
+        ):
+            raise ValueError("factorized_dual requires at least one enabled lane")
         self.has_cross_attention_kwargs = True
 
         self.ref_to_k: Optional[nn.Module] = None
@@ -185,6 +235,10 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         self.register_parameter("null_memory", None)
         self.identity_to_k: Optional[nn.Module] = None
         self.identity_to_v: Optional[nn.Module] = None
+        self.register_parameter("identity_null_memory", None)
+        self.identity_connector_down: Optional[nn.Linear] = None
+        self.identity_connector_up: Optional[nn.Linear] = None
+        self.identity_gate_logit: Optional[nn.Parameter] = None
         self.identity_tokens: Optional[torch.Tensor] = None
         self.mask: Optional[torch.Tensor] = None
         self.mask_ref: Optional[torch.Tensor] = None
@@ -202,16 +256,6 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         self.diagnostic_sink = None
 
     def init_from_attention(self, attn) -> None:
-        self.ref_to_k = _clone_effective_linear(
-            attn.to_k,
-            kind=self.ref_kv_kind,
-            rank=self.ref_kv_rank,
-        )
-        self.ref_to_v = _clone_effective_linear(
-            attn.to_v,
-            kind=self.ref_kv_kind,
-            rank=self.ref_kv_rank,
-        )
         base_q = attn.to_q.get_base_layer() if hasattr(attn.to_q, "get_base_layer") else attn.to_q
         projection_dim = int(base_q.out_features)
         if projection_dim != self.hidden_size:
@@ -219,41 +263,53 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
                 f"{self.processor_name}: configured hidden_size={self.hidden_size}, "
                 f"attention projection={projection_dim}"
             )
-        self.connector_down = nn.Linear(
-            projection_dim,
-            self.connector_rank,
-            bias=False,
-            device=base_q.weight.device,
-            dtype=base_q.weight.dtype,
-        )
-        self.connector_up = nn.Linear(
-            self.connector_rank,
-            projection_dim,
-            bias=False,
-            device=base_q.weight.device,
-            dtype=base_q.weight.dtype,
-        )
-        nn.init.kaiming_uniform_(self.connector_down.weight, a=math.sqrt(5))
-        nn.init.zeros_(self.connector_up.weight)
-        self.gate_logit = nn.Parameter(
-            torch.tensor(
-                self.gate_init_logit,
+        initialize_spatial = self.identity_fusion_mode == "blend" or self.enable_spatial
+        if initialize_spatial:
+            self.ref_to_k = _clone_effective_linear(
+                attn.to_k,
+                kind=self.ref_kv_kind,
+                rank=self.ref_kv_rank,
+            )
+            self.ref_to_v = _clone_effective_linear(
+                attn.to_v,
+                kind=self.ref_kv_kind,
+                rank=self.ref_kv_rank,
+            )
+            self.connector_down = nn.Linear(
+                projection_dim,
+                self.connector_rank,
+                bias=False,
                 device=base_q.weight.device,
                 dtype=base_q.weight.dtype,
             )
-        )
-        if self.connector_input_mode == "reference_minus_learned_null":
-            # A query-dependent generic/no-person baseline. It is projected by
-            # the exact same K/V route as the packed reference tokens.
-            self.null_memory = nn.Parameter(
-                torch.zeros(
-                    self.null_memory_tokens,
-                    self.hidden_size,
+            self.connector_up = nn.Linear(
+                self.connector_rank,
+                projection_dim,
+                bias=False,
+                device=base_q.weight.device,
+                dtype=base_q.weight.dtype,
+            )
+            nn.init.kaiming_uniform_(self.connector_down.weight, a=math.sqrt(5))
+            nn.init.zeros_(self.connector_up.weight)
+            self.gate_logit = nn.Parameter(
+                torch.tensor(
+                    self.gate_init_logit,
                     device=base_q.weight.device,
                     dtype=base_q.weight.dtype,
                 )
             )
-        if self.identity_token_lane:
+            if self.connector_input_mode == "reference_minus_learned_null":
+                # A query-dependent generic/no-person baseline. It is projected by
+                # the exact same K/V route as the packed reference tokens.
+                self.null_memory = nn.Parameter(
+                    torch.zeros(
+                        self.null_memory_tokens,
+                        self.hidden_size,
+                        device=base_q.weight.device,
+                        dtype=base_q.weight.dtype,
+                    )
+                )
+        if self.enable_identity:
             def make_identity_projection():
                 projection = nn.Sequential(
                     nn.Linear(
@@ -278,6 +334,41 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
 
             self.identity_to_k = make_identity_projection()
             self.identity_to_v = make_identity_projection()
+            if self.identity_fusion_mode != "blend":
+                self.identity_null_memory = nn.Parameter(
+                    torch.zeros(
+                        self.identity_null_tokens,
+                        self.identity_token_dim,
+                        device=base_q.weight.device,
+                        dtype=base_q.weight.dtype,
+                    )
+                )
+                self.identity_connector_down = nn.Linear(
+                    projection_dim,
+                    self.identity_connector_rank,
+                    bias=False,
+                    device=base_q.weight.device,
+                    dtype=base_q.weight.dtype,
+                )
+                self.identity_connector_up = nn.Linear(
+                    self.identity_connector_rank,
+                    projection_dim,
+                    bias=False,
+                    device=base_q.weight.device,
+                    dtype=base_q.weight.dtype,
+                )
+                nn.init.kaiming_uniform_(
+                    self.identity_connector_down.weight,
+                    a=math.sqrt(5),
+                )
+                nn.init.zeros_(self.identity_connector_up.weight)
+                self.identity_gate_logit = nn.Parameter(
+                    torch.tensor(
+                        self.identity_gate_init_logit,
+                        device=base_q.weight.device,
+                        dtype=base_q.weight.dtype,
+                    )
+                )
 
     def set_masks(
         self,
@@ -452,6 +543,68 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             f"capped={values['cap_fraction']:.3f}"
         )
 
+    def _identity_candidates(
+        self,
+        attn,
+        target_query: torch.Tensor,
+        target_base: torch.Tensor,
+        generation_batch: int,
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
+        if self.identity_to_k is None or self.identity_to_v is None:
+            raise RuntimeError("Identity-token K/V projections were not initialized")
+        if self.identity_tokens is None:
+            raise RuntimeError("Identity-token lane is enabled but no identity tokens were supplied")
+        identity_tokens = self.identity_tokens
+        if identity_tokens.ndim != 3 or identity_tokens.shape[0] != generation_batch:
+            raise ValueError(
+                f"{self.processor_name}: identity tokens must be [B,T,D] with "
+                f"B={generation_batch}; got {tuple(identity_tokens.shape)}"
+            )
+        if identity_tokens.shape[-1] != self.identity_token_dim:
+            raise ValueError(
+                f"{self.processor_name}: identity token dim must be "
+                f"{self.identity_token_dim}; got {identity_tokens.shape[-1]}"
+            )
+        identity_tokens = identity_tokens.to(
+            device=target_base.device,
+            dtype=target_base.dtype,
+        )
+
+        def attend(tokens: torch.Tensor) -> torch.Tensor:
+            key = self._to_heads(self.identity_to_k(tokens), attn.heads)
+            value = self._to_heads(self.identity_to_v(tokens), attn.heads)
+            key = self._apply_k_norm(attn, key)
+            candidate = F.scaled_dot_product_attention(
+                target_query,
+                key,
+                value,
+                attn_mask=None,
+                dropout_p=0.0,
+                is_causal=False,
+            )
+            return self._from_heads(candidate).to(target_base.dtype)
+
+        identity_candidate = attend(identity_tokens)
+        identity_null_candidate = None
+        if self.identity_fusion_mode != "blend":
+            if self.identity_null_memory is None:
+                raise RuntimeError("Identity null memory was not initialized")
+            null_tokens = self.identity_null_memory.unsqueeze(0).expand(
+                generation_batch,
+                -1,
+                -1,
+            )
+            # The learned null deliberately traverses the exact same K/V
+            # projections as the real PMv2 identity tokens.
+            identity_null_candidate = attend(null_tokens)
+        lengths = torch.full(
+            (generation_batch,),
+            identity_tokens.shape[1],
+            device=target_base.device,
+            dtype=torch.long,
+        )
+        return identity_candidate, identity_null_candidate, lengths
+
     def forward(
         self,
         attn,
@@ -465,12 +618,10 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         del args, kwargs
         if encoder_hidden_states is not None:
             raise ValueError("PackedResidualBranchedAttnProcessor handles self-attention only")
-        if self.ref_to_k is None or self.ref_to_v is None:
-            raise RuntimeError("init_from_attention must be called before the processor is used")
-        if self.connector_down is None or self.connector_up is None or self.gate_logit is None:
-            raise RuntimeError("Packed residual connector is not initialized")
-        if self.mask is None or self.mask_ref is None or self.mask_core is None:
-            raise ValueError("Packed residual attention requires target, reference, and core masks")
+        if self.mask is None or self.mask_core is None:
+            raise ValueError("Packed residual attention requires target and core masks")
+        if (self.identity_fusion_mode == "blend" or self.enable_spatial) and self.mask_ref is None:
+            raise ValueError("The spatial packed-residual lane requires a reference mask")
 
         residual = hidden_states
         if attn.spatial_norm is not None:
@@ -505,102 +656,6 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         reference_hidden = hidden_states[generation_batch:]
         sequence_length = target_base.shape[1]
 
-        reference_valid = self._resize_mask(
-            self.mask_ref,
-            target_length=sequence_length,
-            batch_size=generation_batch,
-            mode="nearest",
-            binary=True,
-        ).squeeze(-1)
-        packed, lengths, pad_mask, sample_has_roi = pack_valid_tokens(
-            reference_hidden,
-            reference_valid,
-        )
-        reference_key = self._to_heads(self.ref_to_k(packed), attn.heads)
-        reference_value = self._to_heads(self.ref_to_v(packed), attn.heads)
-        reference_key = self._apply_k_norm(attn, reference_key)
-        reference_candidate = F.scaled_dot_product_attention(
-            target_query,
-            reference_key,
-            reference_value,
-            attn_mask=pad_mask.to(dtype=target_query.dtype, device=target_query.device),
-            dropout_p=0.0,
-            is_causal=False,
-        )
-        reference_candidate = self._from_heads(reference_candidate).to(target_base.dtype)
-        spatial_reference_candidate = reference_candidate
-        identity_candidate = None
-
-        if self.identity_token_lane:
-            if self.identity_to_k is None or self.identity_to_v is None:
-                raise RuntimeError("Identity-token K/V projections were not initialized")
-            if self.identity_tokens is None:
-                raise RuntimeError("Identity-token lane is enabled but no identity tokens were supplied")
-            identity_tokens = self.identity_tokens
-            if identity_tokens.ndim != 3 or identity_tokens.shape[0] != generation_batch:
-                raise ValueError(
-                    f"{self.processor_name}: identity tokens must be [B,T,D] with "
-                    f"B={generation_batch}; got {tuple(identity_tokens.shape)}"
-                )
-            identity_tokens = identity_tokens.to(
-                device=reference_hidden.device,
-                dtype=reference_hidden.dtype,
-            )
-            identity_key = self._to_heads(self.identity_to_k(identity_tokens), attn.heads)
-            identity_value = self._to_heads(self.identity_to_v(identity_tokens), attn.heads)
-            identity_key = self._apply_k_norm(attn, identity_key)
-            identity_candidate = F.scaled_dot_product_attention(
-                target_query,
-                identity_key,
-                identity_value,
-                attn_mask=None,
-                dropout_p=0.0,
-                is_causal=False,
-            )
-            identity_candidate = self._from_heads(identity_candidate).to(target_base.dtype)
-            weight = self.identity_token_weight
-            reference_candidate = (
-                (1.0 - weight) * reference_candidate
-                + weight * identity_candidate
-            )
-
-        if self.connector_input_mode == "reference_minus_target":
-            # NN2-PPR1 parity path. This can learn through the stable
-            # -target_base term even when reference-specific evidence is weak.
-            connector_input = reference_candidate - target_base
-            null_candidate = None
-        elif self.connector_input_mode == "reference_minus_null":
-            # NN3: fixed no-person memory has zero K/V, so attention with the
-            # same target query yields an exact zero candidate. The connector
-            # must therefore operate on retrieved reference evidence and cannot
-            # use -target_base as a shortcut. Bias-free connector layers make
-            # the no-reference residual exactly zero by construction.
-            null_candidate = torch.zeros_like(reference_candidate)
-            connector_input = reference_candidate - null_candidate
-        else:
-            if self.null_memory is None:
-                raise RuntimeError("Learned null memory was not initialized")
-            null_hidden = self.null_memory.unsqueeze(0).expand(
-                generation_batch,
-                -1,
-                -1,
-            )
-            null_key = self._to_heads(self.ref_to_k(null_hidden), attn.heads)
-            null_value = self._to_heads(self.ref_to_v(null_hidden), attn.heads)
-            null_key = self._apply_k_norm(attn, null_key)
-            null_candidate = F.scaled_dot_product_attention(
-                target_query,
-                null_key,
-                null_value,
-                attn_mask=None,
-                dropout_p=0.0,
-                is_causal=False,
-            )
-            null_candidate = self._from_heads(null_candidate).to(target_base.dtype)
-            connector_input = reference_candidate - null_candidate
-
-        connector_hidden = self.connector_down(connector_input)
-        raw_delta = self.connector_up(connector_hidden)
         target_core = self._resize_mask(
             self.mask_core,
             target_length=sequence_length,
@@ -608,12 +663,260 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             mode="bilinear",
             binary=False,
         ).to(dtype=target_base.dtype, device=target_base.device)
-        bounded_delta, cap_scale, pre_ratio, post_ratio = self._masked_rms_cap(
-            raw_delta,
-            base=target_base,
-            mask=target_core,
-            max_ratio=self.delta_rms_cap,
-        )
+        spatial_reference_candidate = None
+        spatial_null_candidate = None
+        spatial_connector_input = None
+        spatial_connector_hidden = None
+        spatial_raw_delta = None
+        spatial_bounded_delta = None
+        spatial_applied_delta = None
+        identity_candidate = None
+        identity_null_candidate = None
+        identity_connector_input = None
+        identity_connector_hidden = None
+        identity_raw_delta = None
+        identity_bounded_delta = None
+        identity_applied_delta = None
+
+        def spatial_candidates():
+            if self.ref_to_k is None or self.ref_to_v is None:
+                raise RuntimeError("Spatial reference K/V was not initialized")
+            reference_valid = self._resize_mask(
+                self.mask_ref,
+                target_length=sequence_length,
+                batch_size=generation_batch,
+                mode="nearest",
+                binary=True,
+            ).squeeze(-1)
+            packed_local, lengths_local, pad_mask, has_roi = pack_valid_tokens(
+                reference_hidden,
+                reference_valid,
+            )
+
+            def attend(tokens, attention_mask=None):
+                key = self._to_heads(self.ref_to_k(tokens), attn.heads)
+                value = self._to_heads(self.ref_to_v(tokens), attn.heads)
+                key = self._apply_k_norm(attn, key)
+                candidate = F.scaled_dot_product_attention(
+                    target_query,
+                    key,
+                    value,
+                    attn_mask=attention_mask,
+                    dropout_p=0.0,
+                    is_causal=False,
+                )
+                return self._from_heads(candidate).to(target_base.dtype)
+
+            candidate = attend(
+                packed_local,
+                pad_mask.to(dtype=target_query.dtype, device=target_query.device),
+            )
+            if self.connector_input_mode == "reference_minus_target":
+                null = None
+                connector_value = candidate - target_base
+            elif self.connector_input_mode == "reference_minus_null":
+                null = torch.zeros_like(candidate)
+                connector_value = candidate
+            else:
+                if self.null_memory is None:
+                    raise RuntimeError("Learned spatial null memory was not initialized")
+                null_hidden = self.null_memory.unsqueeze(0).expand(
+                    generation_batch,
+                    -1,
+                    -1,
+                )
+                null = attend(null_hidden)
+                connector_value = candidate - null
+            return (
+                candidate,
+                null,
+                connector_value,
+                packed_local,
+                lengths_local,
+                has_roi,
+            )
+
+        if self.identity_fusion_mode == "blend":
+            if self.connector_down is None or self.connector_up is None or self.gate_logit is None:
+                raise RuntimeError("Packed residual connector is not initialized")
+            (
+                spatial_reference_candidate,
+                spatial_null_candidate,
+                spatial_connector_input,
+                packed,
+                lengths,
+                sample_has_roi,
+            ) = spatial_candidates()
+            reference_candidate = spatial_reference_candidate
+            if self.enable_identity:
+                identity_candidate, _, _ = self._identity_candidates(
+                    attn,
+                    target_query,
+                    target_base,
+                    generation_batch,
+                )
+                weight = self.identity_token_weight
+                reference_candidate = (
+                    (1.0 - weight) * reference_candidate
+                    + weight * identity_candidate
+                )
+                if self.connector_input_mode == "reference_minus_target":
+                    spatial_connector_input = reference_candidate - target_base
+                elif self.connector_input_mode == "reference_minus_null":
+                    spatial_connector_input = reference_candidate
+                else:
+                    spatial_connector_input = reference_candidate - spatial_null_candidate
+            connector_input = spatial_connector_input
+            null_candidate = spatial_null_candidate
+            connector_hidden = self.connector_down(connector_input)
+            raw_delta = self.connector_up(connector_hidden)
+            bounded_delta, cap_scale, pre_ratio, post_ratio = self._masked_rms_cap(
+                raw_delta,
+                base=target_base,
+                mask=target_core,
+                max_ratio=self.delta_rms_cap,
+            )
+            gate = self.gate_max * torch.sigmoid(self.gate_logit)
+            applied_delta = (
+                target_core
+                * sample_has_roi[:, None, None].to(target_base.dtype)
+                * gate
+                * float(self.runtime_scale)
+                * bounded_delta
+            )
+            spatial_connector_hidden = connector_hidden
+            spatial_raw_delta = raw_delta
+            spatial_bounded_delta = bounded_delta
+            spatial_applied_delta = applied_delta
+        else:
+            lane_lengths = []
+            lane_support = []
+            if self.enable_identity:
+                if (
+                    self.identity_connector_down is None
+                    or self.identity_connector_up is None
+                    or self.identity_gate_logit is None
+                ):
+                    raise RuntimeError("Dedicated identity connector is not initialized")
+                identity_candidate, identity_null_candidate, identity_lengths = (
+                    self._identity_candidates(
+                        attn,
+                        target_query,
+                        target_base,
+                        generation_batch,
+                    )
+                )
+                identity_connector_input = identity_candidate - identity_null_candidate
+                identity_connector_hidden = self.identity_connector_down(
+                    identity_connector_input
+                )
+                identity_raw_delta = self.identity_connector_up(
+                    identity_connector_hidden
+                )
+                (
+                    identity_bounded_delta,
+                    identity_cap_scale,
+                    identity_pre_ratio,
+                    identity_post_ratio,
+                ) = self._masked_rms_cap(
+                    identity_raw_delta,
+                    base=target_base,
+                    mask=target_core,
+                    max_ratio=self.identity_delta_rms_cap,
+                )
+                identity_gate = self.identity_gate_max * torch.sigmoid(
+                    self.identity_gate_logit
+                )
+                identity_applied_delta = (
+                    target_core
+                    * identity_gate
+                    * float(self.runtime_scale)
+                    * identity_bounded_delta
+                )
+                lane_lengths.append(identity_lengths)
+                lane_support.append(torch.ones_like(identity_lengths, dtype=torch.bool))
+            if self.enable_spatial:
+                if self.connector_down is None or self.connector_up is None or self.gate_logit is None:
+                    raise RuntimeError("Dedicated spatial connector is not initialized")
+                (
+                    spatial_reference_candidate,
+                    spatial_null_candidate,
+                    spatial_connector_input,
+                    packed,
+                    spatial_lengths,
+                    spatial_has_roi,
+                ) = spatial_candidates()
+                spatial_connector_hidden = self.connector_down(spatial_connector_input)
+                spatial_raw_delta = self.connector_up(spatial_connector_hidden)
+                (
+                    spatial_bounded_delta,
+                    spatial_cap_scale,
+                    spatial_pre_ratio,
+                    spatial_post_ratio,
+                ) = self._masked_rms_cap(
+                    spatial_raw_delta,
+                    base=target_base,
+                    mask=target_core,
+                    max_ratio=self.spatial_delta_rms_cap,
+                )
+                spatial_gate = self.spatial_gate_max * torch.sigmoid(self.gate_logit)
+                spatial_applied_delta = (
+                    target_core
+                    * spatial_has_roi[:, None, None].to(target_base.dtype)
+                    * spatial_gate
+                    * float(self.runtime_scale)
+                    * spatial_bounded_delta
+                )
+                lane_lengths.append(spatial_lengths)
+                lane_support.append(spatial_has_roi)
+
+            lane_deltas = [
+                value
+                for value in (identity_applied_delta, spatial_applied_delta)
+                if value is not None
+            ]
+            combined_pre = sum(lane_deltas[1:], lane_deltas[0])
+            if self.identity_fusion_mode == "factorized_dual":
+                applied_delta, total_cap_scale, _, _ = self._masked_rms_cap(
+                    combined_pre,
+                    base=target_base,
+                    mask=target_core,
+                    max_ratio=self.total_delta_rms_cap,
+                )
+                applied_delta = target_core * applied_delta
+            else:
+                applied_delta = combined_pre
+                total_cap_scale = identity_cap_scale
+            lengths = lane_lengths[0]
+            sample_has_roi = lane_support[0]
+            packed = target_base.new_empty(
+                generation_batch,
+                max(int(lengths.max().item()), 1),
+                target_base.shape[-1],
+            )
+            if self.enable_identity:
+                connector_input = identity_connector_input
+                connector_hidden = identity_connector_hidden
+                raw_delta = identity_raw_delta
+                bounded_delta = identity_bounded_delta
+                null_candidate = identity_null_candidate
+                gate = identity_gate
+                cap_scale = identity_cap_scale
+                pre_ratio = identity_pre_ratio
+                post_ratio = identity_post_ratio
+                reference_candidate = identity_candidate
+            else:
+                connector_input = spatial_connector_input
+                connector_hidden = spatial_connector_hidden
+                raw_delta = spatial_raw_delta
+                bounded_delta = spatial_bounded_delta
+                null_candidate = spatial_null_candidate
+                gate = spatial_gate
+                cap_scale = spatial_cap_scale
+                pre_ratio = spatial_pre_ratio
+                post_ratio = spatial_post_ratio
+                reference_candidate = spatial_reference_candidate
+
         self.last_aux_losses = {}
         if self.collect_aux_losses:
             core_has_support = target_core.float().sum(dim=(1, 2)) > 0
@@ -632,14 +935,21 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             # traverses the same target-Q and reference K/V projections as the
             # matched candidate. Penalize its connector response, and require
             # the matched and null responses to remain distinguishable.
-            null_raw_delta = self.connector_up(
-                self.connector_down(null_candidate)
-            )
+            if self.identity_fusion_mode != "blend" and self.enable_identity:
+                null_raw_delta = self.identity_connector_up(
+                    self.identity_connector_down(null_candidate)
+                )
+                aux_cap = self.identity_delta_rms_cap
+            else:
+                null_raw_delta = self.connector_up(
+                    self.connector_down(null_candidate)
+                )
+                aux_cap = self.delta_rms_cap
             _, _, null_ratio, _ = self._masked_rms_cap(
                 null_raw_delta,
                 base=target_base,
                 mask=target_core,
-                max_ratio=self.delta_rms_cap,
+                max_ratio=aux_cap,
             )
             # raw_delta is already D(C_ref - C_null). Since both connector
             # projections are bias-free linear maps, pre_ratio is exactly the
@@ -655,14 +965,6 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             self.last_aux_losses["match_null_margin"] = (
                 margin_error.square() * valid_rows
             ).sum() / valid_count
-        gate = self.gate_max * torch.sigmoid(self.gate_logit)
-        applied_delta = (
-            target_core
-            * sample_has_roi[:, None, None].to(target_base.dtype)
-            * gate
-            * float(self.runtime_scale)
-            * bounded_delta
-        )
         target_output = target_base + applied_delta
         hidden_states = torch.cat([target_output, reference_base], dim=0)
 
@@ -741,20 +1043,60 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
                     return value[:sample_count]
 
                 tensors = {
-                    "reference_hidden": _sample_rows(reference_hidden),
                     "reference_candidate": _sample_rows(reference_candidate),
                     "connector_input": _sample_rows(connector_input),
                     "connector_down": _sample_rows(connector_hidden),
                     "raw_delta": _sample_rows(raw_delta),
                     "bounded_delta": _sample_rows(bounded_delta),
                     "applied_delta": _sample_rows(applied_delta),
+                    "combined_applied_delta": _sample_rows(applied_delta),
                 }
+                if self.identity_fusion_mode != "identity_only":
+                    tensors["reference_hidden"] = _sample_rows(reference_hidden)
                 if identity_candidate is not None:
+                    tensors["identity_candidate"] = _sample_rows(
+                        identity_candidate
+                    )
+                if identity_null_candidate is not None:
+                    tensors["identity_null_candidate"] = _sample_rows(
+                        identity_null_candidate
+                    )
+                if identity_connector_input is not None:
+                    tensors["identity_connector_input"] = _sample_rows(
+                        identity_connector_input
+                    )
+                    tensors["identity_raw_delta"] = _sample_rows(
+                        identity_raw_delta
+                    )
+                    tensors["identity_bounded_delta"] = _sample_rows(
+                        identity_bounded_delta
+                    )
+                    tensors["identity_applied_delta"] = _sample_rows(
+                        identity_applied_delta
+                    )
+                if spatial_reference_candidate is not None:
                     tensors["spatial_reference_candidate"] = _sample_rows(
                         spatial_reference_candidate
                     )
-                    tensors["identity_candidate"] = _sample_rows(
-                        identity_candidate
+                    tensors["spatial_candidate"] = _sample_rows(
+                        spatial_reference_candidate
+                    )
+                if spatial_null_candidate is not None:
+                    tensors["spatial_null_candidate"] = _sample_rows(
+                        spatial_null_candidate
+                    )
+                if spatial_connector_input is not None:
+                    tensors["spatial_connector_input"] = _sample_rows(
+                        spatial_connector_input
+                    )
+                    tensors["spatial_raw_delta"] = _sample_rows(
+                        spatial_raw_delta
+                    )
+                    tensors["spatial_bounded_delta"] = _sample_rows(
+                        spatial_bounded_delta
+                    )
+                    tensors["spatial_applied_delta"] = _sample_rows(
+                        spatial_applied_delta
                     )
                 if null_candidate is not None:
                     tensors["null_candidate"] = _sample_rows(null_candidate)

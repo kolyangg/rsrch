@@ -80,6 +80,14 @@ def _processor_trainable_manifest(model) -> dict[str, dict[str, int]]:
             key = "sa_gate"
         elif ".attn1.processor.null_memory" in name:
             key = "sa_null_memory"
+        elif ".attn1.processor.identity_null_memory" in name:
+            key = "sa_identity_null"
+        elif ".attn1.processor.identity_connector_down." in name:
+            key = "sa_identity_connector_down"
+        elif ".attn1.processor.identity_connector_up." in name:
+            key = "sa_identity_connector_up"
+        elif ".attn1.processor.identity_gate_logit" in name:
+            key = "sa_identity_gate"
         elif ".attn1.processor.identity_to_" in name:
             key = "sa_identity_token_projection"
         else:
@@ -98,12 +106,31 @@ def _assert_branched_installation(model) -> None:
     all_names = list(processors)
     variant = str(getattr(model, "ba_processor_variant", "legacy") or "legacy").lower()
     if variant == "packed_residual_v1":
-        expected_sa = set(
-            select_branched_self_attention_names(
-                all_names,
-                getattr(model, "ba_site_policy", "all"),
+        fusion_mode = str(
+            getattr(model, "ba_identity_fusion_mode", "blend") or "blend"
+        ).lower()
+        if fusion_mode == "blend":
+            expected_sa = set(
+                select_branched_self_attention_names(
+                    all_names,
+                    getattr(model, "ba_site_policy", "all"),
+                )
             )
-        )
+        else:
+            base_policy = getattr(model, "ba_site_policy", "all")
+            identity_policy = getattr(model, "ba_identity_site_policy", "inherit")
+            spatial_policy = getattr(model, "ba_spatial_site_policy", "inherit")
+            identity_policy = base_policy if identity_policy == "inherit" else identity_policy
+            spatial_policy = base_policy if spatial_policy == "inherit" else spatial_policy
+            expected_sa = set()
+            if bool(getattr(model, "ba_identity_token_lane", False)):
+                expected_sa.update(
+                    select_branched_self_attention_names(all_names, identity_policy)
+                )
+            if bool(getattr(model, "ba_spatial_lane_enabled", True)):
+                expected_sa.update(
+                    select_branched_self_attention_names(all_names, spatial_policy)
+                )
     else:
         expected_sa = set(
             select_branched_processor_names(
@@ -175,15 +202,31 @@ def _assert_branched_installation(model) -> None:
     sa_train_mode = str(getattr(model, "ba_sa_train_mode", "all") or "all").lower()
     manifest = _processor_trainable_manifest(model)
     if sa_train_mode == "packed_residual":
-        allowed_fragments = [
-            ".attn1.processor.ref_to_k.lora_A",
-            ".attn1.processor.ref_to_k.lora_B",
-            ".attn1.processor.ref_to_v.lora_A",
-            ".attn1.processor.ref_to_v.lora_B",
-            ".attn1.processor.connector_down.weight",
-            ".attn1.processor.connector_up.weight",
-            ".attn1.processor.gate_logit",
-        ]
+        fusion_mode = str(
+            getattr(model, "ba_identity_fusion_mode", "blend") or "blend"
+        ).lower()
+        identity_exact = {
+            "identity_to_k.0.weight",
+            "identity_to_k.2.weight",
+            "identity_to_v.0.weight",
+            "identity_to_v.2.weight",
+            "identity_null_memory",
+            "identity_connector_down.weight",
+            "identity_connector_up.weight",
+            "identity_gate_logit",
+        }
+        if fusion_mode == "identity_only":
+            allowed_fragments = [f".attn1.processor.{name}" for name in identity_exact]
+        else:
+            allowed_fragments = [
+                ".attn1.processor.ref_to_k.lora_A",
+                ".attn1.processor.ref_to_k.lora_B",
+                ".attn1.processor.ref_to_v.lora_A",
+                ".attn1.processor.ref_to_v.lora_B",
+                ".attn1.processor.connector_down.weight",
+                ".attn1.processor.connector_up.weight",
+                ".attn1.processor.gate_logit",
+            ]
         learned_null = (
             str(
                 getattr(
@@ -194,11 +237,20 @@ def _assert_branched_installation(model) -> None:
             ).lower()
             == "reference_minus_learned_null"
         )
-        if learned_null:
+        if learned_null and fusion_mode != "identity_only":
             allowed_fragments.append(".attn1.processor.null_memory")
         identity_token_lane = bool(getattr(model, "ba_identity_token_lane", False))
         if identity_token_lane:
             allowed_fragments.append(".attn1.processor.identity_to_")
+        if identity_token_lane and fusion_mode == "factorized_dual":
+            allowed_fragments.extend(
+                (
+                    ".attn1.processor.identity_null_memory",
+                    ".attn1.processor.identity_connector_down.weight",
+                    ".attn1.processor.identity_connector_up.weight",
+                    ".attn1.processor.identity_gate_logit",
+                )
+            )
         invalid = [
             name for name in trainable_processor_keys
             if not any(fragment in name for fragment in allowed_fragments)
@@ -208,26 +260,36 @@ def _assert_branched_installation(model) -> None:
                 "packed_residual selected but unexpected parameters are trainable: "
                 + ", ".join(invalid[:5])
             )
-        required_categories = {
-            "sa_ref_k",
-            "sa_ref_v",
-            "sa_connector_down",
-            "sa_connector_up",
-            "sa_gate",
-        }
-        expected_local = {
-            "ref_to_k.lora_A",
-            "ref_to_k.lora_B",
-            "ref_to_v.lora_A",
-            "ref_to_v.lora_B",
-            "connector_down.weight",
-            "connector_up.weight",
-            "gate_logit",
-        }
-        if learned_null:
+        if fusion_mode == "identity_only":
+            required_categories = {
+                "sa_identity_token_projection",
+                "sa_identity_null",
+                "sa_identity_connector_down",
+                "sa_identity_connector_up",
+                "sa_identity_gate",
+            }
+            expected_local = set(identity_exact)
+        else:
+            required_categories = {
+                "sa_ref_k",
+                "sa_ref_v",
+                "sa_connector_down",
+                "sa_connector_up",
+                "sa_gate",
+            }
+            expected_local = {
+                "ref_to_k.lora_A",
+                "ref_to_k.lora_B",
+                "ref_to_v.lora_A",
+                "ref_to_v.lora_B",
+                "connector_down.weight",
+                "connector_up.weight",
+                "gate_logit",
+            }
+        if learned_null and fusion_mode != "identity_only":
             required_categories.add("sa_null_memory")
             expected_local.add("null_memory")
-        if identity_token_lane:
+        if identity_token_lane and fusion_mode == "blend":
             required_categories.add("sa_identity_token_projection")
             expected_local.update(
                 {
@@ -237,7 +299,37 @@ def _assert_branched_installation(model) -> None:
                     "identity_to_v.2.weight",
                 }
             )
+        elif identity_token_lane and fusion_mode == "factorized_dual":
+            required_categories.update(
+                {
+                    "sa_identity_token_projection",
+                    "sa_identity_null",
+                    "sa_identity_connector_down",
+                    "sa_identity_connector_up",
+                    "sa_identity_gate",
+                }
+            )
+            expected_local.update(identity_exact)
         for name in sorted(expected_sa):
+            processor = processors[name]
+            if fusion_mode == "factorized_dual":
+                expected_local = set()
+                if bool(getattr(processor, "enable_spatial", False)):
+                    expected_local.update(
+                        {
+                            "ref_to_k.lora_A",
+                            "ref_to_k.lora_B",
+                            "ref_to_v.lora_A",
+                            "ref_to_v.lora_B",
+                            "connector_down.weight",
+                            "connector_up.weight",
+                            "gate_logit",
+                        }
+                    )
+                    if learned_null:
+                        expected_local.add("null_memory")
+                if bool(getattr(processor, "enable_identity", False)):
+                    expected_local.update(identity_exact)
             local_trainable = {
                 key for key, parameter in processors[name].named_parameters()
                 if parameter.requires_grad
@@ -299,6 +391,7 @@ def _assert_branched_installation(model) -> None:
     print(
         "[BA strict install] "
         f"variant={variant} site_policy={getattr(model, 'ba_site_policy', 'all')} "
+        f"fusion={getattr(model, 'ba_identity_fusion_mode', 'blend')} "
         f"SA={len(expected_sa)} CA={len(expected_ca)} "
         f"trainable_tensors={len(trainable_processor_keys)} "
         f"trainable_parameters={sum(parameter.numel() for parameter in model.unet.parameters() if parameter.requires_grad)}"
@@ -370,17 +463,38 @@ def configure_branched_trainables(model) -> None:
         is_non_ba_attn = bool(non_ba_attn_prefixes) and name.startswith(non_ba_attn_prefixes)
         is_selected_proc = bool(selected_proc_prefixes) and name.startswith(selected_proc_prefixes)
         if sa_train_mode == "packed_residual":
-            is_packed_parameter = (
-                ".attn1.processor.ref_to_k.lora_A" in name
-                or ".attn1.processor.ref_to_k.lora_B" in name
-                or ".attn1.processor.ref_to_v.lora_A" in name
-                or ".attn1.processor.ref_to_v.lora_B" in name
-                or ".attn1.processor.connector_down.weight" in name
-                or ".attn1.processor.connector_up.weight" in name
-                or ".attn1.processor.gate_logit" in name
-                or ".attn1.processor.null_memory" in name
-                or ".attn1.processor.identity_to_" in name
-            )
+            fusion_mode = str(
+                getattr(model, "ba_identity_fusion_mode", "blend") or "blend"
+            ).lower()
+            if fusion_mode == "identity_only":
+                is_packed_parameter = any(
+                    fragment in name
+                    for fragment in (
+                        ".attn1.processor.identity_to_k.0.weight",
+                        ".attn1.processor.identity_to_k.2.weight",
+                        ".attn1.processor.identity_to_v.0.weight",
+                        ".attn1.processor.identity_to_v.2.weight",
+                        ".attn1.processor.identity_null_memory",
+                        ".attn1.processor.identity_connector_down.weight",
+                        ".attn1.processor.identity_connector_up.weight",
+                        ".attn1.processor.identity_gate_logit",
+                    )
+                )
+            else:
+                is_packed_parameter = (
+                    ".attn1.processor.ref_to_k.lora_A" in name
+                    or ".attn1.processor.ref_to_k.lora_B" in name
+                    or ".attn1.processor.ref_to_v.lora_A" in name
+                    or ".attn1.processor.ref_to_v.lora_B" in name
+                    or ".attn1.processor.connector_down.weight" in name
+                    or ".attn1.processor.connector_up.weight" in name
+                    or ".attn1.processor.gate_logit" in name
+                    or ".attn1.processor.null_memory" in name
+                    or ".attn1.processor.identity_to_" in name
+                    or ".attn1.processor.identity_null_memory" in name
+                    or ".attn1.processor.identity_connector_" in name
+                    or ".attn1.processor.identity_gate_logit" in name
+                )
             if is_selected_proc and is_packed_parameter:
                 p.requires_grad_(True)
         elif mode == "shared":

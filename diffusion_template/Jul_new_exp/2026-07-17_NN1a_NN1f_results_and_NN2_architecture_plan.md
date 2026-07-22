@@ -56,7 +56,7 @@ The best conclusion is:
 - [10k selected full images](../full_validation_results/ba_NN1a_NN1f_17Jul/NN1a_NN1f_full_images_10k.png)
 - [Computed visual statistics](../full_validation_results/ba_NN1a_NN1f_17Jul/visual_statistics.json)
 - [Reproducible PDF config](../infer_tools/full_val_NN1a_NN1f_17jul_report.yaml)
-- [Interactive architecture explorer](../debug_04Jul/ba_architecture_explorer/index.html)
+- [Interactive architecture explorer](../ba_architecture_explorer/index.html)
 
 The PDF was generated with the repository's existing
 `infer_tools/pdf_full_val.py` workflow. It has one summary page, one

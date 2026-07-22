@@ -208,4 +208,4 @@ No full SDXL GPU forward or training step was run in this workspace.
 - launchers: `jul_serv_runs/start_ba_NN2*.sh`;
 - shared 20k runner: `jul_serv_runs/_run_ba_NN2_common_1gpu.sh`;
 - interactive comparison:
-  `debug_04Jul/ba_architecture_explorer/index.html`.
+  `ba_architecture_explorer/index.html`.

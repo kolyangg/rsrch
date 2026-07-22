@@ -907,7 +907,7 @@ Key analysis artifacts:
 - `Jul_new_exp/2026-07-17_NN1a_NN1f_implementation_and_launch_guide.md`
 - `full_validation_results/ba_NN1a_NN1f_17Jul/full_val_report_NN1a_NN1f_vs_PM.pdf`
 - `full_validation_results/ba_NN1a_NN1f_17Jul/NN1a_NN1f_closeup_faces_progression.png`
-- `debug_04Jul/ba_architecture_explorer/index.html`
+- `ba_architecture_explorer/index.html`
 
 For the clearest interactive comparison, open the architecture explorer, select
 V2, and compare NN1d against NN2-style proposals or N3a against NN1 variants.

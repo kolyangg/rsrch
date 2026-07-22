@@ -157,6 +157,18 @@ class PhotomakerBranchedLora(SDXL):
         ba_identity_token_dim: int = 2048,
         ba_identity_token_rank: int = 32,
         ba_identity_token_weight: float = 0.5,
+        ba_identity_fusion_mode: str = "blend",
+        ba_identity_site_policy: str = "inherit",
+        ba_spatial_site_policy: str = "inherit",
+        ba_spatial_lane_enabled: bool = True,
+        ba_identity_null_tokens: int = 2,
+        ba_identity_connector_rank: int = 16,
+        ba_identity_gate_max: float = 0.5,
+        ba_identity_gate_init_logit: float = 0.0,
+        ba_identity_delta_rms_cap: float = 0.15,
+        ba_spatial_gate_max: float = 0.15,
+        ba_spatial_delta_rms_cap: float = 0.03,
+        ba_total_delta_rms_cap: float = 0.15,
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
         use_id_embeds: bool = True,        # toggle ID embedding injection (controls id_to_hidden usage)
         ba_uncond_face_fix: bool = False,  # F1: keep plain negative prompt for the uncond face branch under CFG
@@ -349,6 +361,24 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_identity_token_dim = int(ba_identity_token_dim)
         self.ba_identity_token_rank = int(ba_identity_token_rank)
         self.ba_identity_token_weight = float(ba_identity_token_weight)
+        self.ba_identity_fusion_mode = str(
+            ba_identity_fusion_mode or "blend"
+        ).lower()
+        self.ba_identity_site_policy = str(
+            ba_identity_site_policy or "inherit"
+        ).lower()
+        self.ba_spatial_site_policy = str(
+            ba_spatial_site_policy or "inherit"
+        ).lower()
+        self.ba_spatial_lane_enabled = bool(ba_spatial_lane_enabled)
+        self.ba_identity_null_tokens = int(ba_identity_null_tokens)
+        self.ba_identity_connector_rank = int(ba_identity_connector_rank)
+        self.ba_identity_gate_max = float(ba_identity_gate_max)
+        self.ba_identity_gate_init_logit = float(ba_identity_gate_init_logit)
+        self.ba_identity_delta_rms_cap = float(ba_identity_delta_rms_cap)
+        self.ba_spatial_gate_max = float(ba_spatial_gate_max)
+        self.ba_spatial_delta_rms_cap = float(ba_spatial_delta_rms_cap)
+        self.ba_total_delta_rms_cap = float(ba_total_delta_rms_cap)
         if self.ba_invalid_sample_policy not in {"legacy", "error", "skip_batch"}:
             raise ValueError(f"Unknown ba_invalid_sample_policy: {self.ba_invalid_sample_policy}")
         if self.ba_train_timestep_mode not in {"all", "inference_ba_region"}:
@@ -387,8 +417,31 @@ class PhotomakerBranchedLora(SDXL):
             "all",
             "up_blocks_attn1",
             "up_blocks0_attn1",
+            "up_blocks1_attn1",
         }:
             raise ValueError(f"Unknown ba_site_policy: {self.ba_site_policy}")
+        if self.ba_identity_fusion_mode not in {
+            "blend",
+            "identity_only",
+            "factorized_dual",
+        }:
+            raise ValueError(
+                f"Unknown ba_identity_fusion_mode: {self.ba_identity_fusion_mode}"
+            )
+        lane_policies = {
+            "inherit",
+            "up_blocks_attn1",
+            "up_blocks0_attn1",
+            "up_blocks1_attn1",
+        }
+        if self.ba_identity_site_policy not in lane_policies:
+            raise ValueError(
+                f"Unknown ba_identity_site_policy: {self.ba_identity_site_policy}"
+            )
+        if self.ba_spatial_site_policy not in lane_policies:
+            raise ValueError(
+                f"Unknown ba_spatial_site_policy: {self.ba_spatial_site_policy}"
+            )
         if self.ba_connector_input_mode not in {
             "reference_minus_target",
             "reference_minus_null",
@@ -437,6 +490,27 @@ class PhotomakerBranchedLora(SDXL):
             raise ValueError("Identity-token dimensions must be positive")
         if not 0.0 <= self.ba_identity_token_weight <= 1.0:
             raise ValueError("ba_identity_token_weight must be in [0, 1]")
+        if self.ba_identity_null_tokens <= 0 or self.ba_identity_connector_rank <= 0:
+            raise ValueError("Identity null-token count and connector rank must be positive")
+        for name, value in (
+            ("ba_identity_gate_max", self.ba_identity_gate_max),
+            ("ba_identity_delta_rms_cap", self.ba_identity_delta_rms_cap),
+            ("ba_spatial_gate_max", self.ba_spatial_gate_max),
+            ("ba_spatial_delta_rms_cap", self.ba_spatial_delta_rms_cap),
+            ("ba_total_delta_rms_cap", self.ba_total_delta_rms_cap),
+        ):
+            if not 0.0 < value <= 1.0:
+                raise ValueError(f"{name} must be in (0, 1]")
+        if self.ba_identity_fusion_mode == "identity_only":
+            if not self.ba_identity_token_lane or self.ba_spatial_lane_enabled:
+                raise ValueError(
+                    "identity_only requires ba_identity_token_lane=true and "
+                    "ba_spatial_lane_enabled=false"
+                )
+        if self.ba_identity_fusion_mode == "factorized_dual" and not (
+            self.ba_identity_token_lane or self.ba_spatial_lane_enabled
+        ):
+            raise ValueError("factorized_dual requires at least one enabled lane")
         if (
             self.ba_collect_aux_losses
             and self.ba_connector_input_mode
@@ -464,6 +538,7 @@ class PhotomakerBranchedLora(SDXL):
             if self.ba_site_policy not in {
                 "up_blocks_attn1",
                 "up_blocks0_attn1",
+                "up_blocks1_attn1",
             }:
                 raise ValueError(
                     "packed_residual_v1 requires an explicit up-block site policy"
@@ -606,34 +681,60 @@ class PhotomakerBranchedLora(SDXL):
 
         named = [(n, p) for n, p in self.unet.named_parameters() if p.requires_grad]
         if self.ba_processor_variant == "packed_residual_v1":
-            group_fragments = {
-                "ba_ppr_ref_k": ".attn1.processor.ref_to_k.",
-                "ba_ppr_ref_v": ".attn1.processor.ref_to_v.",
-                "ba_ppr_connector_down": ".attn1.processor.connector_down.",
-                "ba_ppr_connector_up": ".attn1.processor.connector_up.",
-                "ba_ppr_gate": ".attn1.processor.gate_logit",
-            }
-            if (
-                getattr(
-                    self,
-                    "ba_connector_input_mode",
-                    "reference_minus_target",
-                )
-                == "reference_minus_learned_null"
-            ):
-                group_fragments["ba_ppr_null_memory"] = (
-                    ".attn1.processor.null_memory"
-                )
-            if bool(getattr(self, "ba_identity_token_lane", False)):
-                group_fragments["ba_ppr_identity_tokens"] = (
-                    ".attn1.processor.identity_to_"
-                )
+            fusion_mode = getattr(self, "ba_identity_fusion_mode", "blend")
+            if fusion_mode == "identity_only":
+                group_fragments = {
+                    "ba_ppr_identity_k": ".attn1.processor.identity_to_k.",
+                    "ba_ppr_identity_v": ".attn1.processor.identity_to_v.",
+                    "ba_ppr_identity_null": ".attn1.processor.identity_null_memory",
+                    "ba_ppr_identity_connector_down": ".attn1.processor.identity_connector_down.",
+                    "ba_ppr_identity_connector_up": ".attn1.processor.identity_connector_up.",
+                    "ba_ppr_identity_gate": ".attn1.processor.identity_gate_logit",
+                }
+            else:
+                group_fragments = {}
+                if fusion_mode == "blend" or bool(
+                    getattr(self, "ba_spatial_lane_enabled", True)
+                ):
+                    group_fragments.update(
+                        {
+                            "ba_ppr_ref_k": ".attn1.processor.ref_to_k.",
+                            "ba_ppr_ref_v": ".attn1.processor.ref_to_v.",
+                            "ba_ppr_connector_down": ".attn1.processor.connector_down.",
+                            "ba_ppr_connector_up": ".attn1.processor.connector_up.",
+                            "ba_ppr_gate": ".attn1.processor.gate_logit",
+                        }
+                    )
+                    if getattr(
+                        self,
+                        "ba_connector_input_mode",
+                        "reference_minus_target",
+                    ) == "reference_minus_learned_null":
+                        group_fragments["ba_ppr_null_memory"] = (
+                            ".attn1.processor.null_memory"
+                        )
+                if bool(getattr(self, "ba_identity_token_lane", False)):
+                    if fusion_mode == "blend":
+                        group_fragments["ba_ppr_identity_tokens"] = (
+                            ".attn1.processor.identity_to_"
+                        )
+                    else:
+                        group_fragments.update(
+                            {
+                                "ba_ppr_identity_k": ".attn1.processor.identity_to_k.",
+                                "ba_ppr_identity_v": ".attn1.processor.identity_to_v.",
+                                "ba_ppr_identity_null": ".attn1.processor.identity_null_memory",
+                                "ba_ppr_identity_connector_down": ".attn1.processor.identity_connector_down.",
+                                "ba_ppr_identity_connector_up": ".attn1.processor.identity_connector_up.",
+                                "ba_ppr_identity_gate": ".attn1.processor.identity_gate_logit",
+                            }
+                        )
             grouped = []
             matched_ids = set()
             for group_name, fragment in group_fragments.items():
                 parameters = [parameter for name, parameter in named if fragment in name]
                 if not parameters:
-                    raise RuntimeError(f"NN2-PPR1 optimizer group is empty: {group_name}")
+                    raise RuntimeError(f"Packed-residual optimizer group is empty: {group_name}")
                 matched_ids.update(id(parameter) for parameter in parameters)
                 grouped.append(
                     {
@@ -742,6 +843,23 @@ class PhotomakerBranchedLora(SDXL):
                         "ba_reference_ca_preserve_full_pm": (
                             self.ba_reference_ca_preserve_full_pm
                         ),
+                    }
+                )
+            if self.ba_identity_fusion_mode != "blend":
+                architecture.update(
+                    {
+                        "ba_identity_fusion_mode": self.ba_identity_fusion_mode,
+                        "ba_identity_site_policy": self.ba_identity_site_policy,
+                        "ba_spatial_site_policy": self.ba_spatial_site_policy,
+                        "ba_spatial_lane_enabled": self.ba_spatial_lane_enabled,
+                        "ba_identity_null_tokens": self.ba_identity_null_tokens,
+                        "ba_identity_connector_rank": self.ba_identity_connector_rank,
+                        "ba_identity_gate_max": self.ba_identity_gate_max,
+                        "ba_identity_gate_init_logit": self.ba_identity_gate_init_logit,
+                        "ba_identity_delta_rms_cap": self.ba_identity_delta_rms_cap,
+                        "ba_spatial_gate_max": self.ba_spatial_gate_max,
+                        "ba_spatial_delta_rms_cap": self.ba_spatial_delta_rms_cap,
+                        "ba_total_delta_rms_cap": self.ba_total_delta_rms_cap,
                     }
                 )
         return architecture
@@ -886,15 +1004,21 @@ class PhotomakerBranchedLora(SDXL):
                             f"{name}.{key}"
                         )
             connector_up = sd.get("connector_up.weight")
+            if connector_up is None:
+                connector_up = sd.get("identity_connector_up.weight")
             if connector_up is not None:
                 connector_fp32 = connector_up.detach().float()
                 ppr_connector_tensors += 1
                 ppr_connector_nonzero += int(torch.count_nonzero(connector_fp32).item())
                 ppr_connector_l2_sq += float(connector_fp32.square().sum().item())
             gate_logit = sd.get("gate_logit")
+            gate_max = self.ba_gate_max
+            if gate_logit is None:
+                gate_logit = sd.get("identity_gate_logit")
+                gate_max = self.ba_identity_gate_max
             if gate_logit is not None:
                 ppr_gate_values.append(
-                    float(self.ba_gate_max * torch.sigmoid(gate_logit.detach().float()).item())
+                    float(gate_max * torch.sigmoid(gate_logit.detach().float()).item())
                 )
 
         self._last_ppr_checkpoint_diagnostics = {

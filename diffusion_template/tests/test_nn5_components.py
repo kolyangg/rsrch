@@ -262,6 +262,77 @@ class NN5ComponentTests(unittest.TestCase):
                 self.assertTrue(torch.isfinite(gradient).all())
                 self.assertGreater(float(gradient.abs().sum()), 0.0)
 
+    def test_nn6_identity_only_is_spatially_independent_and_uses_shared_kv(self):
+        torch.manual_seed(23)
+        channels, side = 16, 4
+        attention = Attention(
+            query_dim=channels,
+            heads=4,
+            dim_head=4,
+            residual_connection=True,
+        )
+        processor = PackedResidualBranchedAttnProcessor(
+            channels,
+            ref_kv_rank=4,
+            connector_input_mode="reference_minus_learned_null",
+            identity_token_lane=True,
+            identity_token_rank=4,
+            identity_fusion_mode="identity_only",
+            enable_identity=True,
+            enable_spatial=False,
+            identity_connector_rank=4,
+        )
+        processor.init_from_attention(attention)
+        self.assertIsNone(processor.ref_to_k)
+        self.assertIsNone(processor.ref_to_v)
+        self.assertIsNone(processor.connector_down)
+        self.assertIsNone(processor.null_memory)
+        mask = torch.ones(1, 1, side, side)
+        processor.set_masks(mask, mask, make_inner_core_mask(mask))
+        processor.identity_tokens = torch.randn(1, 2, 2048)
+        target = torch.randn(1, side * side, channels)
+        reference_a = torch.randn_like(target)
+        reference_b = torch.randn_like(target) * 9.0
+
+        call_counts = {"k": 0, "v": 0}
+        hooks = [
+            processor.identity_to_k.register_forward_hook(
+                lambda *unused: call_counts.__setitem__("k", call_counts["k"] + 1)
+            ),
+            processor.identity_to_v.register_forward_hook(
+                lambda *unused: call_counts.__setitem__("v", call_counts["v"] + 1)
+            ),
+        ]
+        zero_a = processor(attention, torch.cat([target, reference_a], dim=0))
+        zero_b = processor(attention, torch.cat([target, reference_b], dim=0))
+        for hook in hooks:
+            hook.remove()
+        self.assertEqual(call_counts, {"k": 4, "v": 4})
+        torch.testing.assert_close(zero_a[0], zero_b[0], atol=0, rtol=0)
+
+        with torch.no_grad():
+            processor.identity_connector_up.weight.normal_(std=0.1)
+        output_a = processor(attention, torch.cat([target, reference_a], dim=0))
+        output_b = processor(attention, torch.cat([target, reference_b], dim=0))
+        torch.testing.assert_close(output_a[0], output_b[0], atol=0, rtol=0)
+        first_identity = output_a[0].clone()
+        processor.identity_tokens = torch.randn(1, 2, 2048)
+        second_identity = processor(
+            attention,
+            torch.cat([target, reference_a], dim=0),
+        )[0]
+        self.assertFalse(torch.equal(first_identity, second_identity))
+
+        second_identity.square().mean().backward()
+        self.assertGreater(
+            float(processor.identity_connector_down.weight.grad.abs().sum()),
+            0.0,
+        )
+        self.assertGreater(
+            float(processor.identity_to_k[0].weight.grad.abs().sum()),
+            0.0,
+        )
+
     def test_invalid_spatial_identity_embedding_is_rejected(self):
         class _ImageProcessor:
             def __call__(self, images, return_tensors):

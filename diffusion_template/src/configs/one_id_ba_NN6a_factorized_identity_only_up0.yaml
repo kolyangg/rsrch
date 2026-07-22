@@ -1,0 +1,50 @@
+defaults:
+  - one_id_ba_NN5a_counterfactual_directional_ppr
+  - _self_
+
+# NN6a is the clean causal identity-lane test. The ordinary target self-attention
+# remains the protected baseline; only clean PMv2 identity tokens can alter the
+# target face core. The noised spatial-reference lane is not instantiated.
+ppr_reference_noise_scale: 1.0
+ppr_identity_noise_tolerance: 0.0
+pretrained_model_for_validation_name_or_path: SG161222/RealVisXL_V4.0
+
+model:
+  ba_identity_token_lane: true
+  ba_identity_token_dim: 2048
+  ba_identity_token_rank: 32
+  ba_identity_fusion_mode: identity_only
+
+  ba_identity_site_policy: up_blocks0_attn1
+  ba_spatial_site_policy: up_blocks0_attn1
+  ba_spatial_lane_enabled: false
+
+  ba_identity_null_tokens: 2
+  ba_identity_connector_rank: 16
+  ba_identity_gate_max: 0.50
+  ba_identity_gate_init_logit: 0.0
+  ba_identity_delta_rms_cap: 0.15
+  ba_total_delta_rms_cap: 0.15
+
+  # Keep NN5a supervision unchanged so the result isolates lane factorization.
+  ba_counterfactual_enabled: true
+  ba_counterfactual_max_timestep: 300
+  ba_counterfactual_abs_id_weight: 0.05
+  ba_counterfactual_direction_weight: 0.10
+  ba_counterfactual_direction_margin: 0.03
+  ba_counterfactual_ring_weight: 0.05
+
+  use_id_loss: true
+  id_loss_weight: 0.025
+  id_loss_max_timestep: 300
+  id_loss_identity_source: reference
+
+  ba_pm_id_attenuation_probability: 0.0
+  ba_pm_id_attenuation_scale: 1.0
+
+  # Explicitly retain the protected NN5 topology around the new identity lane.
+  ba_site_policy: up_blocks0_attn1
+  train_branched_ca_lora: false
+  pose_adapt_ratio: 0.0
+  ca_mixing_for_face: false
+  ba_output_anchor_mode: base_outside_core

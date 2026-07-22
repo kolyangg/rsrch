@@ -202,6 +202,18 @@ def _initialize_state(trainer) -> dict[str, Any]:
                 False,
             )
         ),
+        "identity_fusion_mode": str(
+            getattr(
+                getattr(trainer.config, "model", None),
+                "ba_identity_fusion_mode",
+                "blend",
+            )
+            or "blend"
+        ).lower(),
+        "identity_noise_tolerance": float(
+            getattr(trainer.config, "ppr_identity_noise_tolerance", 0.0)
+        ),
+        "identity_noise_invariant": {},
     }
     trainer._ppr_reference_noise_state = state
     print(
@@ -506,17 +518,29 @@ def _tensor_comparisons(
         for key in sorted(left_records):
             left, right = left_records[key], right_records[key]
             if key[0] == "processor_tensor_signature":
-                stages = [
+                stages = []
+                for optional_stage in (
                     "reference_hidden",
                     "reference_candidate",
+                    "connector_input",
                     "connector_down",
                     "raw_delta",
                     "bounded_delta",
                     "applied_delta",
-                ]
-                for optional_stage in (
-                    "spatial_reference_candidate",
                     "identity_candidate",
+                    "identity_null_candidate",
+                    "identity_connector_input",
+                    "identity_raw_delta",
+                    "identity_bounded_delta",
+                    "identity_applied_delta",
+                    "spatial_reference_candidate",
+                    "spatial_candidate",
+                    "spatial_null_candidate",
+                    "spatial_connector_input",
+                    "spatial_raw_delta",
+                    "spatial_bounded_delta",
+                    "spatial_applied_delta",
+                    "combined_applied_delta",
                 ):
                     if optional_stage in left and optional_stage in right:
                         stages.append(optional_stage)
@@ -553,6 +577,8 @@ def _assert_integrity(
     diagnostics: dict[str, list[dict[str, Any]]],
     reference_ca_mode: str,
     identity_token_lane: bool = False,
+    identity_fusion_mode: str = "blend",
+    identity_noise_tolerance: float = 0.0,
 ) -> None:
     target_fields = (
         "initial_latents_sha256",
@@ -678,6 +704,71 @@ def _assert_integrity(
         ):
             raise RuntimeError(f"{sample}: zero applied PPR residual in {name}")
 
+    if identity_fusion_mode == "identity_only":
+        stage_names = (
+            "identity_candidate",
+            "identity_null_candidate",
+            "identity_connector_input",
+            "identity_raw_delta",
+            "identity_bounded_delta",
+            "identity_applied_delta",
+            "combined_applied_delta",
+        )
+        for left_name, right_name in (("R1N1", "R1N2"), ("R2N1", "R2N2")):
+            left_records = {
+                (
+                    record["record_type"],
+                    int(record["step"]),
+                    str(record.get("processor", "")),
+                ): record
+                for record in diagnostics[left_name]
+                if record.get("record_type") in {
+                    "processor_tensor_signature",
+                    "epsilon_tensor_signature",
+                }
+            }
+            right_records = {
+                (
+                    record["record_type"],
+                    int(record["step"]),
+                    str(record.get("processor", "")),
+                ): record
+                for record in diagnostics[right_name]
+                if record.get("record_type") in {
+                    "processor_tensor_signature",
+                    "epsilon_tensor_signature",
+                }
+            }
+            if set(left_records) != set(right_records):
+                raise RuntimeError(
+                    f"{sample}: identity-only noise tensor-stage mismatch for "
+                    f"{left_name}/{right_name}"
+                )
+            for key in sorted(left_records):
+                left, right = left_records[key], right_records[key]
+                fields = (
+                    stage_names
+                    if key[0] == "processor_tensor_signature"
+                    else (
+                        "target_epsilon_pre_anchor",
+                        "target_epsilon_post_anchor",
+                    )
+                )
+                for field in fields:
+                    if field not in left or field not in right:
+                        if key[0] == "processor_tensor_signature":
+                            raise RuntimeError(
+                                f"{sample}: identity-only diagnostic lacks {field}"
+                            )
+                        continue
+                    exact = left[field]["sha256"] == right[field]["sha256"]
+                    relative = _relative_signature(left[field], right[field])
+                    if not exact and relative > float(identity_noise_tolerance):
+                        raise RuntimeError(
+                            f"{sample}: identity-only reference-noise leak at "
+                            f"{field} {left_name}/{right_name}: relative={relative}"
+                        )
+
 
 @torch.no_grad()
 def run_ppr_reference_noise_batch(trainer, batch, eval_metrics):
@@ -697,6 +788,22 @@ def run_ppr_reference_noise_batch(trainer, batch, eval_metrics):
             )
         ),
     )
+    state.setdefault(
+        "identity_fusion_mode",
+        str(
+            getattr(
+                getattr(trainer.config, "model", None),
+                "ba_identity_fusion_mode",
+                "blend",
+            )
+            or "blend"
+        ).lower(),
+    )
+    state.setdefault(
+        "identity_noise_tolerance",
+        float(getattr(trainer.config, "ppr_identity_noise_tolerance", 0.0)),
+    )
+    state.setdefault("identity_noise_invariant", {})
     prompts = batch["prompt"] if isinstance(batch["prompt"], list) else [batch["prompt"]]
     batch_size = len(prompts)
     state["observed_batch_sizes"].append(batch_size)
@@ -802,7 +909,35 @@ def run_ppr_reference_noise_batch(trainer, batch, eval_metrics):
             sample_diagnostics,
             state["reference_ca_mode"],
             identity_token_lane=state["identity_token_lane"],
+            identity_fusion_mode=state["identity_fusion_mode"],
+            identity_noise_tolerance=state["identity_noise_tolerance"],
         )
+        if state["identity_fusion_mode"] == "identity_only":
+            sample_invariants = {}
+            for left_name, right_name in (("R1N1", "R1N2"), ("R2N1", "R2N2")):
+                left_pixels = np.asarray(
+                    images[left_name][local_index].convert("RGB"),
+                    dtype=np.int16,
+                )
+                right_pixels = np.asarray(
+                    images[right_name][local_index].convert("RGB"),
+                    dtype=np.int16,
+                )
+                max_pixel_difference = int(
+                    np.abs(left_pixels - right_pixels).max()
+                )
+                allowed = int(math.ceil(255.0 * state["identity_noise_tolerance"]))
+                if max_pixel_difference > allowed:
+                    raise RuntimeError(
+                        f"{filename}: identity-only final-image reference-noise "
+                        f"leak in {left_name}/{right_name}: "
+                        f"max_pixel_difference={max_pixel_difference}, allowed={allowed}"
+                    )
+                sample_invariants[f"{left_name}_vs_{right_name}"] = {
+                    "exact": max_pixel_difference == 0,
+                    "max_pixel_difference": max_pixel_difference,
+                }
+            state["identity_noise_invariant"][filename] = sample_invariants
         state["tensor_rows"].extend(
             _tensor_comparisons(filename, sample_diagnostics)
         )
@@ -1059,6 +1194,7 @@ def _write_effect_and_identity_summaries(state) -> None:
             direction_rows.append(
                 {
                     "filename": filename,
+                    "target_identity": left["target_identity"],
                     "noise": noise_kind,
                     "original_similarity_change_R2_minus_R1": original_change,
                     "swapped_similarity_change_R2_minus_R1": swapped_change,
@@ -1077,10 +1213,45 @@ def _write_effect_and_identity_summaries(state) -> None:
         writer.writerows(direction_rows)
 
     direction_summary = []
+    by_filename = {}
+    for row in direction_rows:
+        by_filename.setdefault(row["filename"], {})[row["noise"]] = row
+    target_rows = []
+    for filename, noise_rows in by_filename.items():
+        if set(noise_rows) != {"N1", "N2"}:
+            raise RuntimeError(f"Missing paired noise direction rows for {filename}")
+        n1, n2 = noise_rows["N1"], noise_rows["N2"]
+        target_rows.append(
+            {
+                "filename": filename,
+                "target_identity": n1["target_identity"],
+                "directional_gain_toward_R2": 0.5 * (
+                    n1["directional_gain_toward_R2"]
+                    + n2["directional_gain_toward_R2"]
+                ),
+                "original_similarity_change_R2_minus_R1": 0.5 * (
+                    n1["original_similarity_change_R2_minus_R1"]
+                    + n2["original_similarity_change_R2_minus_R1"]
+                ),
+                "swapped_similarity_change_R2_minus_R1": 0.5 * (
+                    n1["swapped_similarity_change_R2_minus_R1"]
+                    + n2["swapped_similarity_change_R2_minus_R1"]
+                ),
+                "both_noise_positive": (
+                    n1["directional_gain_toward_R2"] > 0
+                    and n2["directional_gain_toward_R2"] > 0
+                ),
+                "noise_sign_flip": (
+                    (n1["directional_gain_toward_R2"] > 0)
+                    != (n2["directional_gain_toward_R2"] > 0)
+                ),
+            }
+        )
+
     for noise_kind in ("N1", "N2", "all"):
         selected = [
             row
-            for row in direction_rows
+            for row in (target_rows if noise_kind == "all" else direction_rows)
             if noise_kind == "all" or row["noise"] == noise_kind
         ]
         gains = np.asarray(
@@ -1096,6 +1267,26 @@ def _write_effect_and_identity_summaries(state) -> None:
                 "mean_directional_gain_toward_R2": mean,
                 "median_directional_gain_toward_R2": float(np.median(gains)),
                 "positive_fraction": float(np.mean(gains > 0)),
+                "mean_swapped_similarity_change_R2_minus_R1": float(
+                    np.nanmean(
+                        [row["swapped_similarity_change_R2_minus_R1"] for row in selected]
+                    )
+                ),
+                "mean_original_similarity_change_R2_minus_R1": float(
+                    np.nanmean(
+                        [row["original_similarity_change_R2_minus_R1"] for row in selected]
+                    )
+                ),
+                "both_noise_positive_fraction": (
+                    float(np.mean([row["both_noise_positive"] for row in selected]))
+                    if noise_kind == "all"
+                    else float("nan")
+                ),
+                "noise_sign_flip_fraction": (
+                    float(np.mean([row["noise_sign_flip"] for row in selected]))
+                    if noise_kind == "all"
+                    else float("nan")
+                ),
                 "bootstrap_95_low": low,
                 "bootstrap_95_high": high,
             }
@@ -1108,6 +1299,38 @@ def _write_effect_and_identity_summaries(state) -> None:
         )
         writer.writeheader()
         writer.writerows(direction_summary)
+
+    identity_rows = []
+    for identity in sorted({row["target_identity"] for row in target_rows}):
+        selected = [row for row in target_rows if row["target_identity"] == identity]
+        gains = [row["directional_gain_toward_R2"] for row in selected]
+        mean, low, high = _bootstrap_ci(gains)
+        identity_rows.append(
+            {
+                "target_identity": identity,
+                "target_count": len(selected),
+                "mean_directional_gain_toward_R2": mean,
+                "positive_fraction": float(np.mean(np.asarray(gains) > 0)),
+                "mean_swapped_similarity_change_R2_minus_R1": float(
+                    np.nanmean(
+                        [row["swapped_similarity_change_R2_minus_R1"] for row in selected]
+                    )
+                ),
+                "mean_original_similarity_change_R2_minus_R1": float(
+                    np.nanmean(
+                        [row["original_similarity_change_R2_minus_R1"] for row in selected]
+                    )
+                ),
+                "bootstrap_95_low": low,
+                "bootstrap_95_high": high,
+            }
+        )
+    with (root / "identity_direction_by_identity.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as handle:
+        writer = csv.DictWriter(handle, fieldnames=identity_rows[0].keys())
+        writer.writeheader()
+        writer.writerows(identity_rows)
 
     pm_original = np.asarray(
         [
@@ -1279,6 +1502,11 @@ def finalize_ppr_reference_noise(trainer) -> None:
         (
             stage
             for stage in (
+                "identity_candidate",
+                "identity_connector_input",
+                "identity_raw_delta",
+                "identity_bounded_delta",
+                "identity_applied_delta",
                 "reference_hidden",
                 "reference_candidate",
                 "connector_down",
@@ -1334,9 +1562,15 @@ SHA-256/RMS plus the same deterministic 512-value sketch at each paired stage.
         ),
         "integrity_assertions_passed": True,
         "identity_token_lane": state["identity_token_lane"],
+        "identity_fusion_mode": state["identity_fusion_mode"],
         "identity_token_swap_integrity_checked": state[
             "identity_token_lane"
         ],
+        "identity_noise_tolerance": state["identity_noise_tolerance"],
+        "identity_noise_invariant_checked": (
+            state["identity_fusion_mode"] == "identity_only"
+        ),
+        "identity_noise_invariant": state["identity_noise_invariant"],
         "tensor_capture": "exact SHA-256/RMS plus deterministic 512-value sketch",
         "lpips_status": state["lpips_status"],
         "validation_args": OmegaConf.to_container(

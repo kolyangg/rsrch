@@ -1426,6 +1426,42 @@ def build_pipeline_from_pretrained(
     pipeline.ba_identity_token_weight = float(
         getattr(unwrapped_model, "ba_identity_token_weight", 0.5)
     )
+    pipeline.ba_identity_fusion_mode = str(
+        getattr(unwrapped_model, "ba_identity_fusion_mode", "blend") or "blend"
+    ).lower()
+    pipeline.ba_identity_site_policy = str(
+        getattr(unwrapped_model, "ba_identity_site_policy", "inherit") or "inherit"
+    ).lower()
+    pipeline.ba_spatial_site_policy = str(
+        getattr(unwrapped_model, "ba_spatial_site_policy", "inherit") or "inherit"
+    ).lower()
+    pipeline.ba_spatial_lane_enabled = bool(
+        getattr(unwrapped_model, "ba_spatial_lane_enabled", True)
+    )
+    pipeline.ba_identity_null_tokens = int(
+        getattr(unwrapped_model, "ba_identity_null_tokens", 2)
+    )
+    pipeline.ba_identity_connector_rank = int(
+        getattr(unwrapped_model, "ba_identity_connector_rank", 16)
+    )
+    pipeline.ba_identity_gate_max = float(
+        getattr(unwrapped_model, "ba_identity_gate_max", 0.5)
+    )
+    pipeline.ba_identity_gate_init_logit = float(
+        getattr(unwrapped_model, "ba_identity_gate_init_logit", 0.0)
+    )
+    pipeline.ba_identity_delta_rms_cap = float(
+        getattr(unwrapped_model, "ba_identity_delta_rms_cap", 0.15)
+    )
+    pipeline.ba_spatial_gate_max = float(
+        getattr(unwrapped_model, "ba_spatial_gate_max", 0.15)
+    )
+    pipeline.ba_spatial_delta_rms_cap = float(
+        getattr(unwrapped_model, "ba_spatial_delta_rms_cap", 0.03)
+    )
+    pipeline.ba_total_delta_rms_cap = float(
+        getattr(unwrapped_model, "ba_total_delta_rms_cap", 0.15)
+    )
     pipeline.ba_ppr_runtime_scale = 1.0
     pipeline.ba_ppr_force_base_output = False
     pipeline.ba_ppr_collect_diagnostics = False
@@ -1449,6 +1485,14 @@ def build_pipeline_from_pretrained(
         raise RuntimeError("Validation pipeline lost ba_site_policy")
     if pipeline.ba_connector_input_mode != unwrapped_model.ba_connector_input_mode:
         raise RuntimeError("Validation pipeline lost ba_connector_input_mode")
+    if pipeline.ba_identity_fusion_mode != unwrapped_model.ba_identity_fusion_mode:
+        raise RuntimeError("Validation pipeline lost ba_identity_fusion_mode")
+    if pipeline.ba_identity_site_policy != unwrapped_model.ba_identity_site_policy:
+        raise RuntimeError("Validation pipeline lost ba_identity_site_policy")
+    if pipeline.ba_spatial_site_policy != unwrapped_model.ba_spatial_site_policy:
+        raise RuntimeError("Validation pipeline lost ba_spatial_site_policy")
+    if pipeline.ba_spatial_lane_enabled != unwrapped_model.ba_spatial_lane_enabled:
+        raise RuntimeError("Validation pipeline lost ba_spatial_lane_enabled")
     if hasattr(unwrapped_model, "_original_attn_processors"):
         pipeline._original_attn_processors = dict(unwrapped_model._original_attn_processors)
     if hasattr(unwrapped_model.unet, "attn_processors"):

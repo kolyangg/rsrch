@@ -253,6 +253,6 @@ jul_serv_runs/start_ba_NN3a_reference_null_realvis_1gpu.sh
 Visualizer:
 
 ```text
-debug_04Jul/ba_architecture_explorer/index.html
-debug_04Jul/ba_architecture_explorer/app.js
+ba_architecture_explorer/index.html
+ba_architecture_explorer/app.js
 ```

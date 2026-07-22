@@ -117,6 +117,11 @@ def select_branched_self_attention_names(
             name for name in attn_processor_names
             if name.startswith("up_blocks.0.") and name.endswith("attn1.processor")
         ]
+    if policy == "up_blocks1_attn1":
+        return [
+            name for name in attn_processor_names
+            if name.startswith("up_blocks.1.") and name.endswith("attn1.processor")
+        ]
     raise ValueError(f"Unknown ba_site_policy: {policy}")
 
 
@@ -256,10 +261,44 @@ def patch_unet_attention_processors(
             raise ValueError(
                 "packed_residual_v1 uses ba_site_policy and requires ba_patch_top_k=1.0"
             )
-        patchable_sa_names = select_branched_self_attention_names(
-            all_processor_names,
-            site_policy,
-        )
+        fusion_mode = str(
+            getattr(pipeline, "ba_identity_fusion_mode", "blend") or "blend"
+        ).lower()
+        if fusion_mode == "blend":
+            identity_sa_name_set = set()
+            spatial_sa_name_set = set()
+            patchable_sa_names = select_branched_self_attention_names(
+                all_processor_names,
+                site_policy,
+            )
+        else:
+            identity_policy = str(
+                getattr(pipeline, "ba_identity_site_policy", "inherit")
+                or "inherit"
+            ).lower()
+            spatial_policy = str(
+                getattr(pipeline, "ba_spatial_site_policy", "inherit")
+                or "inherit"
+            ).lower()
+            identity_policy = site_policy if identity_policy == "inherit" else identity_policy
+            spatial_policy = site_policy if spatial_policy == "inherit" else spatial_policy
+            identity_sa_name_set = set(
+                select_branched_self_attention_names(
+                    all_processor_names,
+                    identity_policy,
+                )
+                if bool(getattr(pipeline, "ba_identity_token_lane", False))
+                else ()
+            )
+            spatial_sa_name_set = set(
+                select_branched_self_attention_names(
+                    all_processor_names,
+                    spatial_policy,
+                )
+                if bool(getattr(pipeline, "ba_spatial_lane_enabled", True))
+                else ()
+            )
+            patchable_sa_names = sorted(identity_sa_name_set | spatial_sa_name_set)
     else:
         patchable_sa_names = select_branched_processor_names(
             all_processor_names,
@@ -353,6 +392,41 @@ def patch_unet_attention_processors(
                             ),
                             identity_token_weight=float(
                                 getattr(pipeline, "ba_identity_token_weight", 0.5)
+                            ),
+                            identity_fusion_mode=str(
+                                getattr(pipeline, "ba_identity_fusion_mode", "blend")
+                            ),
+                            enable_identity=(
+                                bool(getattr(pipeline, "ba_identity_token_lane", False))
+                                if fusion_mode == "blend"
+                                else name in identity_sa_name_set
+                            ),
+                            enable_spatial=(
+                                True if fusion_mode == "blend" else name in spatial_sa_name_set
+                            ),
+                            identity_null_tokens=int(
+                                getattr(pipeline, "ba_identity_null_tokens", 2)
+                            ),
+                            identity_connector_rank=int(
+                                getattr(pipeline, "ba_identity_connector_rank", 16)
+                            ),
+                            identity_gate_max=float(
+                                getattr(pipeline, "ba_identity_gate_max", 0.5)
+                            ),
+                            identity_gate_init_logit=float(
+                                getattr(pipeline, "ba_identity_gate_init_logit", 0.0)
+                            ),
+                            identity_delta_rms_cap=float(
+                                getattr(pipeline, "ba_identity_delta_rms_cap", 0.15)
+                            ),
+                            spatial_gate_max=float(
+                                getattr(pipeline, "ba_spatial_gate_max", 0.15)
+                            ),
+                            spatial_delta_rms_cap=float(
+                                getattr(pipeline, "ba_spatial_delta_rms_cap", 0.03)
+                            ),
+                            total_delta_rms_cap=float(
+                                getattr(pipeline, "ba_total_delta_rms_cap", 0.15)
                             ),
                         )
                     else:
@@ -492,6 +566,7 @@ def patch_unet_attention_processors(
         print(
             "[BA processor install] "
             f"variant={variant} site_policy={site_policy} "
+            f"fusion={getattr(pipeline, 'ba_identity_fusion_mode', 'blend')} "
             f"SA={len(patched_sa)} CA={len(patched_ca)}"
         )
         print(f"[BA processor install] SA names: {', '.join(patched_sa)}")
@@ -1211,8 +1286,21 @@ def two_branch_predict(
                     if processor.__class__.__name__
                     == "PackedResidualBranchedAttnProcessor"
                 ]
+                def connector_ups(processor):
+                    return [
+                        module
+                        for module in (
+                            getattr(processor, "connector_up", None),
+                            getattr(processor, "identity_connector_up", None),
+                        )
+                        if module is not None
+                    ]
                 cached_branch_state = bool(packed_processors) and all(
-                    int(torch.count_nonzero(processor.connector_up.weight).item()) == 0
+                    all(
+                        int(torch.count_nonzero(module.weight).item()) == 0
+                        for module in connector_ups(processor)
+                    )
+                    and bool(connector_ups(processor))
                     for processor in packed_processors
                 )
                 pipeline._ba_packed_branch_exactly_off = cached_branch_state

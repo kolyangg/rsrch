@@ -1,12 +1,12 @@
 # Interactive BA architecture explorer: usage and extension guide
 
-Date: 18 July 2026
+Updated: 22 July 2026
 
 ## Artifact
 
 Open:
 
-`debug_04Jul/ba_architecture_explorer/index.html`
+`ba_architecture_explorer/index.html`
 
 The initial comparison is N3a versus the runnable NN1a:
 
@@ -23,6 +23,9 @@ The selectors also support:
   `ba_refonly_N2`);
 - NN1a through NN1f with their completed 10k validation results;
 - NN2a through NN2f as implemented spatial-BA architecture experiments;
+- NN2-PPR1 and NN3a as packed target-Q/reference-KV residual precursors;
+- NN4, NN5a, NN5b, and NN6a as the learned-null, counterfactual,
+  clean-identity blend, and factorized identity-only sequence;
 - N31, N32, N33, N36, N37, and N38 as historical post-N3a experiments.
 
 ## Recommended way to open it
@@ -37,7 +40,7 @@ python3 -m http.server 8765
 Then open:
 
 ```text
-http://127.0.0.1:8765/debug_04Jul/ba_architecture_explorer/
+http://127.0.0.1:8765/ba_architecture_explorer/
 ```
 
 Opening `index.html` directly with `file://` also renders the diagrams, but a
@@ -81,6 +84,41 @@ The diagrams intentionally distinguish:
 - hard target-bbox localization;
 - PM/BA epsilon composition;
 - training-only supervision.
+
+### Explicit NN4–NN6 lane diagrams
+
+NN4–NN6 use a dedicated packed-residual renderer in both V1 and V2. It keeps
+the same block positions across the four runs so structural changes are visible
+without opening the inspector:
+
+- ordinary target self-attention `A_target` is the protected per-site baseline;
+- the noised spatial-reference ROI lane is shown separately and becomes a
+  disabled block in NN6a;
+- the two-token clean PhotoMaker-V2 identity lane is disabled in NN4/NN5a,
+  shares the spatial residual budget in NN5b, and becomes the only active lane
+  in NN6a;
+- the spatial learned null and the dedicated two-token identity null are
+  separate blocks;
+- pre-connector selection/fusion, rank-16 connector ownership, gate/RMS-cap
+  budgets, the 30 `up_blocks.0.attn1` site scope, disabled branched attn2, and
+  the independent PhotoMaker output anchor are explicit;
+- the detailed mechanism panel traces `Qtarget`, spatial `K/V`, identity `K/V`,
+  matched-null `K/V`, candidate subtraction, connector, cap, gate, and final
+  core composition.
+
+Useful comparison URLs include:
+
+```text
+ba_architecture_explorer/?left=N3a&right=NN6a&diff=1&view=v2
+ba_architecture_explorer/?left=NN4&right=NN5a&diff=1&view=v2
+ba_architecture_explorer/?left=NN5b&right=NN6a&diff=1&view=v2
+```
+
+The NN4→NN5a comparison intentionally highlights the supervision block rather
+than the forward operator: those runs share the same architecture. NN5a→NN5b
+shows the added clean identity candidate and shared 50/50 fusion. NN5b→NN6a
+shows spatial removal, identity-specific null/connector/gate/cap ownership, and
+the clean identity-only causal route.
 
 ### What V2 adds for NN2 comparisons
 
@@ -143,8 +181,8 @@ effective-config diff instead of manufacturing a source-code difference.
 
 The repository is intentionally split:
 
-- local links for Initial, N1/N2, N3a, and NN1 configurations resolve against
-  `main_clean`, whose active model surface is the runnable N3a baseline;
+- local links for Initial, N1/N2, N3a, NN1, NN2-PPR1, NN3a, and NN4–NN6
+  resolve against the current `main_clean` workspace;
 - N31-N38 model and launcher links open the corresponding files on the pushed
   `main_clean_exp` GitHub branch, because those implementations are not part of
   the active N3a baseline;
@@ -314,6 +352,34 @@ N39: {
 },
 ```
 
+For an NN4-style packed residual, use `modernPprConfig(run, spec)` instead of
+the compact/legacy record above. Its required architectural fields are:
+
+```javascript
+NNx: modernPprConfig("NNx", {
+  title: "Run title",
+  subtitle: "Resolved architecture and purpose.",
+  family: "NNx",
+  status: "active",
+  statusLabel: "Implemented",
+  spatialEnabled: true,
+  identityEnabled: true,
+  fusionMode: "shared_blend", // spatial_only | shared_blend | identity_only
+  objectiveMode: "counterfactual", // matched_reconstruction | counterfactual
+  objective: "Full effective objective",
+  objectiveShort: "Short diagram label",
+  faceMae: null,
+  idScore: null,
+  metricStep: "not run",
+  result: "Current evidence or decision.",
+}),
+```
+
+Also add its config, launcher, and report paths to `PPR_FILES`. The helper
+builds separate inspector records and comparison keys for spatial memory,
+clean identity memory, candidate fusion, matched null, connector, gate/cap,
+site routing, cross-attention isolation, and output anchoring.
+
 Each inspector record has this form:
 
 ```javascript
@@ -325,7 +391,7 @@ Each inspector record has this form:
   },
   code: [
     code(
-      "../../src/path/to/file.py",
+      "../src/path/to/file.py",
       123,
       `short, relevant code excerpt`,
     ),
@@ -409,7 +475,7 @@ these fields are omitted, V2 intentionally defaults to N3a semantics:
 Syntax-check JavaScript:
 
 ```bash
-node --check debug_04Jul/ba_architecture_explorer/app.js
+node --check ba_architecture_explorer/app.js
 ```
 
 Serve the page and verify:

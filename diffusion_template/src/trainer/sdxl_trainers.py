@@ -470,8 +470,26 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 raise FloatingPointError(
                     f"Non-finite counterfactual metric {output_name}: {value}"
                 )
-            gathered = self.accelerator.gather(value.detach()).mean()
+            gathered_values = self.accelerator.gather(value.detach().reshape(1))
+            gathered = gathered_values.mean()
             train_metrics.update(metric_name, gathered.item())
+            if output_name == "ba_cf_applied_fraction":
+                active = int((gathered_values > 0.5).sum().item())
+                inactive = int(gathered_values.numel()) - active
+                self._ba_cf_active_updates = int(
+                    getattr(self, "_ba_cf_active_updates", 0)
+                ) + active
+                self._ba_cf_inactive_updates = int(
+                    getattr(self, "_ba_cf_inactive_updates", 0)
+                ) + inactive
+                train_metrics.update(
+                    "ba_cf/active_updates",
+                    float(self._ba_cf_active_updates),
+                )
+                train_metrics.update(
+                    "ba_cf/inactive_updates",
+                    float(self._ba_cf_inactive_updates),
+                )
         
         if self.is_train:
             assert torch.isfinite(batch["loss"]) # sum of all losses is always called loss

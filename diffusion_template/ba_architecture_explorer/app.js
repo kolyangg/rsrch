@@ -6,75 +6,101 @@ const N3A_COMMIT = "e42c966";
 const EXP_SOURCE_ROOT =
   "https://github.com/kolyangg/rsrch/blob/main_clean_exp/diffusion_template";
 const NN1_PROPOSAL =
-  "../../Jul_new_exp/2026-07-17_NN1a_NN1f_approval_stage_experiment_plan.md";
+  "../Jul_new_exp/2026-07-17_NN1a_NN1f_approval_stage_experiment_plan.md";
 const NN1_IMPLEMENTATION =
-  "../../Jul_new_exp/2026-07-17_NN1a_NN1f_implementation_and_launch_guide.md";
+  "../Jul_new_exp/2026-07-17_NN1a_NN1f_implementation_and_launch_guide.md";
 const NN2_REPORT =
-  "../../Jul_new_exp/2026-07-17_NN1a_NN1f_results_and_NN2_architecture_plan.md";
+  "../Jul_new_exp/2026-07-17_NN1a_NN1f_results_and_NN2_architecture_plan.md";
 const NN2_IMPLEMENTATION =
-  "../../Jul_new_exp/2026-07-18_NN2a_NN2f_implementation_and_launch_guide.md";
+  "../Jul_new_exp/2026-07-18_NN2a_NN2f_implementation_and_launch_guide.md";
 const NN3_IMPLEMENTATION =
-  "../../Jul_new_exp/2026-07-20_NN3a_reference_minus_null_architecture_and_launch.md";
+  "../Jul_new_exp/2026-07-20_NN3a_reference_minus_null_architecture_and_launch.md";
+const NN4_REPORT =
+  "../Jul_new_exp/2026-07-21_NN4_results_analysis_and_next_architecture.md";
+const NN5_REPORT =
+  "../Jul_new_exp/2026-07-22_NN5a_4k_results_analysis_and_next_training_recommendation.md";
+const NN6_SPEC =
+  "../Jul_new_exp/2026-07-22_NN5a_independent_results_audit_and_NN6_architecture_spec.md";
 const NN1_FILES = {
   NN1a: {
-    config: "../../src/configs/one_id_ba_NN1a_n3a_replay.yaml",
-    launcher: "../../jul_serv_runs/start_ba_NN1a_n3a_replay_1gpu.sh",
+    config: "../src/configs/one_id_ba_NN1a_n3a_replay.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN1a_n3a_replay_1gpu.sh",
   },
   NN1b: {
-    config: "../../src/configs/one_id_ba_NN1b_schedule_matched.yaml",
-    launcher: "../../jul_serv_runs/start_ba_NN1b_schedule_matched_1gpu.sh",
+    config: "../src/configs/one_id_ba_NN1b_schedule_matched.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN1b_schedule_matched_1gpu.sh",
   },
   NN1c: {
-    config: "../../src/configs/one_id_ba_NN1c_masked_id_prompt.yaml",
-    launcher: "../../jul_serv_runs/start_ba_NN1c_masked_id_prompt_1gpu.sh",
+    config: "../src/configs/one_id_ba_NN1c_masked_id_prompt.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN1c_masked_id_prompt_1gpu.sh",
   },
   NN1d: {
-    config: "../../src/configs/one_id_ba_NN1d_frozen_ca.yaml",
-    launcher: "../../jul_serv_runs/start_ba_NN1d_frozen_ca_1gpu.sh",
+    config: "../src/configs/one_id_ba_NN1d_frozen_ca.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN1d_frozen_ca_1gpu.sh",
   },
   NN1e: {
-    config: "../../src/configs/one_id_ba_NN1e_frozen_ca_id_loss.yaml",
-    launcher: "../../jul_serv_runs/start_ba_NN1e_frozen_ca_id_loss_1gpu.sh",
+    config: "../src/configs/one_id_ba_NN1e_frozen_ca_id_loss.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN1e_frozen_ca_id_loss_1gpu.sh",
   },
   NN1f: {
-    config: "../../src/configs/one_id_ba_NN1f_ref_kv_id_loss.yaml",
-    launcher: "../../jul_serv_runs/start_ba_NN1f_ref_kv_id_loss_1gpu.sh",
+    config: "../src/configs/one_id_ba_NN1f_ref_kv_id_loss.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN1f_ref_kv_id_loss_1gpu.sh",
   },
 };
 const NN2_FILES = {
   NN2a: {
-    config: "../../src/configs/one_id_ba_NN2a_packed_roi.yaml",
-    launcher: "../../jul_serv_runs/start_ba_NN2a_packed_roi_1gpu.sh",
+    config: "../src/configs/one_id_ba_NN2a_packed_roi.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN2a_packed_roi_1gpu.sh",
   },
   NN2b: {
-    config: "../../src/configs/one_id_ba_NN2b_dual_attention.yaml",
-    launcher: "../../jul_serv_runs/start_ba_NN2b_dual_attention_1gpu.sh",
+    config: "../src/configs/one_id_ba_NN2b_dual_attention.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN2b_dual_attention_1gpu.sh",
   },
   NN2c: {
-    config: "../../src/configs/one_id_ba_NN2c_roi_dual_attention.yaml",
-    launcher: "../../jul_serv_runs/start_ba_NN2c_roi_dual_attention_1gpu.sh",
+    config: "../src/configs/one_id_ba_NN2c_roi_dual_attention.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN2c_roi_dual_attention_1gpu.sh",
   },
   NN2d: {
-    config: "../../src/configs/one_id_ba_NN2d_upblock_reference.yaml",
-    launcher: "../../jul_serv_runs/start_ba_NN2d_upblock_reference_1gpu.sh",
+    config: "../src/configs/one_id_ba_NN2d_upblock_reference.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN2d_upblock_reference_1gpu.sh",
   },
   NN2e: {
-    config: "../../src/configs/one_id_ba_NN2e_core_ring.yaml",
-    launcher: "../../jul_serv_runs/start_ba_NN2e_core_ring_1gpu.sh",
+    config: "../src/configs/one_id_ba_NN2e_core_ring.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN2e_core_ring_1gpu.sh",
   },
   NN2f: {
-    config: "../../src/configs/one_id_ba_NN2f_confidence_residual.yaml",
-    launcher: "../../jul_serv_runs/start_ba_NN2f_confidence_residual_1gpu.sh",
+    config: "../src/configs/one_id_ba_NN2f_confidence_residual.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN2f_confidence_residual_1gpu.sh",
   },
 };
 const PPR_FILES = {
   NN2PPR1: {
-    config: "../../src/configs/one_id_ba_NN2_ppr1.yaml",
-    launcher: "../../jul_serv_runs/start_ba_NN2_ppr1_realvis_1gpu.sh",
+    config: "../src/configs/one_id_ba_NN2_ppr1.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN2_ppr1_realvis_1gpu.sh",
   },
   NN3a: {
-    config: "../../src/configs/one_id_ba_NN3a_reference_null.yaml",
-    launcher: "../../jul_serv_runs/start_ba_NN3a_reference_null_realvis_1gpu.sh",
+    config: "../src/configs/one_id_ba_NN3a_reference_null.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN3a_reference_null_realvis_1gpu.sh",
+  },
+  NN4: {
+    config: "../src/configs/one_id_ba_NN4_causal_null_up0.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN4_causal_null_up0_realvis_1gpu.sh",
+    report: NN4_REPORT,
+  },
+  NN5a: {
+    config: "../src/configs/one_id_ba_NN5a_counterfactual_directional_ppr.yaml",
+    launcher: "../jul_serv_runs/start_ba_NN5a_counterfactual_directional_ppr_1gpu.sh",
+    report: NN5_REPORT,
+  },
+  NN5b: {
+    config: "../src/configs/one_id_ba_NN5b_clean_identity_tokens.yaml",
+    launcher: "../serv_new_runs/start_ba_NN5b_clean_identity_tokens_2gpu.sh",
+    report: "../Jul_new_exp/21Jul_config/2026-07-21_NN5a_NN5b_implementation_and_launch.md",
+  },
+  NN6a: {
+    config: "../src/configs/one_id_ba_NN6a_factorized_identity_only_up0.yaml",
+    launcher: "../serv_new_runs/run_ba_NN6a_factorized_identity_only_up0_combined_1gpu.yaml",
+    report: NN6_SPEC,
   },
 };
 
@@ -93,7 +119,7 @@ const COMMON_DETAILS = {
     facts: { Role: "Identity evidence", Coordinates: "Reference only" },
     code: [
       code(
-        "../../src/model/photomaker_branched/lora2_helpers.py",
+        "../src/model/photomaker_branched/lora2_helpers.py",
         386,
         `for i, (prompt, refs, bbox) in enumerate(...):\n    ...\n    faces = analyze_faces(model.face_analyzer, img_np)\n    embedding = torch.from_numpy(faces[0]["embedding"]).float()`,
       ),
@@ -106,7 +132,7 @@ const COMMON_DETAILS = {
     facts: { Shared: "PM and BA predictions", Geometry: "Target-owned" },
     code: [
       code(
-        "../../src/model/photomaker_branched/lora2.py",
+        "../src/model/photomaker_branched/lora2.py",
         688,
         `noise = torch.randn_like(latents)\ntimesteps = t_scalar.repeat(batch_size)\nnoisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)`,
       ),
@@ -119,7 +145,7 @@ const COMMON_DETAILS = {
     facts: { Baseline: "PhotoMaker V2", Risk: "PM identity remains dominant" },
     code: [
       code(
-        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        "../src/model/photomaker_branched/attn_processor_cleanest.py",
         983,
         `pm_context = encoder_hidden_states\nif self.ba_pm_identity_context_scale < 1.0:\n    pm_context = text_context + scale * (\n        encoder_hidden_states - text_context\n    )`,
       ),
@@ -132,12 +158,12 @@ const COMMON_DETAILS = {
     facts: { Output: "Absolute PM epsilon", Trainability: "Frozen baseline" },
     code: [
       code(
-        "../../src/model/photomaker_branched/lora2_helpers.py",
+        "../src/model/photomaker_branched/lora2_helpers.py",
         706,
         `set_branched_training_mode(model, branched_active=False)\nwith torch.no_grad():\n    photomaker_pred = model.unet(\n        noisy_latents, timesteps,\n        encoder_hidden_states=prompt_embeds,\n    )[0]`,
       ),
       code(
-        "../../src/pipelines/br_pipeline_helpers.py",
+        "../src/pipelines/br_pipeline_helpers.py",
         1055,
         `if pipeline.ba_pm_preservation_mode == "hard_epsilon_merge":\n    set_validation_unet_mode(pipeline, branched_active=False)\n    photomaker_pred = pipeline.unet(...)[0]`,
       ),
@@ -150,7 +176,7 @@ const COMMON_DETAILS = {
     facts: { Query: "Target hidden state", "Identity K/V": "Compact reference memory" },
     code: [
       code(
-        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        "../src/model/photomaker_branched/attn_processor_cleanest.py",
         1063,
         `query = attn.to_q(normalized)\nkey = _linear_forward(self.target_id_to_k, id_tokens)\nvalue = _linear_forward(self.target_id_to_v, id_tokens)\nface_hidden = F.scaled_dot_product_attention(query, key, value)`,
       ),
@@ -167,13 +193,13 @@ const COMMON_DETAILS = {
     },
     code: [
       code(
-        "../../src/configs/one_id_ba_idtoken_ca_residual_N28.yaml",
+        "../src/configs/one_id_ba_idtoken_ca_residual_N28.yaml",
         15,
         `model:\n  ba_sa_mode: standard\n  ba_ca_mode: target_face_residual`,
         "Open inherited N28 architecture config",
       ),
       code(
-        "../../src/model/photomaker_branched/branched_runtime.py",
+        "../src/model/photomaker_branched/branched_runtime.py",
         94,
         `disable_sa = ... or ba_sa_mode == "standard"\n...\nif name.endswith("attn1.processor"):\n    if disable_sa:\n        new_procs[name] = pipeline._original_attn_processors[name]`,
         "Open processor installation path",
@@ -187,7 +213,7 @@ const COMMON_DETAILS = {
     facts: { Space: "Target image / latent", Resize: "Area-preserving + hard threshold" },
     code: [
       code(
-        "../../src/model/photomaker_branched/branched_runtime.py",
+        "../src/model/photomaker_branched/branched_runtime.py",
         354,
         `mask = hard_mask[:, :1].to(...)\nmask = F.interpolate(mask, size=branched_pred.shape[-2:], mode="nearest")\nmask = (mask > 0).to(dtype=branched_pred.dtype)`,
       ),
@@ -200,7 +226,7 @@ const COMMON_DETAILS = {
     facts: { Form: "PM attention + gated delta", Initialization: "Zero output projection" },
     code: [
       code(
-        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        "../src/model/photomaker_branched/attn_processor_cleanest.py",
         1073,
         `face_hidden = F.scaled_dot_product_attention(...)\ngate = self.effective_face_residual_gate()\nface_delta = self.face_delta_out(face_hidden) * gate\nface_delta = face_delta * mask_gate.squeeze(1)\nreturn pm_out + face_delta`,
       ),
@@ -213,7 +239,7 @@ const COMMON_DETAILS = {
     facts: { Consumer: "Diffusion scheduler", Scope: "One denoising step" },
     code: [
       code(
-        "../../src/pipelines/br_pipeline_helpers.py",
+        "../src/pipelines/br_pipeline_helpers.py",
         1360,
         `latents = pipeline.scheduler.step(\n    noise_pred, t, latents, **extra_step_kwargs\n)[0]`,
       ),
@@ -226,7 +252,7 @@ const COMMON_DETAILS = {
     facts: { "Spatial grid": "No", "Target alignment": "Deferred to target queries" },
     code: [
       code(
-        "../../src/model/photomaker_branched/lora2_helpers.py",
+        "../src/model/photomaker_branched/lora2_helpers.py",
         470,
         `memory_mode = model.ba_identity_memory_mode\n...\nextracted_id_features = model.ba_identity_resampler(...)\n# or PhotoMaker QFormer tokens`,
       ),
@@ -239,7 +265,7 @@ const COMMON_DETAILS = {
     facts: { Authority: "Global and absolute", Safety: "High" },
     code: [
       code(
-        "../../src/model/photomaker_branched/branched_runtime.py",
+        "../src/model/photomaker_branched/branched_runtime.py",
         354,
         `return photomaker_pred * (1.0 - mask) + branched_pred * mask`,
       ),
@@ -252,7 +278,7 @@ const COMMON_DETAILS = {
     facts: { Q: "Target", "K / V": "Reference identity tokens" },
     code: [
       code(
-        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        "../src/model/photomaker_branched/attn_processor_cleanest.py",
         1063,
         `query = attn.to_q(normalized)\nkey = self.target_id_to_k(id_tokens)\nvalue = self.target_id_to_v(id_tokens)`,
       ),
@@ -265,7 +291,7 @@ const COMMON_DETAILS = {
     facts: { Applied: "Per selected CA site + final merge", Boundary: "Hard" },
     code: [
       code(
-        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        "../src/model/photomaker_branched/attn_processor_cleanest.py",
         1080,
         `face_delta = self.face_delta_out(face_hidden) * gate\nface_delta = face_delta * mask_gate.squeeze(1)`,
       ),
@@ -278,7 +304,7 @@ const COMMON_DETAILS = {
     facts: { Inference: "Absent", "Gradient target": "BA trainables" },
     code: [
       code(
-        "../../src/trainer/sdxl_trainers.py",
+        "../src/trainer/sdxl_trainers.py",
         452,
         `causal_identity_loss = batch.get("causal_identity_loss")\nif causal_identity_loss is not None:\n    batch["loss"] += weight * causal_identity_loss`,
       ),
@@ -317,7 +343,7 @@ const CONFIGS = {
       "BA has absolute authority at late steps; raw reference geometry improves integration in some poses but also transfers nuisance content.",
     details: legacyDetails("Initial", {
       sourceCommit: "9b0dc27",
-      launcher: "../../serv_new_runs/start_ba_cosm_new1_vast.sh",
+      launcher: "../serv_new_runs/start_ba_cosm_new1_vast.sh",
       launcherLine: 46,
       weightMode: "noise_and_ref",
       objective: "masked_alternating",
@@ -355,7 +381,7 @@ const CONFIGS = {
       "Freezing target/noise clones removes much drift, but the inserted reference face does not co-adapt to difficult target motion and hair.",
     details: legacyDetails("N1 / N2", {
       sourceCommit: "ef04716",
-      launcher: "../../serv_new_runs/start_ba_ref_only_vast_N1.sh",
+      launcher: "../serv_new_runs/start_ba_ref_only_vast_N1.sh",
       launcherLine: 4,
       weightMode: "ref_only",
       objective: "blended_masked · λface 0.2",
@@ -395,7 +421,7 @@ const CONFIGS = {
       "Very large face movement is not useful identity control: the spatial branch copies reference appearance and corrupts target-aligned content.",
     details: legacyDetails("N3a", {
       sourceCommit: N3A_COMMIT,
-      launcher: "../../serv_new_runs/start_ba_nr_alt_vast_N3a.sh",
+      launcher: "../serv_new_runs/start_ba_nr_alt_vast_N3a.sh",
       launcherLine: 4,
       weightMode: "noise_and_ref · target/noise clone LR × 0.25",
       objective: "masked_alternating",
@@ -1127,6 +1153,88 @@ const CONFIGS = {
       result: "Implemented for one GPU; no checkpoint or result yet",
     }),
   },
+  NN4: modernPprConfig("NN4", {
+    title: "Causal learned-null spatial PPR",
+    subtitle:
+      "Protected up_blocks.0 residual: packed noised-reference ROI is contrasted with a learned spatial null; reference text is neutral and branched CA is disabled.",
+    family: "NN4 evaluated",
+    status: "failed",
+    statusLabel: "8k · safe, not identity-directed",
+    spatialEnabled: true,
+    identityEnabled: false,
+    fusionMode: "spatial_only",
+    objectiveMode: "matched_reconstruction",
+    objective:
+      "Core-normalized reconstruction + learned-null suppression + cap protection",
+    objectiveShort: "matched reconstruction + null/cap losses",
+    idScore: 0.4338,
+    faceMae: 0.06047,
+    metricStep: "4k · PPR×4 · RealVis",
+    metricProtocol: "ppr-realvis-scale4",
+    result:
+      "Reference content reaches the face core, but 4k RealVis reference-swap gain is −0.00609; geometry remains well protected.",
+  }),
+  NN5a: modernPprConfig("NN5a", {
+    title: "Counterfactual spatial PPR",
+    subtitle:
+      "The NN4 forward operator is unchanged; matched/wrong references share target, noise, and timestep so supervision explicitly asks for reference-identity direction.",
+    family: "NN5 evaluated",
+    status: "failed",
+    statusLabel: "4k · active, chance-level direction",
+    spatialEnabled: true,
+    identityEnabled: false,
+    fusionMode: "spatial_only",
+    objectiveMode: "counterfactual",
+    objective:
+      "Paired A/B decoded identity-direction + absolute-ID + ring + core-normalized reconstruction",
+    objectiveShort: "paired counterfactual identity direction",
+    idScore: 0.5070,
+    faceMae: 0.03054,
+    metricStep: "4k · PPR×1 · RealVis",
+    metricProtocol: "ppr-realvis-scale1",
+    result:
+      "The branch opens at normal scale, but reference-swap gain is −0.000684 and changes sign across reference-noise seeds.",
+  }),
+  NN5b: modernPprConfig("NN5b", {
+    title: "Shared spatial + clean-ID blend",
+    subtitle:
+      "Adds clean two-token PhotoMaker-V2 identity attention, but averages it 50/50 with the spatial candidate before one shared spatial null, connector, gate, and cap.",
+    family: "NN5 running",
+    status: "active",
+    statusLabel: "Implemented · checkpoint gate pending",
+    spatialEnabled: true,
+    identityEnabled: true,
+    fusionMode: "shared_blend",
+    objectiveMode: "counterfactual",
+    objective:
+      "Paired A/B decoded identity-direction + absolute-ID + ring + core-normalized reconstruction",
+    objectiveShort: "NN5a counterfactual objective",
+    idScore: null,
+    faceMae: null,
+    metricStep: "evaluation pending",
+    result:
+      "Tests whether clean identity tokens help inside NN5's shared residual budget; its fused routing can still dilute or clip the identity candidate.",
+  }),
+  NN6a: modernPprConfig("NN6a", {
+    title: "Factorized clean identity-only residual",
+    subtitle:
+      "Clean two-token identity memory gets its own matched null, projections, connector, gate, and cap; the noised spatial-reference target lane is absent.",
+    family: "NN6 implemented",
+    status: "active",
+    statusLabel: "Implemented · 4k causal gate",
+    spatialEnabled: false,
+    identityEnabled: true,
+    fusionMode: "identity_only",
+    objectiveMode: "counterfactual",
+    objective:
+      "Paired A/B decoded identity-direction + absolute-ID + ring + core-normalized reconstruction",
+    objectiveShort: "unchanged NN5a counterfactual objective",
+    idScore: null,
+    faceMae: null,
+    metricStep: "not run",
+    result:
+      "Clean causal test: reference noise cannot affect the identity lane, while ordinary target attention and PhotoMaker remain protected baselines.",
+  }),
   N31: {
     short: "N31",
     title: "Identity-dependence QFormer",
@@ -1163,7 +1271,7 @@ const CONFIGS = {
         facts: { Tokens: "2", Preprocessing: "Full reference" },
         code: [
           code(
-            "../../src/configs/one_id_ba_qformer_idtokens_N29.yaml",
+            "../src/configs/one_id_ba_qformer_idtokens_N29.yaml",
             8,
             `model:\n  ba_identity_token_count: 2\n  ba_identity_memory_mode: qformer_tokens\n  ba_identity_image_mode: full_reference`,
           ),
@@ -1177,12 +1285,12 @@ const CONFIGS = {
         facts: { Weight: "0.25", Margin: "0.02", Failure: "Nuisance shortcut" },
         code: [
           code(
-            "../../src/configs/one_id_ba_identity_dependence_N31.yaml",
+            "../src/configs/one_id_ba_identity_dependence_N31.yaml",
             7,
             `model:\n  ba_identity_dependence_mode: paired_wrong_reference\n  ba_identity_dependence_weight: 0.25\n  ba_identity_dependence_margin: 0.02`,
           ),
           code(
-            "../../src/loss/diffusion_loss.py",
+            "../src/loss/diffusion_loss.py",
             35,
             `def identity_dependence_ranking_loss(...):\n    ...\n    return relu(margin + correct_face_loss - wrong_face_loss)`,
           ),
@@ -1227,12 +1335,12 @@ const CONFIGS = {
         facts: { Tokens: "8", Query: "InsightFace-conditioned", Patches: "Hard-bbox CLIP" },
         code: [
           code(
-            "../../src/configs/one_id_ba_facepatch_resampler_N32.yaml",
+            "../src/configs/one_id_ba_facepatch_resampler_N32.yaml",
             7,
             `model:\n  ba_identity_token_count: 8\n  ba_identity_memory_mode: face_patch_resampler\n  ba_identity_patch_padding: 0.0`,
           ),
           code(
-            "../../src/model/photomaker_branched/identity_memory.py",
+            "../src/model/photomaker_branched/identity_memory.py",
             169,
             `queries = self.query_proj(self.identity_norm(identity_embeds))\nattended, _ = self.cross_attn(\n    queries, patches, patches,\n    key_padding_mask=~patch_mask.bool(),\n)`,
           ),
@@ -1246,7 +1354,7 @@ const CONFIGS = {
         facts: { "Wrong-reference rank": "Off", "Direct causal swap test": "Absent" },
         code: [
           code(
-            "../../src/configs/one_id_ba_idtoken_ca_residual_N28.yaml",
+            "../src/configs/one_id_ba_idtoken_ca_residual_N28.yaml",
             15,
             `model:\n  ba_ca_mode: target_face_residual\n  ba_pm_preservation_mode: hard_epsilon_merge\n  id_loss_identity_source: reference`,
           ),
@@ -1291,7 +1399,7 @@ const CONFIGS = {
         facts: { Tokens: "2", Initialization: "N29 10k checkpoint", Change: "Duration only" },
         code: [
           code(
-            "../../serv_new_runs/start_ba_qformer_continue20k_serv_N33.sh",
+            "../serv_new_runs/start_ba_qformer_continue20k_serv_N33.sh",
             4,
             `# N33: continue unchanged N29 from 10k to 40k\nN29_CHECKPOINT=.../checkpoint-epoch5.pth`,
           ),
@@ -1305,7 +1413,7 @@ const CONFIGS = {
         facts: { "Architecture change": "None", Result: "Plateau" },
         code: [
           code(
-            "../../src/configs/one_id_ba_qformer_continue20k_N33.yaml",
+            "../src/configs/one_id_ba_qformer_continue20k_N33.yaml",
             1,
             `defaults:\n  - one_id_ba_qformer_idtokens_N29\n  - _self_`,
           ),
@@ -1344,7 +1452,7 @@ const CONFIGS = {
       facts: { Tokens: "2", "Image mode": "Full reference" },
       code: [
         code(
-          "../../src/configs/one_id_ba_identity_owner_qformer_N36.yaml",
+          "../src/configs/one_id_ba_identity_owner_qformer_N36.yaml",
           1,
           `defaults:\n  - one_id_ba_causal_highres_qformer_N34\n...\n# inherited: qformer_tokens, token_count=2`,
         ),
@@ -1381,12 +1489,12 @@ const CONFIGS = {
       facts: { Tokens: "10", Alignment: "Canonical landmarks / bbox fallback" },
       code: [
         code(
-          "../../src/configs/one_id_ba_identity_owner_hybrid_N37.yaml",
+          "../src/configs/one_id_ba_identity_owner_hybrid_N37.yaml",
           14,
           `model:\n  ba_identity_token_count: 10\n  ba_identity_memory_mode: qformer_plus_canonical_parts\n  ba_identity_canonical_size: 224`,
         ),
         code(
-          "../../src/model/photomaker_branched/lora2_helpers.py",
+          "../src/model/photomaker_branched/lora2_helpers.py",
           618,
           `canonical_tokens = model.ba_identity_resampler(...)\nqformer_tokens = torch.cat(canonical_qformer_list, dim=0)\nextracted_id_features = torch.cat(\n    [qformer_tokens, canonical_tokens], dim=1\n)`,
         ),
@@ -1423,12 +1531,12 @@ const CONFIGS = {
       facts: { Tokens: "2", "Image mode": "bbox_normalized", Padding: "0.15" },
       code: [
         code(
-          "../../src/configs/one_id_ba_identity_owner_cropped_qformer_N38.yaml",
+          "../src/configs/one_id_ba_identity_owner_cropped_qformer_N38.yaml",
           8,
           `model:\n  ba_identity_token_count: 2\n  ba_identity_memory_mode: qformer_tokens\n  ba_identity_image_mode: bbox_normalized\n  ba_identity_crop_padding: 0.15`,
         ),
         code(
-          "../../src/model/photomaker_branched/identity_memory.py",
+          "../src/model/photomaker_branched/identity_memory.py",
           11,
           `def bbox_normalized_reference(image, bbox, padding=0.10):\n    ...\n    return image.crop((left, top, right, bottom))`,
         ),
@@ -1500,7 +1608,7 @@ function legacyDetails(run, evidence) {
       },
       code: [
         code(
-          "../../debug_04Jul/Codex_17Jul_interactive_BA_architecture_explorer_guide.md",
+          "../debug_04Jul/Codex_17Jul_interactive_BA_architecture_explorer_guide.md",
           124,
           `git show ${LEGACY_SPATIAL}:diffusion_template/src/model/photomaker_branched/branched_runtime.py\ngit show ${LEGACY_SPATIAL}:diffusion_template/src/model/photomaker_branched/attn_processor_cleanest.py`,
           "Open reconstruction notes",
@@ -1524,7 +1632,7 @@ function legacyDetails(run, evidence) {
       },
       code: [
         code(
-          "../../src/model/photomaker_branched/branched_runtime.py",
+          "../src/model/photomaker_branched/branched_runtime.py",
           403,
           `ref_noised = pipeline.scheduler.add_noise(\n    reference_latents,\n    pipeline._ref_noise[:reference_latents.shape[0]],\n    t_ref,\n)\nref_noised = pipeline.scheduler.scale_model_input(ref_noised, t_ref)`,
           "Open N3a runtime",
@@ -1542,7 +1650,7 @@ function legacyDetails(run, evidence) {
       },
       code: [
         code(
-          "../../src/model/photomaker_branched/branched_runtime.py",
+          "../src/model/photomaker_branched/branched_runtime.py",
           417,
           `# Create branched batch: [generation B, reference B].\nbatched_latents = torch.cat([latent_model_input, ref_noised], dim=0)\nt_batched = torch.cat([t_gen, t_ref], dim=0)`,
           "Open N3a runtime",
@@ -1556,7 +1664,7 @@ function legacyDetails(run, evidence) {
       facts: { "Batch half": "First", Geometry: "Target queries", Output: "Returned epsilon half" },
       code: [
         code(
-          "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+          "../src/model/photomaker_branched/attn_processor_cleanest.py",
           240,
           `noise_hidden = hidden_states[:batch_size]\nref_hidden = hidden_states[batch_size:]\nquery = self._q_noise(attn, noise_hidden)`,
           "Open BranchedAttnProcessor",
@@ -1570,7 +1678,7 @@ function legacyDetails(run, evidence) {
       facts: { Consumer: "Target-half cross-attention", Context: "PhotoMaker prompt" },
       code: [
         code(
-          "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+          "../src/model/photomaker_branched/attn_processor_cleanest.py",
           690,
           `# target/background half\nkey_bg = self._k_noise(attn, gen_prompt)\nvalue_bg = self._v_noise(attn, gen_prompt)\nhidden_bg = scaled_dot_product_attention(q_bg, key_bg, value_bg)`,
           "Open BranchedCrossAttnProcessor",
@@ -1584,13 +1692,13 @@ function legacyDetails(run, evidence) {
       facts: { Consumer: "Reference-half cross-attention", Mode: "ID-only" },
       code: [
         code(
-          "../../src/model/photomaker_branched/branched_runtime.py",
+          "../src/model/photomaker_branched/branched_runtime.py",
           476,
           `face_prompt_mode = getattr(pipeline, "ba_face_prompt_mode", "id_only")\n...\nmasked_face_prompt_embeds = face_prompt_embeds * class_token_mask * id_scale`,
           "Open N3a face-prompt runtime",
         ),
         code(
-          "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+          "../src/model/photomaker_branched/attn_processor_cleanest.py",
           700,
           `# reference half\nkey_ref = self._k_ref(attn, face_prompt)\nvalue_ref = self._v_ref(attn, face_prompt)\nhidden_ref = scaled_dot_product_attention(q_ref, key_ref, value_ref)`,
           "Open BranchedCrossAttnProcessor",
@@ -1608,7 +1716,7 @@ function legacyDetails(run, evidence) {
       },
       code: [
         code(
-          "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+          "../src/model/photomaker_branched/attn_processor_cleanest.py",
           327,
           `ref_mask = self._prepare_mask(self.mask_ref, seq_len, ref_batch_size)\nnoise_face_hidden = noise_hidden * target_mask\nref_face_hidden = ref_hidden * ref_mask`,
           "Open BranchedAttnProcessor masks",
@@ -1626,7 +1734,7 @@ function legacyDetails(run, evidence) {
       },
       code: [
         code(
-          "../../src/model/photomaker_branched/branched_runtime.py",
+          "../src/model/photomaker_branched/branched_runtime.py",
           595,
           `noise_pred = pipeline.unet(\n    batched_latents,\n    t_batched,\n    encoder_hidden_states=torch.cat([prompt_embeds, face_prompt_embeds]),\n)[0]`,
           "Open N3a doubled U-Net call",
@@ -1645,13 +1753,13 @@ function legacyDetails(run, evidence) {
       },
       code: [
         code(
-          "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+          "../src/model/photomaker_branched/attn_processor_cleanest.py",
           336,
           `ref_face_hidden = ref_hidden * ref_mask\nface_hidden_mixed = ref_face_hidden  # pose ratio 0\nq_face = target_q * target_mask\nhidden_face = attention(q_face, K(ref_face), V(ref_face))`,
           "Open BranchedAttnProcessor face path",
         ),
         code(
-          "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+          "../src/model/photomaker_branched/attn_processor_cleanest.py",
           384,
           `merged = hidden_bg * (1 - target_mask) + hidden_face * target_mask\nhidden_states = torch.cat([merged, hidden_ref], dim=0)`,
           "Open BranchedAttnProcessor merge",
@@ -1670,7 +1778,7 @@ function legacyDetails(run, evidence) {
       },
       code: [
         code(
-          "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+          "../src/model/photomaker_branched/attn_processor_cleanest.py",
           690,
           `hidden_bg = attention(Q(target), K(gen_prompt), V(gen_prompt))\nhidden_ref = attention(Q(reference), K(face_prompt), V(face_prompt))\nhidden_states = torch.cat([hidden_bg, hidden_ref], dim=0)`,
           "Open BranchedCrossAttnProcessor",
@@ -1707,7 +1815,7 @@ function legacyDetails(run, evidence) {
       },
       code: [
         code(
-          "../../src/model/photomaker_branched/branched_runtime.py",
+          "../src/model/photomaker_branched/branched_runtime.py",
           629,
           `noise_pred_merged = noise_pred[:batch_size]\n...\nreturn noise_pred_merged, noise_face, noise_bg`,
           "Open N3a target-half return",
@@ -1721,7 +1829,7 @@ function legacyDetails(run, evidence) {
       facts: { "PM preservation": "Only implicit in target branch", Scope: "Whole prediction" },
       code: [
         code(
-          "../../src/pipelines/br_pipeline_helpers.py",
+          "../src/pipelines/br_pipeline_helpers.py",
           1025,
           `if branched_active:\n    noise_pred, _, _ = run_branched_step(...)\nelse:\n    noise_pred = pipeline.unet(...)[0]`,
           "Open N3a validation route",
@@ -1753,7 +1861,7 @@ function legacyDetails(run, evidence) {
       facts: { Transform: "VAE encode + same-timestep noise", Output: "Spatial latent" },
       code: [
         code(
-          "../../src/model/photomaker_branched/branched_runtime.py",
+          "../src/model/photomaker_branched/branched_runtime.py",
           403,
           `ref_noised = scheduler.add_noise(reference_latents, ref_noise, t_ref)`,
           "Open N3a runtime",
@@ -1767,7 +1875,7 @@ function legacyDetails(run, evidence) {
       facts: { Q: "Target face", "K / V": "Reference face grid", Form: "Absolute hidden output" },
       code: [
         code(
-          "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+          "../src/model/photomaker_branched/attn_processor_cleanest.py",
           336,
           `q_face = q * target_mask\nhidden_face = attention(q_face, K(ref_face_hidden), V(ref_face_hidden))`,
           "Open BranchedAttnProcessor",
@@ -1781,7 +1889,7 @@ function legacyDetails(run, evidence) {
       facts: { "Target mask": "Target coordinates", "Reference mask": "Reference coordinates" },
       code: [
         code(
-          "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+          "../src/model/photomaker_branched/attn_processor_cleanest.py",
           327,
           `target_mask = self._prepare_mask(self.mask, ...)\nref_mask = self._prepare_mask(self.mask_ref, ...)`,
           "Open BranchedAttnProcessor masks",
@@ -1795,7 +1903,7 @@ function legacyDetails(run, evidence) {
       facts: { Prompt: "PhotoMaker generation prompt", "Independent PM epsilon": "No" },
       code: [
         code(
-          "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+          "../src/model/photomaker_branched/attn_processor_cleanest.py",
           690,
           `hidden_bg = attention(Q(target), K(gen_prompt), V(gen_prompt))`,
           "Open BranchedCrossAttnProcessor",
@@ -1809,7 +1917,7 @@ function legacyDetails(run, evidence) {
       facts: { "Weight mode": evidence.weightMode, Objective: evidence.objective },
       code: [
         code(
-          "../../src/model/photomaker_branched/lora2_helpers.py",
+          "../src/model/photomaker_branched/lora2_helpers.py",
           11,
           `mode = model.branched_attn_weight_mode\n# ref_only: train ref_to_*\n# noise_and_ref: train ref_to_* and noise_to_*`,
           "Open trainable selection",
@@ -1823,7 +1931,7 @@ function legacyDetails(run, evidence) {
       facts: { "Text-only": "0–9", PhotoMaker: "10–14", "Spatial BA": "15–49" },
       code: [
         code(
-          "../../src/configs/pipeline/pm_br_09Feb_testing.yaml",
+          "../src/configs/pipeline/pm_br_09Feb_testing.yaml",
           11,
           `photomaker_start_step: 10\nmerge_start_step: 10\nbranched_attn_start_step: 15\nbranched_start_mode: both`,
           "Open schedule config",
@@ -1877,7 +1985,7 @@ function nn1Details(run, evidence) {
       "Open approved design rationale",
     ),
     code(
-      "../../Jul_new_exp/2026-07-17_branch_split_and_recovery.md",
+      "../Jul_new_exp/2026-07-17_branch_split_and_recovery.md",
       1,
       `main_clean      = runnable N3a behavioral baseline\nmain_clean_exp  = complete post-N3a experimental implementation`,
       "Open branch and recovery contract",
@@ -1926,7 +2034,7 @@ function nn1Details(run, evidence) {
         "Open configured schedule",
       ),
       code(
-        "../../src/model/photomaker_branched/lora2.py",
+        "../src/model/photomaker_branched/lora2.py",
         410,
         `if self.ba_train_timestep_mode == "inference_ba_region":\n    max_timestep_exclusive = max_timestep_inclusive + 1`,
         "Open timestep sampler",
@@ -1952,7 +2060,7 @@ function nn1Details(run, evidence) {
           "Open face-prompt config",
         ),
         code(
-          "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+          "../src/model/photomaker_branched/attn_processor_cleanest.py",
           700,
           `face_attention_mask.masked_fill_(~allowed_tokens[:, None, None, :], float("-inf"))`,
           "Open token-mask implementation",
@@ -1982,7 +2090,7 @@ function nn1Details(run, evidence) {
           "Open selective trainability config",
         ),
         code(
-          "../../src/model/photomaker_branched/lora2_helpers.py",
+          "../src/model/photomaker_branched/lora2_helpers.py",
           185,
           `if sa_train_mode == "ref_kv_only":\n    is_ref_projection = ".ref_to_k." in name or ".ref_to_v." in name`,
           "Open optimizer ownership",
@@ -2063,7 +2171,7 @@ function nn2Details(run, evidence) {
         "Open NN2 design rationale",
       ),
       code(
-        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        "../src/model/photomaker_branched/attn_processor_cleanest.py",
         496,
         `legacy_reference_path = (\n    face_mode == "reference"\n    and ref_token_mode == "full_grid"\n)\n# New modes branch below; legacy remains the default.`,
         "Open flag-gated processor",
@@ -2090,7 +2198,7 @@ function nn2Details(run, evidence) {
         "Open configured K/V contract",
       ),
       code(
-        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        "../src/model/photomaker_branched/attn_processor_cleanest.py",
         271,
         `def _normalized_roi_tokens(hidden_states, mask):\n    # crop each validated bbox and bilinear-normalize it\n    return packed_8x8_real_tokens`,
         "Open normalized ROI implementation",
@@ -2121,7 +2229,7 @@ function nn2Details(run, evidence) {
         "Open architecture config",
       ),
       code(
-        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        "../src/model/photomaker_branched/attn_processor_cleanest.py",
         519,
         `target_face = attention(q_face, K(target), V(target))\nreference_face = attention(q_face, K(reference), V(reference))\n# face mode selects reference, dual, core-ring, or confidence residual`,
         "Open implemented arbitration",
@@ -2150,7 +2258,7 @@ function nn2Details(run, evidence) {
         "Open configured routing",
       ),
       code(
-        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        "../src/model/photomaker_branched/attn_processor_cleanest.py",
         309,
         `def _inner_core_mask(mask_gate):\n    # inner ellipse = reference authority\n    # outer ring = target-attention authority`,
         "Open core/ring mask",
@@ -2176,7 +2284,7 @@ function nn2Details(run, evidence) {
         "Open layer-routing config",
       ),
       code(
-        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        "../src/model/photomaker_branched/attn_processor_cleanest.py",
         265,
         `return ref_layer_scope == "all" or processor_name.startswith("up_blocks.")`,
         "Open layer-scope implementation",
@@ -2195,7 +2303,7 @@ function nn2Details(run, evidence) {
     },
     code: [
       code(
-        "../../src/model/photomaker_branched/attn_processor_cleanest.py",
+        "../src/model/photomaker_branched/attn_processor_cleanest.py",
         650,
         `# Unchanged proposed contract:\ntarget_out = CA(target_hidden, generation_prompt)\nref_out = CA(ref_hidden, face_prompt)`,
         "Open current split cross-attention",
@@ -2235,7 +2343,7 @@ function nn2Details(run, evidence) {
     },
     code: [
       code(
-        "../../jul_serv_runs/_run_ba_NN2_common_1gpu.sh",
+        "../jul_serv_runs/_run_ba_NN2_common_1gpu.sh",
         1,
         `NUM_EPOCHS=10\nOPTIMIZER_STEPS_PER_EPOCH=2000\nFULL_STEP0_VAL=true`,
         "Open shared 20k runner",
@@ -2250,7 +2358,7 @@ function pprDetails(run, evidence) {
   const isNN3 = run === "NN3a";
   const report = isNN3
     ? NN3_IMPLEMENTATION
-    : "../../Jul_new_exp/2026-07-20_PPR_8k_neutral_reference_CA_results_and_next_steps.md";
+    : "../Jul_new_exp/2026-07-20_PPR_8k_neutral_reference_CA_results_and_next_steps.md";
   const connectorSnippet = isNN3
     ? `ba_connector_input_mode: reference_minus_null\nuse_id_loss: true\nid_loss_weight: 0.05\nid_loss_max_timestep: 300`
     : `ba_connector_input_mode: reference_minus_target\nuse_id_loss: false`;
@@ -2266,7 +2374,7 @@ function pprDetails(run, evidence) {
     },
     code: [
       code(
-        "../../src/model/photomaker_branched/packed_residual_attn_processor.py",
+        "../src/model/photomaker_branched/packed_residual_attn_processor.py",
         413,
         `packed, lengths, pad_mask, sample_has_roi = pack_valid_tokens(\n    reference_hidden, reference_valid\n)\nC_ref = scaled_dot_product_attention(\n    Q_target, K_ref, V_ref, attn_mask=pad_mask\n)`,
         "Open packed reference retrieval",
@@ -2287,7 +2395,7 @@ function pprDetails(run, evidence) {
     },
     code: [
       code(
-        "../../src/model/photomaker_branched/packed_residual_attn_processor.py",
+        "../src/model/photomaker_branched/packed_residual_attn_processor.py",
         458,
         isNN3
           ? `null_candidate = torch.zeros_like(reference_candidate)\nconnector_input = reference_candidate - null_candidate\nraw_delta = connector_up(connector_down(connector_input))`
@@ -2309,7 +2417,7 @@ function pprDetails(run, evidence) {
     },
     code: [
       code(
-        "../../src/model/photomaker_branched/packed_residual_attn_processor.py",
+        "../src/model/photomaker_branched/packed_residual_attn_processor.py",
         476,
         `bounded_delta = RMSCap(raw_delta, base=target_base, max_ratio=0.25)\napplied_delta = target_core * has_roi * gate * bounded_delta`,
         "Open residual safety envelope",
@@ -2347,7 +2455,7 @@ function pprDetails(run, evidence) {
     },
     code: [
       code(
-        "../../src/model/photomaker_branched/branched_runtime.py",
+        "../src/model/photomaker_branched/branched_runtime.py",
         330,
         `proc = BranchedCrossAttnProcessor(...)\n# forward-active; configure_branched_trainables leaves CA frozen`,
         "Open split CA installation",
@@ -2366,7 +2474,7 @@ function pprDetails(run, evidence) {
     },
     code: [
       code(
-        "../../src/model/photomaker_branched/branched_runtime.py",
+        "../src/model/photomaker_branched/branched_runtime.py",
         940,
         `if output_anchor_mode == "base_outside_core":\n    base_noise_pred = ordinary_target_unet(...)\n    noise_pred = core * branched + (1 - core) * base_noise_pred`,
         "Open output anchor",
@@ -2389,7 +2497,7 @@ function pprDetails(run, evidence) {
     code: [
       code(files.config, 1, connectorSnippet, "Open objective config"),
       code(
-        "../../src/model/photomaker_branched/lora2.py",
+        "../src/model/photomaker_branched/lora2.py",
         824,
         `# Optional low-timestep path:\nx0 = predict_x0(noisy_latents, noise_pred)\nid_loss = IdentityLoss(x0_face, reference_face)`,
         "Open decoded reference-ID objective",
@@ -2438,6 +2546,424 @@ function pprDetails(run, evidence) {
   };
 }
 
+function modernPprConfig(run, spec) {
+  const spatialLabel = spec.spatialEnabled
+    ? "packed noised-reference ROI"
+    : "spatial reference lane disabled";
+  const identityLabel = spec.identityEnabled
+    ? "2 clean PMv2 identity tokens"
+    : "clean identity lane disabled";
+  const fusionLabels = {
+    spatial_only: "spatial candidate only",
+    shared_blend: "0.5 spatial + 0.5 clean-ID before one shared connector",
+    identity_only: "factorized clean-ID residual only",
+  };
+  const nullLabels = {
+    spatial_only: "learned spatial hidden-state null",
+    shared_blend: "shared learned spatial null after 50/50 candidate fusion",
+    identity_only: "2 learned identity-null tokens through the same identity K/V",
+  };
+  const connectorLabels = {
+    spatial_only: "one spatial rank-16 connector",
+    shared_blend: "one shared rank-16 spatial connector",
+    identity_only: "dedicated bias-free rank-16 identity connector",
+  };
+  const memoryLabel = [
+    spec.spatialEnabled ? "Packed spatial ROI" : null,
+    spec.identityEnabled ? "2 clean PMv2 ID tokens" : null,
+  ]
+    .filter(Boolean)
+    .join(" + ");
+  const ppr = {
+    spatialEnabled: spec.spatialEnabled,
+    identityEnabled: spec.identityEnabled,
+    spatialMemory: spatialLabel,
+    identityMemory: identityLabel,
+    fusionMode: spec.fusionMode,
+    fusion: fusionLabels[spec.fusionMode],
+    null: nullLabels[spec.fusionMode],
+    connector: connectorLabels[spec.fusionMode],
+    gateCap:
+      spec.fusionMode === "identity_only"
+        ? "dedicated ID gate max 0.50 (init 0.25) · ID cap 0.15 · total cap 0.15"
+        : "shared gate max 0.50 (init 0.25) · residual cap 0.15",
+    sitePolicy: "30 up_blocks.0 attn1 sites",
+    referenceConditioning: spec.spatialEnabled
+      ? "reference token + pooled text zeroed; paired CFG reference noise"
+      : "clean identity tokens only; reference noise cannot enter target lane",
+    crossAttention: "branched cross-attention disabled",
+    outputAnchor: "independent ordinary PhotoMaker outside feathered face core",
+  };
+  return {
+    short: run,
+    title: spec.title,
+    subtitle: spec.subtitle,
+    family: spec.family,
+    topology: "ppr_factorized",
+    sourceBranch: "main_clean",
+    status: spec.status,
+    statusLabel: spec.statusLabel,
+    sourceCommit: "working-tree",
+    memory: {
+      label: memoryLabel,
+      detail: `${spatialLabel}; ${identityLabel}`,
+      tokens: spec.identityEnabled ? 2 : null,
+    },
+    sites: {
+      count: 30,
+      effective: 30,
+      label: "30 up_blocks.0 attn1 residual sites",
+      detail: "All other self-attention remains ordinary; branched attn2 is disabled",
+      metricLabel: "30 SA residual · 0 branched CA",
+      matrixLabel: "30 up0 SA · CA disabled",
+      diagramLabel: "30 up_blocks.0 attn1 processors",
+      caTrainable: false,
+    },
+    weightMode:
+      spec.fusionMode === "identity_only"
+        ? "identity K/V + dedicated connector/gate/null train · no spatial parameters"
+        : spec.fusionMode === "shared_blend"
+          ? "spatial K/V + identity K/V + shared connector/gate train"
+          : "spatial K/V + learned null + connector/gate train",
+    selfTraining: ppr.connector,
+    pmContext: "Ordinary PhotoMaker target prompt remains unchanged",
+    composition:
+      "Target self-attention + bounded core residual; independent ordinary PhotoMaker epsilon is exact outside the core",
+    compositionShort: "PM anchor + bounded core residual",
+    objective: spec.objective,
+    objectiveShort: spec.objectiveShort,
+    schedule: "Text-only 0–9 · PM 10–14 · BA 15–49",
+    trainingSchedule: "BA-active timesteps; counterfactual decode only at t≤300 when enabled",
+    kvMode: spec.spatialEnabled
+      ? "packed variable-length noised-reference ROI; padding excluded"
+      : "spatial K/V absent",
+    faceArbitration: ppr.fusion,
+    layerRouting: ppr.sitePolicy,
+    queryRegion: "cosine-feathered inner target-face core",
+    independentPmAnchor: true,
+    pmAuthorityShort: "independent PM outside core",
+    ppr,
+    faceMae: spec.faceMae,
+    idScore: spec.idScore,
+    metricStep: spec.metricStep,
+    metricProtocol: spec.metricProtocol || "unmeasured",
+    architectureNote: spec.result,
+    details: modernPprDetails(run, ppr, spec),
+  };
+}
+
+function modernPprDetails(run, ppr, spec) {
+  const files = PPR_FILES[run];
+  const spatialState = ppr.spatialEnabled ? "enabled" : "disabled";
+  const identityState = ppr.identityEnabled ? "enabled" : "disabled";
+  const spatialMemory = {
+    title: `${run}: noised spatial-reference memory`,
+    description: ppr.spatialEnabled
+      ? "The reference is VAE-encoded, noised, carried through the doubled U-Net reference half, and packed to valid face-ROI tokens before target-Q retrieval. Reference text and pooled conditioning are zeroed."
+      : "The noised spatial-reference candidate is not computed and its projections, null, connector, and gate are not instantiated for NN6a. The doubled shell remains only as a compatibility scaffold.",
+    facts: {
+      State: spatialState,
+      Memory: ppr.spatialMemory,
+      "Reference noise": ppr.spatialEnabled ? "Can affect this lane" : "Cannot affect target output",
+    },
+    code: [
+      code(
+        files.config,
+        1,
+        `ba_spatial_lane_enabled: ${ppr.spatialEnabled}\nba_reference_token_text_mode: zero\nba_reference_pooled_text_mode: zero`,
+        "Open lane config",
+      ),
+      code(
+        "../src/model/photomaker_branched/packed_residual_attn_processor.py",
+        690,
+        `if self.enable_spatial:\n    packed, lengths, pad_mask = pack_valid_tokens(reference_hidden, mask_ref)\n    spatial_candidate = attend(packed, pad_mask)`,
+        "Open spatial candidate",
+      ),
+    ],
+  };
+  const identityMemory = {
+    title: `${run}: clean PhotoMaker identity memory`,
+    description: ppr.identityEnabled
+      ? "Two clean 2048-D PhotoMaker-V2 identity tokens are extracted from the reference image before diffusion noise and projected to K/V for target-coordinate queries."
+      : "This run has no clean identity-token candidate; identity can enter the PPR residual only through the noised spatial reference stream.",
+    facts: {
+      State: identityState,
+      Memory: ppr.identityMemory,
+      Coordinates: ppr.identityEnabled ? "Non-spatial identity tokens" : "Not present",
+    },
+    code: [
+      code(
+        files.config,
+        1,
+        `ba_identity_token_lane: ${ppr.identityEnabled}\nba_identity_token_dim: 2048\nba_identity_token_rank: 32`,
+        "Open identity-memory config",
+      ),
+      code(
+        "../src/model/photomaker_branched/lora2_helpers.py",
+        767,
+        `identity_tokens = model.id_encoder.extract_id_tokens(\n    id_pixel_values, id_embeds\n)  # [B, 2, 2048]`,
+        "Open clean token extraction",
+      ),
+    ],
+  };
+  const laneFusion = {
+    title: `${run}: candidate arbitration`,
+    description:
+      spec.fusionMode === "shared_blend"
+        ? "NN5b averages the noised spatial candidate and clean identity candidate before subtracting the spatial learned-null candidate. Both representations then compete through one connector, gate, and cap."
+        : spec.fusionMode === "identity_only"
+          ? "NN6a removes pre-connector fusion. Only the clean identity candidate minus its matched identity-null candidate reaches a dedicated identity residual path."
+          : "NN4/NN5a use only the noised spatial candidate. No clean identity candidate is available to the processor.",
+    facts: {
+      Mode: ppr.fusion,
+      Spatial: spatialState,
+      Identity: identityState,
+    },
+    code: [
+      code(
+        files.config,
+        1,
+        spec.fusionMode === "identity_only"
+          ? `ba_identity_fusion_mode: identity_only\nba_spatial_lane_enabled: false`
+          : spec.fusionMode === "shared_blend"
+            ? `ba_identity_fusion_mode: blend\nba_identity_token_weight: 0.5`
+            : `ba_identity_token_lane: false`,
+        "Open fusion config",
+      ),
+      code(
+        "../src/model/photomaker_branched/packed_residual_attn_processor.py",
+        739,
+        spec.fusionMode === "shared_blend"
+          ? `reference_candidate = (1.0 - weight) * spatial_candidate + weight * identity_candidate\nconnector_input = reference_candidate - spatial_null_candidate`
+          : spec.fusionMode === "identity_only"
+            ? `identity_connector_input = identity_candidate - identity_null_candidate\nidentity_raw_delta = identity_connector_up(identity_connector_down(identity_connector_input))`
+            : `connector_input = spatial_candidate - spatial_null_candidate`,
+        "Open candidate arbitration",
+      ),
+    ],
+  };
+  const nullMemory = {
+    title: `${run}: matched null baseline`,
+    description:
+      spec.fusionMode === "identity_only"
+        ? "Two learned identity-null tokens pass through the exact same identity K/V projections and target queries as real tokens. Their candidate is subtracted before the dedicated identity connector."
+        : "A learned spatial hidden-state null passes through the spatial K/V projections. In NN5b it remains the sole null even after clean-ID and spatial candidates are fused.",
+    facts: {
+      Null: ppr.null,
+      "Shared projections": "Yes",
+      "Person evidence": "Learned no-person baseline",
+    },
+    code: [
+      code(
+        "../src/model/photomaker_branched/packed_residual_attn_processor.py",
+        spec.fusionMode === "identity_only" ? 587 : 714,
+        spec.fusionMode === "identity_only"
+          ? `identity_candidate = attend(identity_tokens)\nidentity_null_candidate = attend(identity_null_memory)\nconnector_input = identity_candidate - identity_null_candidate`
+          : `spatial_null_candidate = attend(self.null_memory)\nconnector_input = reference_candidate - spatial_null_candidate`,
+        "Open matched null path",
+      ),
+    ],
+  };
+  const connector = {
+    title: `${run}: residual connector`,
+    description:
+      `${ppr.connector}. Connector-up is zero-initialized, so step zero exactly reproduces ordinary target attention; the branch earns authority only through training.`,
+    facts: {
+      Connector: ppr.connector,
+      Rank: "16",
+      Initialization: "bias-free; connector-up = 0",
+    },
+    code: [
+      code(
+        "../src/model/photomaker_branched/packed_residual_attn_processor.py",
+        spec.fusionMode === "identity_only" ? 337 : 286,
+        spec.fusionMode === "identity_only"
+          ? `identity_connector_down = nn.Linear(hidden, 16, bias=False)\nidentity_connector_up = nn.Linear(16, hidden, bias=False)\nnn.init.zeros_(identity_connector_up.weight)`
+          : `connector_down = nn.Linear(hidden, 16, bias=False)\nconnector_up = nn.Linear(16, hidden, bias=False)\nnn.init.zeros_(connector_up.weight)`,
+        "Open connector modules",
+      ),
+    ],
+  };
+  const gateCap = {
+    title: `${run}: bounded authority`,
+    description:
+      "The connector residual is RMS-capped against ordinary target attention, gated, multiplied by the runtime scale, and localized to the cosine-feathered inner face core.",
+    facts: {
+      Budget: ppr.gateCap,
+      Mask: "Feathered target-face core",
+      "Outside core": "Exactly ordinary target attention",
+    },
+    code: [
+      code(
+        files.config,
+        1,
+        spec.fusionMode === "identity_only"
+          ? `ba_identity_gate_max: 0.50\nba_identity_delta_rms_cap: 0.15\nba_total_delta_rms_cap: 0.15`
+          : `ba_gate_max: 0.50\nba_delta_rms_cap: 0.15`,
+        "Open authority budget",
+      ),
+    ],
+  };
+  const sites = {
+    title: `${run}: restricted self-attention sites`,
+    description:
+      "Only the 30 attn1 processors in up_blocks.0 receive the residual processor. All other self-attention is ordinary, and BranchedCrossAttnProcessor is disabled everywhere.",
+    facts: {
+      "Residual sites": ppr.sitePolicy,
+      "Other attn1": "Ordinary processor",
+      "Branched attn2": "Disabled",
+    },
+    code: [
+      code(
+        files.config,
+        1,
+        `ba_site_policy: up_blocks0_attn1\ndisable_branched_ca: true`,
+        "Open site policy",
+      ),
+    ],
+  };
+  const crossAttention = {
+    title: `${run}: no branched cross-attention`,
+    description:
+      "Unlike N3a and NN2-PPR1, no split target/reference BranchedCrossAttnProcessor is installed. Ordinary PhotoMaker cross-attention remains unchanged; reference-half text cannot leak into the target branch through attn2.",
+    facts: {
+      BranchedAttnProcessor: "Packed residual at selected attn1 sites",
+      BranchedCrossAttnProcessor: "Absent",
+      PhotoMaker: "Ordinary target attn2 unchanged",
+    },
+    code: [
+      code(files.config, 1, `disable_branched_ca: true`, "Open CA isolation toggle"),
+    ],
+  };
+  const compose = {
+    title: `${run}: protected PhotoMaker composition`,
+    description:
+      "The residual modifies target self-attention only in the face core. A separate ordinary PhotoMaker target prediction anchors final epsilon outside the same core, preserving pose, body, clothes, hands, and background.",
+    facts: {
+      "Inside core": "Target attention + bounded lane residual",
+      "Outside core": "Independent ordinary PhotoMaker epsilon",
+      CFG: "Reference-noise copies paired exactly",
+    },
+    code: [
+      code(
+        "../src/model/photomaker_branched/branched_runtime.py",
+        1274,
+        `if output_anchor_mode == "base_outside_core":\n    noise_pred = core * branched_pred + (1.0 - core) * base_noise_pred`,
+        "Open final output anchor",
+      ),
+    ],
+  };
+  const objective = {
+    title: `${run}: training supervision`,
+    description:
+      spec.objectiveMode === "counterfactual"
+        ? "Matched A and cyclic wrong-identity B share target latent, target noise, timestep, and reference-noise tensor. Decoded low-timestep losses ask the output to move toward the supplied reference identity while preserving the surrounding ring."
+        : "NN4 trains matched reconstruction plus learned-null suppression and cap protection. It does not directly compare matched and wrong identities in the same target/noise state.",
+    facts: {
+      Objective: spec.objective,
+      Counterfactual: spec.objectiveMode === "counterfactual" ? "A/B paired at t≤300" : "Off",
+      Result: spec.result,
+    },
+    code: [
+      code(
+        files.config,
+        1,
+        spec.objectiveMode === "counterfactual"
+          ? `ba_counterfactual_enabled: true\nba_counterfactual_abs_id_weight: 0.05\nba_counterfactual_direction_weight: 0.10\nba_counterfactual_ring_weight: 0.05`
+          : `ba_null_residual_loss_weight: 0.10\nba_match_null_margin_weight: 0.05\nba_cap_loss_weight: 0.01`,
+        "Open supervision config",
+      ),
+    ],
+  };
+  const combinedMemory = {
+    title: `${run}: reference representations`,
+    description: `${spatialMemory.description} ${identityMemory.description}`,
+    facts: {
+      Spatial: ppr.spatialMemory,
+      Identity: ppr.identityMemory,
+      Conditioning: ppr.referenceConditioning,
+    },
+    code: [...spatialMemory.code, ...identityMemory.code],
+  };
+  const referenceInput = {
+    title: `${run}: reference image input`,
+    description:
+      "The user-supplied reference image is unchanged across NN4–NN6. What changes is which downstream memory builder is allowed to expose it to target self-attention.",
+    facts: {
+      Input: "Same reference image",
+      "Spatial consumer": spatialState,
+      "Clean-ID consumer": identityState,
+    },
+    code: combinedMemory.code,
+  };
+  const targetAttention = {
+    title: `${run}: protected ordinary target self-attention`,
+    description:
+      "Target hidden states provide Q/K/V for the ordinary self-attention result A_target. Every new lane is residual over this target-coordinate baseline; neither spatial nor identity memory replaces its geometry outright.",
+    facts: {
+      Q: "Target hidden state",
+      "K / V": "Target hidden state",
+      Role: "Absolute per-site baseline",
+    },
+    code: [
+      code(
+        "../src/model/photomaker_branched/packed_residual_attn_processor.py",
+        653,
+        `target_base = base_all[:generation_batch]\n# lane delta is added only after candidate/null contrast and safety bounds`,
+        "Open target baseline",
+      ),
+    ],
+  };
+  return {
+    reference: combinedMemory,
+    referenceInput,
+    memory: combinedMemory,
+    memoryFlow: combinedMemory,
+    spatialMemory,
+    identityMemory,
+    spatialCandidate: spatialMemory,
+    identityCandidate: identityMemory,
+    laneFusion,
+    nullMemory,
+    connector,
+    gateCap,
+    targetAttention,
+    selfAttention: laneFusion,
+    residualFlow: connector,
+    residual: connector,
+    mask: gateCap,
+    maskFlow: gateCap,
+    sites,
+    crossAttention,
+    standardSelfAttention: crossAttention,
+    baPass: laneFusion,
+    compose,
+    pmPass: compose,
+    pmFlow: compose,
+    output: compose,
+    objective,
+    trainFlow: objective,
+    referenceConditioning: spatialMemory,
+    scheduleFlow: {
+      title: `${run}: training and validation schedule`,
+      description:
+        "Inference uses text-only steps 0–9, PhotoMaker at 10–14, and the bounded residual from 15–49. RealVis validation keeps the fixed 96-image masks aligned.",
+      facts: {
+        Inference: "Text 0–9 · PM 10–14 · BA 15–49",
+        Validation: "RealVisXL fixed 96",
+        Launcher: files.launcher,
+      },
+      code: [code(files.launcher, 1, `# ${run} launch`, "Open launcher")],
+    },
+    history: {
+      title: `${run}: evidence and decision`,
+      description: spec.result,
+      facts: { Status: spec.statusLabel, Result: spec.result },
+      code: [code(files.report, 1, `# ${run} architecture evidence`, "Open report/spec")],
+    },
+  };
+}
+
 function allSiteDetail(run) {
   return {
     title: `${run}: all 70 target-face CA sites`,
@@ -2450,7 +2976,7 @@ function allSiteDetail(run) {
     },
     code: [
       code(
-        "../../src/model/photomaker_branched/branched_runtime.py",
+        "../src/model/photomaker_branched/branched_runtime.py",
         255,
         `elif name.endswith("attn2.processor"):\n    if disable_ca or not processor_name_matches_allowlist(...):\n        ...\n    else:\n        proc = BranchedCrossAttnProcessor(...)`,
       ),
@@ -2475,12 +3001,12 @@ function legacyComposeDetail() {
     facts: { Composition: "Before CFG", "Outside bbox": "Exactly PM epsilon" },
     code: [
       code(
-        "../../src/model/photomaker_branched/branched_runtime.py",
+        "../src/model/photomaker_branched/branched_runtime.py",
         354,
         `return photomaker_pred * (1.0 - mask) + branched_pred * mask`,
       ),
       code(
-        "../../src/pipelines/br_pipeline_helpers.py",
+        "../src/pipelines/br_pipeline_helpers.py",
         1152,
         `else:\n    noise_pred = hard_epsilon_merge(\n        photomaker_pred, noise_pred, mask4_for_merge\n    )`,
       ),
@@ -2502,12 +3028,12 @@ function restrictedDetails(run, memoryDetail) {
       },
       code: [
         code(
-          "../../src/configs/one_id_ba_identity_owner_qformer_N36.yaml",
+          "../src/configs/one_id_ba_identity_owner_qformer_N36.yaml",
           15,
           `ba_ca_layer_allowlist:\n  - up_blocks.1\n  - up_blocks.0.attentions.2\n...\nba_face_gate_init: 1.0\nba_face_gate_init_overrides:\n  up_blocks.0.attentions.2: 0.5`,
         ),
         code(
-          "../../src/model/photomaker_branched/branched_runtime.py",
+          "../src/model/photomaker_branched/branched_runtime.py",
           16,
           `def processor_name_matches_allowlist(name, allowlist):\n    ...\n    return any(name.startswith(pattern) for pattern in patterns)`,
         ),
@@ -2525,12 +3051,12 @@ function restrictedDetails(run, memoryDetail) {
       },
       code: [
         code(
-          "../../src/configs/one_id_ba_identity_owner_qformer_N36.yaml",
+          "../src/configs/one_id_ba_identity_owner_qformer_N36.yaml",
           38,
           `ba_causal_identity_weight: 0.5\nba_causal_margin: 0.05\nba_causal_direct_weight: 0.5`,
         ),
         code(
-          "../../src/trainer/sdxl_trainers.py",
+          "../src/trainer/sdxl_trainers.py",
           477,
           `wrong_identity_pred = batch.get("wrong_identity_pred")\nif wrong_identity_pred is not None:\n    dependence_loss = identity_dependence_ranking_loss(...)\n    batch["loss"] += dependence_weight * dependence_loss`,
         ),
@@ -2547,7 +3073,7 @@ function restrictedDetails(run, memoryDetail) {
       },
       code: [
         code(
-          "../../src/model/photomaker_branched/branched_runtime.py",
+          "../src/model/photomaker_branched/branched_runtime.py",
           375,
           `pm_uncond, pm_cond = photomaker_pred.chunk(2)\n_, ba_cond = branched_pred.chunk(2)\ndelta_cond = hard_epsilon_merge(pm_cond, ba_cond, mask) - pm_cond\nguided = pm_uncond + guidance_scale * (pm_cond - pm_uncond)\nreturn guided + residual_scale * guidance_scale * delta_cond`,
         ),
@@ -2567,12 +3093,19 @@ function detailFor(config, key) {
 }
 
 function topologyValue(config) {
-  return config.topology === "legacy_spatial"
-    ? "full spatial doubled [target, reference] BA"
-    : "compact target-face residual BA";
+  if (config.topology === "legacy_spatial") {
+    return "full spatial doubled [target, reference] BA";
+  }
+  if (config.topology === "ppr_factorized") {
+    return "packed target-self-attention residual + protected PM anchor";
+  }
+  return "compact target-face residual BA";
 }
 
 function kvSelectionValue(config) {
+  if (config.topology === "ppr_factorized") {
+    return config.ppr.spatialMemory;
+  }
   if (config.topology !== "legacy_spatial") {
     return config.memory.label;
   }
@@ -2580,6 +3113,9 @@ function kvSelectionValue(config) {
 }
 
 function faceArbitrationValue(config) {
+  if (config.topology === "ppr_factorized") {
+    return config.ppr.fusion;
+  }
   if (config.topology !== "legacy_spatial") {
     return "additive compact-memory target-face residual";
   }
@@ -2587,6 +3123,9 @@ function faceArbitrationValue(config) {
 }
 
 function layerRoutingValue(config) {
+  if (config.topology === "ppr_factorized") {
+    return config.ppr.sitePolicy;
+  }
   if (config.topology !== "legacy_spatial") {
     return `${config.sites.count} target-face CA sites`;
   }
@@ -2601,6 +3140,9 @@ function queryRegionValue(config) {
 }
 
 function selfTrainingValue(config) {
+  if (config.topology === "ppr_factorized") {
+    return `PackedResidualBranchedAttnProcessor at ${config.ppr.sitePolicy}; ${config.ppr.connector}`;
+  }
   if (config.topology !== "legacy_spatial") {
     return "standard self-attention; BranchedAttnProcessor absent";
   }
@@ -2617,6 +3159,9 @@ function selfTrainingValue(config) {
 }
 
 function crossTrainingValue(config) {
+  if (config.topology === "ppr_factorized") {
+    return "BranchedCrossAttnProcessor disabled; ordinary PhotoMaker attn2 only";
+  }
   if (config.topology !== "legacy_spatial") {
     return "target-face residual BranchedCrossAttnProcessor weights train";
   }
@@ -2636,6 +3181,9 @@ function targetPromptValue(config) {
 }
 
 function referencePromptValue(config) {
+  if (config.topology === "ppr_factorized") {
+    return config.ppr.referenceConditioning;
+  }
   if (config.topology !== "legacy_spatial") {
     return "no separate reference-half prompt stream";
   }
@@ -2643,6 +3191,58 @@ function referencePromptValue(config) {
     config.facePromptContext ||
     "ID-only conditional prompt with non-ID tokens retained as zero K/V"
   );
+}
+
+function spatialLaneValue(config) {
+  if (config.topology === "ppr_factorized") return config.ppr.spatialMemory;
+  if (config.topology === "legacy_spatial") return "full noised spatial reference stream";
+  return "no spatial-reference target lane";
+}
+
+function identityLaneValue(config) {
+  if (config.topology === "ppr_factorized") return config.ppr.identityMemory;
+  if (config.topology === "legacy_spatial") return "no clean identity candidate lane";
+  return config.memory.label;
+}
+
+function laneFusionValue(config) {
+  if (config.topology === "ppr_factorized") return config.ppr.fusion;
+  if (config.topology === "legacy_spatial") return faceArbitrationValue(config);
+  return "compact identity residual added to PhotoMaker lane";
+}
+
+function nullBaselineValue(config) {
+  if (config.topology === "ppr_factorized") return config.ppr.null;
+  return "no matched learned null candidate";
+}
+
+function connectorValue(config) {
+  if (config.topology === "ppr_factorized") return config.ppr.connector;
+  return "no PPR bottleneck connector";
+}
+
+function gateCapValue(config) {
+  if (config.topology === "ppr_factorized") return config.ppr.gateCap;
+  return config.topology === "legacy_spatial"
+    ? "absolute spatial arbitration; no PPR RMS cap"
+    : "compact residual gate; no PPR lane cap";
+}
+
+function referenceConditioningValue(config) {
+  if (config.topology === "ppr_factorized") return config.ppr.referenceConditioning;
+  return referencePromptValue(config);
+}
+
+function memoryTokenizationValue(config) {
+  if (config.topology === "ppr_factorized") {
+    const parts = [];
+    if (config.ppr.spatialEnabled) parts.push("variable-length packed spatial ROI");
+    if (config.ppr.identityEnabled) parts.push("2 clean identity tokens");
+    return parts.join(" + ");
+  }
+  return config.memory.tokens == null
+    ? "full spatial latent grid"
+    : `${config.memory.tokens} tokens`;
 }
 
 const COMPARISON_GROUPS = [
@@ -2655,8 +3255,67 @@ const COMPARISON_GROUPS = [
       {
         label: "Tokenization",
         codeName: "identity_tokens",
-        value: (config) =>
-          config.memory.tokens == null ? "full spatial latent grid" : `${config.memory.tokens} tokens`,
+        value: memoryTokenizationValue,
+      },
+    ],
+  },
+  {
+    id: "spatial-lane",
+    label: "spatial reference lane",
+    keys: ["spatialMemory", "spatialCandidate"],
+    fields: [
+      { label: "Spatial lane", codeName: "spatial_lane", value: spatialLaneValue },
+    ],
+  },
+  {
+    id: "identity-lane",
+    label: "clean identity lane",
+    keys: ["identityMemory", "identityCandidate"],
+    fields: [
+      { label: "Identity lane", codeName: "identity_lane", value: identityLaneValue },
+    ],
+  },
+  {
+    id: "lane-fusion",
+    label: "candidate fusion",
+    keys: ["laneFusion"],
+    fields: [
+      { label: "Candidate fusion", codeName: "candidate_fusion", value: laneFusionValue },
+    ],
+  },
+  {
+    id: "null-baseline",
+    label: "matched null baseline",
+    keys: ["nullMemory"],
+    fields: [
+      { label: "Null baseline", codeName: "null_baseline", value: nullBaselineValue },
+    ],
+  },
+  {
+    id: "connector",
+    label: "residual connector ownership",
+    keys: ["connector"],
+    fields: [
+      { label: "Connector", codeName: "residual_connector", value: connectorValue },
+    ],
+  },
+  {
+    id: "gate-cap",
+    label: "gate and cap budget",
+    keys: ["gateCap"],
+    fields: [
+      { label: "Gate / cap", codeName: "gate_cap_budget", value: gateCapValue },
+    ],
+  },
+  {
+    id: "reference-conditioning",
+    label: "reference conditioning isolation",
+    keys: ["referenceConditioning"],
+    fields: [
+      {
+        label: "Reference conditioning",
+        codeName: "reference_conditioning",
+        value: referenceConditioningValue,
       },
     ],
   },
@@ -2845,8 +3504,17 @@ const COMPARISON_GROUPS = [
 function comparisonDifferences(left, right) {
   const changedGroups = [];
   const byKey = new Map();
+  const bothModernPpr =
+    left.topology === "ppr_factorized" && right.topology === "ppr_factorized";
+  const pprDuplicateGroups = new Set([
+    "reference-kv",
+    "face-arbitration",
+    "reference-prompt-context",
+    "self-training",
+  ]);
 
   COMPARISON_GROUPS.forEach((group) => {
+    if (bothModernPpr && pprDuplicateGroups.has(group.id)) return;
     const changes = group.fields
       .map((field) => ({
         label: field.label,
@@ -2938,6 +3606,19 @@ function currentDiagramVersion() {
 }
 
 function v2ArchitectureSpec(config) {
+  if (config.topology === "ppr_factorized") {
+    return {
+      ppr: true,
+      refPrepTitle: `${config.ppr.spatialMemory} · ${config.ppr.identityMemory}`,
+      refPrepSubtitle: config.ppr.referenceConditioning,
+      faceLanesTitle: config.ppr.fusion,
+      faceLanesSubtitle: `${config.ppr.null}; ${config.ppr.connector}`,
+      arbitrationTitle: config.ppr.gateCap,
+      arbitrationSubtitle: config.ppr.outputAnchor,
+      ownershipTitle: config.ppr.sitePolicy,
+      ownershipSubtitle: `${config.ppr.crossAttention}; feathered target-face core`,
+    };
+  }
   if (config.topology !== "legacy_spatial") {
     return {
       compact: true,
@@ -3082,6 +3763,29 @@ function v2ArchitectureSpec(config) {
 
 function renderV2ArchitectureStrip(config) {
   const spec = v2ArchitectureSpec(config);
+  if (config.topology === "ppr_factorized") {
+    const facts = [
+      ["Spatial memory", config.ppr.spatialMemory, config.ppr.referenceConditioning, "spatialMemory spatialCandidate referenceConditioning"],
+      ["Clean identity memory", config.ppr.identityMemory, "PhotoMaker-V2 tokens before diffusion noise", "identityMemory identityCandidate"],
+      ["Candidate arbitration", config.ppr.fusion, config.ppr.null, "laneFusion nullMemory"],
+      ["Residual owner", config.ppr.connector, config.ppr.gateCap, "connector gateCap"],
+      ["Sites + CA", config.ppr.sitePolicy, config.ppr.crossAttention, "sites crossAttention"],
+      ["Absolute output", config.ppr.outputAnchor, config.objectiveShort, "compose objective"],
+    ];
+    return `
+      <section class="v2-architecture-strip ppr-strip" aria-label="${escapeHtml(config.short)} explicit lane summary">
+        ${facts
+          .map(
+            ([label, title, subtitle, keys]) => `
+              <div class="v2-architecture-fact" data-compare-keys="${keys}">
+                <span>${escapeHtml(label)}</span>
+                <strong>${escapeHtml(title)}</strong>
+                <small>${escapeHtml(subtitle)}</small>
+              </div>`,
+          )
+          .join("")}
+      </section>`;
+  }
   const facts = [
     [
       "Reference K/V preparation",
@@ -3128,6 +3832,9 @@ function renderV2ArchitectureStrip(config) {
 }
 
 function renderSvg(config, panelId) {
+  if (config.topology === "ppr_factorized") {
+    return renderPprOverviewSvg(config, panelId);
+  }
   if (currentDiagramVersion() === "v2" && config.topology === "legacy_spatial") {
     return renderLegacyOverviewV2Svg(config, panelId);
   }
@@ -3376,13 +4083,232 @@ function renderCompactOverviewSvg(config, panelId) {
   </svg>`;
 }
 
+function renderPprOverviewSvg(config, panelId) {
+  const markerId = `arrow-ppr-${panelId}`;
+  const ppr = config.ppr;
+  const spatialClass = ppr.spatialEnabled ? "ba" : "inactive";
+  const identityClass = ppr.identityEnabled ? "ba" : "inactive";
+  const spatialTitle = ppr.spatialEnabled
+    ? ["Spatial Cref", "packed ROI candidate"]
+    : ["Spatial lane", "DISABLED"];
+  const identityTitle = ppr.identityEnabled
+    ? ["Clean-ID Cid", "2-token candidate"]
+    : ["Clean-ID lane", "DISABLED"];
+  const fusionTitle =
+    ppr.fusionMode === "shared_blend"
+      ? ["50 / 50 fusion", "Cspatial + Cid"]
+      : ppr.fusionMode === "identity_only"
+        ? ["Identity only", "select Cid"]
+        : ["Spatial only", "select Cspatial"];
+  const nullTitle =
+    ppr.fusionMode === "identity_only"
+      ? ["Learned ID null", "2 tokens → Cid,null"]
+      : ["Learned spatial null", "hidden tokens → Csp,null"];
+  const activeInputEdges = [
+    ppr.spatialEnabled
+      ? `${edge("M190 322 C212 322 216 312 238 312", "spatialMemory", "ba", markerId)}
+         ${edge("M398 312 C425 312 430 288 452 278", "spatialCandidate", "ba", markerId)}
+         ${edgeLabel(401, 298, "packed Ksp / Vsp", "ba")}`
+      : "",
+    ppr.identityEnabled
+      ? `${edge("M190 344 C210 382 216 414 238 414", "identityMemory", "ba", markerId)}
+         ${edge("M398 414 C424 414 430 382 452 374", "identityCandidate", "ba", markerId)}
+         ${edgeLabel(402, 402, "Kid / Vid", "ba")}`
+      : "",
+  ].join("");
+  const candidateEdges = [
+    ppr.spatialEnabled
+      ? edge("M620 278 C646 286 648 354 672 365", "laneFusion", "ba", markerId)
+      : "",
+    ppr.identityEnabled
+      ? edge("M620 374 C646 374 650 374 672 374", "laneFusion", "ba", markerId)
+      : "",
+  ].join("");
+  const candidateQueryEdges = [
+    ppr.spatialEnabled
+      ? edge("M536 166 C536 190 536 214 536 238", "spatialCandidate", "ba", markerId)
+      : "",
+    ppr.identityEnabled
+      ? edge("M536 166 C580 210 580 320 536 334", "identityCandidate", "ba", markerId)
+      : "",
+  ].join("");
+  return `
+  <svg class="architecture-svg ppr-overview-svg" viewBox="0 0 1120 760" aria-label="${escapeHtml(config.short)} packed residual architecture overview">
+    <defs>${markerDefs(markerId)}</defs>
+
+    <text class="group-label" x="28" y="28">Inputs and protected baseline</text>
+    <text class="group-label" x="238" y="228">Reference memories</text>
+    <text class="group-label" x="452" y="28">Selected up_blocks.0 target self-attention</text>
+    <text class="group-label" x="890" y="28">Absolute output ownership</text>
+
+    ${node(28, 54, 162, 68, "target", ["Target noisy latent", "xₜ"], "pose + scene coordinates", "pm")}
+    ${node(28, 150, 162, 66, "prompt", ["PhotoMaker prompt"], "ordinary target conditioning", "pm")}
+    ${node(28, 288, 162, 68, "referenceInput", ["Reference image"], "same user input", "ba")}
+    ${node(28, 492, 162, 68, "mask", ["Target face core", "Mcore"], "cosine-feathered bbox", "mask")}
+
+    ${node(238, 268, 160, 88, "spatialMemory", ppr.spatialEnabled ? ["Noised spatial ref", "packed face ROI"] : ["Noised spatial ref", "NOT USED"], ppr.spatialEnabled ? "zero text · noise paired" : "no spatial modules", spatialClass)}
+    ${node(238, 382, 160, 66, "identityMemory", ppr.identityEnabled ? ["Clean PMv2 ID", "2 × 2048-D"] : ["Clean PMv2 ID", "NOT USED"], ppr.identityEnabled ? "before diffusion noise" : "identity lane off", identityClass)}
+
+    <g class="unet-shell clickable" data-inspect="baPass" tabindex="0" role="button">
+      <rect x="430" y="48" width="426" height="550" rx="9"></rect>
+      <text class="shell-title" x="643" y="70">PackedResidualBranchedAttnProcessor · 30 attn1 sites</text>
+    </g>
+    ${node(452, 92, 168, 74, "targetAttention", ["A_target"], "Attn(Qtarget,Ktarget,Vtarget)", "pm")}
+    ${node(452, 238, 168, 80, "spatialCandidate", spatialTitle, ppr.spatialEnabled ? "Qtarget × packed spatial K/V" : "not computed", spatialClass)}
+    ${node(452, 334, 168, 80, "identityCandidate", identityTitle, ppr.identityEnabled ? "Qtarget × clean identity K/V" : "not computed", identityClass)}
+    ${node(672, 208, 160, 84, "nullMemory", nullTitle, "same Q + same lane K/V", "ba")}
+    ${node(672, 334, 160, 80, "laneFusion", fusionTitle, ppr.fusion, "arbitration")}
+    ${node(672, 442, 160, 64, "connector", ["Bias-free connector", "rank 16 · up=0 init"], ppr.connector, "ba")}
+    ${node(672, 526, 160, 58, "gateCap", ["Gate + RMS cap"], ppr.fusionMode === "identity_only" ? "ID 0.15 · total 0.15" : "shared cap 0.15", "mask")}
+    <rect class="site-chip" x="452" y="536" width="194" height="30" rx="15"></rect>
+    <text class="site-chip-text" x="549" y="555">30 up0 attn1 · attn2 BA off</text>
+
+    ${node(890, 70, 194, 72, "pmPass", ["Ordinary PhotoMaker ε"], "independent target-only pass", "pm")}
+    ${node(890, 226, 194, 82, "output", ["Residual target ε"], "A_target + Mcore · Δlane", "ba")}
+    ${node(890, 380, 194, 88, "compose", ["Protected core merge"], "PM exact outside Mcore", "pm")}
+    ${node(910, 526, 174, 64, "scheduleFlow", ["CFG → scheduler"], config.schedule, "output")}
+    ${node(430, 640, 250, 72, "objective", ["Training objective"], config.objectiveShort, "train")}
+    ${node(706, 640, 150, 72, "history", ["Result / status"], config.statusLabel, "")}
+
+    ${edge("M190 88 C300 88 350 120 452 129", "targetAttention", "pm", markerId)}
+    ${edge("M190 183 C320 183 344 144 452 138", "pmFlow", "pm", markerId)}
+    ${activeInputEdges}
+    ${candidateQueryEdges}
+    ${candidateEdges}
+    ${edge("M752 292 C752 308 752 318 752 334", "nullMemory", "ba", markerId)}
+    ${edge("M752 414 C752 426 752 432 752 442", "connector", "ba", markerId)}
+    ${edge("M752 506 C752 514 752 518 752 526", "gateCap", "mask", markerId)}
+    ${edge("M832 555 C868 520 864 310 890 278", "gateCap", "ba", markerId)}
+    ${edge("M190 526 C420 612 620 586 672 555", "maskFlow", "mask", markerId)}
+    ${edge("M987 142 C987 230 987 310 987 380", "pmFlow", "pm", markerId)}
+    ${edge("M987 308 C987 330 987 350 987 380", "compose", "ba", markerId)}
+    ${edge("M987 468 C987 490 987 504 987 526", "output", "pm", markerId)}
+    ${edge("M555 640 C555 620 650 612 752 584", "trainFlow", "train", markerId)}
+
+    ${edgeLabel(356, 105, "Qtarget / Ktarget / Vtarget", "pm")}
+    ${edgeLabel(624, 348, ppr.fusionMode === "shared_blend" ? "0.5 / 0.5" : "select active lane", "ba")}
+    ${edgeLabel(758, 319, "subtract matched null", "ba")}
+    ${edgeLabel(846, 521, "Mcore · gate · capped Δ", "mask")}
+  </svg>`;
+}
+
 function renderMechanismSvg(config, panelId) {
+  if (config.topology === "ppr_factorized") {
+    return renderPprMechanismSvg(config, panelId);
+  }
   if (currentDiagramVersion() === "v2" && config.topology === "legacy_spatial") {
     return renderLegacyMechanismV2Svg(config, panelId);
   }
   return config.topology === "legacy_spatial"
     ? renderLegacyMechanismSvg(config, panelId)
     : renderResidualMechanismSvg(config, panelId);
+}
+
+function renderPprMechanismSvg(config, panelId) {
+  const markerId = `mechanism-ppr-${panelId}`;
+  const ppr = config.ppr;
+  const spatialClass = ppr.spatialEnabled ? "ba" : "inactive";
+  const identityClass = ppr.identityEnabled ? "ba" : "inactive";
+  const spatialRoutes = ppr.spatialEnabled
+    ? `
+      ${edge("M170 286 C188 286 194 286 214 286", "spatialMemory", "ba", markerId)}
+      ${edge("M344 286 C366 286 374 286 396 286", "spatialCandidate", "ba", markerId)}
+      ${edge("M170 382 C188 382 194 382 214 382", "nullMemory", "ba", markerId)}
+      ${edge("M344 382 C366 382 374 382 396 382", "nullMemory", "ba", markerId)}
+      ${edge("M526 286 C580 286 600 390 648 408", "laneFusion", "ba", markerId)}
+      ${edge("M526 382 C580 382 598 456 648 468", "nullMemory", "ba", markerId)}
+      ${edge("M280 120 C340 180 350 258 396 276", "spatialCandidate", "ba", markerId)}
+      ${edge("M280 120 C360 210 355 354 396 372", "nullMemory", "ba", markerId)}
+      ${edgeLabel(350, 263, "Qtarget", "ba")}
+      ${edgeLabel(350, 359, "same Qtarget", "ba")}`
+    : "";
+  const identityRoutes = ppr.identityEnabled
+    ? `
+      ${edge("M170 530 C188 530 194 530 214 530", "identityMemory", "ba", markerId)}
+      ${edge("M344 530 C366 530 374 530 396 530", "identityCandidate", "ba", markerId)}
+      ${edge("M526 530 C582 530 604 440 648 424", "laneFusion", "ba", markerId)}
+      ${edge("M280 120 C370 265 355 500 396 520", "identityCandidate", "ba", markerId)}
+      ${edgeLabel(350, 505, "Qtarget", "ba")}
+      ${
+        ppr.fusionMode === "identity_only"
+          ? `${edge("M170 626 C188 626 194 626 214 626", "nullMemory", "ba", markerId)}
+             ${edge("M344 626 C366 626 374 626 396 626", "nullMemory", "ba", markerId)}
+             ${edge("M526 626 C590 626 605 492 648 474", "nullMemory", "ba", markerId)}
+             ${edge("M280 120 C390 305 360 596 396 616", "nullMemory", "ba", markerId)}
+             ${edgeLabel(350, 600, "same Qtarget", "ba")}`
+          : ""
+      }`
+    : "";
+  const fusionLabel =
+    ppr.fusionMode === "shared_blend"
+      ? ["Candidate fusion", "0.5 Csp + 0.5 Cid"]
+      : ppr.fusionMode === "identity_only"
+        ? ["Lane selector", "Cid only"]
+        : ["Lane selector", "Cspatial only"];
+  const differenceLabel =
+    ppr.fusionMode === "identity_only"
+      ? ["Identity contrast", "Cid − Cid,null"]
+      : ["Spatial-null contrast", "Cfused − Csp,null"];
+  return `
+  <svg class="mechanism-svg ppr-mechanism-svg" viewBox="0 0 1120 930" aria-label="${escapeHtml(config.short)} explicit packed-residual Q K V mechanism">
+    <defs>${markerDefs(markerId)}</defs>
+
+    <text class="mechanism-title" x="24" y="30">A · Protected target self-attention baseline</text>
+    <text class="mechanism-note" x="24" y="54">Target coordinates own every query. Reference information can enter only through an enabled candidate lane.</text>
+    ${node(24, 78, 146, 68, "target", ["target_hidden"], "selected up_blocks.0 attn1", "pm")}
+    ${node(214, 74, 132, 54, "targetAttention", ["Qtarget"], "attn.to_q(target)", "pm")}
+    ${node(214, 146, 132, 54, "targetAttention", ["Ktarget / Vtarget"], "attn.to_k / to_v", "pm")}
+    ${node(410, 96, 150, 72, "targetAttention", ["A_target"], "Attn(Qtarget,Ktarget,Vtarget)", "pm")}
+    ${node(770, 82, 300, 76, "crossAttention", ["BranchedCrossAttnProcessor: DISABLED"], "ordinary PhotoMaker attn2 remains unchanged", "inactive")}
+    ${edge("M170 106 C190 106 196 101 214 101", "targetAttention", "pm", markerId)}
+    ${edge("M170 120 C192 148 196 168 214 173", "targetAttention", "pm", markerId)}
+    ${edge("M346 101 C374 101 382 120 410 128", "targetAttention", "pm", markerId)}
+    ${edge("M346 173 C374 173 382 140 410 134", "targetAttention", "pm", markerId)}
+
+    <line class="mechanism-divider" x1="24" y1="224" x2="1090" y2="224"></line>
+    <text class="mechanism-title" x="24" y="254">B · Spatial candidate lane</text>
+    ${node(24, 268, 146, 66, "spatialMemory", ppr.spatialEnabled ? ["Noised ref ROI"] : ["Spatial lane OFF"], ppr.spatialEnabled ? "packed valid face tokens" : "not instantiated", spatialClass)}
+    ${node(214, 260, 130, 62, "spatialCandidate", ["Ksp / Vsp"], ppr.spatialEnabled ? "ref_to_k / ref_to_v" : "absent", spatialClass)}
+    ${node(396, 252, 130, 68, "spatialCandidate", ["Cspatial"], ppr.spatialEnabled ? "Attn(Qtarget,Ksp,Vsp)" : "not computed", spatialClass)}
+    ${node(24, 364, 146, 66, "nullMemory", ["Learned spatial null"], ppr.spatialEnabled ? "hidden-state tokens" : "not instantiated", spatialClass)}
+    ${node(214, 356, 130, 62, "nullMemory", ["Ksp,null / Vsp,null"], ppr.spatialEnabled ? "same spatial projections" : "absent", spatialClass)}
+    ${node(396, 348, 130, 68, "nullMemory", ["Cspatial,null"], ppr.spatialEnabled ? "same Qtarget" : "not computed", spatialClass)}
+    ${spatialRoutes}
+
+    <text class="mechanism-title" x="24" y="498">C · Clean identity candidate lane</text>
+    ${node(24, 512, 146, 66, "identityMemory", ppr.identityEnabled ? ["2 clean PMv2", "identity tokens"] : ["Identity lane OFF"], ppr.identityEnabled ? "[B,2,2048] · noise-free" : "not supplied", identityClass)}
+    ${node(214, 504, 130, 62, "identityCandidate", ["Kid / Vid"], ppr.identityEnabled ? "identity_to_k / to_v" : "absent", identityClass)}
+    ${node(396, 496, 130, 68, "identityCandidate", ["Cid"], ppr.identityEnabled ? "Attn(Qtarget,Kid,Vid)" : "not computed", identityClass)}
+    ${node(24, 608, 146, 66, "nullMemory", ["2 learned ID-null", "tokens"], ppr.fusionMode === "identity_only" ? "dedicated matched null" : "not used by shared blend", ppr.fusionMode === "identity_only" ? "ba" : "inactive")}
+    ${node(214, 600, 130, 62, "nullMemory", ["Kid,null / Vid,null"], ppr.fusionMode === "identity_only" ? "same identity projections" : "inactive", ppr.fusionMode === "identity_only" ? "ba" : "inactive")}
+    ${node(396, 592, 130, 68, "nullMemory", ["Cid,null"], ppr.fusionMode === "identity_only" ? "same Qtarget" : "not computed", ppr.fusionMode === "identity_only" ? "ba" : "inactive")}
+    ${identityRoutes}
+
+    <text class="mechanism-title" x="648" y="254">D · Arbitration and bounded residual authority</text>
+    ${node(648, 382, 174, 70, "laneFusion", fusionLabel, ppr.fusion, "arbitration")}
+    ${node(648, 456, 174, 64, "nullMemory", differenceLabel, ppr.null, "ba")}
+    ${node(862, 404, 194, 74, "connector", ["Connector down → up", "rank 16 · up=0 init"], ppr.connector, "ba")}
+    ${node(862, 520, 194, 76, "gateCap", ["RMS cap × gate", "× runtime scale × Mcore"], ppr.gateCap, "mask")}
+    ${node(862, 640, 194, 70, "output", ["A_out"], "A_target + applied lane delta", "ba")}
+    ${edge("M822 418 C840 418 844 434 862 440", "connector", "ba", markerId)}
+    ${edge("M735 452 C735 454 735 454 735 456", "nullMemory", "ba", markerId)}
+    ${edge("M822 488 C840 488 844 464 862 454", "connector", "ba", markerId)}
+    ${edge("M959 478 C959 496 959 504 959 520", "gateCap", "mask", markerId)}
+    ${edge("M959 596 C959 614 959 622 959 640", "output", "ba", markerId)}
+    ${edge("M560 132 C700 132 790 630 862 670", "targetAttention", "pm", markerId)}
+    ${edgeLabel(830, 394, "selected candidate − matched null", "ba")}
+    ${edgeLabel(968, 618, "bounded Δlane", "mask")}
+
+    <line class="mechanism-divider" x1="24" y1="742" x2="1090" y2="742"></line>
+    <text class="mechanism-title" x="24" y="778">E · Final epsilon protection and training-only supervision</text>
+    ${node(24, 806, 214, 68, "pmPass", ["Independent ordinary PM ε"], "target-only baseline pass", "pm")}
+    ${node(286, 806, 214, 68, "compose", ["Core output anchor"], "Mcore·εBA + (1−Mcore)·εPM", "pm")}
+    ${node(548, 806, 232, 68, "objective", ["Training-only objective"], config.objectiveShort, "train")}
+    ${node(828, 806, 228, 68, "sites", ["30 up_blocks.0 attn1"], "all other attn1 + all attn2 ordinary", "output")}
+    ${edge("M238 840 C254 840 268 840 286 840", "pmFlow", "pm", markerId)}
+    ${edge("M959 710 C850 770 610 812 500 840", "compose", "ba", markerId)}
+    ${edge("M664 806 C690 760 810 710 862 682", "trainFlow", "train", markerId)}
+  </svg>`;
 }
 
 function renderLegacyMechanismV2Svg(config, panelId) {
@@ -3679,7 +4605,7 @@ function renderCard(cardId, configId) {
     ? `${config.idScore.toFixed(4)} @ ${config.metricStep}`
     : "not available";
   const siteMetric =
-    config.topology === "legacy_spatial"
+    config.topology === "legacy_spatial" || config.topology === "ppr_factorized"
       ? config.sites.metricLabel || `${config.sites.count} SA + ${config.sites.count} CA`
       : `${config.sites.count} / 70 CA`;
   card.dataset.config = configId;
@@ -3706,14 +4632,16 @@ function renderCard(cardId, configId) {
     ${isV2 ? renderV2ArchitectureStrip(config) : ""}
     ${renderSvg(config, cardId)}
     <section class="mechanism-panel" aria-label="${escapeHtml(config.short)} attention processor details">
-      <div class="mechanism-heading" data-compare-keys="baPass selfAttention standardSelfAttention crossAttention residual sites">
+      <div class="mechanism-heading" data-compare-keys="baPass selfAttention standardSelfAttention crossAttention residual sites spatialMemory identityMemory laneFusion nullMemory connector gateCap">
         <div>
           <span>${isV2 ? "V2 · explicit processor internals" : "Processor internals"}</span>
           <strong>${
             config.mechanismHeading ||
             (config.topology === "legacy_spatial"
               ? "Full spatial branched self- and cross-attention"
-              : "BranchedCrossAttnProcessor only (attn2); attn1 remains standard")
+              : config.topology === "ppr_factorized"
+                ? "PackedResidualBranchedAttnProcessor (attn1) · explicit spatial / identity lanes"
+                : "BranchedCrossAttnProcessor only (attn2); attn1 remains standard")
           }</strong>
         </div>
         <p>Q / K / V routes · click any block or arrow for code</p>
@@ -3726,39 +4654,52 @@ function renderSummary(leftId, rightId) {
   const left = CONFIGS[leftId];
   const right = CONFIGS[rightId];
   const siteRatio = right.sites.effective / left.sites.effective;
-  const comparableMae = Number.isFinite(left.faceMae) && Number.isFinite(right.faceMae);
+  const comparableMae =
+    Number.isFinite(left.faceMae) &&
+    Number.isFinite(right.faceMae) &&
+    (left.metricProtocol || "legacy-fixed") ===
+      (right.metricProtocol || "legacy-fixed");
   const maeRatio = comparableMae ? right.faceMae / left.faceMae : null;
   const pmSitesLeft = 70 - left.sites.count;
   const pmSitesRight = 70 - right.sites.count;
   const includesLegacy =
     left.topology === "legacy_spatial" || right.topology === "legacy_spatial";
+  const includesPpr =
+    left.topology === "ppr_factorized" || right.topology === "ppr_factorized";
   const bothLegacy =
     left.topology === "legacy_spatial" && right.topology === "legacy_spatial";
+  const bothPpr =
+    left.topology === "ppr_factorized" && right.topology === "ppr_factorized";
+  const architectureComparison = includesLegacy || includesPpr;
   const includesProposal = left.status === "proposed" || right.status === "proposed";
-  const routeCopy = includesLegacy
+  const routeCopy = architectureComparison
     ? `${left.short}: ${left.memory.label} · ${right.short}: ${right.memory.label}`
     : `${left.short} ${left.sites.effective} → ${right.short} ${right.sites.effective}`;
-  const routeExplanation = includesLegacy
+  const routeExplanation = architectureComparison
     ? bothLegacy
       ? "Both retain the full reference-coordinate stream and the original doubled-latent branched-attention topology."
-      : "The spatial run carries reference coordinates through a second U-Net stream; the compact run exposes only identity K/V memory."
+      : bothPpr
+        ? `${left.short}: ${left.ppr.fusion}. ${right.short}: ${right.ppr.fusion}.`
+        : includesLegacy && includesPpr
+          ? "The legacy run gives a full spatial branch absolute face authority; the PPR run keeps ordinary target attention and PhotoMaker as protected baselines and adds only a bounded core residual."
+          : "The selected runs use different spatial/identity memory and processor topologies."
     : `Right has ${(siteRatio * 100).toFixed(0)}% of the left configuration's unit-gate site equivalents.`;
   const authorityFor = (config) =>
     config.pmAuthorityShort ||
     (config.topology === "legacy_spatial"
       ? "single absolute BA pass"
       : "protected PM baseline");
-  const pmAuthority = includesLegacy
+  const pmAuthority = architectureComparison
     ? `${left.short}: ${authorityFor(left)} · ${right.short}: ${authorityFor(right)}`
     : `${pmSitesLeft} vs ${pmSitesRight}`;
-  const pmExplanation = includesLegacy
+  const pmExplanation = architectureComparison
     ? authorityFor(left) === authorityFor(right)
       ? `Both use ${authorityFor(left)}.`
       : "The selected runs assign different absolute authority to the doubled BA output and the independent PhotoMaker baseline."
     : `${left.short} left / ${right.short} right. Untouched sites retain full PhotoMaker context.`;
   document.getElementById("comparison-summary").innerHTML = `
     <div class="comparison-fact">
-      <span>${includesLegacy ? "Identity representation" : "Effective BA route"}</span>
+      <span>${architectureComparison ? "Identity representation" : "Effective BA route"}</span>
       <strong>${escapeHtml(routeCopy)}</strong>
       <p>${escapeHtml(routeExplanation)}</p>
     </div>
@@ -3778,7 +4719,7 @@ function renderSummary(leftId, rightId) {
       }</p>
     </div>
     <div class="comparison-fact">
-      <span>${includesLegacy ? "PhotoMaker authority" : "Untouched PM CA sites"}</span>
+      <span>${architectureComparison ? "PhotoMaker authority" : "Untouched PM CA sites"}</span>
       <strong>${escapeHtml(pmAuthority)}</strong>
       <p>${escapeHtml(pmExplanation)}</p>
     </div>
@@ -4008,10 +4949,10 @@ function renderInspectorComparison(side, key) {
   const snippetHtml = snippetDiffs
     .map((diff) => {
       const leftSource = diff.left
-        ? `${diff.left.path.replace("../../", "")}:${diff.left.line}`
+        ? `${diff.left.path.replace("../", "")}:${diff.left.line}`
         : "(no left snippet)";
       const rightSource = diff.right
-        ? `${diff.right.path.replace("../../", "")}:${diff.right.line}`
+        ? `${diff.right.path.replace("../", "")}:${diff.right.line}`
         : "(no right snippet)";
       return `
         <article class="code-diff-card">
@@ -4062,15 +5003,16 @@ function openInspector(configId, key, side = null) {
   document.getElementById("inspector-code").innerHTML = (detail.code || [])
     .map((entry) => {
       const belongsToExpBranch =
+        config.sourceBranch !== "main_clean" &&
         config.topology !== "legacy_spatial" &&
-        (entry.path.startsWith("../../src/") ||
-          entry.path.startsWith("../../serv_new_runs/"));
+        (entry.path.startsWith("../src/") ||
+          entry.path.startsWith("../serv_new_runs/"));
       const sourcePath = belongsToExpBranch
-        ? `${EXP_SOURCE_ROOT}/${entry.path.replace("../../", "")}`
+        ? `${EXP_SOURCE_ROOT}/${entry.path.replace("../", "")}`
         : entry.path;
       const displayPath = belongsToExpBranch
-        ? `main_clean_exp:${entry.path.replace("../../", "")}`
-        : entry.path.replace("../../", "");
+        ? `main_clean_exp:${entry.path.replace("../", "")}`
+        : entry.path.replace("../", "");
       const href = `${sourcePath}#L${entry.line}`;
       return `
         <article class="code-card">

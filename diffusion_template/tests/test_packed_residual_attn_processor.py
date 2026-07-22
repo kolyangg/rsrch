@@ -625,11 +625,12 @@ class PackedResidualProcessorTests(unittest.TestCase):
             "down_blocks.0.attn1.processor",
             "mid_block.attn1.processor",
             "up_blocks.0.attn1.processor",
+            "up_blocks.1.attn1.processor",
             "up_blocks.0.attn2.processor",
         ]
         self.assertEqual(
             select_branched_self_attention_names(names, "up_blocks_attn1"),
-            ["up_blocks.0.attn1.processor"],
+            ["up_blocks.0.attn1.processor", "up_blocks.1.attn1.processor"],
         )
         self.assertEqual(
             select_branched_self_attention_names(
@@ -637,6 +638,13 @@ class PackedResidualProcessorTests(unittest.TestCase):
                 "up_blocks0_attn1",
             ),
             ["up_blocks.0.attn1.processor"],
+        )
+        self.assertEqual(
+            select_branched_self_attention_names(
+                names,
+                "up_blocks1_attn1",
+            ),
+            ["up_blocks.1.attn1.processor"],
         )
 
     def test_core_normalized_diffusion_loss_ignores_outside_core(self) -> None:
@@ -1138,6 +1146,72 @@ class PackedResidualRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(groups[-1]["name"], "ba_ppr_identity_tokens")
         self.assertEqual(len(groups[-1]["params"]), 4)
+
+    def test_nn6_identity_only_trainability_and_optimizer_are_exact(self) -> None:
+        model = _tiny_model()
+        model.ba_site_policy = "up_blocks0_attn1"
+        model.disable_branched_ca = True
+        model.ba_connector_input_mode = "reference_minus_learned_null"
+        model.ba_identity_token_lane = True
+        model.ba_identity_token_dim = 2048
+        model.ba_identity_token_rank = 4
+        model.ba_identity_token_weight = 0.5
+        model.ba_identity_fusion_mode = "identity_only"
+        model.ba_identity_site_policy = "up_blocks0_attn1"
+        model.ba_spatial_site_policy = "up_blocks0_attn1"
+        model.ba_spatial_lane_enabled = False
+        model.ba_identity_null_tokens = 2
+        model.ba_identity_connector_rank = 4
+        model.ba_identity_gate_max = 0.5
+        model.ba_identity_gate_init_logit = 0.0
+        model.ba_identity_delta_rms_cap = 0.15
+        model.ba_spatial_gate_max = 0.15
+        model.ba_spatial_delta_rms_cap = 0.03
+        model.ba_total_delta_rms_cap = 0.15
+        mask = torch.ones(1, 1, 8, 8)
+        patch_unet_attention_processors(
+            model,
+            mask,
+            mask,
+            identity_tokens=torch.ones(1, 2, 2048),
+        )
+        configure_branched_trainables(model)
+        _assert_branched_installation(model)
+        processor = model.unet.attn_processors["up_blocks.0.attn1.processor"]
+        self.assertIsNone(processor.ref_to_k)
+        self.assertIsNone(processor.connector_down)
+        self.assertEqual(
+            {name for name, parameter in processor.named_parameters() if parameter.requires_grad},
+            {
+                "identity_to_k.0.weight",
+                "identity_to_k.2.weight",
+                "identity_to_v.0.weight",
+                "identity_to_v.2.weight",
+                "identity_null_memory",
+                "identity_connector_down.weight",
+                "identity_connector_up.weight",
+                "identity_gate_logit",
+            },
+        )
+        groups = PhotomakerBranchedLora.get_trainable_params(
+            SimpleNamespace(
+                unet=model.unet,
+                ba_processor_variant="packed_residual_v1",
+                ba_identity_fusion_mode="identity_only",
+            ),
+            _OptimizerConfig(lr_for_lora=5e-5),
+        )
+        self.assertEqual(
+            [group["name"] for group in groups],
+            [
+                "ba_ppr_identity_k",
+                "ba_ppr_identity_v",
+                "ba_ppr_identity_null",
+                "ba_ppr_identity_connector_down",
+                "ba_ppr_identity_connector_up",
+                "ba_ppr_identity_gate",
+            ],
+        )
 
     def test_legacy_variant_remains_available(self) -> None:
         model = _tiny_model()
