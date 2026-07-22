@@ -135,6 +135,9 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         total_delta_rms_cap: float = 0.15,
         spatial_memory_mode: str = "reference_unet",
         spatial_patch_dim: int = 1024,
+        spatial_patch_projection: str = "raw_clip",
+        spatial_kv_init: str = "xavier",
+        spatial_kv_kind: str = "full",
         spatial_local_window: int = 5,
         spatial_mix_mode: str = "connector_residual",
     ):
@@ -195,6 +198,24 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             raise ValueError(f"Unknown spatial_mix_mode: {spatial_mix_mode}")
         if int(spatial_patch_dim) <= 0:
             raise ValueError("spatial_patch_dim must be positive")
+        spatial_patch_projection = str(
+            spatial_patch_projection or "raw_clip"
+        ).lower()
+        if spatial_patch_projection not in {
+            "raw_clip",
+            "pmv2_perceiver_context",
+        }:
+            raise ValueError(
+                f"Unknown spatial_patch_projection: {spatial_patch_projection}"
+            )
+        spatial_kv_init = str(spatial_kv_init or "xavier").lower()
+        if spatial_kv_init not in {"xavier", "sibling_attn2"}:
+            raise ValueError(f"Unknown spatial_kv_init: {spatial_kv_init}")
+        spatial_kv_kind = str(spatial_kv_kind or "full").lower()
+        if spatial_kv_kind not in {"full", "lora"}:
+            raise ValueError(f"Unknown spatial_kv_kind: {spatial_kv_kind}")
+        if spatial_kv_init == "xavier" and spatial_kv_kind != "full":
+            raise ValueError("xavier spatial K/V initialization requires full K/V")
         if int(spatial_local_window) <= 0 or int(spatial_local_window) % 2 == 0:
             raise ValueError("spatial_local_window must be a positive odd integer")
         if spatial_mix_mode == "direct_candidate_takeover" and spatial_memory_mode != "clean_clip_patches":
@@ -238,6 +259,9 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         self.total_delta_rms_cap = float(total_delta_rms_cap)
         self.spatial_memory_mode = spatial_memory_mode
         self.spatial_patch_dim = int(spatial_patch_dim)
+        self.spatial_patch_projection = spatial_patch_projection
+        self.spatial_kv_init = spatial_kv_init
+        self.spatial_kv_kind = spatial_kv_kind
         self.spatial_local_window = int(spatial_local_window)
         self.spatial_mix_mode = spatial_mix_mode
         if self.identity_fusion_mode == "identity_only":
@@ -277,8 +301,9 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         self.diagnostic_sample_keys = ()
         self.diagnostic_do_cfg = False
         self.diagnostic_sink = None
+        self._warm_runtime_checked = False
 
-    def init_from_attention(self, attn) -> None:
+    def init_from_attention(self, attn, *, sibling_attn2=None) -> None:
         base_q = attn.to_q.get_base_layer() if hasattr(attn.to_q, "get_base_layer") else attn.to_q
         projection_dim = int(base_q.out_features)
         if projection_dim != self.hidden_size:
@@ -289,22 +314,72 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
         initialize_spatial = self.identity_fusion_mode == "blend" or self.enable_spatial
         if initialize_spatial:
             if self.spatial_memory_mode == "clean_clip_patches":
-                self.ref_to_k = nn.Linear(
-                    self.spatial_patch_dim,
-                    projection_dim,
-                    bias=False,
-                    device=base_q.weight.device,
-                    dtype=base_q.weight.dtype,
-                )
-                self.ref_to_v = nn.Linear(
-                    self.spatial_patch_dim,
-                    projection_dim,
-                    bias=False,
-                    device=base_q.weight.device,
-                    dtype=base_q.weight.dtype,
-                )
-                nn.init.xavier_uniform_(self.ref_to_k.weight)
-                nn.init.xavier_uniform_(self.ref_to_v.weight)
+                if self.spatial_kv_init == "xavier":
+                    self.ref_to_k = nn.Linear(
+                        self.spatial_patch_dim,
+                        projection_dim,
+                        bias=False,
+                        device=base_q.weight.device,
+                        dtype=base_q.weight.dtype,
+                    )
+                    self.ref_to_v = nn.Linear(
+                        self.spatial_patch_dim,
+                        projection_dim,
+                        bias=False,
+                        device=base_q.weight.device,
+                        dtype=base_q.weight.dtype,
+                    )
+                    nn.init.xavier_uniform_(self.ref_to_k.weight)
+                    nn.init.xavier_uniform_(self.ref_to_v.weight)
+                else:
+                    if sibling_attn2 is None:
+                        raise RuntimeError(
+                            f"{self.processor_name}: sibling attn2 is required "
+                            "for spatial_kv_init=sibling_attn2"
+                        )
+                    k_base = (
+                        sibling_attn2.to_k.get_base_layer()
+                        if hasattr(sibling_attn2.to_k, "get_base_layer")
+                        else sibling_attn2.to_k
+                    )
+                    v_base = (
+                        sibling_attn2.to_v.get_base_layer()
+                        if hasattr(sibling_attn2.to_v, "get_base_layer")
+                        else sibling_attn2.to_v
+                    )
+                    if int(k_base.in_features) != self.spatial_patch_dim:
+                        raise RuntimeError(
+                            f"{self.processor_name}: sibling attn2 K input "
+                            f"{k_base.in_features} != spatial patch dim "
+                            f"{self.spatial_patch_dim}"
+                        )
+                    if int(v_base.in_features) != self.spatial_patch_dim:
+                        raise RuntimeError(
+                            f"{self.processor_name}: sibling attn2 V input "
+                            f"{v_base.in_features} != spatial patch dim "
+                            f"{self.spatial_patch_dim}"
+                        )
+                    if (
+                        int(k_base.out_features) != projection_dim
+                        or int(v_base.out_features) != projection_dim
+                    ):
+                        raise RuntimeError(
+                            f"{self.processor_name}: sibling attn2 output does not "
+                            "match attn1 hidden size"
+                        )
+                    self.ref_to_k = _clone_effective_linear(
+                        sibling_attn2.to_k,
+                        kind=self.spatial_kv_kind,
+                        rank=self.ref_kv_rank,
+                        adapter_name="default",
+                    )
+                    self.ref_to_v = _clone_effective_linear(
+                        sibling_attn2.to_v,
+                        kind=self.spatial_kv_kind,
+                        rank=self.ref_kv_rank,
+                        adapter_name="default",
+                    )
+                    self._assert_warm_start(sibling_attn2)
             else:
                 self.ref_to_k = _clone_effective_linear(
                     attn.to_k,
@@ -411,6 +486,85 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
                         dtype=base_q.weight.dtype,
                     )
                 )
+
+    def _assert_warm_start(self, sibling_attn2) -> None:
+        """Verify zero-delta parity with the active PhotoMaker attn2 K/V."""
+        if self.spatial_kv_init != "sibling_attn2":
+            return
+        for label, projection in (
+            ("K", self.ref_to_k),
+            ("V", self.ref_to_v),
+        ):
+            lora_b = getattr(projection, "lora_B", None)
+            if lora_b is not None and int(torch.count_nonzero(lora_b).item()) != 0:
+                raise RuntimeError(
+                    f"{self.processor_name}: warm {label} LoRA B is not zero"
+                )
+
+        expected_k = _clone_effective_linear(
+            sibling_attn2.to_k,
+            kind="full",
+            rank=self.ref_kv_rank,
+            adapter_name="default",
+        )
+        expected_v = _clone_effective_linear(
+            sibling_attn2.to_v,
+            kind="full",
+            rank=self.ref_kv_rank,
+            adapter_name="default",
+        )
+        anchor_weight = getattr(self.ref_to_k, "base_weight", None)
+        if anchor_weight is None:
+            anchor_weight = self.ref_to_k.weight
+        dtype = anchor_weight.dtype
+        device = anchor_weight.device
+        test_tokens = torch.linspace(
+            -1.0,
+            1.0,
+            steps=4 * self.spatial_patch_dim,
+            device=device,
+            dtype=torch.float32,
+        ).reshape(1, 4, self.spatial_patch_dim).to(dtype=dtype)
+        with torch.no_grad():
+            actual_k = self.ref_to_k(test_tokens)
+            actual_v = self.ref_to_v(test_tokens)
+            target_k = expected_k(test_tokens)
+            target_v = expected_v(test_tokens)
+        tolerance = 2e-2 if dtype == torch.bfloat16 else 1e-5
+        k_parity = torch.allclose(
+            actual_k.float(), target_k.float(), atol=tolerance, rtol=tolerance
+        )
+        v_parity = torch.allclose(
+            actual_v.float(), target_v.float(), atol=tolerance, rtol=tolerance
+        )
+        if not k_parity or not v_parity:
+            raise RuntimeError(
+                f"{self.processor_name}: sibling attn2 warm-start parity failed "
+                f"(K={k_parity}, V={v_parity})"
+            )
+        # The checkpoint stores only learned LoRA/gate parameters. Recreate
+        # these frozen bases from each current backbone on restore.
+        if hasattr(self.ref_to_k, "base_weight"):
+            self.ref_to_k._non_persistent_buffers_set.update(
+                {"base_weight", "base_bias"}
+            )
+            self.ref_to_v._non_persistent_buffers_set.update(
+                {"base_weight", "base_bias"}
+            )
+        effective_gate = self.spatial_gate_max * torch.sigmoid(
+            torch.tensor(self.gate_init_logit, dtype=torch.float64)
+        ).item()
+        print(
+            "[NN7a_init warm start] "
+            f"site={self.processor_name} "
+            f"patch_projection={self.spatial_patch_projection} "
+            f"patch_dim={self.spatial_patch_dim} "
+            f"kv_init={self.spatial_kv_init} "
+            f"kv_kind={self.spatial_kv_kind} "
+            f"k_base_parity={str(k_parity).lower()} "
+            f"v_base_parity={str(v_parity).lower()} "
+            f"effective_gate_init={effective_gate:.6f}"
+        )
 
     def set_masks(
         self,
@@ -1133,6 +1287,51 @@ class PackedResidualBranchedAttnProcessor(nn.Module):
             self.last_aux_losses["match_null_margin"] = (
                 margin_error.square() * valid_rows
             ).sum() / valid_count
+        if (
+            self.spatial_kv_init == "sibling_attn2"
+            and not self._warm_runtime_checked
+            and spatial_reference_candidate is not None
+            and spatial_applied_delta is not None
+        ):
+            core = target_core.float()
+            count = (core.sum(dim=(1, 2)) * target_base.shape[-1]).clamp_min(1.0)
+            candidate_rms = torch.sqrt(
+                (
+                    core
+                    * (spatial_reference_candidate - target_base)
+                    .float()
+                    .square()
+                ).sum(dim=(1, 2))
+                / count
+            )
+            applied_rms = torch.sqrt(
+                (core * spatial_applied_delta.float().square()).sum(dim=(1, 2))
+                / count
+            )
+            supported = core.sum(dim=(1, 2)) > 0
+            if not bool((candidate_rms[supported] > 0).all()):
+                raise RuntimeError(
+                    f"{self.processor_name}: NN7a_init reference candidate is "
+                    "exactly equal to target at initialization"
+                )
+            if not bool((applied_rms[supported] > 0).all()):
+                raise RuntimeError(
+                    f"{self.processor_name}: NN7a_init applied residual is zero "
+                    "at initialization"
+                )
+            outside = (target_core == 0).expand_as(spatial_applied_delta)
+            if int(torch.count_nonzero(spatial_applied_delta[outside]).item()) != 0:
+                raise RuntimeError(
+                    f"{self.processor_name}: NN7a_init residual escaped target core"
+                )
+            self._warm_runtime_checked = True
+            print(
+                "[NN7a_init first batch] "
+                f"site={self.processor_name} "
+                f"candidate_rms_min={candidate_rms[supported].min().item():.6f} "
+                f"applied_rms_min={applied_rms[supported].min().item():.6f} "
+                "outside_core_exact_zero=true"
+            )
         target_output = target_base + applied_delta
         hidden_states = torch.cat([target_output, reference_base], dim=0)
 

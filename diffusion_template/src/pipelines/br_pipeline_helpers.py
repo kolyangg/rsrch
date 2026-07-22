@@ -517,7 +517,21 @@ def prepare_spatial_identity_tokens(
         ).pixel_values.unsqueeze(1).to(device=device, dtype=dtype)
         with torch.no_grad():
             patch_tokens = pipeline.id_encoder.extract_spatial_patch_tokens(
-                crop_pixels
+                crop_pixels,
+                projection=getattr(
+                    pipeline,
+                    "ba_spatial_patch_projection",
+                    "raw_clip",
+                ),
+            )
+        expected_patch_dim = int(
+            getattr(pipeline, "ba_spatial_patch_dim", 1024)
+        )
+        if patch_tokens.shape[-1] != expected_patch_dim:
+            raise RuntimeError(
+                "Spatial patch dimension mismatch: "
+                f"tokens={patch_tokens.shape[-1]}, "
+                f"config={expected_patch_dim}"
             )
         if not torch.isfinite(patch_tokens).all():
             raise RuntimeError("NN7 clean spatial patch tokens are non-finite")
@@ -1333,6 +1347,7 @@ def cleanup_branched_runtime(pipeline, *, use_branched_attention: bool) -> None:
         "_ref_noise",
         "_ref_noise_base",
         "_ppr_identity_tokens",
+        "_ppr_spatial_patch_tokens",
         "_ba_packed_branch_exactly_off",
         "_ba_output_anchor_logged",
     ]:
@@ -1550,6 +1565,22 @@ def build_pipeline_from_pretrained(
     pipeline.ba_spatial_patch_dim = int(
         getattr(unwrapped_model, "ba_spatial_patch_dim", 1024)
     )
+    pipeline.ba_spatial_patch_projection = str(
+        getattr(
+            unwrapped_model,
+            "ba_spatial_patch_projection",
+            "raw_clip",
+        )
+        or "raw_clip"
+    ).lower()
+    pipeline.ba_spatial_kv_init = str(
+        getattr(unwrapped_model, "ba_spatial_kv_init", "xavier")
+        or "xavier"
+    ).lower()
+    pipeline.ba_spatial_kv_kind = str(
+        getattr(unwrapped_model, "ba_spatial_kv_kind", "full")
+        or "full"
+    ).lower()
     pipeline.ba_spatial_local_window = int(
         getattr(unwrapped_model, "ba_spatial_local_window", 5)
     )
@@ -1590,6 +1621,15 @@ def build_pipeline_from_pretrained(
         raise RuntimeError("Validation pipeline lost ba_spatial_lane_enabled")
     if pipeline.ba_spatial_memory_mode != unwrapped_model.ba_spatial_memory_mode:
         raise RuntimeError("Validation pipeline lost ba_spatial_memory_mode")
+    if (
+        pipeline.ba_spatial_patch_projection
+        != unwrapped_model.ba_spatial_patch_projection
+    ):
+        raise RuntimeError("Validation pipeline lost ba_spatial_patch_projection")
+    if pipeline.ba_spatial_kv_init != unwrapped_model.ba_spatial_kv_init:
+        raise RuntimeError("Validation pipeline lost ba_spatial_kv_init")
+    if pipeline.ba_spatial_kv_kind != unwrapped_model.ba_spatial_kv_kind:
+        raise RuntimeError("Validation pipeline lost ba_spatial_kv_kind")
     if pipeline.ba_spatial_mix_mode != unwrapped_model.ba_spatial_mix_mode:
         raise RuntimeError("Validation pipeline lost ba_spatial_mix_mode")
     if hasattr(unwrapped_model, "_original_attn_processors"):

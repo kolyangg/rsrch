@@ -20,6 +20,9 @@ from src.model.photomaker_branched.packed_residual_attn_processor import (
     PackedResidualBranchedAttnProcessor,
     make_inner_core_mask,
 )
+from src.model.photomaker_branched.model_v2_NS import (
+    PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken,
+)
 from src.metrics.tracker import MetricTracker
 from src.pipelines.br_pipeline_helpers import prepare_spatial_identity_tokens
 from src.trainer.base_trainer import BaseTrainer
@@ -99,6 +102,49 @@ class _AccumulationHarness(BaseTrainer):
 
 
 class NN5ComponentTests(unittest.TestCase):
+    def test_nn7_spatial_patch_projection_modes(self):
+        class Vision(nn.Module):
+            def forward(self, pixels):
+                batch = pixels.shape[0]
+                values = torch.arange(
+                    batch * 5 * 1024,
+                    dtype=pixels.dtype,
+                    device=pixels.device,
+                ).reshape(batch, 5, 1024)
+                return (values / 1000.0,)
+
+        proj_in = nn.Linear(1024, 2048, bias=False)
+        norm1 = nn.LayerNorm(2048)
+        for parameter in (*proj_in.parameters(), *norm1.parameters()):
+            parameter.requires_grad_(False)
+        encoder = SimpleNamespace(
+            vision_model=Vision(),
+            qformer_perceiver=SimpleNamespace(
+                perceiver_resampler=SimpleNamespace(
+                    proj_in=proj_in,
+                    layers=[[SimpleNamespace(norm1=norm1)]],
+                )
+            ),
+        )
+        pixels = torch.zeros(2, 1, 3, 4, 4)
+        raw = PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken.extract_spatial_patch_tokens(
+            encoder,
+            pixels,
+            projection="raw_clip",
+        )
+        context = PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken.extract_spatial_patch_tokens(
+            encoder,
+            pixels,
+            projection="pmv2_perceiver_context",
+        )
+        self.assertEqual(tuple(raw.shape), (2, 4, 1024))
+        self.assertEqual(tuple(context.shape), (2, 4, 2048))
+        self.assertTrue(torch.isfinite(raw).all())
+        self.assertTrue(torch.isfinite(context).all())
+        self.assertEqual(raw.shape[1], context.shape[1])
+        self.assertFalse(any(parameter.requires_grad for parameter in proj_in.parameters()))
+        self.assertFalse(any(parameter.requires_grad for parameter in norm1.parameters()))
+
     def test_accumulation_window_rewinds_after_second_microbatch_skip(self):
         trainer = _AccumulationHarness()
         trainer._train_epoch(epoch=2)

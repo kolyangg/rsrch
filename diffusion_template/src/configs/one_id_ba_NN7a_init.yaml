@@ -1,0 +1,34 @@
+defaults:
+  - one_id_ba_NN7a_clean_patch_takeover_up1
+  - _self_
+
+# NN7a_init changes only spatial-memory/KV initialization and initial ownership.
+# Topology, causal losses, masks, caps, sites and the PhotoMaker anchor remain
+# identical to NN7a.
+model:
+  ba_spatial_patch_projection: pmv2_perceiver_context
+  ba_spatial_patch_dim: 2048
+
+  ba_spatial_kv_init: sibling_attn2
+  ba_spatial_kv_kind: lora
+
+  # 0.80 * sigmoid(-2.70805020110221) = 0.05.
+  ba_spatial_gate_max: 0.80
+  ba_gate_init_logit: -2.70805020110221
+
+  ba_spatial_delta_rms_cap: 0.45
+  ba_total_delta_rms_cap: 0.45
+
+  ba_site_policy: up_blocks1_attn1
+  ba_spatial_site_policy: up_blocks1_attn1
+  ba_identity_token_lane: false
+  ba_spatial_lane_enabled: true
+  ba_spatial_mix_mode: direct_candidate_takeover
+  ba_target_core_erode_frac: 0.15
+
+  train_branched_ca_lora: false
+  pose_adapt_ratio: 0.0
+  ca_mixing_for_face: false
+  ba_output_anchor_mode: base_outside_core
+  ba_pm_id_attenuation_probability: 0.0
+  ba_pm_id_attenuation_scale: 1.0

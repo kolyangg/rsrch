@@ -30,6 +30,7 @@ from src.model.photomaker_branched.lora2 import (
     PhotomakerBranchedLora,
     attenuate_photomaker_identity,
 )
+from src.model.photomaker_branched.attn_processor_cleanest import BranchLoRALinear
 from src.model.photomaker_branched.packed_residual_attn_processor import (
     PackedResidualBranchedAttnProcessor,
     make_inner_core_mask,
@@ -92,6 +93,79 @@ def _processor(
 
 
 class PackedResidualProcessorTests(unittest.TestCase):
+    def test_nn7a_init_warm_kv_is_active_local_and_trainable(self) -> None:
+        torch.manual_seed(31)
+        side = 8
+        attn1 = _attention()
+        attn2 = Attention(
+            query_dim=16,
+            cross_attention_dim=16,
+            heads=4,
+            dim_head=4,
+            residual_connection=True,
+        )
+        processor = PackedResidualBranchedAttnProcessor(
+            16,
+            ref_kv_rank=4,
+            identity_fusion_mode="factorized_dual",
+            enable_identity=False,
+            enable_spatial=True,
+            spatial_memory_mode="clean_clip_patches",
+            spatial_patch_dim=16,
+            spatial_patch_projection="pmv2_perceiver_context",
+            spatial_kv_init="sibling_attn2",
+            spatial_kv_kind="lora",
+            spatial_local_window=3,
+            spatial_mix_mode="direct_candidate_takeover",
+            spatial_gate_max=0.8,
+            gate_init_logit=-2.70805020110221,
+            spatial_delta_rms_cap=0.45,
+            total_delta_rms_cap=0.45,
+        )
+        processor.init_from_attention(attn1, sibling_attn2=attn2)
+        self.assertIsInstance(processor.ref_to_k, BranchLoRALinear)
+        self.assertIsInstance(processor.ref_to_v, BranchLoRALinear)
+        self.assertEqual(int(torch.count_nonzero(processor.ref_to_k.lora_B)), 0)
+        self.assertEqual(int(torch.count_nonzero(processor.ref_to_v.lora_B)), 0)
+        self.assertNotIn("ref_to_k.base_weight", processor.state_dict())
+        self.assertAlmostEqual(
+            0.8 * torch.sigmoid(torch.tensor(-2.70805020110221)).item(),
+            0.05,
+            places=6,
+        )
+
+        tokens = torch.randn(1, 16, 16)
+        torch.testing.assert_close(processor.ref_to_k(tokens), attn2.to_k(tokens))
+        torch.testing.assert_close(processor.ref_to_v(tokens), attn2.to_v(tokens))
+
+        mask, core = _masks(1, side)
+        processor.set_masks(mask, mask, core)
+        hidden = torch.randn(2, side * side, 16)
+        processor.spatial_patch_tokens = torch.randn(1, 16, 16)
+        first = processor(attn1, hidden)[:1]
+        processor.spatial_patch_tokens = torch.randn(1, 16, 16)
+        second = processor(attn1, hidden)[:1]
+        outside = (core.flatten(2).transpose(1, 2) == 0).expand_as(first)
+        inside = ~outside
+        self.assertTrue(torch.equal(first[outside], second[outside]))
+        self.assertGreater(float((first[inside] - second[inside]).abs().max()), 0.0)
+
+        second.square().mean().backward()
+        for parameter in (
+            processor.ref_to_k.lora_B,
+            processor.ref_to_v.lora_B,
+            processor.gate_logit,
+        ):
+            self.assertIsNotNone(parameter.grad)
+            self.assertGreater(float(parameter.grad.abs().sum()), 0.0)
+        processor.zero_grad(set_to_none=True)
+        with torch.no_grad():
+            processor.ref_to_k.lora_B.add_(0.01)
+            processor.ref_to_v.lora_B.add_(0.01)
+        processor(attn1, hidden)[:1].square().mean().backward()
+        self.assertGreater(float(processor.ref_to_k.lora_A.grad.abs().sum()), 0.0)
+        self.assertGreater(float(processor.ref_to_v.lora_A.grad.abs().sum()), 0.0)
+
     def test_nn7_clean_local_takeover_is_face_local_and_trainable(self) -> None:
         torch.manual_seed(27)
         side = 8
@@ -801,6 +875,106 @@ class _OptimizerConfig(dict):
 
 
 class PackedResidualRuntimeTests(unittest.TestCase):
+    def test_nn7a_init_checkpoint_architecture_is_strictly_separated(self) -> None:
+        nn7a_architecture = {
+            "ba_connector_input_mode": "reference_minus_target",
+            "ba_spatial_memory_mode": "clean_clip_patches",
+            "ba_spatial_patch_dim": 1024,
+            "ba_spatial_patch_projection": "raw_clip",
+            "ba_spatial_kv_init": "xavier",
+            "ba_spatial_kv_kind": "full",
+        }
+        nn7a_init_architecture = {
+            **nn7a_architecture,
+            "ba_spatial_patch_dim": 2048,
+            "ba_spatial_patch_projection": "pmv2_perceiver_context",
+            "ba_spatial_kv_init": "sibling_attn2",
+            "ba_spatial_kv_kind": "lora",
+        }
+
+        def restore(current_architecture, saved_architecture) -> None:
+            model = SimpleNamespace(
+                unet=SimpleNamespace(attn_processors={}),
+                ba_strict_processor_restore=True,
+                _ba_patched_processor_names=(),
+                _ba_architecture_state=lambda: dict(current_architecture),
+                ba_gate_max=0.8,
+                ba_identity_gate_max=0.5,
+            )
+            checkpoint = {
+                "lora_weights": {},
+                "ba_processor_manifest": {
+                    "installed_processor_names": [],
+                    "state_processor_names": [],
+                    "trainable_keys_by_processor": {},
+                    "processor_classes": {},
+                    "architecture": dict(saved_architecture),
+                },
+            }
+            with patch(
+                "src.model.photomaker_branched.lora2."
+                "convert_unet_state_dict_to_peft",
+                return_value={},
+            ), patch(
+                "src.model.photomaker_branched.lora2."
+                "set_peft_model_state_dict",
+                return_value=None,
+            ):
+                PhotomakerBranchedLora.load_state_dict_(model, checkpoint)
+
+        restore(nn7a_architecture, nn7a_architecture)
+        restore(nn7a_init_architecture, nn7a_init_architecture)
+        legacy_nn7a_architecture = dict(nn7a_architecture)
+        legacy_nn7a_architecture.pop("ba_spatial_patch_projection")
+        legacy_nn7a_architecture.pop("ba_spatial_kv_init")
+        legacy_nn7a_architecture.pop("ba_spatial_kv_kind")
+        restore(nn7a_architecture, legacy_nn7a_architecture)
+        with self.assertRaisesRegex(RuntimeError, "architecture mismatch"):
+            restore(nn7a_init_architecture, nn7a_architecture)
+        with self.assertRaisesRegex(RuntimeError, "architecture mismatch"):
+            restore(nn7a_architecture, nn7a_init_architecture)
+
+    def test_nn7a_init_warm_lora_trainability_is_exact(self) -> None:
+        model = _tiny_model()
+        model.ba_site_policy = "up_blocks0_attn1"
+        model.disable_branched_ca = True
+        model.ba_identity_fusion_mode = "factorized_dual"
+        model.ba_identity_token_lane = False
+        model.ba_spatial_lane_enabled = True
+        model.ba_identity_site_policy = "up_blocks0_attn1"
+        model.ba_spatial_site_policy = "up_blocks0_attn1"
+        model.ba_spatial_memory_mode = "clean_clip_patches"
+        model.ba_spatial_patch_dim = 16
+        model.ba_spatial_patch_projection = "pmv2_perceiver_context"
+        model.ba_spatial_kv_init = "sibling_attn2"
+        model.ba_spatial_kv_kind = "lora"
+        model.ba_spatial_local_window = 3
+        model.ba_spatial_mix_mode = "direct_candidate_takeover"
+        model.ba_spatial_gate_max = 0.8
+        model.ba_gate_init_logit = -2.70805020110221
+        model.ba_spatial_delta_rms_cap = 0.45
+        model.ba_total_delta_rms_cap = 0.45
+        mask = torch.ones(1, 1, 8, 8)
+        patch_unet_attention_processors(
+            model,
+            mask,
+            mask,
+            spatial_patch_tokens=torch.ones(1, 16, 16),
+        )
+        configure_branched_trainables(model)
+        _assert_branched_installation(model)
+        processor = model.unet.attn_processors["up_blocks.0.attn1.processor"]
+        self.assertEqual(
+            {name for name, parameter in processor.named_parameters() if parameter.requires_grad},
+            {
+                "ref_to_k.lora_A",
+                "ref_to_k.lora_B",
+                "ref_to_v.lora_A",
+                "ref_to_v.lora_B",
+                "gate_logit",
+            },
+        )
+
     def test_nn7_direct_clean_spatial_trainability_is_exact(self) -> None:
         model = _tiny_model()
         model.ba_site_policy = "up_blocks0_attn1"

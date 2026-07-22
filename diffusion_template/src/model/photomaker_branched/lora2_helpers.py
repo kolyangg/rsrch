@@ -133,6 +133,17 @@ def _assert_branched_installation(model) -> None:
             ).lower()
             == "direct_candidate_takeover"
         )
+        warm_lora_spatial = (
+            direct_spatial
+            and str(
+                getattr(model, "ba_spatial_kv_init", "xavier") or "xavier"
+            ).lower()
+            == "sibling_attn2"
+            and str(
+                getattr(model, "ba_spatial_kv_kind", "full") or "full"
+            ).lower()
+            == "lora"
+        )
         if fusion_mode == "blend":
             expected_sa = set(
                 select_branched_self_attention_names(
@@ -244,6 +255,14 @@ def _assert_branched_installation(model) -> None:
         else:
             allowed_fragments = (
                 [
+                    ".attn1.processor.ref_to_k.lora_A",
+                    ".attn1.processor.ref_to_k.lora_B",
+                    ".attn1.processor.ref_to_v.lora_A",
+                    ".attn1.processor.ref_to_v.lora_B",
+                    ".attn1.processor.gate_logit",
+                ]
+                if warm_lora_spatial
+                else [
                     ".attn1.processor.ref_to_k.weight",
                     ".attn1.processor.ref_to_v.weight",
                     ".attn1.processor.gate_logit",
@@ -304,11 +323,21 @@ def _assert_branched_installation(model) -> None:
         else:
             if direct_spatial:
                 required_categories = {"sa_ref_k", "sa_ref_v", "sa_gate"}
-                expected_local = {
-                    "ref_to_k.weight",
-                    "ref_to_v.weight",
-                    "gate_logit",
-                }
+                expected_local = (
+                    {
+                        "ref_to_k.lora_A",
+                        "ref_to_k.lora_B",
+                        "ref_to_v.lora_A",
+                        "ref_to_v.lora_B",
+                        "gate_logit",
+                    }
+                    if warm_lora_spatial
+                    else {
+                        "ref_to_k.weight",
+                        "ref_to_v.weight",
+                        "gate_logit",
+                    }
+                )
             else:
                 required_categories = {
                     "sa_ref_k",
@@ -357,6 +386,14 @@ def _assert_branched_installation(model) -> None:
                 if bool(getattr(processor, "enable_spatial", False)):
                     expected_local.update(
                         {
+                            "ref_to_k.lora_A",
+                            "ref_to_k.lora_B",
+                            "ref_to_v.lora_A",
+                            "ref_to_v.lora_B",
+                            "gate_logit",
+                        }
+                        if warm_lora_spatial
+                        else {
                             "ref_to_k.weight",
                             "ref_to_v.weight",
                             "gate_logit",
@@ -519,6 +556,17 @@ def configure_branched_trainables(model) -> None:
                 ).lower()
                 == "direct_candidate_takeover"
             )
+            warm_lora_spatial = (
+                direct_spatial
+                and str(
+                    getattr(model, "ba_spatial_kv_init", "xavier") or "xavier"
+                ).lower()
+                == "sibling_attn2"
+                and str(
+                    getattr(model, "ba_spatial_kv_kind", "full") or "full"
+                ).lower()
+                == "lora"
+            )
             if fusion_mode == "identity_only":
                 is_packed_parameter = any(
                     fragment in name
@@ -538,8 +586,22 @@ def configure_branched_trainables(model) -> None:
                     (
                         direct_spatial
                         and (
-                            ".attn1.processor.ref_to_k.weight" in name
-                            or ".attn1.processor.ref_to_v.weight" in name
+                            (
+                                warm_lora_spatial
+                                and (
+                                    ".attn1.processor.ref_to_k.lora_A" in name
+                                    or ".attn1.processor.ref_to_k.lora_B" in name
+                                    or ".attn1.processor.ref_to_v.lora_A" in name
+                                    or ".attn1.processor.ref_to_v.lora_B" in name
+                                )
+                            )
+                            or (
+                                not warm_lora_spatial
+                                and (
+                                    ".attn1.processor.ref_to_k.weight" in name
+                                    or ".attn1.processor.ref_to_v.weight" in name
+                                )
+                            )
                         )
                     )
                     or (
@@ -855,11 +917,18 @@ def prepare_branched_training_inputs(
                     model.device,
                     dtype=model.id_encoder.dtype,
                 )
-                spatial_patch_token_list.append(
-                    model.id_encoder.extract_spatial_patch_tokens(crop_pixels).to(
-                        device=model.device,
-                        dtype=model.unet.dtype,
+                patch_tokens = model.id_encoder.extract_spatial_patch_tokens(
+                    crop_pixels,
+                    projection=model.ba_spatial_patch_projection,
+                )
+                if patch_tokens.shape[-1] != model.ba_spatial_patch_dim:
+                    raise RuntimeError(
+                        "Spatial patch dimension mismatch: "
+                        f"tokens={patch_tokens.shape[-1]}, "
+                        f"config={model.ba_spatial_patch_dim}"
                     )
+                spatial_patch_token_list.append(
+                    patch_tokens.to(device=model.device, dtype=model.unet.dtype)
                 )
 
         class_tokens_mask_list.append(class_tokens_mask)
@@ -1080,11 +1149,18 @@ def prepare_spatial_reference_batch(
                     model.device,
                     dtype=model.id_encoder.dtype,
                 )
-                spatial_patch_tokens.append(
-                    model.id_encoder.extract_spatial_patch_tokens(crop_pixels).to(
-                        device=model.device,
-                        dtype=model.unet.dtype,
+                patch_tokens = model.id_encoder.extract_spatial_patch_tokens(
+                    crop_pixels,
+                    projection=model.ba_spatial_patch_projection,
+                )
+                if patch_tokens.shape[-1] != model.ba_spatial_patch_dim:
+                    raise RuntimeError(
+                        "Spatial patch dimension mismatch: "
+                        f"tokens={patch_tokens.shape[-1]}, "
+                        f"config={model.ba_spatial_patch_dim}"
                     )
+                spatial_patch_tokens.append(
+                    patch_tokens.to(device=model.device, dtype=model.unet.dtype)
                 )
         latents.append(reference_latent)
         masks.append(reference_mask)

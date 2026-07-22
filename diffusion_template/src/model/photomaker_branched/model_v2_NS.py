@@ -171,7 +171,11 @@ class PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken(CLIPVisionModelWithProjecti
         return tokens.view(b, n, self.num_tokens, self.cross_attention_dim).mean(dim=1)
 
     @torch.no_grad()
-    def extract_spatial_patch_tokens(self, id_pixel_values):
+    def extract_spatial_patch_tokens(
+        self,
+        id_pixel_values,
+        projection: str = "raw_clip",
+    ):
         """Return the clean CLIP patch grid before QFormer compression.
 
         Callers pass face-cropped images, so the returned square grid is a
@@ -183,10 +187,21 @@ class PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken(CLIPVisionModelWithProjecti
         pixels = id_pixel_values.view(b * n, c, h, w)
         hidden = self.vision_model(pixels)[0]
         patches = hidden[:, 1:]  # discard the global CLS token
+        projection = str(projection or "raw_clip").lower()
+        if projection == "pmv2_perceiver_context":
+            resampler = self.qformer_perceiver.perceiver_resampler
+            patches = resampler.proj_in(patches)
+            patches = resampler.layers[0][0].norm1(patches)
+        elif projection != "raw_clip":
+            raise ValueError(f"Unknown spatial patch projection: {projection}")
         side = int(patches.shape[1] ** 0.5)
         if side * side != patches.shape[1]:
             raise RuntimeError(
                 f"PhotoMaker vision patch count is not square: {patches.shape[1]}"
+            )
+        if not torch.isfinite(patches).all():
+            raise RuntimeError(
+                f"PhotoMaker spatial patches are non-finite after {projection}"
             )
         return patches.view(b, n, patches.shape[1], patches.shape[2]).mean(dim=1)
 

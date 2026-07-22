@@ -171,6 +171,9 @@ class PhotomakerBranchedLora(SDXL):
         ba_total_delta_rms_cap: float = 0.15,
         ba_spatial_memory_mode: str = "reference_unet",
         ba_spatial_patch_dim: int = 1024,
+        ba_spatial_patch_projection: str = "raw_clip",
+        ba_spatial_kv_init: str = "xavier",
+        ba_spatial_kv_kind: str = "full",
         ba_spatial_local_window: int = 5,
         ba_spatial_mix_mode: str = "connector_residual",
         id_alpha: float = 0.3,             # strength of ID embedding injection in BranchedAttnProcessor
@@ -387,6 +390,15 @@ class PhotomakerBranchedLora(SDXL):
             ba_spatial_memory_mode or "reference_unet"
         ).lower()
         self.ba_spatial_patch_dim = int(ba_spatial_patch_dim)
+        self.ba_spatial_patch_projection = str(
+            ba_spatial_patch_projection or "raw_clip"
+        ).lower()
+        self.ba_spatial_kv_init = str(
+            ba_spatial_kv_init or "xavier"
+        ).lower()
+        self.ba_spatial_kv_kind = str(
+            ba_spatial_kv_kind or "full"
+        ).lower()
         self.ba_spatial_local_window = int(ba_spatial_local_window)
         self.ba_spatial_mix_mode = str(
             ba_spatial_mix_mode or "connector_residual"
@@ -539,6 +551,42 @@ class PhotomakerBranchedLora(SDXL):
             )
         if self.ba_spatial_patch_dim <= 0:
             raise ValueError("ba_spatial_patch_dim must be positive")
+        if self.ba_spatial_patch_projection not in {
+            "raw_clip",
+            "pmv2_perceiver_context",
+        }:
+            raise ValueError(
+                "Unknown ba_spatial_patch_projection: "
+                f"{self.ba_spatial_patch_projection}"
+            )
+        if self.ba_spatial_kv_init not in {"xavier", "sibling_attn2"}:
+            raise ValueError(
+                f"Unknown ba_spatial_kv_init: {self.ba_spatial_kv_init}"
+            )
+        if self.ba_spatial_kv_kind not in {"full", "lora"}:
+            raise ValueError(
+                f"Unknown ba_spatial_kv_kind: {self.ba_spatial_kv_kind}"
+            )
+        expected_patch_dim = {
+            "raw_clip": 1024,
+            "pmv2_perceiver_context": 2048,
+        }[self.ba_spatial_patch_projection]
+        if self.ba_spatial_patch_dim != expected_patch_dim:
+            raise ValueError(
+                f"{self.ba_spatial_patch_projection} requires "
+                f"ba_spatial_patch_dim={expected_patch_dim}, got "
+                f"{self.ba_spatial_patch_dim}"
+            )
+        if self.ba_spatial_kv_init == "xavier" and self.ba_spatial_kv_kind != "full":
+            raise ValueError("xavier spatial K/V initialization requires full K/V")
+        if (
+            self.ba_spatial_kv_init == "sibling_attn2"
+            and self.ba_spatial_memory_mode != "clean_clip_patches"
+        ):
+            raise ValueError(
+                "sibling_attn2 spatial K/V initialization requires "
+                "clean_clip_patches memory"
+            )
         if self.ba_spatial_local_window <= 0 or self.ba_spatial_local_window % 2 == 0:
             raise ValueError("ba_spatial_local_window must be a positive odd integer")
         if (
@@ -923,6 +971,11 @@ class PhotomakerBranchedLora(SDXL):
                         "ba_total_delta_rms_cap": self.ba_total_delta_rms_cap,
                         "ba_spatial_memory_mode": self.ba_spatial_memory_mode,
                         "ba_spatial_patch_dim": self.ba_spatial_patch_dim,
+                        "ba_spatial_patch_projection": (
+                            self.ba_spatial_patch_projection
+                        ),
+                        "ba_spatial_kv_init": self.ba_spatial_kv_init,
+                        "ba_spatial_kv_kind": self.ba_spatial_kv_kind,
                         "ba_spatial_local_window": self.ba_spatial_local_window,
                         "ba_spatial_mix_mode": self.ba_spatial_mix_mode,
                     }
@@ -1000,6 +1053,13 @@ class PhotomakerBranchedLora(SDXL):
                     "ba_connector_input_mode",
                     "reference_minus_target",
                 )
+                if "ba_spatial_memory_mode" in saved_architecture:
+                    saved_architecture.setdefault(
+                        "ba_spatial_patch_projection",
+                        "raw_clip",
+                    )
+                    saved_architecture.setdefault("ba_spatial_kv_init", "xavier")
+                    saved_architecture.setdefault("ba_spatial_kv_kind", "full")
                 current_architecture = self._ba_architecture_state()
                 if saved_architecture != current_architecture:
                     raise RuntimeError(

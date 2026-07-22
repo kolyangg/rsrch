@@ -444,6 +444,27 @@ def patch_unet_attention_processors(
                             spatial_patch_dim=int(
                                 getattr(pipeline, "ba_spatial_patch_dim", 1024)
                             ),
+                            spatial_patch_projection=str(
+                                getattr(
+                                    pipeline,
+                                    "ba_spatial_patch_projection",
+                                    "raw_clip",
+                                )
+                            ),
+                            spatial_kv_init=str(
+                                getattr(
+                                    pipeline,
+                                    "ba_spatial_kv_init",
+                                    "xavier",
+                                )
+                            ),
+                            spatial_kv_kind=str(
+                                getattr(
+                                    pipeline,
+                                    "ba_spatial_kv_kind",
+                                    "full",
+                                )
+                            ),
                             spatial_local_window=int(
                                 getattr(pipeline, "ba_spatial_local_window", 5)
                             ),
@@ -473,7 +494,34 @@ def patch_unet_attention_processors(
                             ba_sa_core_ratio=float(getattr(pipeline, "ba_sa_core_ratio", 0.7)),
                             ba_sa_mix_init=float(getattr(pipeline, "ba_sa_mix_init", 0.25)),
                         )
-                    proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
+                    attn1_module = _resolve_attn_module(pipeline.unet, name)
+                    sibling_attn2 = None
+                    if (
+                        variant == "packed_residual_v1"
+                        and getattr(proc, "spatial_memory_mode", None)
+                        == "clean_clip_patches"
+                        and getattr(proc, "spatial_kv_init", None)
+                        == "sibling_attn2"
+                    ):
+                        sibling_name = name.replace(
+                            ".attn1.processor",
+                            ".attn2.processor",
+                        )
+                        if sibling_name not in all_processor_names:
+                            raise RuntimeError(
+                                f"{name}: missing required sibling {sibling_name}"
+                            )
+                        sibling_attn2 = _resolve_attn_module(
+                            pipeline.unet,
+                            sibling_name,
+                        )
+                    if variant == "packed_residual_v1":
+                        proc.init_from_attention(
+                            attn1_module,
+                            sibling_attn2=sibling_attn2,
+                        )
+                    else:
+                        proc.init_from_attention(attn1_module)
                     proc = proc.to(pipeline.device, dtype=pipeline.unet.dtype)
                     if variant == "packed_residual_v1":
                         proc.set_masks(_mask, _mref, _mcore)
