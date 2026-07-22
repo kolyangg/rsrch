@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# RealVisXL, scale-1 five-way approval test for an NN5b 2k/4k checkpoint.
+# RealVisXL, scale-1 five-way approval test for an NN5b checkpoint.
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 CHECKPOINT_PATH="${CHECKPOINT_PATH:-${1:-}}"
 if [[ -z "${CHECKPOINT_PATH}" || ! -f "${CHECKPOINT_PATH}" ]]; then
-    echo "Set CHECKPOINT_PATH or pass checkpoint-epoch1/2.pth as argument 1." >&2
+    echo "Set CHECKPOINT_PATH or pass checkpoint-epochN.pth as argument 1." >&2
     exit 2
 fi
 if [[ $# -gt 0 && "$1" == "${CHECKPOINT_PATH}" ]]; then
@@ -23,8 +23,8 @@ if [[ -z "${CHECKPOINT_EPOCH}" \
       && "$(basename -- "${CHECKPOINT_PATH}")" =~ checkpoint-epoch([0-9]+)\.pth$ ]]; then
     CHECKPOINT_EPOCH="${BASH_REMATCH[1]}"
 fi
-[[ "${CHECKPOINT_EPOCH}" =~ ^[12]$ ]] || {
-    echo "NN5b approval expects epoch 1 (2k) or epoch 2 (4k)." >&2
+[[ "${CHECKPOINT_EPOCH}" =~ ^[1-9][0-9]*$ ]] || {
+    echo "Could not infer a positive epoch from checkpoint-epochN.pth." >&2
     exit 2
 }
 
@@ -36,7 +36,7 @@ export NN5_MASTER_PORT="${MASTER_PORT:-29664}"
 export GLOBAL_EFFECTIVE_BATCH=2
 export TRAIN_BATCH_SIZE=1
 export STEPS_PER_EPOCH=2000
-export NUM_EPOCHS=2
+export NUM_EPOCHS="${CHECKPOINT_EPOCH}"
 
 OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/ppr_NN5b_${CHECKPOINT_STEP}step_realvis_scale1_reference_vs_noise}"
 

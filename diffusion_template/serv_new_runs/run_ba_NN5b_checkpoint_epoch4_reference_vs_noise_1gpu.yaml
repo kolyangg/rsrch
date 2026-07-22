@@ -1,0 +1,16 @@
+# Evaluate epoch 4 (8k optimizer steps) of the 2-GPU NN5b training run on one
+# GPU. The evaluation is the same RealVisXL, residual-scale-1, five-condition
+# reference-content versus reference-noise test used for NN5a.
+#
+# Submit with:
+# mls job submit --config ./serv_new_runs/run_ba_NN5b_checkpoint_epoch4_reference_vs_noise_1gpu.yaml
+job:
+  description: "NN5b epoch4 RealVis reference noise evaluation 1gpu #nasilaev"
+  environment:
+    image: cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36
+  resource:
+    instance_type: a100.1gpu.8C.243G
+    processes: 1
+    workers: 1
+  script: 'mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs && test -f /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch/diffusion_template/saved/ba_NN5b_clean_identity_tokens_nfs_2gpu/checkpoint-epoch4.pth && CHECKPOINT_EPOCH=4 BATCH_SIZE=12 RUN_NAME=ba_NN5b_8000step_realvis_scale1_reference_vs_noise OUTPUT_DIR=/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch/diffusion_template/ppr_NN5b_8000step_realvis_scale1_reference_vs_noise bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch/diffusion_template/serv_new_runs/start_ba_NN5b_checkpoint_reference_vs_noise_1gpu.sh /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch/diffusion_template/saved/ba_NN5b_clean_identity_tokens_nfs_2gpu/checkpoint-epoch4.pth >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/logs_NN5b_epoch4_reference_vs_noise_1gpu.txt 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/err_NN5b_epoch4_reference_vs_noise_1gpu.txt'
+  type: binary
