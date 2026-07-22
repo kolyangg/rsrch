@@ -1,0 +1,12 @@
+{
+  "download_images": false,
+  "download_metrics": true,
+  "download_parameters": true,
+  "download_output": true,
+  "runs": [
+    {
+      "run_id": "4ce5ba8d099c48f59321d7e044f7fd5b",
+      "run_name": "ba_NN5a_counterfactual_directional_ppr_1gpu"
+    }
+  ]
+}

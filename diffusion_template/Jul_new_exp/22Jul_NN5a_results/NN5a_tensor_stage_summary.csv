@@ -1,0 +1,9 @@
+stage,mean_reference_content_difference,mean_reference_noise_difference,reference_over_noise
+reference_hidden,1.188410,0.374686,3.171750
+reference_candidate,1.051110,0.313017,3.357980
+connector_down,0.710597,0.194418,3.654990
+raw_delta,0.319127,0.066485,4.799980
+bounded_delta,0.327277,0.065533,4.994060
+applied_delta,0.202167,0.046477,4.349840
+target_epsilon_pre_anchor,0.091152,0.089515,1.018290
+target_epsilon_post_anchor,0.087916,0.086684,1.014220

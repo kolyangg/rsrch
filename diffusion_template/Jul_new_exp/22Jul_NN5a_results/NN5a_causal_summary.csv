@@ -1,0 +1,2 @@
+step,validation_base,residual_scale,samples,mean_directional_gain,bootstrap_95_low,bootstrap_95_high,positive_fraction,pm0_original_id,ppr_mean_original_id,ppr_core_mae,ppr_core_lpips,reference_core_effect,noise_core_effect,reference_over_noise_core,reference_lpips_effect,noise_lpips_effect,reference_over_noise_lpips,face_detection_rate
+4000,SG161222/RealVisXL_V4.0,1.0,96,-0.000684,-0.002816,0.001291,0.489583,0.523129,0.506707,0.030543,0.069051,0.009498,0.008429,1.126751,0.013039,0.010447,1.248121,1.0
