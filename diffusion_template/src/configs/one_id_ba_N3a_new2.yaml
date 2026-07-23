@@ -9,6 +9,10 @@ disable_branched_ca: true
 train_branched_ca_lora: false
 strict_face_routing: false
 
+# Down/mid dual logits are intentionally inactive when reference scope is
+# up-only. Let DDP distinguish those from genuinely missing active gradients.
+ddp_find_unused_parameters: true
+
 train_ba_all_steps: true
 train_ba_only: true
 branched_attn_weight_mode: noise_and_ref
