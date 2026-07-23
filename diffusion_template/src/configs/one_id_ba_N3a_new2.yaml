@@ -1,0 +1,40 @@
+defaults:
+  - one_id_ba_NN1a_n3a_replay
+  - _self_
+
+# N3a_new2: full-grid N3a self-attention with a trainable per-head blend
+# initialized to 35% reference in up blocks, plus the same output anchor.
+disable_branched_sa: false
+disable_branched_ca: true
+train_branched_ca_lora: false
+strict_face_routing: false
+
+train_ba_all_steps: true
+train_ba_only: true
+branched_attn_weight_mode: noise_and_ref
+branched_attn_new_weight_kind: lora
+ba_patch_top_k: 1.0
+ba_train_top_k: 1.0
+non_ba_train: false
+ba_noise_lr_scale: 0.25
+loss_kind: masked_alternating
+
+model:
+  train_branched_ca_lora: false
+  ba_processor_variant: legacy
+  ba_site_policy: all
+  ba_sa_train_mode: all
+  ba_sa_ref_token_mode: full_grid
+  ba_sa_face_mode: dual
+  ba_sa_mix_init: 0.35
+  ba_sa_ref_layer_scope: up
+  ba_target_core_erode_frac: 0.10
+  ba_output_anchor_mode: base_outside_core
+  ba_correctness_guards: true
+  ba_invalid_sample_policy: skip_batch
+  ba_strict_processor_restore: true
+  ba_train_timestep_mode: all
+  ba_face_prompt_attention_mask: false
+  ba_uncond_face_fix: true
+  ba_face_prompt_mode: id_only
+  use_id_loss: false

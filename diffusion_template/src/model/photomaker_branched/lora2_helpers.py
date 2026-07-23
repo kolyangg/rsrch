@@ -493,6 +493,9 @@ def _assert_branched_installation(model) -> None:
         f"ref_scope={getattr(model, 'ba_sa_ref_layer_scope', 'all')} "
         f"roi_grid={getattr(model, 'ba_sa_roi_grid_size', 8)} "
         f"core_ratio={getattr(model, 'ba_sa_core_ratio', 0.7)} "
+        f"mix_init={getattr(model, 'ba_sa_mix_init', 0.25)} "
+        f"output_anchor={getattr(model, 'ba_output_anchor_mode', 'none')} "
+        f"core_erode={getattr(model, 'ba_target_core_erode_frac', 0.10)} "
         f"connector_input={getattr(model, 'ba_connector_input_mode', 'reference_minus_target')}"
     )
     print(f"[BA strict install] processor names: {', '.join(expected)}")
@@ -997,7 +1000,12 @@ def prepare_branched_training_inputs(
             _reject_invalid_sample(model, "target_bbox", "target mask is empty or non-finite after resize")
         if not torch.isfinite(mask4_ref).all() or not bool((mask4_ref > 0).flatten(1).any(dim=1).all()):
             _reject_invalid_sample(model, "reference_bbox", "reference mask is empty or non-finite after resize")
-        if str(getattr(model, "ba_processor_variant", "legacy")) == "packed_residual_v1":
+        if (
+            str(getattr(model, "ba_processor_variant", "legacy"))
+            == "packed_residual_v1"
+            or str(getattr(model, "ba_output_anchor_mode", "none"))
+            == "base_outside_core"
+        ):
             target_core = make_inner_core_mask(
                 mask4,
                 erode_frac=float(

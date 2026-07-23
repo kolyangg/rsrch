@@ -439,12 +439,11 @@ class PhotomakerBranchedLora(SDXL):
         if self.ba_output_anchor_mode not in {"none", "base_outside_core"}:
             raise ValueError(f"Unknown ba_output_anchor_mode: {self.ba_output_anchor_mode}")
         if (
-            self.ba_output_anchor_mode != "none"
-            and self.ba_processor_variant != "packed_residual_v1"
+            self.ba_processor_variant == "packed_residual_v1"
+            or self.ba_output_anchor_mode != "none"
         ):
-            raise ValueError(
-                "ba_output_anchor_mode is only supported by packed_residual_v1"
-            )
+            if not 0.0 <= self.ba_target_core_erode_frac < 0.5:
+                raise ValueError("ba_target_core_erode_frac must be in [0, 0.5)")
         if self.ba_site_policy not in {
             "all",
             "up_blocks_attn1",
@@ -700,8 +699,6 @@ class PhotomakerBranchedLora(SDXL):
                 raise ValueError("ba_gate_max must be in (0, 1]")
             if not 0.0 < self.ba_delta_rms_cap <= 1.0:
                 raise ValueError("ba_delta_rms_cap must be in (0, 1]")
-            if not 0.0 <= self.ba_target_core_erode_frac < 0.5:
-                raise ValueError("ba_target_core_erode_frac must be in [0, 0.5)")
             if self.ba_patch_top_k != 1.0 or self.ba_train_top_k != 1.0:
                 raise ValueError("packed_residual_v1 requires BA patch/train top-k equal to 1.0")
         if self.ba_counterfactual_enabled:
@@ -937,6 +934,16 @@ class PhotomakerBranchedLora(SDXL):
             "ba_sa_core_ratio": self.ba_sa_core_ratio,
             "ba_sa_mix_init": self.ba_sa_mix_init,
         }
+        if (
+            self.ba_processor_variant == "legacy"
+            and self.ba_output_anchor_mode != "none"
+        ):
+            architecture.update(
+                {
+                    "ba_target_core_erode_frac": self.ba_target_core_erode_frac,
+                    "ba_output_anchor_mode": self.ba_output_anchor_mode,
+                }
+            )
         if self.ba_processor_variant != "legacy":
             architecture.update(
                 {

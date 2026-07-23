@@ -30,7 +30,10 @@ from src.model.photomaker_branched.lora2 import (
     PhotomakerBranchedLora,
     attenuate_photomaker_identity,
 )
-from src.model.photomaker_branched.attn_processor_cleanest import BranchLoRALinear
+from src.model.photomaker_branched.attn_processor_cleanest import (
+    BranchLoRALinear,
+    BranchedAttnProcessor,
+)
 from src.model.photomaker_branched.packed_residual_attn_processor import (
     PackedResidualBranchedAttnProcessor,
     make_inner_core_mask,
@@ -1054,6 +1057,59 @@ class _OptimizerConfig(dict):
 
 
 class PackedResidualRuntimeTests(unittest.TestCase):
+    def test_n3a_new2_dual_mix_and_up_scope_are_initialized_exactly(self) -> None:
+        attn = _attention()
+        up_processor = BranchedAttnProcessor(
+            hidden_size=16,
+            branched_attn_weight_mode="noise_and_ref",
+            branched_attn_new_weight_kind="lora",
+            branched_attn_lora_rank=4,
+            processor_name="up_blocks.0.attn1.processor",
+            ba_sa_face_mode="dual",
+            ba_sa_mix_init=0.35,
+            ba_sa_ref_layer_scope="up",
+        )
+        up_processor.init_from_attention(attn)
+        torch.testing.assert_close(
+            up_processor.face_mix_logits.sigmoid(),
+            torch.full((attn.heads,), 0.35),
+        )
+        self.assertTrue(up_processor._reference_enabled_here())
+
+        down_processor = BranchedAttnProcessor(
+            hidden_size=16,
+            processor_name="down_blocks.0.attn1.processor",
+            ba_sa_face_mode="core_ring",
+            ba_sa_core_ratio=0.68,
+            ba_sa_ref_layer_scope="up",
+        )
+        self.assertFalse(down_processor._reference_enabled_here())
+        self.assertEqual(down_processor.ba_sa_core_ratio, 0.68)
+
+    def test_legacy_anchor_is_recorded_only_when_enabled(self) -> None:
+        model = SimpleNamespace(
+            ba_sa_ref_token_mode="full_grid",
+            ba_sa_face_mode="core_ring",
+            ba_sa_ref_layer_scope="up",
+            ba_sa_roi_grid_size=8,
+            ba_sa_core_ratio=0.68,
+            ba_sa_mix_init=0.35,
+            ba_processor_variant="legacy",
+            ba_target_core_erode_frac=0.10,
+            ba_output_anchor_mode="base_outside_core",
+        )
+        architecture = PhotomakerBranchedLora._ba_architecture_state(model)
+        self.assertEqual(
+            architecture["ba_output_anchor_mode"],
+            "base_outside_core",
+        )
+        self.assertEqual(architecture["ba_target_core_erode_frac"], 0.10)
+
+        model.ba_output_anchor_mode = "none"
+        architecture = PhotomakerBranchedLora._ba_architecture_state(model)
+        self.assertNotIn("ba_output_anchor_mode", architecture)
+        self.assertNotIn("ba_target_core_erode_frac", architecture)
+
     def test_direct_spatial_checkpoint_diagnostics_track_lora_b(self) -> None:
         attn1 = _attention()
         attn2 = Attention(
@@ -1788,6 +1844,41 @@ class PackedResidualRuntimeTests(unittest.TestCase):
         configure_branched_trainables(model)
         _assert_branched_installation(model)
 
+    def test_n3a_new2_install_has_all_legacy_sa_and_no_ca(self) -> None:
+        model = _tiny_model()
+        model.ba_processor_variant = "legacy"
+        model.ba_site_policy = "all"
+        model.ba_sa_train_mode = "all"
+        model.ba_sa_face_mode = "dual"
+        model.ba_sa_mix_init = 0.35
+        model.ba_sa_ref_layer_scope = "up"
+        model.branched_attn_weight_mode = "noise_and_ref"
+        model.branched_attn_new_weight_kind = "lora"
+        model.disable_branched_ca = True
+        model.train_branched_ca_lora = False
+        mask = torch.ones(1, 1, 8, 8)
+
+        patch_unet_attention_processors(model, mask, mask)
+        configure_branched_trainables(model)
+        _assert_branched_installation(model)
+
+        self.assertEqual(len(model._ba_patched_sa_names), 3)
+        self.assertEqual(len(model._ba_patched_ca_names), 0)
+        for name in model._ba_patched_sa_names:
+            processor = model.unet.attn_processors[name]
+            self.assertEqual(processor.ba_sa_ref_layer_scope, "up")
+            torch.testing.assert_close(
+                processor.face_mix_logits.sigmoid(),
+                torch.full((4,), 0.35),
+            )
+        self.assertFalse(
+            any(
+                parameter.requires_grad
+                for name, parameter in model.unet.named_parameters()
+                if ".attn2.processor." in name
+            )
+        )
+
     def test_output_anchor_is_exact_at_zero_and_face_local_after_update(self) -> None:
         class PackedResidualBranchedAttnProcessor(nn.Module):
             def __init__(self):
@@ -1908,6 +1999,18 @@ class PackedResidualRuntimeTests(unittest.TestCase):
         torch.testing.assert_close(localized, expected, atol=0, rtol=0)
         self.assertTrue(torch.equal(localized[:, :, 0, :], target[:, :, 0, :] + 1.0))
         self.assertIn("packed", unet.attn_processors)
+
+        # The final epsilon anchor is processor-agnostic; legacy N3a uses the
+        # same ordinary PhotoMaker base pass and face-core localization.
+        unet.attn_processors = {"legacy": nn.Identity()}
+        reset_branched_generation_caches(pipeline)
+        with patch(
+            "src.model.photomaker_branched.branched_runtime."
+            "patch_unet_attention_processors"
+        ), torch.no_grad():
+            legacy_localized, _, _ = two_branch_predict(**kwargs)
+        torch.testing.assert_close(legacy_localized, expected, atol=0, rtol=0)
+        self.assertIn("legacy", unet.attn_processors)
 
     def test_diagnostic_swap_selection_spans_face_area_tertiles(self) -> None:
         class Dataset:

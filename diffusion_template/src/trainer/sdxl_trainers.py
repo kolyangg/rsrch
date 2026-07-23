@@ -273,6 +273,29 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 sums[f"{kind}_{branch}"] += float(p.detach().float().pow(2).sum().item())
         for group, sq_sum in sums.items():
             train_metrics.update(f"ba_norm/{group}", sq_sum ** 0.5)
+
+        # N3a_new2: expose active up-block reference ownership so saturation
+        # cannot hide behind unchanged down/mid dual logits.
+        mix_by_up_block = {}
+        for name, processor in unwrapped.unet.attn_processors.items():
+            logits = getattr(processor, "face_mix_logits", None)
+            if logits is None or not name.startswith("up_blocks."):
+                continue
+            block = ".".join(name.split(".")[:2])
+            mix_by_up_block.setdefault(block, []).append(
+                logits.detach().float().sigmoid().flatten()
+            )
+        for block, tensors in mix_by_up_block.items():
+            values = torch.cat(tensors)
+            for statistic, value in (
+                ("min", values.min()),
+                ("median", values.median()),
+                ("max", values.max()),
+            ):
+                train_metrics.update(
+                    f"ba_mix/{block}_{statistic}",
+                    float(value.item()),
+                )
         
     def process_batch(self, batch, train_metrics: MetricTracker):
         ### 25 APR - ADD GRAD ACCUM ###
