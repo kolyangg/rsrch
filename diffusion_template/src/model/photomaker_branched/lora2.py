@@ -1102,10 +1102,12 @@ class PhotomakerBranchedLora(SDXL):
                 # Checkpoints written before NN3 did not record this
                 # architecture-only toggle; their behavior is the NN2 default.
                 saved_architecture = dict(saved_architecture)
-                saved_architecture.setdefault(
-                    "ba_connector_input_mode",
-                    "reference_minus_target",
-                )
+                current_architecture = self._ba_architecture_state()
+                if "ba_connector_input_mode" in current_architecture:
+                    saved_architecture.setdefault(
+                        "ba_connector_input_mode",
+                        "reference_minus_target",
+                    )
                 if "ba_spatial_memory_mode" in saved_architecture:
                     saved_architecture.setdefault(
                         "ba_spatial_patch_projection",
@@ -1121,7 +1123,6 @@ class PhotomakerBranchedLora(SDXL):
                         "ba_spatial_gate_position",
                         "post_cap",
                     )
-                current_architecture = self._ba_architecture_state()
                 if saved_architecture != current_architecture:
                     raise RuntimeError(
                         "Strict BA restore architecture mismatch: "

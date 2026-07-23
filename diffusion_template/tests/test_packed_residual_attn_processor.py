@@ -1110,6 +1110,46 @@ class PackedResidualRuntimeTests(unittest.TestCase):
         self.assertNotIn("ba_output_anchor_mode", architecture)
         self.assertNotIn("ba_target_core_erode_frac", architecture)
 
+    def test_legacy_anchor_manifest_round_trip_does_not_gain_packed_fields(self) -> None:
+        architecture = {
+            "ba_sa_ref_token_mode": "full_grid",
+            "ba_sa_face_mode": "core_ring",
+            "ba_sa_ref_layer_scope": "up",
+            "ba_sa_roi_grid_size": 8,
+            "ba_sa_core_ratio": 0.68,
+            "ba_sa_mix_init": 0.25,
+            "ba_target_core_erode_frac": 0.10,
+            "ba_output_anchor_mode": "base_outside_core",
+        }
+        model = SimpleNamespace(
+            unet=SimpleNamespace(attn_processors={}),
+            ba_strict_processor_restore=True,
+            _ba_patched_processor_names=(),
+            _ba_architecture_state=lambda: dict(architecture),
+            ba_gate_max=0.5,
+            ba_identity_gate_max=0.5,
+        )
+        checkpoint = {
+            "lora_weights": {},
+            "ba_processor_manifest": {
+                "installed_processor_names": [],
+                "state_processor_names": [],
+                "trainable_keys_by_processor": {},
+                "processor_classes": {},
+                "architecture": dict(architecture),
+            },
+        }
+        with patch(
+            "src.model.photomaker_branched.lora2."
+            "convert_unet_state_dict_to_peft",
+            return_value={},
+        ), patch(
+            "src.model.photomaker_branched.lora2."
+            "set_peft_model_state_dict",
+            return_value=None,
+        ):
+            PhotomakerBranchedLora.load_state_dict_(model, checkpoint)
+
     def test_direct_spatial_checkpoint_diagnostics_track_lora_b(self) -> None:
         attn1 = _attention()
         attn2 = Attention(
