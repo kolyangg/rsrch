@@ -4,7 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 export CONFIG_NAME="cosmic_large_one_id_rhca_apr2026_replay"
-export RUN_NAME="${RUN_NAME:-rhca_apr2026_cosmic_large_one_id_4k}"
+export RUN_NAME="${RUN_NAME:-rhca_apr2026_cosmic_large_one_id_8k}"
 export COMET_PROJECT="${COMET_PROJECT:-rsrch-jul}"
+TRAIN_EPOCHS="${TRAIN_EPOCHS:-16}"  # 16 × 500 steps = 8,000 total
 
-exec bash "${ROOT_DIR}/run_rhca_apr2026_one_id_1gpu.sh" "$@"
+exec bash "${ROOT_DIR}/run_rhca_apr2026_one_id_1gpu.sh" \
+  "trainer.n_epochs=${TRAIN_EPOCHS}" \
+  "$@"
