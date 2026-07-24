@@ -14,11 +14,17 @@ export COMET_LOGGING_CONSOLE="${COMET_LOGGING_CONSOLE:-ERROR}"
 
 WRITER="${WRITER:-cometml}"
 RUN_NAME="${RUN_NAME:-rhca_1e-4_ml_step2_allst_trref_diff_replay}"
+PM_PATH="${PM_PATH:-}"
 
 if [[ "${WRITER}" == "cometml" && -z "${COMET_API_KEY:-}" ]]; then
   echo "COMET_API_KEY must be exported when WRITER=cometml." >&2
   echo "For an offline smoke test, run with WRITER=console." >&2
   exit 2
+fi
+
+MODEL_OVERRIDES=()
+if [[ -n "${PM_PATH}" ]]; then
+  MODEL_OVERRIDES+=("model.photomaker_path=${PM_PATH}")
 fi
 
 accelerate launch \
@@ -28,4 +34,5 @@ accelerate launch \
   --config-name=one_id_rhca_apr2026_replay \
   "writer=${WRITER}" \
   "writer.run_name=${RUN_NAME}" \
+  "${MODEL_OVERRIDES[@]}" \
   "$@"

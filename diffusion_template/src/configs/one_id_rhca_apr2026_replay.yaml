@@ -30,8 +30,11 @@ pipeline:
   variant: null
 
 trainer:
-  epoch_len: 200
-  n_epochs: 35
+  # One optimizer step per batch in this historical trainer. Eight 500-step
+  # epochs therefore give exactly 4,000 steps, with validation/checkpointing
+  # after every 500 steps (plus the built-in deterministic step-zero val).
+  epoch_len: 500
+  n_epochs: 8
   masked_loss_step: 2
 
 dataloaders:

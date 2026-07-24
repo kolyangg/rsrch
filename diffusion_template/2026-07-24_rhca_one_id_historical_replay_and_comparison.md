@@ -45,9 +45,11 @@ High-confidence settings are:
 - RealVisXL V4 for the saved-run inference/validation path;
 - checkpoint 34 as the later inspected checkpoint.
 
-The 200-step epoch length, batch size 4, and 2,000-step warmup are the most
-likely contemporary launcher values. They are isolated in the replay YAML so
-they can be changed without touching historical model code.
+The 200-step historical epoch length, batch size 4, and 2,000-step warmup are
+the most likely contemporary launcher values. For the requested control run,
+the replay YAML deliberately uses eight 500-step epochs: exactly 4,000
+optimizer steps, with validation and checkpointing every 500 steps. This
+schedule change does not touch historical model code.
 
 ## 2. Historical approach
 
@@ -263,6 +265,15 @@ cd /home/kolyangg/rsrch_apr_test/diffusion_template
 conda activate photomaker_NS
 export COMET_API_KEY=...
 bash run_rhca_apr2026_one_id_1gpu.sh
+```
+
+This performs step-zero validation and then validation/checkpointing at steps
+500, 1,000, ..., 4,000. On the primary server, set its known PhotoMaker path
+without editing the YAML:
+
+```bash
+PM_PATH=/home/niko/models/PhotoMaker-V2/photomaker-v2.bin \
+  bash run_rhca_apr2026_one_id_1gpu.sh
 ```
 
 For a configuration smoke test without Comet:
