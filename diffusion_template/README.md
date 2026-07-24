@@ -30,6 +30,9 @@ bash launchers/active/run_rhca_apr2026_one_id_1gpu.sh
 
 # Same RHCA architecture on cosmic_large_one_id.
 bash launchers/active/run_rhca_apr2026_cosmic_large_one_id_1gpu.sh
+
+# Cosmic one-target run with face-masked loss on every step: 8k total.
+bash launchers/active/run_rhca_apr2026_cosmic_large_one_id_faceonly_8k_1gpu.sh
 ```
 
 Both active launchers automatically load and export values from
