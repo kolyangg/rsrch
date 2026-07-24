@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from PIL import Image, ImageDraw
 import torch
-from diffusers import EulerDiscreteScheduler
+from diffusers import DDIMScheduler
 from transformers import CLIPTextModel, CLIPTextModelWithProjection
 
 
@@ -89,8 +89,13 @@ def generate_images(args: argparse.Namespace, prompts: list[str]) -> list[Path]:
         args.dataset_dir / "validation_refs" / "holdout_A.jpg"
     ).convert("RGB")
     patch_transformers_loader_compat()
+    scheduler = DDIMScheduler.from_pretrained(
+        args.base_model,
+        subfolder="scheduler",
+    )
     pipe = PhotoMakerStableDiffusionXLPipeline.from_pretrained(
         args.base_model,
+        scheduler=scheduler,
         torch_dtype=torch.bfloat16,
         use_safetensors=True,
         low_cpu_mem_usage=False,
@@ -112,38 +117,67 @@ def generate_images(args: argparse.Namespace, prompts: list[str]) -> list[Path]:
             pm_version="v2",
         )
     del adapter_state
-    pipe.scheduler = EulerDiscreteScheduler.from_config(pipe.scheduler.config)
-    pipe.fuse_lora()
-    # The shared BA helper defaults to a trained adapter named "default".
-    # This standalone baseline has only the stock adapter named "photomaker".
+    # Match the RHCA validation pipeline: its "default" adapter contains the
+    # stock PhotoMaker weights.  This standalone pipeline stores those same
+    # weights under the name "photomaker".
+    pipe.unet.set_adapter("photomaker")
     pipe._branched_active_adapters = ["photomaker"]
     pipe.photomaker_use_lora_adapter = True
+    pipe.pose_adapt_ratio = 0.0
+    pipe.ca_mixing_for_face = False
+    pipe.face_embed_strategy = "id"
+    pipe.use_id_embeds = False
+    pipe.id_alpha = 0.3
+    pipe.strict_face_routing = False
     pipe.set_progress_bar_config(disable=False)
 
-    for idx, prompt, output_path in missing:
-        print(f"[{idx + 1:02d}/{len(prompts):02d}] {prompt}")
-        generator = torch.Generator(device="cpu").manual_seed(args.seed)
-        image = pipe(
-            prompt=prompt,
-            negative_prompt=NEGATIVE_PROMPT,
-            input_id_images=[reference],
-            generator=generator,
-            num_images_per_prompt=1,
-            num_inference_steps=args.steps,
-            guidance_scale=5.0,
-            height=args.height,
-            width=args.width,
-            target_size=(args.height, args.width),
-            original_size=(args.height, args.width),
-            crops_coords_top_left=(0, 0),
-            start_merge_step=10,
-            photomaker_start_step=10,
-            merge_start_step=10,
-            use_branched_attention=False,
-            photomaker_use_lora_adapter=True,
-            val_debug=False,
-        ).images[0]
+    # RHCA validates all 12 prompts in one batch and constructs one CUDA
+    # generator per sample.  A CPU generator with the same integer seed does
+    # not produce the same latent noise stream.
+    batch_prompts = [item[1] for item in missing]
+    batch_refs = [[reference.copy()] for _ in missing]
+    batch_generators = [
+        torch.Generator(device="cuda").manual_seed(args.seed)
+        for _ in missing
+    ]
+    batch_ref_bboxes = [[59, 42, 203, 236] for _ in missing]
+    print(
+        f"Generating {len(missing)} PhotoMaker images as one RHCA-compatible "
+        f"CUDA batch (DDIM, seed={args.seed})."
+    )
+    images = pipe(
+        prompt=batch_prompts if len(batch_prompts) > 1 else batch_prompts[0],
+        negative_prompt=NEGATIVE_PROMPT,
+        input_id_images=batch_refs if len(batch_refs) > 1 else batch_refs[0],
+        face_bbox_ref=(
+            batch_ref_bboxes if len(batch_ref_bboxes) > 1 else batch_ref_bboxes[0]
+        ),
+        generator=(
+            batch_generators if len(batch_generators) > 1 else batch_generators[0]
+        ),
+        num_images_per_prompt=1,
+        num_inference_steps=args.steps,
+        guidance_scale=5.0,
+        height=args.height,
+        width=args.width,
+        target_size=(args.height, args.width),
+        original_size=(args.height, args.width),
+        crops_coords_top_left=(0, 0),
+        start_merge_step=10,
+        photomaker_start_step=10,
+        merge_start_step=10,
+        branched_attn_start_step=15,
+        use_branched_attention=False,
+        use_bbox_mask_ref=True,
+        use_bbox_mask_gen=False,
+        auto_mask_ref=False,
+        use_dynamic_mask=False,
+        photomaker_use_lora_adapter=True,
+        val_debug=False,
+    ).images
+    for (idx, prompt, output_path), image in zip(missing, images):
         image.save(output_path)
+        print(f"[{idx + 1:02d}/{len(prompts):02d}] saved {prompt}")
 
     del pipe
     torch.cuda.empty_cache()
@@ -173,10 +207,17 @@ def detect_boxes(
                 if probability is None or probability < 0.3:
                     continue
                 area = max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
-                candidates.append((area, box.tolist()))
+                center_y = (box[1] + box[3]) / 2.0
+                # Prefer a large, high-confidence face near the upper part of
+                # the image.  Area alone incorrectly selects the printed face
+                # on the drummer's T-shirt; confidence alone selects a small
+                # background chef instead of the foreground subject.
+                vertical_penalty = 1.0 + 2.0 * (center_y / image.height) ** 2
+                primary_score = area * float(probability) ** 4 / vertical_penalty
+                candidates.append((primary_score, box.tolist()))
         if candidates:
-            # Validation prompts describe one primary subject. Selecting the
-            # largest valid face avoids choosing a sharper background extra.
+            # Validation prompts describe one primary subject. The composite
+            # score is robust to both background extras and face-like prints.
             face_box = max(candidates, key=lambda item: item[0])[1]
         else:
             width, height = image.size
@@ -198,8 +239,13 @@ def detect_boxes(
             "reference": "validation_refs/holdout_A.jpg",
             "seed": args.seed,
             "photomaker_start_step": 10,
+            "branched_attn_start_step": 15,
             "num_inference_steps": args.steps,
             "base_model": args.base_model,
+            "scheduler": "DDIMScheduler",
+            "generator_device": "cuda",
+            "generation_batch_size": len(prompts),
+            "face_selection": "area_x_confidence4_over_vertical_penalty",
         }
         records[f"{idx:02d}.png"] = record
 
@@ -252,7 +298,10 @@ def save_pdf(
         "green = detected face_crop_new · red = padded face_crop_old",
         fontsize=14,
     )
-    pdf_path = args.dataset_dir / "cosmic_large_one_id_photomaker_bboxes.pdf"
+    pdf_path = (
+        args.dataset_dir
+        / "cosmic_large_one_id_photomaker_bboxes_rhca_seed0.pdf"
+    )
     fig.savefig(pdf_path, format="pdf", dpi=150)
     plt.close(fig)
     print(f"Saved bbox inspection PDF to {pdf_path}")
