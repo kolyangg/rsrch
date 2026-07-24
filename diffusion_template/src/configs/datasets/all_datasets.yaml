@@ -36,6 +36,15 @@ train:
         train_on_separate_image: ${train_on_separate_image}
         instance_transforms: ${transforms.instance_transforms.train}
 
+    one_id_holdout51:
+        _target_: src.datasets.one_id_holdout.OneIDHoldoutTrain
+        cosmic_json_pth: ../dataset_full/one_id/nm0005092_adj_train.json
+        images_path: ../dataset_full/one_id/nm0005092_adj
+        num_refs: 1
+        train_on_separate_image: ${train_on_separate_image}
+        excluded_filenames: [51.jpg]
+        instance_transforms: ${transforms.instance_transforms.train}
+
     cosmic_large_one_id:
         _target_: src.datasets.cosmic_large_one_id.CosmicLargeOneID
         data_json_path: ../dataset_full/cosmic_large_one_id/train.json

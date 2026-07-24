@@ -28,6 +28,9 @@ chmod 600 .env
 # Historical April one-ID replay: 4k steps, validation every 500.
 bash launchers/active/run_rhca_apr2026_one_id_1gpu.sh
 
+# Leak-free companion: hold validation reference 51.jpg out of training.
+bash launchers/active/run_rhca_apr2026_one_id_holdout51_1gpu.sh
+
 # Same RHCA architecture on cosmic_large_one_id.
 bash launchers/active/run_rhca_apr2026_cosmic_large_one_id_1gpu.sh
 
@@ -35,7 +38,7 @@ bash launchers/active/run_rhca_apr2026_cosmic_large_one_id_1gpu.sh
 bash launchers/active/run_rhca_apr2026_cosmic_large_one_id_faceonly_8k_1gpu.sh
 ```
 
-Both active launchers automatically load and export values from
+Active launchers automatically load and export values from
 `diffusion_template/.env`; shell-level `export` commands are not required.
 Set `ENV_FILE=/another/path/.env` only when a server needs a different file.
 
