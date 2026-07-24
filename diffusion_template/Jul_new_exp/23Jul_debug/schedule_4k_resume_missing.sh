@@ -67,6 +67,16 @@ for pair in "${PAIRS[@]}"; do
     IFS='|' read -r priority left_kind left_id left_base left_dataset \
         right_kind right_id right_base right_dataset <<<"${pair}"
 
+    if [[ "${SKIP_PRIORITY_2:-0}" == "1" && "${priority}" == "2" ]]; then
+        {
+            echo
+            echo "## Priority pair ${priority}"
+            echo
+            echo "- $(date -u '+%Y-%m-%dT%H:%M:%SZ'): skipped by replacement-run policy"
+        } >>"${STATUS}"
+        continue
+    fi
+
     if completed_training_exists "${left_id}" \
         && completed_training_exists "${right_id}"; then
         {

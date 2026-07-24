@@ -16,11 +16,11 @@ verify step zero together with steps 500 through 4000.
 |---|---|---|---|---|
 | `L4_O1_oneid_projection_alt` | OneID distinct pairs | projection split + alternating | complete | nine stages, report upload, and Comet-unity audit PASS |
 | `L4_C1_large_projection_alt` | CosmicLarge single ID | projection split + alternating | complete | nine stages, report upload, and Comet-unity audit PASS |
-| `L4_O2_oneid_projection_blend20` | OneID distinct pairs | projection split + 80/20 anchored | running | started 2026-07-24 08:30 UTC |
+| `L4_O2_oneid_projection_blend20` | OneID distinct pairs | projection split + 80/20 anchored | interrupted by user | stopped after step-1000 checkpoint; artifacts preserved |
 | `L4_C2_large_projection_blend20` | CosmicLarge single ID | projection split + 80/20 anchored | running | started 2026-07-24 08:30 UTC |
 | `L4_O3_oneid_ref_value_blend20` | OneID distinct pairs | reference V only + 80/20 anchored | queued | pending |
 | `L4_C3_large_ref_value_blend20` | CosmicLarge single ID | reference V only + 80/20 anchored | queued | pending |
-| `L4_OF1_oneid_full18_projection_alt` | OneID full set minus held-out `51.jpg` | priority-1 projection split + alternating | priority insertion armed | runs immediately after active pair 2, before pair 3 |
+| `L4_OF1_oneid_full18_projection_alt` | OneID full set minus held-out `51.jpg` | priority-1 projection split + alternating | running | started 2026-07-24 08:58 UTC as replacement for subset arm |
 
 Every result in this file is invalid unless its run-local pairing audit and
 Comet-unity audit both pass.

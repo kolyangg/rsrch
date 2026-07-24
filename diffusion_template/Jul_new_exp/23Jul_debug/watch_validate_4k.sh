@@ -67,21 +67,55 @@ for stage in "${STAGES[@]}"; do
     epoch=$((stage / CHECKPOINT_EVERY))
     checkpoint="${CHECKPOINT_DIR}/checkpoint-epoch${epoch}.pth"
     wait_for_stable_checkpoint "${checkpoint}"
+    validation_manifest="$(
+        printf '%s/validation/canonical50/step_%04d/validation_manifest.json' \
+            "${RUN_DIR}" "${stage}"
+    )"
+    metric_receipt="$(
+        printf '%s/report/incremental_metrics/step_%04d.comet_uploaded.json' \
+            "${RUN_DIR}" "${stage}"
+    )"
+    comet_key="$(jq -r '.comet_experiment_key // empty' "${RUN_DIR}/run_manifest.json")"
+    validation_complete=false
+    metric_complete=false
+    if [[ -f "${validation_manifest}" ]] \
+        && [[ "$(jq -r '.status // empty' "${validation_manifest}")" == "completed" ]] \
+        && [[ "$(jq -r '.comet_upload_status // empty' "${validation_manifest}")" == "completed" ]] \
+        && [[ "$(jq -r '.comet_experiment_key // empty' "${validation_manifest}")" == "${comet_key}" ]]; then
+        validation_complete=true
+    fi
+    if [[ -f "${metric_receipt}" ]] \
+        && [[ "$(jq -r '.status // empty' "${metric_receipt}")" == "completed" ]] \
+        && [[ "$(jq -r '.comet_experiment_key // empty' "${metric_receipt}")" == "${comet_key}" ]]; then
+        metric_complete=true
+    fi
+    if [[ "${validation_complete}" == true && "${metric_complete}" == true ]]; then
+        echo "- $(date -u '+%Y-%m-%dT%H:%M:%SZ'): checkpoint ${stage} already uploaded to original Comet key; skipped" \
+            >>"${PROGRESS}"
+        continue
+    fi
     {
         echo
         echo "- $(date -u '+%Y-%m-%dT%H:%M:%SZ'): checkpoint ${stage} stable; validation started"
     } >>"${PROGRESS}"
-    if [[ "${stage}" -eq "${CHECKPOINT_EVERY}" ]]; then
-        "${HERE}/run_validation_suite.sh" "${RUN_DIR}" \
-            --steps "0,${stage}" --modes "canonical50,pmControl50"
-        "${ENV_BIN}/python" "${HERE}/log_validation_step_metrics.py" \
-            "${RUN_DIR}" --step 0
+    if [[ "${validation_complete}" != true ]]; then
+        if [[ "${stage}" -eq "${CHECKPOINT_EVERY}" ]]; then
+            "${HERE}/run_validation_suite.sh" "${RUN_DIR}" \
+                --steps "0,${stage}" --modes "canonical50,pmControl50"
+            "${ENV_BIN}/python" "${HERE}/log_validation_step_metrics.py" \
+                "${RUN_DIR}" --step 0
+        else
+            "${HERE}/run_validation_suite.sh" "${RUN_DIR}" \
+                --steps "${stage}" --modes "canonical50"
+        fi
     else
-        "${HERE}/run_validation_suite.sh" "${RUN_DIR}" \
-            --steps "${stage}" --modes "canonical50"
+        echo "- $(date -u '+%Y-%m-%dT%H:%M:%SZ'): checkpoint ${stage} images already uploaded; backfilling metrics only" \
+            >>"${PROGRESS}"
     fi
-    "${ENV_BIN}/python" "${HERE}/log_validation_step_metrics.py" \
-        "${RUN_DIR}" --step "${stage}"
+    if [[ "${metric_complete}" != true ]]; then
+        "${ENV_BIN}/python" "${HERE}/log_validation_step_metrics.py" \
+            "${RUN_DIR}" --step "${stage}"
+    fi
     "${ENV_BIN}/python" "${HERE}/export_live_4k_results.py"
     echo "- $(date -u '+%Y-%m-%dT%H:%M:%SZ'): checkpoint ${stage} validation uploaded" \
         >>"${PROGRESS}"

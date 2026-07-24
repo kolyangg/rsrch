@@ -40,5 +40,17 @@ Generated from ignored run folders after each same-experiment Comet metric uploa
 | L4_O4_oneid_projection_schedule | one_id_nm0005092_subset8_distinct | 3000 | 0.3136 | -0.0017 | 0.5569 | 0.0143 | 0.2537 | 0.3370 | completed |
 | L4_O4_oneid_projection_schedule | one_id_nm0005092_subset8_distinct | 3500 | 0.2940 | 0.0073 | 0.5539 | 0.0135 | 0.2533 | 0.3184 | completed |
 | L4_O4_oneid_projection_schedule | one_id_nm0005092_subset8_distinct | 4000 | 0.3213 | 0.0067 | 0.5716 | 0.0130 | 0.2521 | 0.3435 | completed |
+| L4_C2_large_projection_blend20 | cosmic_large_id00081 | 0 | 0.2549 | -0.2673 | 0.3903 | 0.0318 | 0.2464 | 0.2717 | completed |
+| L4_C2_large_projection_blend20 | cosmic_large_id00081 | 500 | 0.3589 | -0.1882 | 0.5018 | 0.0226 | 0.2389 | 0.3693 | completed |
+| L4_C2_large_projection_blend20 | cosmic_large_id00081 | 1000 | 0.3945 | -0.1504 | 0.4933 | 0.0211 | 0.2441 | 0.4085 | completed |
 | L4_O2_oneid_projection_blend20 | one_id_nm0005092_subset8_distinct | 0 | 0.3434 | 0.0689 | 0.5037 | 0.0323 | 0.2481 | 0.3457 | completed |
 | L4_O2_oneid_projection_blend20 | one_id_nm0005092_subset8_distinct | 500 | 0.2686 | -0.0345 | 0.5941 | 0.0152 | 0.2566 | 0.2822 | completed |
+| L4_OF1_oneid_full18_projection_alt | one_id_nm0005092_full18_heldout_distinct | 0 | 0.3434 | 0.0689 | 0.5037 | 0.0323 | 0.2481 | 0.3457 | completed |
+| L4_OF1_oneid_full18_projection_alt | one_id_nm0005092_full18_heldout_distinct | 500 | 0.2875 | -0.0388 | 0.5375 | 0.0251 | 0.2582 | 0.2973 | completed |
+| L4_OF1_oneid_full18_projection_alt | one_id_nm0005092_full18_heldout_distinct | 1000 | 0.2556 | -0.0220 | 0.6090 | 0.0156 | 0.2633 | 0.2667 | completed |
+| L4_OF1_oneid_full18_projection_alt | one_id_nm0005092_full18_heldout_distinct | 1500 | 0.2911 | -0.0368 | 0.6411 | 0.0129 | 0.2597 | 0.2998 | completed |
+| L4_OF1_oneid_full18_projection_alt | one_id_nm0005092_full18_heldout_distinct | 2000 | 0.3105 | -0.0174 | 0.6253 | 0.0132 | 0.2583 | 0.3211 | completed |
+| L4_OF1_oneid_full18_projection_alt | one_id_nm0005092_full18_heldout_distinct | 2500 | 0.3286 | 0.0007 | 0.6176 | 0.0108 | 0.2593 | 0.3455 | completed |
+| L4_OF1_oneid_full18_projection_alt | one_id_nm0005092_full18_heldout_distinct | 3000 | 0.3227 | 0.0052 | 0.5703 | 0.0155 | 0.2596 | 0.3414 | completed |
+| L4_OF1_oneid_full18_projection_alt | one_id_nm0005092_full18_heldout_distinct | 3500 | 0.3101 | -0.0014 | 0.5825 | 0.0180 | 0.2585 | 0.3227 | completed |
+| L4_OF1_oneid_full18_projection_alt | one_id_nm0005092_full18_heldout_distinct | 4000 | 0.3326 | 0.0151 | 0.5827 | 0.0178 | 0.2547 | 0.3447 | completed |

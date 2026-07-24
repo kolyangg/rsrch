@@ -23,10 +23,14 @@ The exact filtered JSON and provenance are in
 `data/one_id_nm0005092/full18_no_validation_train.json` and
 `data/one_id_nm0005092/full18_heldout_manifest.json`.
 
-## Queue placement
+## Queue placement and start
 
-The active priority-2 pair continues without interruption. The main queue is
-paused at its current `wait`, so it cannot advance to pair 3. When both active
-runs finish training, validation, reporting, and Comet-unity audits, the
-full-OneID priority run starts alone. After it completes and passes the same
-report/audit path, the main queue resumes with priority pair 3.
+At the user's request, the subset-OneID priority-2 arm was stopped after its
+step-1000 checkpoint. Its artifacts remain under `experiments_4k/`; its
+manifest is marked `interrupted`.
+
+The full18 run started at 2026-07-24 08:58:38 UTC alongside the retained
+CosmicLarge priority-2 arm. Once both finish validation, reporting, and their
+Comet-unity audits, the replacement continuation retires the old pair-level
+queue and resumes at priority pair 3. The stopped subset arm is explicitly
+excluded from relaunch.

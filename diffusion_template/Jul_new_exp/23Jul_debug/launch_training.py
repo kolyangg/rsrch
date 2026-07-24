@@ -365,11 +365,17 @@ def main() -> int:
             raise SystemExit(
                 f"Run already reached its final checkpoint: {resume_checkpoint}"
             )
+        comet_experiment_key = manifest.get("comet_experiment_key")
+        if not comet_experiment_key:
+            raise SystemExit(
+                "Refusing to resume without the original Comet experiment key"
+            )
         overrides.extend(
             [
                 "continue_run=true",
                 f"saved_checkpoint={resume_checkpoint}",
                 f"trainer.resume_from={resume_checkpoint.name}",
+                f"cometml_id={comet_experiment_key}",
             ]
         )
     command = [
