@@ -22,8 +22,12 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 TEMPLATE_ROOT = REPO_ROOT / "diffusion_template"
 sys.path.insert(0, str(TEMPLATE_ROOT))
 
-from bbox_utils.generate_bboxes import clamp_bbox, enlarge_box, load_face_detector
-from src.pipelines.photomaker_branched_clean import (
+from bbox_utils.generate_bboxes import (  # noqa: E402
+    clamp_bbox,
+    enlarge_box,
+    load_face_detector,
+)
+from src.pipelines.photomaker_branched_clean import (  # noqa: E402
     PhotoMakerStableDiffusionXLPipeline,
 )
 
@@ -50,12 +54,47 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_prompts(path: Path) -> list[str]:
+def load_validation_reference(
+    dataset_dir: Path,
+) -> tuple[Path, list[float], str]:
+    """Resolve the single reference, bbox, and class from its fixed package."""
+    references = sorted(
+        path
+        for path in (dataset_dir / "validation_refs").iterdir()
+        if path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+    )
+    if len(references) != 1:
+        raise ValueError(
+            f"Expected one validation reference in {dataset_dir}, got {len(references)}"
+        )
+    reference = references[0]
+    with (dataset_dir / "reference_bboxes.json").open(
+        "r", encoding="utf-8"
+    ) as handle:
+        bbox_records = json.load(handle)
+    bbox_record = bbox_records.get(reference.name)
+    if not isinstance(bbox_record, dict):
+        raise KeyError(f"Missing reference bbox record for {reference.name}")
+    reference_bbox = bbox_record.get("face_crop_new") or bbox_record.get(
+        "face_crop_old"
+    )
+    if not isinstance(reference_bbox, list) or len(reference_bbox) != 4:
+        raise ValueError(f"Invalid reference bbox for {reference.name}")
+
+    with (dataset_dir / "classes_ref.json").open("r", encoding="utf-8") as handle:
+        classes = json.load(handle)
+    class_name = classes.get(reference.stem)
+    if not isinstance(class_name, str) or not class_name.strip():
+        raise KeyError(f"Missing class name for validation reference {reference.stem}")
+    return reference, reference_bbox, class_name.strip()
+
+
+def load_prompts(path: Path, class_name: str) -> list[str]:
     with path.open("r", encoding="utf-8") as handle:
         prompts = [line.strip() for line in handle if line.strip()]
     if not prompts:
         raise ValueError(f"No prompts in {path}")
-    return [prompt.replace("<class>", "woman img") for prompt in prompts]
+    return [prompt.replace("<class>", f"{class_name} img") for prompt in prompts]
 
 
 def patch_transformers_loader_compat() -> None:
@@ -72,7 +111,13 @@ def patch_transformers_loader_compat() -> None:
         model_class.from_pretrained = classmethod(compatible_from_pretrained)
 
 
-def generate_images(args: argparse.Namespace, prompts: list[str]) -> list[Path]:
+def generate_images(
+    args: argparse.Namespace,
+    prompts: list[str],
+    *,
+    reference_path: Path,
+    reference_bbox: list[float],
+) -> list[Path]:
     output_dir = args.dataset_dir / "photomaker_validation"
     output_dir.mkdir(parents=True, exist_ok=True)
     output_paths = [output_dir / f"{idx:02d}.png" for idx in range(len(prompts))]
@@ -85,9 +130,7 @@ def generate_images(args: argparse.Namespace, prompts: list[str]) -> list[Path]:
         print("All PhotoMaker outputs already exist; skipping GPU generation.")
         return output_paths
 
-    reference = Image.open(
-        args.dataset_dir / "validation_refs" / "holdout_A.jpg"
-    ).convert("RGB")
+    reference = Image.open(reference_path).convert("RGB")
     patch_transformers_loader_compat()
     scheduler = DDIMScheduler.from_pretrained(
         args.base_model,
@@ -140,7 +183,7 @@ def generate_images(args: argparse.Namespace, prompts: list[str]) -> list[Path]:
         torch.Generator(device="cuda").manual_seed(args.seed)
         for _ in missing
     ]
-    batch_ref_bboxes = [[59, 42, 203, 236] for _ in missing]
+    batch_ref_bboxes = [list(reference_bbox) for _ in missing]
     print(
         f"Generating {len(missing)} PhotoMaker images as one RHCA-compatible "
         f"CUDA batch (DDIM, seed={args.seed})."
@@ -188,6 +231,8 @@ def detect_boxes(
     args: argparse.Namespace,
     prompts: list[str],
     output_paths: list[Path],
+    *,
+    reference_path: Path,
 ) -> dict[str, dict]:
     detector, backend = load_face_detector(
         backend="mtcnn",
@@ -236,7 +281,9 @@ def detect_boxes(
         }
         record["_meta"] = {
             "prompt": prompt,
-            "reference": "validation_refs/holdout_A.jpg",
+            "reference": (
+                Path("validation_refs") / reference_path.name
+            ).as_posix(),
             "seed": args.seed,
             "photomaker_start_step": 10,
             "branched_attn_start_step": 15,
@@ -294,13 +341,13 @@ def save_pdf(
         axis.axis("off")
 
     fig.suptitle(
-        "Cosmic Large one-ID · PhotoMaker V2 seed 0\n"
+        f"{args.dataset_dir.name} · PhotoMaker V2 seed {args.seed}\n"
         "green = detected face_crop_new · red = padded face_crop_old",
         fontsize=14,
     )
     pdf_path = (
         args.dataset_dir
-        / "cosmic_large_one_id_photomaker_bboxes_rhca_seed0.pdf"
+        / f"{args.dataset_dir.name}_photomaker_bboxes_rhca_seed{args.seed}.pdf"
     )
     fig.savefig(pdf_path, format="pdf", dpi=150)
     plt.close(fig)
@@ -310,9 +357,28 @@ def save_pdf(
 
 def main() -> None:
     args = parse_args()
-    prompts = load_prompts(args.dataset_dir / "validation_prompts.txt")
-    output_paths = generate_images(args, prompts)
-    records = detect_boxes(args, prompts, output_paths)
+    # 24 Jul 2026 - Resolve the immutable validation package by filename and
+    # metadata so controlled identities reuse this exact PhotoMaker procedure;
+    # the historical Cosmic default still resolves holdout_A/woman unchanged.
+    reference_path, reference_bbox, class_name = load_validation_reference(
+        args.dataset_dir
+    )
+    prompts = load_prompts(
+        args.dataset_dir / "validation_prompts.txt",
+        class_name,
+    )
+    output_paths = generate_images(
+        args,
+        prompts,
+        reference_path=reference_path,
+        reference_bbox=reference_bbox,
+    )
+    records = detect_boxes(
+        args,
+        prompts,
+        output_paths,
+        reference_path=reference_path,
+    )
     save_pdf(args, prompts, output_paths, records)
 
 

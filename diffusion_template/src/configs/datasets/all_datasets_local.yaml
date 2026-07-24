@@ -34,6 +34,18 @@ train:
         random_horizontal_flip: true
         virtual_length: 1000
         instance_transforms: ${transforms.instance_transforms.train}
+
+    controlled_identity_factorial:
+        _target_: src.datasets.controlled_identity_factorial.ControlledIdentityFactorial
+        manifest_path: ${oc.env:CONTROLLED_FACTORIAL_ROOT,../dataset_full/controlled_identity_factorial/nm0004960_v1}/manifest.json
+        artifact_root: ${oc.env:CONTROLLED_FACTORIAL_ROOT,../dataset_full/controlled_identity_factorial/nm0004960_v1}
+        target_mode: multi
+        reference_mode: full_scene
+        virtual_length: 1000
+        random_horizontal_flip: true
+        verify_hashes: true
+        require_sealed_validation: true
+        instance_transforms: ${transforms.instance_transforms.train}
     
 
 val:
@@ -94,6 +106,16 @@ val:
       classes_json_path: ../dataset_full/cosmic_large_one_id/classes_ref.json
       bbox_mask_ref: ../dataset_full/cosmic_large_one_id/reference_bboxes.json
       bbox_mask_gen: ../dataset_full/cosmic_large_one_id/photomaker_generated_bboxes.json
+      seeds: [0]
+      limit: 12
+
+    controlled_identity_factorial_val:
+      _target_: src.datasets.manual_val.ManualPhotoMakerValDataset
+      images_dir: ${oc.env:CONTROLLED_FACTORIAL_ROOT,../dataset_full/controlled_identity_factorial/nm0004960_v1}/validation_refs
+      prompts_path: ${oc.env:CONTROLLED_FACTORIAL_ROOT,../dataset_full/controlled_identity_factorial/nm0004960_v1}/validation_prompts.txt
+      classes_json_path: ${oc.env:CONTROLLED_FACTORIAL_ROOT,../dataset_full/controlled_identity_factorial/nm0004960_v1}/classes_ref.json
+      bbox_mask_ref: ${oc.env:CONTROLLED_FACTORIAL_ROOT,../dataset_full/controlled_identity_factorial/nm0004960_v1}/reference_bboxes.json
+      bbox_mask_gen: ${oc.env:CONTROLLED_FACTORIAL_ROOT,../dataset_full/controlled_identity_factorial/nm0004960_v1}/photomaker_generated_bboxes.json
       seeds: [0]
       limit: 12
   

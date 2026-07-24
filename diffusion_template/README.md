@@ -36,6 +36,13 @@ bash launchers/active/run_rhca_apr2026_cosmic_large_one_id_1gpu.sh
 
 # Cosmic one-target run with face-masked loss on every step: 8k total.
 bash launchers/active/run_rhca_apr2026_cosmic_large_one_id_faceonly_8k_1gpu.sh
+
+# 4k causal arm: face-only loss with branched cross-attention disabled.
+bash launchers/active/run_rhca_apr2026_cosmic_large_one_id_faceonly_noca_4k_1gpu.sh
+
+# Controlled data factorial (multi_full | single_full | multi_cosref).
+FACTORIAL_ARM=multi_full \
+  bash launchers/active/run_rhca_controlled_identity_factorial_4k_1gpu.sh
 ```
 
 Active launchers automatically load and export values from
@@ -55,6 +62,8 @@ RUN_NAME=my_run COMET_PROJECT=rsrch-jul \
 
 - [`docs/`](docs/) — architecture and experiment documentation.
 - [`tools/`](tools/) — Comet, inference/reporting, and dataset utilities.
+- [`tools/inference/evaluate_rhca_checkpoint.py`](tools/inference/evaluate_rhca_checkpoint.py)
+  — fixed-validation checkpoint evaluation without optimizer steps.
 - [`requirements/`](requirements/) — supplemental environment requirements.
 - [`artifacts/reference_debug/`](artifacts/reference_debug/) — retained debug
   examples, not runtime output.
