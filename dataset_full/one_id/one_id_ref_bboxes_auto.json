@@ -1,16 +1,16 @@
 {
   "Reading pa_51.png": {
     "face_crop_old": [
-      266,
-      98,
-      537,
-      446
+      276,
+      96,
+      538,
+      448
     ],
     "face_crop_new": [
-      285,
-      122,
-      518,
-      422
+      294,
+      120,
+      520,
+      424
     ],
     "body_crop": [
       0,
@@ -27,16 +27,16 @@
   },
   "Rushing ma_51.png": {
     "face_crop_old": [
-      483,
-      157,
-      775,
-      554
+      484,
+      170,
+      770,
+      552
     ],
     "face_crop_new": [
       503,
-      184,
-      755,
-      526
+      196,
+      750,
+      525
     ],
     "body_crop": [
       0,
@@ -53,15 +53,15 @@
   },
   "Skiing man_51.png": {
     "face_crop_old": [
-      404,
-      285,
-      755,
-      772
+      408,
+      287,
+      753,
+      771
     ],
     "face_crop_new": [
-      428,
-      319,
-      731,
+      432,
+      320,
+      730,
       738
     ],
     "body_crop": [
@@ -80,13 +80,13 @@
   "Drumming m_51.png": {
     "face_crop_old": [
       338,
-      211,
-      533,
-      504
+      214,
+      532,
+      503
     ],
     "face_crop_new": [
       351,
-      231,
+      234,
       519,
       483
     ],
@@ -105,16 +105,16 @@
   },
   "Kickboxing_51.png": {
     "face_crop_old": [
-      354,
-      65,
-      699,
-      546
+      358,
+      60,
+      687,
+      532
     ],
     "face_crop_new": [
-      378,
-      98,
-      675,
-      513
+      381,
+      93,
+      664,
+      500
     ],
     "body_crop": [
       0,
@@ -131,16 +131,16 @@
   },
   "Dancing ma_51.png": {
     "face_crop_old": [
-      452,
-      141,
-      558,
-      318
+      453,
+      169,
+      557,
+      320
     ],
     "face_crop_new": [
       460,
-      153,
-      551,
-      306
+      180,
+      550,
+      309
     ],
     "body_crop": [
       0,
@@ -157,16 +157,16 @@
   },
   "Angry man _51.png": {
     "face_crop_old": [
-      360,
-      108,
-      572,
-      405
+      431,
+      124,
+      685,
+      514
     ],
     "face_crop_new": [
-      375,
-      128,
-      558,
-      385
+      449,
+      150,
+      667,
+      487
     ],
     "body_crop": [
       0,
@@ -183,16 +183,16 @@
   },
   "Crying man_51.png": {
     "face_crop_old": [
-      311,
-      326,
-      482,
-      607
+      299,
+      235,
+      507,
+      581
     ],
     "face_crop_new": [
-      323,
-      346,
-      470,
-      588
+      313,
+      259,
+      493,
+      557
     ],
     "body_crop": [
       0,
@@ -203,6 +203,84 @@
     "_meta": {
       "debug_idx": 7,
       "prompt": "Crying man img, stormy alley, tearful face, ripped jeans",
+      "id": "51",
+      "seed": 0
+    }
+  },
+  "Laughing m_51.png": {
+    "face_crop_old": [
+      274,
+      169,
+      525,
+      486
+    ],
+    "face_crop_new": [
+      291,
+      191,
+      507,
+      464
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "debug_idx": 8,
+      "prompt": "Laughing man img, carnival wheel, carefree laugh, polka-dot shirt",
+      "id": "51",
+      "seed": 0
+    }
+  },
+  "Jumping ma_51.png": {
+    "face_crop_old": [
+      516,
+      316,
+      633,
+      489
+    ],
+    "face_crop_new": [
+      524,
+      328,
+      625,
+      477
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "debug_idx": 9,
+      "prompt": "Jumping man img, beach sunset, ecstatic face, blue tank top",
+      "id": "51",
+      "seed": 0
+    }
+  },
+  "Night-ride_51.png": {
+    "face_crop_old": [
+      483,
+      133,
+      692,
+      455
+    ],
+    "face_crop_new": [
+      498,
+      155,
+      678,
+      433
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "debug_idx": 10,
+      "prompt": "Night-ride biker man img, neon city, excited face, reflective vest",
       "id": "51",
       "seed": 0
     }

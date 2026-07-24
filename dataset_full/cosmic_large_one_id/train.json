@@ -1,0 +1,57 @@
+{
+  "target/target.jpg": {
+    "identity_id": "id_00081_1017318003459",
+    "class": "woman",
+    "face_crop_old": [
+      632,
+      128,
+      1064,
+      738
+    ],
+    "face_crop_new": [
+      275,
+      128,
+      707,
+      738
+    ],
+    "body_crop": [
+      357,
+      0,
+      1381,
+      1024
+    ],
+    "facial_caption": "A woman img with blonde, shoulder-length wavy hair, sparkling blue eyes, subtle makeup, a bright smile, white teeth, pink lipstick, a youthful face, and a fresh radiant appearance",
+    "pose_caption": "upper body visible, facing slightly left, wearing a sparkling silver dress with a deep neckline, arms relaxed at the sides, poised and elegant, gaze directed forward, diamond earrings",
+    "background_caption": "blurred white and blue vertical stripes",
+    "face_paths": [
+      "train_refs/ref_00.jpg",
+      "train_refs/ref_01.jpg",
+      "train_refs/ref_02.jpg",
+      "train_refs/ref_03.jpg",
+      "train_refs/ref_04.jpg",
+      "train_refs/ref_05.jpg",
+      "train_refs/ref_06.jpg",
+      "train_refs/ref_07.jpg"
+    ],
+    "face_bboxes": {
+      "train_refs/ref_00.jpg": [59, 43, 206, 232],
+      "train_refs/ref_01.jpg": [58, 45, 199, 238],
+      "train_refs/ref_02.jpg": [53, 43, 193, 235],
+      "train_refs/ref_03.jpg": [53, 40, 196, 241],
+      "train_refs/ref_04.jpg": [58, 45, 198, 234],
+      "train_refs/ref_05.jpg": [61, 43, 206, 239],
+      "train_refs/ref_06.jpg": [62, 45, 205, 234],
+      "train_refs/ref_07.jpg": [57, 41, 198, 237]
+    },
+    "face_scores": [
+      0.8177803754806519,
+      0.8463156819343567,
+      0.8293906450271606,
+      0.8448236584663391,
+      0.82456374168396,
+      0.8742837309837341,
+      0.8649963140487671,
+      0.8613305687904358
+    ]
+  }
+}

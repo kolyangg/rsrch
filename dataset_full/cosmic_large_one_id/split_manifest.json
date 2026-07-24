@@ -1,0 +1,30 @@
+{
+  "selected_id": "id_00081_1017318003459",
+  "class": "woman",
+  "seed": 0,
+  "target": {
+    "local_path": "target/target.jpg",
+    "source_path": "/home/niko/datasets/LAION-5B-Filtered-Large/laion1B-nolang/00081/1017318003459.jpg"
+  },
+  "training_references": [
+    {"local_path": "train_refs/ref_00.jpg", "source_face_index": 2},
+    {"local_path": "train_refs/ref_01.jpg", "source_face_index": 1},
+    {"local_path": "train_refs/ref_02.jpg", "source_face_index": 0},
+    {"local_path": "train_refs/ref_03.jpg", "source_face_index": 3},
+    {"local_path": "train_refs/ref_04.jpg", "source_face_index": 6},
+    {"local_path": "train_refs/ref_05.jpg", "source_face_index": 5},
+    {"local_path": "train_refs/ref_06.jpg", "source_face_index": 9},
+    {"local_path": "train_refs/ref_07.jpg", "source_face_index": 7}
+  ],
+  "validation_reference": {
+    "local_path": "validation_refs/holdout_A.jpg",
+    "source_face_index": 8,
+    "face_bbox": [59, 42, 203, 236]
+  },
+  "final_only_holdout": {
+    "local_path": "holdouts/holdout_B.jpg",
+    "source_face_index": 4,
+    "face_bbox": [58, 44, 199, 232]
+  },
+  "separation_guarantee": "The target, all eight training references, the recurring validation reference, and the final-only holdout are different source images."
+}

@@ -1,0 +1,7 @@
+{
+  "holdout_A.jpg": {
+    "face_crop_old": [59, 42, 203, 236],
+    "face_crop_new": [59, 42, 203, 236],
+    "body_crop": [0, 0, 256, 256]
+  }
+}

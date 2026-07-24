@@ -1,0 +1,398 @@
+{
+  "00.png": {
+    "face_crop_old": [
+      329,
+      116,
+      545,
+      382
+    ],
+    "face_crop_new": [
+      344,
+      134,
+      530,
+      364
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "prompt": "Reading paper woman img, park bench, calm face, grey overcoat",
+      "reference": "validation_refs/holdout_A.jpg",
+      "seed": 0,
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 15,
+      "num_inference_steps": 50,
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "scheduler": "DDIMScheduler",
+      "generator_device": "cuda",
+      "generation_batch_size": 12,
+      "face_selection": "area_x_confidence4_over_vertical_penalty"
+    }
+  },
+  "01.png": {
+    "face_crop_old": [
+      348,
+      138,
+      564,
+      388
+    ],
+    "face_crop_new": [
+      363,
+      156,
+      549,
+      371
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "prompt": "Rushing woman img portrait, subway platform, anxious face, swinging briefcase",
+      "reference": "validation_refs/holdout_A.jpg",
+      "seed": 0,
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 15,
+      "num_inference_steps": 50,
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "scheduler": "DDIMScheduler",
+      "generator_device": "cuda",
+      "generation_batch_size": 12,
+      "face_selection": "area_x_confidence4_over_vertical_penalty"
+    }
+  },
+  "02.png": {
+    "face_crop_old": [
+      391,
+      230,
+      773,
+      714
+    ],
+    "face_crop_new": [
+      418,
+      263,
+      746,
+      680
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "prompt": "Skiing woman img, snowy slope, fearless grin, orange goggles",
+      "reference": "validation_refs/holdout_A.jpg",
+      "seed": 0,
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 15,
+      "num_inference_steps": 50,
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "scheduler": "DDIMScheduler",
+      "generator_device": "cuda",
+      "generation_batch_size": 12,
+      "face_selection": "area_x_confidence4_over_vertical_penalty"
+    }
+  },
+  "03.png": {
+    "face_crop_old": [
+      370,
+      221,
+      570,
+      486
+    ],
+    "face_crop_new": [
+      384,
+      240,
+      557,
+      468
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "prompt": "Drumming woman img, rock concert in rain, passionate angry face, black t-shirt",
+      "reference": "validation_refs/holdout_A.jpg",
+      "seed": 0,
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 15,
+      "num_inference_steps": 50,
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "scheduler": "DDIMScheduler",
+      "generator_device": "cuda",
+      "generation_batch_size": 12,
+      "face_selection": "area_x_confidence4_over_vertical_penalty"
+    }
+  },
+  "04.png": {
+    "face_crop_old": [
+      399,
+      227,
+      642,
+      567
+    ],
+    "face_crop_new": [
+      416,
+      250,
+      626,
+      544
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "prompt": "Kickboxing woman img, gym ring, fierce roar face, sweatband",
+      "reference": "validation_refs/holdout_A.jpg",
+      "seed": 0,
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 15,
+      "num_inference_steps": 50,
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "scheduler": "DDIMScheduler",
+      "generator_device": "cuda",
+      "generation_batch_size": 12,
+      "face_selection": "area_x_confidence4_over_vertical_penalty"
+    }
+  },
+  "05.png": {
+    "face_crop_old": [
+      428,
+      154,
+      593,
+      378
+    ],
+    "face_crop_new": [
+      439,
+      169,
+      581,
+      362
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "prompt": "Dancing woman img, neon club, euphoric face, silver jumpsuit",
+      "reference": "validation_refs/holdout_A.jpg",
+      "seed": 0,
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 15,
+      "num_inference_steps": 50,
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "scheduler": "DDIMScheduler",
+      "generator_device": "cuda",
+      "generation_batch_size": 12,
+      "face_selection": "area_x_confidence4_over_vertical_penalty"
+    }
+  },
+  "06.png": {
+    "face_crop_old": [
+      435,
+      180,
+      680,
+      518
+    ],
+    "face_crop_new": [
+      452,
+      204,
+      663,
+      495
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "prompt": "Angry woman img, traffic jam, scowling face, dark suit",
+      "reference": "validation_refs/holdout_A.jpg",
+      "seed": 0,
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 15,
+      "num_inference_steps": 50,
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "scheduler": "DDIMScheduler",
+      "generator_device": "cuda",
+      "generation_batch_size": 12,
+      "face_selection": "area_x_confidence4_over_vertical_penalty"
+    }
+  },
+  "07.png": {
+    "face_crop_old": [
+      287,
+      144,
+      517,
+      441
+    ],
+    "face_crop_new": [
+      303,
+      165,
+      502,
+      421
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "prompt": "Crying woman img, stormy alley, tearful face, ripped jeans",
+      "reference": "validation_refs/holdout_A.jpg",
+      "seed": 0,
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 15,
+      "num_inference_steps": 50,
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "scheduler": "DDIMScheduler",
+      "generator_device": "cuda",
+      "generation_batch_size": 12,
+      "face_selection": "area_x_confidence4_over_vertical_penalty"
+    }
+  },
+  "08.png": {
+    "face_crop_old": [
+      384,
+      306,
+      617,
+      565
+    ],
+    "face_crop_new": [
+      400,
+      324,
+      601,
+      548
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "prompt": "Laughing woman img, carnival wheel, carefree laugh, polka-dot shirt",
+      "reference": "validation_refs/holdout_A.jpg",
+      "seed": 0,
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 15,
+      "num_inference_steps": 50,
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "scheduler": "DDIMScheduler",
+      "generator_device": "cuda",
+      "generation_batch_size": 12,
+      "face_selection": "area_x_confidence4_over_vertical_penalty"
+    }
+  },
+  "09.png": {
+    "face_crop_old": [
+      413,
+      214,
+      553,
+      400
+    ],
+    "face_crop_new": [
+      423,
+      227,
+      544,
+      387
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "prompt": "Jumping woman img, beach sunset, ecstatic face, blue tank top",
+      "reference": "validation_refs/holdout_A.jpg",
+      "seed": 0,
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 15,
+      "num_inference_steps": 50,
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "scheduler": "DDIMScheduler",
+      "generator_device": "cuda",
+      "generation_batch_size": 12,
+      "face_selection": "area_x_confidence4_over_vertical_penalty"
+    }
+  },
+  "10.png": {
+    "face_crop_old": [
+      395,
+      227,
+      636,
+      557
+    ],
+    "face_crop_new": [
+      412,
+      249,
+      619,
+      535
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "prompt": "Night-ride biker woman img, neon city, excited face, reflective vest",
+      "reference": "validation_refs/holdout_A.jpg",
+      "seed": 0,
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 15,
+      "num_inference_steps": 50,
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "scheduler": "DDIMScheduler",
+      "generator_device": "cuda",
+      "generation_batch_size": 12,
+      "face_selection": "area_x_confidence4_over_vertical_penalty"
+    }
+  },
+  "11.png": {
+    "face_crop_old": [
+      220,
+      362,
+      469,
+      670
+    ],
+    "face_crop_new": [
+      238,
+      383,
+      452,
+      648
+    ],
+    "body_crop": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "_meta": {
+      "prompt": "Chef woman img, bustling kitchen, proud grin, tall white toque",
+      "reference": "validation_refs/holdout_A.jpg",
+      "seed": 0,
+      "photomaker_start_step": 10,
+      "branched_attn_start_step": 15,
+      "num_inference_steps": 50,
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "scheduler": "DDIMScheduler",
+      "generator_device": "cuda",
+      "generation_batch_size": 12,
+      "face_selection": "area_x_confidence4_over_vertical_penalty"
+    }
+  }
+}
