@@ -110,3 +110,7 @@ diffusion_template/ppr_NN4_2000step_same_sdxl_reference_vs_noise/
 diffusion_template/ppr_NN4_4000step_realvis_reference_vs_noise/
 diffusion_template/ppr_NN4_4000step_same_sdxl_reference_vs_noise/
 diffusion_template/ppr_NN5a_4000step_realvis_scale1_reference_vs_noise/
+
+# Cosmic Large one-ID: keep metadata/code, exclude image and PDF artifacts.
+dataset_full/cosmic_large_one_id/**/*.jpg
+dataset_full/cosmic_large_one_id/**/*.pdf
