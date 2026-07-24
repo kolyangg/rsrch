@@ -132,8 +132,9 @@ class CosmicLargeOneID(BaseDataset):
             "crop_top_lefts": (0, 0),
             "target_sizes": (1024, 1024),
             "identity_id": record.get("identity_id"),
-            "target_path": target_path,
-            "reference_path": ref_path,
+            "target_path": str(self.images_path / target_path),
+            "reference_path": str(self.images_path / ref_path),
+            "reference_cache_key": f"{self.images_path / ref_path}::raw",
         }
         instance_data = self.preprocess_data(instance_data)
 

@@ -100,6 +100,13 @@ def patch_unet_attention_processors(
             setattr(proc, "ba_weights_split", getattr(pipe, "ba_weights_split"))
         if hasattr(pipe, "force_binary_masks"):
             setattr(proc, "force_binary_masks", bool(getattr(pipe, "force_binary_masks")))
+        # Explicitly reset to False on validation pipelines, which do not
+        # opt in even when they reuse processors from the training U-Net.
+        setattr(
+            proc,
+            "cache_prepared_masks",
+            bool(getattr(pipe, "cache_prepared_masks", False)),
+        )
             
         
 
@@ -565,6 +572,11 @@ def two_branch_predict(
     
     # Extract merged result (first half)
     noise_pred_merged = noise_pred[:batch_size]
+
+    # Training consumes only the merged prediction. Keep the historical
+    # branch tensors available by default for validation/debug callers.
+    if not bool(getattr(pipeline, "compute_branch_debug_outputs", True)):
+        return noise_pred_merged, None, None
     
     USE_SOFT_BLENDING = True
     

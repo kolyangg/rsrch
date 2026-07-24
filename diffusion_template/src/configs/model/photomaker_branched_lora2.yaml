@@ -21,3 +21,10 @@ photomaker_start_step: 10
 merge_start_step: 10
 branched_attn_start_step: 15
 num_inference_steps: 50
+# Runtime optimizations default to legacy behavior. Experiments opt in after
+# validating that their reference preprocessing is deterministic.
+skip_unused_text_conditioning: false
+conditioning_cache_enabled: false
+conditioning_cache_max_entries: 512
+cache_prepared_masks: false
+compute_branch_debug_outputs: true

@@ -120,6 +120,9 @@ class BranchedAttnProcessor(nn.Module):
         
         # If True: keep masks strictly binary after resize (avoids soft boundary blending)
         self.force_binary_masks: bool = True # False
+        # Opt-in per-forward memoization. The cache lives on the injected mask
+        # tensor, so it cannot leak across samples or training steps.
+        self.cache_prepared_masks: bool = False
         # Let diffusers know we accept cross_attention_kwargs to silence warnings
         self.has_cross_attention_kwargs = True
 
@@ -412,6 +415,18 @@ class BranchedAttnProcessor(nn.Module):
     
     def _prepare_mask(self, mask: torch.Tensor, target_len: int, batch_size: int) -> torch.Tensor:
         """Prepare mask for attention ops — always resize in 2-D (no 1-D raster)."""
+        cache_key = (
+            int(target_len),
+            int(batch_size),
+            bool(getattr(self, "force_binary_masks", False)),
+            str(mask.device),
+            str(mask.dtype),
+        )
+        if getattr(self, "cache_prepared_masks", False):
+            prepared_cache = getattr(mask, "_ba_prepared_mask_cache", None)
+            if prepared_cache is not None and cache_key in prepared_cache:
+                return prepared_cache[cache_key]
+
         H = int(math.sqrt(target_len))
         W = H
         assert H * W == target_len, f"seq_len {target_len} is not square"
@@ -440,7 +455,14 @@ class BranchedAttnProcessor(nn.Module):
             m = m.repeat(reps, 1, 1)[:batch_size]
             
         # Reshape for multi-head attention [B, 1, L, 1]
-        return m.view(batch_size, 1, target_len, 1)
+        result = m.view(batch_size, 1, target_len, 1)
+        if getattr(self, "cache_prepared_masks", False):
+            prepared_cache = getattr(mask, "_ba_prepared_mask_cache", None)
+            if prepared_cache is None:
+                prepared_cache = {}
+                mask._ba_prepared_mask_cache = prepared_cache
+            prepared_cache[cache_key] = result
+        return result
     
     
     def _standard_cross_attention(self, attn, hidden_states, encoder_hidden_states, 

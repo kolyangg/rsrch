@@ -44,7 +44,9 @@ class BaseTrainer:
         from_pretrained,
         save_period,
         save_dir,
-        seed
+        seed,
+        post_backward_parameter_touch=True,
+        grad_norm_log_only=False,
     ):
         """
         Args:
@@ -112,6 +114,8 @@ class BaseTrainer:
         self.max_grad_norm = max_grad_norm
         self.device_tensors = device_tensors
         self.cfg_step = cfg_step
+        self.post_backward_parameter_touch = bool(post_backward_parameter_touch)
+        self.grad_norm_log_only = bool(grad_norm_log_only)
         
 
         # define metrics
@@ -296,29 +300,37 @@ class BaseTrainer:
             # except Exception:
             #     pass
             
-            # Version-agnostic: touch the actual registered params by name
-            try:
-                unwrapped = self.accelerator.unwrap_model(self.model)
-            except Exception:
-                unwrapped = self.model
-            extra = None
-            for pname, p in unwrapped.named_parameters():
-                if p.requires_grad and (".attn1.processor." in pname or ".attn2.processor." in pname):
-                    term = p.reshape(-1)[:1].sum().to(torch.float32) * 0.0
-                    extra = term if extra is None else (extra + term)
-            if extra is not None:
-                batch["loss"] = batch["loss"] + extra.to(batch["loss"].dtype)
+            if self.post_backward_parameter_touch:
+                # Legacy diagnostic only. This executes after backward and
+                # therefore cannot make parameters participate in the current
+                # DDP reduction.
+                try:
+                    unwrapped = self.accelerator.unwrap_model(self.model)
+                except Exception:
+                    unwrapped = self.model
+                extra = None
+                for pname, p in unwrapped.named_parameters():
+                    if p.requires_grad and (
+                        ".attn1.processor." in pname
+                        or ".attn2.processor." in pname
+                    ):
+                        term = p.reshape(-1)[:1].sum().to(torch.float32) * 0.0
+                        extra = term if extra is None else (extra + term)
+                if extra is not None:
+                    batch["loss"] = batch["loss"] + extra.to(batch["loss"].dtype)
             
             
             # --- end DDP safety ---
             ### Modified to fix accelerate error after adding training of attn processors ###
 
-            grad_norms = self._get_grad_norms()
-            for part_name, part_norm in grad_norms.items():
-                self.train_metrics.update(f"grad_norm/{part_name}", part_norm)
+            should_log = batch_idx % self.log_step == 0
+            if not self.grad_norm_log_only or should_log:
+                grad_norms = self._get_grad_norms()
+                for part_name, part_norm in grad_norms.items():
+                    self.train_metrics.update(f"grad_norm/{part_name}", part_norm)
             
             # log current results
-            if batch_idx % self.log_step == 0:
+            if should_log:
                 if self.accelerator.is_main_process:
                     self.writer.set_step((epoch - 1) * self.epoch_len + batch_idx)
                     self.logger.debug(
@@ -381,6 +393,12 @@ class BaseTrainer:
         """
         self.is_train = False
         self.evaluation_metrics.reset()
+        try:
+            unwrapped = self.accelerator.unwrap_model(self.model)
+        except Exception:
+            unwrapped = self.model
+        if hasattr(unwrapped, "clear_runtime_caches"):
+            unwrapped.clear_runtime_caches()
         torch.cuda.empty_cache()
 
         for metric in self.metrics:

@@ -72,6 +72,11 @@ class PhotomakerBranchedLora(SDXL):
         merge_start_step: int = 10,
         branched_attn_start_step: int = 15,
         num_inference_steps: int = 50,
+        skip_unused_text_conditioning: bool = False,
+        conditioning_cache_enabled: bool = False,
+        conditioning_cache_max_entries: int = 512,
+        cache_prepared_masks: bool = False,
+        compute_branch_debug_outputs: bool = True,
         ##### BRANCHED ATTENTION - NEW PARAMS 1 #####
     ):
         """NEW PARAMS 1: define BA training controls (strategy, processor variant, ID mixing, and BA-only toggles)."""
@@ -169,6 +174,11 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_patch_top_k = float(ba_patch_top_k)
         self.non_ba_train = bool(non_ba_train)
         self.train_ba_all_steps = bool(train_ba_all_steps)
+        self.skip_unused_text_conditioning = bool(skip_unused_text_conditioning)
+        self.conditioning_cache_enabled = bool(conditioning_cache_enabled)
+        self.conditioning_cache_max_entries = max(0, int(conditioning_cache_max_entries))
+        self.cache_prepared_masks = bool(cache_prepared_masks)
+        self.compute_branch_debug_outputs = bool(compute_branch_debug_outputs)
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 
         photomaker_lora_config = LoraConfig(
@@ -307,6 +317,7 @@ class PhotomakerBranchedLora(SDXL):
         crop_top_lefts: Sequence[Sequence[int]],
         face_bbox: Sequence[Sequence[float]],
         face_bbox_ref: Sequence[Sequence[float]] | None = None,
+        reference_cache_key: Sequence[str] | None = None,
         do_cfg: bool = False,
         *args,
         **kwargs,
@@ -331,9 +342,6 @@ class PhotomakerBranchedLora(SDXL):
             device=latents.device,
         ).long()
         timesteps = t_scalar.repeat(batch_size)
-        denoise_progress = 1.0 - (
-            float(t_scalar.item()) / float(self.noise_scheduler.config.num_train_timesteps - 1)
-        )
 
         # Add noise to the model input according to the noise magnitude at each timestep
         # (this is the forward diffusion process)
@@ -361,6 +369,7 @@ class PhotomakerBranchedLora(SDXL):
             ref_images=ref_images,
             face_bbox=face_bbox,
             face_bbox_ref=face_bbox_ref,
+            reference_cache_keys=reference_cache_key,
             pixel_values=pixel_values,
             noisy_latents=noisy_latents,
         )
@@ -379,30 +388,6 @@ class PhotomakerBranchedLora(SDXL):
             "time_ids": add_time_ids.to(device=self.device, dtype=self.unet.dtype),
         }
 
-        num_inference_steps = max(1, self.num_inference_steps)
-        photomaker_start_ratio = float(self.photomaker_start_step) / float(num_inference_steps)
-        branched_start_ratio = float(self.branched_attn_start_step) / float(num_inference_steps)
-
-        text_only_prompts = []
-        trigger_word_token = self.tokenizer.convert_tokens_to_ids(self.trigger_word)
-        for prompt in prompts:
-            tokens_text_only = self.tokenizer.encode(prompt, add_special_tokens=False)
-            if trigger_word_token in tokens_text_only:
-                tokens_text_only.remove(trigger_word_token)
-            text_only_prompts.append(
-                self.tokenizer.decode(tokens_text_only, add_special_tokens=False)
-            )
-
-        prompt_embeds_text_only, pooled_prompt_embeds_text_only = self.encode_prompt(
-            prompt=text_only_prompts,
-            do_cfg=False,
-        )
-
-        prompt_embeds_text_only = prompt_embeds_text_only.to(device=self.device, dtype=self.unet.dtype)
-        pooled_prompt_embeds_text_only = pooled_prompt_embeds_text_only.to(
-            device=self.device, dtype=self.unet.dtype
-        )
-
         ### MEMO: INITIAL LORA UNet pass ###
         # model_pred = self.unet(
         #     noisy_model_input,
@@ -412,6 +397,41 @@ class PhotomakerBranchedLora(SDXL):
         #     return_dict=False,
         # )[0]
         ### MEMO: INITIAL LORA UNet pass ###
+
+        skip_text_only = self.train_ba_all_steps and self.skip_unused_text_conditioning
+        if not skip_text_only:
+            num_inference_steps = max(1, self.num_inference_steps)
+            photomaker_start_ratio = float(self.photomaker_start_step) / float(
+                num_inference_steps
+            )
+            branched_start_ratio = float(self.branched_attn_start_step) / float(
+                num_inference_steps
+            )
+            denoise_progress = 1.0 - (
+                float(t_scalar.item())
+                / float(self.noise_scheduler.config.num_train_timesteps - 1)
+            )
+
+            text_only_prompts = []
+            trigger_word_token = self.tokenizer.convert_tokens_to_ids(self.trigger_word)
+            for prompt in prompts:
+                tokens_text_only = self.tokenizer.encode(prompt, add_special_tokens=False)
+                if trigger_word_token in tokens_text_only:
+                    tokens_text_only.remove(trigger_word_token)
+                text_only_prompts.append(
+                    self.tokenizer.decode(tokens_text_only, add_special_tokens=False)
+                )
+
+            prompt_embeds_text_only, pooled_prompt_embeds_text_only = self.encode_prompt(
+                prompt=text_only_prompts,
+                do_cfg=False,
+            )
+            prompt_embeds_text_only = prompt_embeds_text_only.to(
+                device=self.device, dtype=self.unet.dtype
+            )
+            pooled_prompt_embeds_text_only = pooled_prompt_embeds_text_only.to(
+                device=self.device, dtype=self.unet.dtype
+            )
 
         if self.train_ba_all_steps:
             noise_pred = run_branched_forward_pass(
@@ -679,4 +699,9 @@ class PhotomakerBranchedLora(SDXL):
 
     def ensure_branched_after_eval(self):
         ensure_branched_after_eval_helper(self)
+
+    def clear_runtime_caches(self):
+        cache = getattr(self, "_conditioning_cache", None)
+        if cache is not None:
+            cache.clear()
     ##### BRANCHED ATTENTION - HELPER UTILS #####

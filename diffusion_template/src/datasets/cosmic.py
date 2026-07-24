@@ -203,7 +203,8 @@ class OneIDTrain(BaseDataset):
         
         ### 01 FEB ###
         bbox = deepcopy(img_data["face_crop"])
-        if random.random() < 0.5:
+        target_flipped = random.random() < 0.5
+        if target_flipped:
             w, _ = img.size
             img = ImageOps.mirror(img)
             x0, y0, x1, y1 = bbox
@@ -214,16 +215,24 @@ class OneIDTrain(BaseDataset):
         if self.train_on_separate_image and len(self.ids) > 1:
             ref_ind = random.choice([i for i in range(len(self.ids)) if i != ind])
             ref_path = self.ids[ref_ind]
+            ref_transform = "raw"
             ref_data = self._index[ref_ind]
             ref_img = Image.open(f"{self.images_path}/{ref_path}").convert("RGB")
             ref_images = [ref_img]
             instance_data["face_bbox_ref"] = deepcopy(ref_data["face_crop"])
         else:
+            ref_path = path
+            ref_transform = f"hflip={int(target_flipped)}"
             instance_data["face_bbox_ref"] = deepcopy(bbox)
             ref_images = [deepcopy(img)]
         ### 01 FEB ###
         
         instance_data["ref_images"] = ref_images
+        instance_data["target_path"] = f"{self.images_path}/{path}"
+        instance_data["reference_path"] = f"{self.images_path}/{ref_path}"
+        instance_data["reference_cache_key"] = (
+            f"{self.images_path}/{ref_path}::{ref_transform}"
+        )
 
         text = img_data.get("text", "")
         prompt = text if isinstance(text, str) and text else "img person"

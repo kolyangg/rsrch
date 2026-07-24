@@ -18,25 +18,28 @@ fi
 
 EXPECTED_CODE_COMMIT="aede146e2e2a2dae1cb3d14a0ea5daed25ae9604"
 # Dataset/dataloader registries are intentionally excluded because this branch
-# adds isolated entries for new datasets; the historical model/runtime remains
-# hash-locked below.
+# adds isolated entries for new datasets. Unmodified architecture files remain
+# locked to the historical commit; the audited runtime patch is hash-locked
+# separately below.
 HISTORICAL_RUNTIME_FILES=(
   "train.py"
   "src/configs/one_id_09Feb_testing.yaml"
-  "src/configs/model/photomaker_branched_lora2.yaml"
   "src/configs/pipeline/pm_br_09Feb_testing.yaml"
   "src/configs/trainer/photomaker_lora.yaml"
-  "src/datasets/cosmic.py"
   "src/datasets/manual_val.py"
   "src/loss/diffusion_loss.py"
-  "src/model/photomaker_branched/attn_processor_cleanest.py"
-  "src/model/photomaker_branched/branched_runtime.py"
-  "src/model/photomaker_branched/lora2.py"
-  "src/model/photomaker_branched/lora2_helpers.py"
   "src/pipelines/br_pipeline_helpers.py"
   "src/pipelines/photomaker_branched_clean.py"
-  "src/trainer/base_trainer.py"
   "src/trainer/sdxl_trainers.py"
+)
+declare -A AUDITED_RUNTIME_SHA256=(
+  ["src/configs/model/photomaker_branched_lora2.yaml"]="5c894c48a646ad4b7548ca71f0f29809a27c2cd1683a87081e73039772c1e6c5"
+  ["src/datasets/cosmic.py"]="660d069a9f77ac1b7e0cb06fce245a342428159d9f05c49db32140bbd1a2467e"
+  ["src/model/photomaker_branched/attn_processor_cleanest.py"]="4bb4f0f483faac5cd4f446ecae7e16bcb8560e1fdacdceb561930582544be76d"
+  ["src/model/photomaker_branched/branched_runtime.py"]="1102412fa1d2a545066e4793265f43c7c6216b01f6f1cbe3d86bf6400b666ff3"
+  ["src/model/photomaker_branched/lora2.py"]="b3645c0cb7dbb36fc1495e019d8ca06b4a4a93af8324625b3fd3aea2f8b400ab"
+  ["src/model/photomaker_branched/lora2_helpers.py"]="b18465db606f4af3b84d49dfc3586cc2f5e2b1591bc7c9b738b2e40950ad1c8a"
+  ["src/trainer/base_trainer.py"]="188d5cd6a1c4fc72cee686a5a028e8fc3ba28f8d311e91bc561e2b0e00b94cbb"
 )
 
 GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
@@ -54,7 +57,14 @@ for relative_path in "${HISTORICAL_RUNTIME_FILES[@]}"; do
     exit 4
   fi
 done
-echo "Historical runtime verified: ${EXPECTED_CODE_COMMIT}"
+for relative_path in "${!AUDITED_RUNTIME_SHA256[@]}"; do
+  actual_sha256="$(sha256sum "${ROOT_DIR}/${relative_path}" | awk '{print $1}')"
+  if [[ "${actual_sha256}" != "${AUDITED_RUNTIME_SHA256[${relative_path}]}" ]]; then
+    echo "Audited runtime-patch integrity check failed: ${relative_path}" >&2
+    exit 4
+  fi
+done
+echo "Historical architecture and audited runtime patch verified"
 
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
@@ -128,6 +138,6 @@ accelerate launch \
   "--config-name=${CONFIG_NAME}" \
   "writer=${WRITER}" \
   "writer.run_name=${RUN_NAME}" \
-  "writer.project_name=${COMET_PROJECT}" \
+  "++writer.project_name=${COMET_PROJECT}" \
   "${MODEL_OVERRIDES[@]}" \
   "$@"

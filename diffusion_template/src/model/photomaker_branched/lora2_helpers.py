@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from typing import Sequence
 
 import numpy as np
@@ -126,6 +127,7 @@ def prepare_branched_training_inputs(
     ref_images: Sequence[Sequence],
     face_bbox: Sequence[Sequence[float]],
     face_bbox_ref: Sequence[Sequence[float]] | None = None,
+    reference_cache_keys: Sequence[str] | None = None,
     pixel_values: torch.Tensor,
     noisy_latents: torch.Tensor,
 ):
@@ -144,54 +146,34 @@ def prepare_branched_training_inputs(
 
     image_h, image_w = pixel_values.shape[-2:]
     latent_h, latent_w = noisy_latents.shape[-2:]
+    cache_enabled = bool(getattr(model, "conditioning_cache_enabled", False))
+    cache_limit = max(0, int(getattr(model, "conditioning_cache_max_entries", 0)))
+    cache = getattr(model, "_conditioning_cache", None)
+    if cache_enabled and cache_limit > 0 and cache is None:
+        cache = OrderedDict()
+        model._conditioning_cache = cache
+
+    def reference_key(sample_index: int, refs) -> tuple[str, ...] | None:
+        # Cache only when the dataset explicitly identifies the transformed
+        # reference content. A path alone is unsafe for augmented references.
+        if not cache_enabled or cache_limit <= 0 or reference_cache_keys is None:
+            return None
+        if isinstance(reference_cache_keys, str):
+            value = reference_cache_keys if sample_index == 0 else None
+        elif sample_index < len(reference_cache_keys):
+            value = reference_cache_keys[sample_index]
+        else:
+            value = None
+        if value is None:
+            return None
+        values = value if isinstance(value, (list, tuple)) else [value]
+        if len(values) != len(refs):
+            return None
+        return tuple(str(path) for path in values)
 
     for i, (prompt, refs, bbox) in enumerate(zip(prompts, ref_images, face_bbox)):
         refs = refs if isinstance(refs, (list, tuple)) else [refs]
         ref0 = refs[0]
-
-        prompt_embeds, pooled_prompt_embeds, class_tokens_mask = model.encode_prompt_with_trigger_word(
-            prompt=prompt,
-            num_id_images=len(refs),
-            do_cfg=False,
-        )
-
-        with torch.no_grad():
-            id_pixel_values = model.id_image_processor(refs, return_tensors="pt").pixel_values.unsqueeze(0)
-            id_pixel_values = id_pixel_values.to(model.device, dtype=model.id_encoder.dtype)
-
-            prompt_for_id = prompt_embeds.to(dtype=model.id_encoder.dtype)
-            id_embed_list = []
-            for ref in refs:
-                img_np = np.array(ref.convert("RGB"))[:, :, ::-1]
-                faces = analyze_faces(model.face_analyzer, img_np)
-                if faces:
-                    embedding = torch.from_numpy(faces[0]["embedding"]).float()
-                else:
-                    embedding = torch.zeros(512, dtype=torch.float32)
-                id_embed_list.append(embedding)
-
-            id_embeds = torch.stack(id_embed_list, dim=0).unsqueeze(0)
-            id_embeds = id_embeds.to(device=model.device, dtype=model.id_encoder.dtype)
-
-            prompt_embeds = model.id_encoder(
-                id_pixel_values,
-                prompt_for_id,
-                class_tokens_mask,
-                id_embeds,
-            )
-
-            reference_latent = model._encode_reference_latent(ref0, target_shape=(latent_h, latent_w))
-
-            if model.face_embed_strategy == "id_embeds":
-                pm_features = model.id_encoder.extract_id_features(
-                    id_pixel_values.to(device=model.device, dtype=model.id_encoder.dtype),
-                    id_embeds=id_embeds,
-                    class_tokens_mask=class_tokens_mask,
-                )
-                pm_feature_list.append(pm_features.to(device=model.device, dtype=model.unet.dtype))
-
-        class_tokens_mask_list.append(class_tokens_mask)
-        ref_latents_list.append(reference_latent)
         ref_bbox = None if face_bbox_ref is None else face_bbox_ref[i]
         if ref_bbox is None:
             raise ValueError("Training batch is missing face_bbox_ref for reference masking")
@@ -201,20 +183,124 @@ def prepare_branched_training_inputs(
         else:
             ref_w, ref_h = ref0.size
 
-        ref_mask_list.append(
-            model._bbox_to_ref_mask(
+        paths = reference_key(i, refs)
+        cache_key = None
+        cached = None
+        if paths is not None:
+            cache_key = (
+                str(prompt),
+                paths,
+                tuple(float(v) for v in bbox),
+                tuple(float(v) for v in ref_bbox),
+                (int(image_h), int(image_w)),
+                (int(ref_h), int(ref_w)),
+                (int(latent_h), int(latent_w)),
+                str(model.face_embed_strategy),
+                str(model.unet.dtype),
+            )
+            cached = cache.get(cache_key)
+            if cached is not None:
+                cache.move_to_end(cache_key)
+                model._conditioning_cache_hits = (
+                    int(getattr(model, "_conditioning_cache_hits", 0)) + 1
+                )
+
+        if cached is None:
+            prompt_embeds, pooled_prompt_embeds, class_tokens_mask = (
+                model.encode_prompt_with_trigger_word(
+                    prompt=prompt,
+                    num_id_images=len(refs),
+                    do_cfg=False,
+                )
+            )
+
+            with torch.no_grad():
+                id_pixel_values = model.id_image_processor(
+                    refs, return_tensors="pt"
+                ).pixel_values.unsqueeze(0)
+                id_pixel_values = id_pixel_values.to(
+                    model.device, dtype=model.id_encoder.dtype
+                )
+
+                prompt_for_id = prompt_embeds.to(dtype=model.id_encoder.dtype)
+                id_embed_list = []
+                for ref in refs:
+                    img_np = np.array(ref.convert("RGB"))[:, :, ::-1]
+                    faces = analyze_faces(model.face_analyzer, img_np)
+                    if faces:
+                        embedding = torch.from_numpy(faces[0]["embedding"]).float()
+                    else:
+                        embedding = torch.zeros(512, dtype=torch.float32)
+                    id_embed_list.append(embedding)
+
+                id_embeds = torch.stack(id_embed_list, dim=0).unsqueeze(0)
+                id_embeds = id_embeds.to(
+                    device=model.device, dtype=model.id_encoder.dtype
+                )
+
+                prompt_embeds = model.id_encoder(
+                    id_pixel_values,
+                    prompt_for_id,
+                    class_tokens_mask,
+                    id_embeds,
+                )
+                reference_latent = model._encode_reference_latent(
+                    ref0, target_shape=(latent_h, latent_w)
+                )
+
+                pm_features = None
+                if model.face_embed_strategy == "id_embeds":
+                    pm_features = model.id_encoder.extract_id_features(
+                        id_pixel_values,
+                        id_embeds=id_embeds,
+                        class_tokens_mask=class_tokens_mask,
+                    ).to(device=model.device, dtype=model.unet.dtype)
+
+            ref_mask = model._bbox_to_ref_mask(
                 ref_bbox,
                 latent_shape=(latent_h, latent_w),
                 image_shape=(ref_h, ref_w),
             )
-        )
-        mask_list.append(
-            model._bbox_to_mask(
+            target_mask = model._bbox_to_mask(
                 bbox,
                 latent_shape=(latent_h, latent_w),
                 image_shape=(image_h, image_w),
             )
-        )
+
+            if cache_key is not None:
+                cached = (
+                    prompt_embeds.detach(),
+                    pooled_prompt_embeds.detach(),
+                    class_tokens_mask.detach(),
+                    reference_latent.detach(),
+                    None if pm_features is None else pm_features.detach(),
+                    target_mask.detach(),
+                    ref_mask.detach(),
+                )
+                cache[cache_key] = cached
+                cache.move_to_end(cache_key)
+                while len(cache) > cache_limit:
+                    cache.popitem(last=False)
+                model._conditioning_cache_misses = (
+                    int(getattr(model, "_conditioning_cache_misses", 0)) + 1
+                )
+        else:
+            (
+                prompt_embeds,
+                pooled_prompt_embeds,
+                class_tokens_mask,
+                reference_latent,
+                pm_features,
+                target_mask,
+                ref_mask,
+            ) = cached
+
+        class_tokens_mask_list.append(class_tokens_mask)
+        ref_latents_list.append(reference_latent)
+        ref_mask_list.append(ref_mask)
+        mask_list.append(target_mask)
+        if pm_features is not None:
+            pm_feature_list.append(pm_features)
         prompt_embeds_list.append(prompt_embeds)
         pooled_prompt_embeds_list.append(pooled_prompt_embeds)
 

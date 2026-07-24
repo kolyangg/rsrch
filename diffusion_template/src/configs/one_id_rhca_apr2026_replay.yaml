@@ -25,6 +25,13 @@ model:
   rank: 32
   weight_dtype: bf16
   train_branched_ca_lora: ${train_branched_ca_lora}
+  # These datasets emit reference cache keys that include reference-side
+  # augmentation state. Target VAE posterior sampling remains per step.
+  skip_unused_text_conditioning: true
+  conditioning_cache_enabled: true
+  conditioning_cache_max_entries: 512
+  cache_prepared_masks: true
+  compute_branch_debug_outputs: false
 
 pipeline:
   variant: null
@@ -36,6 +43,8 @@ trainer:
   epoch_len: 500
   n_epochs: 8
   masked_loss_step: 2
+  post_backward_parameter_touch: false
+  grad_norm_log_only: true
 
 dataloaders:
   train:
