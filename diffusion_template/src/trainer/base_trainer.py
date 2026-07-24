@@ -813,7 +813,14 @@ class BaseTrainer:
         resume_path = str(resume_path)
         if self.accelerator.is_main_process:
             self.logger.info(f"Loading checkpoint: {resume_path} ...")
-        checkpoint = torch.load(resume_path, self.device)
+        # Full training checkpoints include optimizer state and an OmegaConf
+        # DictConfig, so PyTorch 2.6+'s weights-only default cannot load them.
+        # Resume paths are trusted, locally produced experiment artifacts.
+        checkpoint = torch.load(
+            resume_path,
+            map_location=self.device,
+            weights_only=False,
+        )
         self.start_epoch = checkpoint["epoch"] + 1
 
         # load architecture params from checkpoint.
@@ -861,7 +868,11 @@ class BaseTrainer:
                 self.logger.info(f"Loading model weights from: {pretrained_path} ...")
         else:
             print(f"Loading model weights from: {pretrained_path} ...")
-        checkpoint = torch.load(pretrained_path, self.device)
+        checkpoint = torch.load(
+            pretrained_path,
+            map_location=self.device,
+            weights_only=False,
+        )
 
         if checkpoint.get("state_dict") is not None:
             self.accelerator.unwrap_model(self.model).load_state_dict_(checkpoint["state_dict"])
