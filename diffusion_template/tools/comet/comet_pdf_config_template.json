@@ -1,0 +1,28 @@
+{
+  "export_json": "../../comet_data/comet_runs_export.json",
+  "output_format": "pdf",
+  "max_columns": 6,
+  "max_rows": 4,
+  "ignore_mask": true,
+  "image_dpi_percent": null,
+  "run_name_max_chars_per_line": 16,
+  "key_metrics": [
+    "one_id_val/id_sim",
+    "one_id_val/text_sim"
+  ],
+  "key_hyperparameters": [
+    "step_shown",
+    "model.weight_dtype",
+    "model.rank",
+    "dataloaders.train.batch_size",
+    "branched_attn_weight_mode",
+    "branched_attn_new_weight_kind",
+    "train_branched_ca_lora",
+    "lr_for_lora",
+    "loss_kind",
+    "lambda_face",
+    "strict_face_routing",
+    "trainer.masked_loss_step"
+  ],
+  "runs": []
+}

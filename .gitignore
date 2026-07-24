@@ -1,15 +1,13 @@
 DreamMatcher/
 InfiniteYou/
 
-compare/results/PM/
-compare/results/PL/
-compare/results
+_other_models/compare/results/
 
 # all pdf files in testing
-compare/testing/*.pdf
-compare/testing/_old_res
+_other_models/compare/testing/*.pdf
+_other_models/compare/testing/_old_res
 
-PhotoMaker_backup_before_git_fix/
+_other_models/PhotoMaker_backup_before_git_fix/
 .git_bad_1757534238/
 .git_bad_1757534580/
 .git_bad_1757534783/
@@ -24,6 +22,10 @@ dataset_full/large_dataset_adj.tar
 diffusion_template-main.zip
 
 diffusion_template/hm_debug/
+diffusion_template/hm_debug*/
+diffusion_template/logs/
+diffusion_template/runs/
+diffusion_template/artifacts/runtime/
 
 dataset_full/val_dataset/pm_generated20/
 
