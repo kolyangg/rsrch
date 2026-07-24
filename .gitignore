@@ -119,3 +119,6 @@ dataset_full/cosmic_large_one_id/**/*.pdf
 
 # Local machine access and operations notes (contains server connection details).
 diffusion_template/LOCAL_NEB_SERVER_OPERATIONS.md
+
+# Local SSH/server instructions, job helper, and per-job audit records.
+/local_scripts/
