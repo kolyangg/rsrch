@@ -10,6 +10,12 @@ one_id:
   num_workers: 1
   pin_memory: False
 
+cosmic_large_one_id:
+  _target_: torch.utils.data.DataLoader
+  batch_size: 1
+  num_workers: 1
+  pin_memory: False
+
 
 val_default:
     _target_: torch.utils.data.DataLoader
@@ -29,3 +35,8 @@ one_id_val:
   num_workers: 1
   pin_memory: False
 
+cosmic_large_one_id_val:
+  _target_: torch.utils.data.DataLoader
+  batch_size: 1
+  num_workers: 1
+  pin_memory: False

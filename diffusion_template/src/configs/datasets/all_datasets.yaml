@@ -35,6 +35,14 @@ train:
         num_refs: 1
         train_on_separate_image: ${train_on_separate_image}
         instance_transforms: ${transforms.instance_transforms.train}
+
+    cosmic_large_one_id:
+        _target_: src.datasets.cosmic_large_one_id.CosmicLargeOneID
+        data_json_path: ../dataset_full/cosmic_large_one_id/train.json
+        images_path: ../dataset_full/cosmic_large_one_id
+        num_refs: 1
+        random_horizontal_flip: true
+        instance_transforms: ${transforms.instance_transforms.train}
         
 
 val:
@@ -87,4 +95,14 @@ val:
       seeds: [0]
       # limit: 96 # 10 # 1
       limit: 12 # 10 # 1
+
+    cosmic_large_one_id_val:
+      _target_: src.datasets.manual_val.ManualPhotoMakerValDataset
+      images_dir: ../dataset_full/cosmic_large_one_id/validation_refs
+      prompts_path: ../dataset_full/cosmic_large_one_id/validation_prompts.txt
+      classes_json_path: ../dataset_full/cosmic_large_one_id/classes_ref.json
+      bbox_mask_ref: ../dataset_full/cosmic_large_one_id/reference_bboxes.json
+      bbox_mask_gen: ../dataset_full/cosmic_large_one_id/photomaker_generated_bboxes.json
+      seeds: [0]
+      limit: 12
   
