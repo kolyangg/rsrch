@@ -1,0 +1,35 @@
+{
+  "name": "libstdcxx-ng",
+  "version": "13.4.0",
+  "build": "hdf11a46_19",
+  "build_number": 19,
+  "channel": "https://conda.anaconda.org/conda-forge/linux-64",
+  "subdir": "linux-64",
+  "fn": "libstdcxx-ng-13.4.0-hdf11a46_19.conda",
+  "md5": "897c0c76986ce8312e0904c303b9a015",
+  "url": "https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-ng-13.4.0-hdf11a46_19.conda",
+  "sha256": "14c8f546f15511d8ac95c760d8ac283cbcb3b248f73f76eec842ea68c7dce640",
+  "depends": [
+    "libstdcxx 13.4.0 h934c35e_19"
+  ],
+  "constrains": [],
+  "license": "GPL-3.0-only WITH GCC-exception-3.1",
+  "license_family": "GPL",
+  "timestamp": 1778268424644,
+  "size": 27824,
+  "requested_spec": "libstdcxx-ng=13",
+  "package_tarball_full_path": "/home/niko/miniconda3/pkgs/libstdcxx-ng-13.4.0-hdf11a46_19.conda",
+  "extracted_package_dir": "/home/niko/miniconda3/pkgs/libstdcxx-ng-13.4.0-hdf11a46_19",
+  "files": [],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": []
+  },
+  "link": {
+    "source": "/home/niko/miniconda3/pkgs/libstdcxx-ng-13.4.0-hdf11a46_19",
+    "type": 1
+  },
+  "requested_specs": [
+    "libstdcxx-ng=13"
+  ]
+}

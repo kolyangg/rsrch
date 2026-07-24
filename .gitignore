@@ -61,3 +61,53 @@ diffusion_template/ppr_8k_scale_sweep
 diffusion_template/ppr_8k_neutral_reference_ca
 
 diffusion_template/rsrch_21Jul_test
+
+diffusion_template/Jul_new_exp/22Jul_debug/experiments
+
+# 22/23 July research labs: keep source, configs, manifests summarized outside
+# run folders, Markdown findings, and CSV/JSON result tables. Exclude
+# regenerable/heavy runtime artifacts from Git.
+diffusion_template/Jul_new_exp/22Jul_debug/experiments/
+diffusion_template/Jul_new_exp/22Jul_debug/dry_runs/
+diffusion_template/Jul_new_exp/22Jul_debug/smoke_tests/
+diffusion_template/Jul_new_exp/22Jul_debug/visual_reports/
+diffusion_template/Jul_new_exp/22Jul_debug/scheduler/
+diffusion_template/Jul_new_exp/23Jul_debug/experiments/
+diffusion_template/Jul_new_exp/23Jul_debug/experiments_4k/
+diffusion_template/Jul_new_exp/23Jul_debug/dry_runs/
+diffusion_template/Jul_new_exp/23Jul_debug/smoke_tests/
+diffusion_template/Jul_new_exp/23Jul_debug/visual_reports/
+diffusion_template/Jul_new_exp/23Jul_debug/visual_reports_4k/
+diffusion_template/Jul_new_exp/23Jul_debug/scheduler/
+diffusion_template/Jul_new_exp/23Jul_debug/scheduler_4k/
+
+diffusion_template/Jul_new_exp/22Jul_debug/**/*.png
+diffusion_template/Jul_new_exp/22Jul_debug/**/*.jpg
+diffusion_template/Jul_new_exp/22Jul_debug/**/*.jpeg
+diffusion_template/Jul_new_exp/22Jul_debug/**/*.pdf
+diffusion_template/Jul_new_exp/22Jul_debug/**/*.pth
+diffusion_template/Jul_new_exp/22Jul_debug/**/*.pt
+diffusion_template/Jul_new_exp/22Jul_debug/**/*.npy
+diffusion_template/Jul_new_exp/22Jul_debug/**/*.npz
+diffusion_template/Jul_new_exp/22Jul_debug/**/*.log
+diffusion_template/Jul_new_exp/23Jul_debug/**/*.png
+diffusion_template/Jul_new_exp/23Jul_debug/**/*.jpg
+diffusion_template/Jul_new_exp/23Jul_debug/**/*.jpeg
+diffusion_template/Jul_new_exp/23Jul_debug/**/*.pdf
+diffusion_template/Jul_new_exp/23Jul_debug/**/*.pth
+diffusion_template/Jul_new_exp/23Jul_debug/**/*.pt
+diffusion_template/Jul_new_exp/23Jul_debug/**/*.npy
+diffusion_template/Jul_new_exp/23Jul_debug/**/*.npz
+diffusion_template/Jul_new_exp/23Jul_debug/**/*.log
+
+diffusion_template/ppr_6k_diagnostic
+diffusion_template/ppr_8k_diagnostic
+
+
+diffusion_template/debug_nn7_branch_notebook/
+diffusion_template/ppr_NN4_2000step_realvis_reference_vs_noise/
+diffusion_template/ppr_NN4_2000step_same_sdxl_reference_vs_noise/
+diffusion_template/ppr_NN4_4000step_realvis_reference_vs_noise/
+diffusion_template/ppr_NN4_4000step_same_sdxl_reference_vs_noise/
+diffusion_template/ppr_NN5a_4000step_realvis_scale1_reference_vs_noise/
+

@@ -1,0 +1,75 @@
+[
+  {
+    "experiment_id": "n3a_core68_plus_cfg_refnoise_pair_div8",
+    "family": "legacy_spatial_ba",
+    "role": "one_newer_addition_to_n3a",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Canonical N3a core 0.68 plus exactly one newer correctness control: identical reference noise across CFG unconditional/conditional branches.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.68,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core",
+      "model.ba_cfg_reference_noise_pairing": true
+    }
+  },
+  {
+    "experiment_id": "n3a_core68_plus_zero_reftext_div8",
+    "family": "legacy_spatial_ba",
+    "role": "one_newer_addition_to_n3a",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Canonical N3a core 0.68 plus neutral reference-half token text, isolating visual spatial memory from prompt/text leakage.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.68,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core",
+      "model.ba_reference_token_text_mode": "zero"
+    }
+  },
+  {
+    "experiment_id": "n3a_core68_plus_zero_refpooled_div8",
+    "family": "legacy_spatial_ba",
+    "role": "one_newer_addition_to_n3a",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Canonical N3a core 0.68 plus zero reference pooled-text conditioning, leaving token text unchanged.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.68,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core",
+      "model.ba_reference_pooled_text_mode": "zero"
+    }
+  },
+  {
+    "experiment_id": "n3a_core68_plus_pair_and_zero_reftext_div8",
+    "family": "legacy_spatial_ba",
+    "role": "newer_addition_combination",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Combination follow-up: paired CFG reference noise plus neutral reference token text on the canonical core 0.68 architecture.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.68,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core",
+      "model.ba_cfg_reference_noise_pairing": true,
+      "model.ba_reference_token_text_mode": "zero"
+    }
+  }
+]

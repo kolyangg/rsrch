@@ -1,0 +1,122 @@
+[
+  {
+    "experiment_id": "nn7v2_lmkidw3_gate065_semantic18_ba0",
+    "family": "landmark_semantic_clean_patch_ba",
+    "role": "recent_idea_semantic_ownership",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "NN7b-style semantic ownership restriction: landmark-local 3x3 gate 0.065 is eligible only within normalized radius 0.18 of eyes, nose, or mouth landmarks.",
+    "overrides": {
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -2.4254832293171997
+    },
+    "runtime_mutations": {
+      "landmark_local_correspondence": true,
+      "landmark_sigma": 0.22,
+      "landmark_semantic_radius": 0.18
+    },
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn7v2_lmkidw3_gate065_semantic25_ba0",
+    "family": "landmark_semantic_clean_patch_ba",
+    "role": "recent_idea_semantic_ownership",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "Broader NN7b-style semantic ownership restriction with normalized landmark radius 0.25 at gate 0.065.",
+    "overrides": {
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -2.4254832293171997
+    },
+    "runtime_mutations": {
+      "landmark_local_correspondence": true,
+      "landmark_sigma": 0.22,
+      "landmark_semantic_radius": 0.25
+    },
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn7v2_lmkidw3_staged_up002_up1065_ba0",
+    "family": "landmark_staged_clean_patch_ba",
+    "role": "recent_idea_layer_specialization",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "NN7 proposal layer specialization: enable both up0/up1 clean-patch sites with low up0 geometry authority 0.02 and stronger up1 detail authority 0.065.",
+    "overrides": {
+      "model.ba_site_policy": "up_blocks_attn1",
+      "model.ba_spatial_site_policy": "up_blocks_attn1",
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -2.4254832293171997
+    },
+    "runtime_mutations": {
+      "landmark_local_correspondence": true,
+      "landmark_sigma": 0.22,
+      "site_effective_gates": {
+        "up_blocks.0.": 0.02,
+        "up_blocks.1.": 0.065
+      }
+    },
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn7v2_lmkidw3_staged_up003_up1075_ba0",
+    "family": "landmark_staged_clean_patch_ba",
+    "role": "recent_idea_layer_specialization",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "Stronger staged up0/up1 specialization: effective gates 0.03 and 0.075 respectively, still landmark-local and protected outside the face core.",
+    "overrides": {
+      "model.ba_site_policy": "up_blocks_attn1",
+      "model.ba_spatial_site_policy": "up_blocks_attn1",
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -2.2686835413183646
+    },
+    "runtime_mutations": {
+      "landmark_local_correspondence": true,
+      "landmark_sigma": 0.22,
+      "site_effective_gates": {
+        "up_blocks.0.": 0.03,
+        "up_blocks.1.": 0.075
+      }
+    },
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn7v2_lmkidw3_gate075_erode22_ba0",
+    "family": "landmark_local_clean_patch_ba",
+    "role": "recent_idea_trusted_core",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "Stronger up1 gate 0.075 with a more conservative target-core erosion 0.22, testing whether tighter trusted ownership preserves alignment.",
+    "overrides": {
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -2.2686835413183646,
+      "model.ba_target_core_erode_frac": 0.22
+    },
+    "runtime_mutations": {
+      "landmark_local_correspondence": true,
+      "landmark_sigma": 0.22
+    },
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn7v2_lmkidw3_gate065_late8_ba0",
+    "family": "landmark_local_clean_patch_ba",
+    "role": "recent_idea_schedule_specialization",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "Gate 0.065 delayed to step 8/20 so target pose and PhotoMaker identity establish before landmark-local takeover.",
+    "overrides": {
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -2.4254832293171997
+    },
+    "runtime_mutations": {
+      "landmark_local_correspondence": true,
+      "landmark_sigma": 0.22
+    },
+    "generation": {
+      "compare_branched_zero": true,
+      "branched_attn_start_step": 8
+    }
+  }
+]

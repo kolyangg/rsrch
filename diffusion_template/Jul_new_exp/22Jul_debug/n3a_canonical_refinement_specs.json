@@ -1,0 +1,89 @@
+[
+  {
+    "experiment_id": "n3a_core60_standard_div8",
+    "family": "legacy_spatial_ba",
+    "role": "canonical_n3a_refinement",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Intermediate core authority between the aligned 0.50 ablation and the visually strongest canonical 0.68 configuration.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.60,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    }
+  },
+  {
+    "experiment_id": "n3a_core68_late7_div8",
+    "family": "legacy_spatial_ba",
+    "role": "canonical_n3a_refinement",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Canonical core 0.68 with branch takeover delayed by one step to 7/20, seeking a small alignment gain without losing visible authority.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.68,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "generation": {"branched_attn_start_step": 7}
+  },
+  {
+    "experiment_id": "n3a_core68_late8_div8",
+    "family": "legacy_spatial_ba",
+    "role": "canonical_n3a_refinement",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Canonical core 0.68 delayed to step 8/20, a stronger timing-based alignment repair.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.68,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "generation": {"branched_attn_start_step": 8}
+  },
+  {
+    "experiment_id": "n3a_core68_erode15_div8",
+    "family": "legacy_spatial_ba",
+    "role": "canonical_n3a_refinement",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Canonical core 0.68 with output trusted-core erosion increased moderately from 0.10 to 0.15.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.68,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.15,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    }
+  },
+  {
+    "experiment_id": "n3a_core68_erode20_div8",
+    "family": "legacy_spatial_ba",
+    "role": "canonical_n3a_refinement",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Canonical core 0.68 with output trusted-core erosion 0.20, retaining processor authority while shrinking final spatial ownership.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.68,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.20,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    }
+  }
+]

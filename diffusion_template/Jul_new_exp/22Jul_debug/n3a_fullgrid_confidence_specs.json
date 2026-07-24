@@ -1,0 +1,59 @@
+[
+  {
+    "experiment_id": "n3a_fullgrid_up_confidence25_div8",
+    "family": "legacy_spatial_ba",
+    "role": "historical_idea_combination",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Canonical N3a full-grid memory plus N24 confidence-residual target fallback at gain 0.25; up-only, CA off, protected output.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "confidence_residual",
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "runtime_mutations": {
+      "legacy_confidence_gain": 0.25
+    }
+  },
+  {
+    "experiment_id": "n3a_fullgrid_up_confidence50_div8",
+    "family": "legacy_spatial_ba",
+    "role": "historical_idea_combination",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Canonical N3a full-grid memory plus N24 confidence-residual target fallback at gain 0.50; middle authority setting.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "confidence_residual",
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "runtime_mutations": {
+      "legacy_confidence_gain": 0.50
+    }
+  },
+  {
+    "experiment_id": "n3a_fullgrid_up_confidence75_div8",
+    "family": "legacy_spatial_ba",
+    "role": "historical_idea_combination",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Canonical N3a full-grid memory plus N24 confidence-residual target fallback at gain 0.75; high-activity boundary.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "confidence_residual",
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "runtime_mutations": {
+      "legacy_confidence_gain": 0.75
+    }
+  }
+]

@@ -1,0 +1,34 @@
+[
+  {
+    "experiment_id": "nn4_step0_vs_ba0",
+    "family": "packed_residual_ba",
+    "role": "causal_step0_control",
+    "base_config": "one_id_ba_NN4_causal_null_up0",
+    "description": "Native NN4 step zero measured against an identical doubled-path branched baseline with runtime scale zero.",
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn5a_step0_vs_ba0",
+    "family": "packed_residual_ba",
+    "role": "causal_step0_control",
+    "base_config": "one_id_ba_NN5a_counterfactual_directional_ppr",
+    "description": "Native NN5a step zero measured against its in-architecture zero-scale baseline.",
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn5b_step0_vs_ba0",
+    "family": "packed_residual_ba",
+    "role": "causal_step0_control",
+    "base_config": "one_id_ba_NN5b_clean_identity_tokens",
+    "description": "Native NN5b step zero measured against its in-architecture zero-scale baseline.",
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn6a_step0_vs_ba0",
+    "family": "factorized_identity_ba",
+    "role": "causal_step0_control",
+    "base_config": "one_id_ba_NN6a_factorized_identity_only_up0",
+    "description": "Native NN6a identity-only step zero measured against its in-architecture zero-scale baseline.",
+    "generation": {"compare_branched_zero": true}
+  }
+]

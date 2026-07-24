@@ -1,0 +1,85 @@
+[
+  {
+    "experiment_id": "nn7v2_local3_gate05_ba0",
+    "family": "clean_patch_local_ba",
+    "role": "landmark_attribution_control",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "Native bbox-relative 3x3 local attention at effective gate 0.05, isolating the benefit of landmark displacement.",
+    "overrides": {
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -2.70805020110221
+    },
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn7v2_lmkidw3_gate065_ba0",
+    "family": "landmark_local_clean_patch_ba",
+    "role": "authority_refinement",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "Landmark-IDW 3x3 correspondence at effective gate 0.065.",
+    "overrides": {
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -2.4254832293171997
+    },
+    "runtime_mutations": {"landmark_local_correspondence": true, "landmark_sigma": 0.22},
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn7v2_lmkidw3_gate075_ba0",
+    "family": "landmark_local_clean_patch_ba",
+    "role": "authority_refinement",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "Landmark-IDW 3x3 correspondence at effective gate 0.075.",
+    "overrides": {
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -2.2686835413183646
+    },
+    "runtime_mutations": {"landmark_local_correspondence": true, "landmark_sigma": 0.22},
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn7v2_lmkidw3_gate085_ba0",
+    "family": "landmark_local_clean_patch_ba",
+    "role": "authority_refinement",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "Landmark-IDW 3x3 correspondence at effective gate 0.085.",
+    "overrides": {
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -2.129631286203691
+    },
+    "runtime_mutations": {"landmark_local_correspondence": true, "landmark_sigma": 0.22},
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn7v2_lmkidw3_gate05_sigma12_ba0",
+    "family": "landmark_local_clean_patch_ba",
+    "role": "correspondence_smoothness",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "Gate 0.05 with more part-local landmark displacement weighting, sigma 0.12.",
+    "overrides": {
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -2.70805020110221
+    },
+    "runtime_mutations": {"landmark_local_correspondence": true, "landmark_sigma": 0.12},
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn7v2_lmkidw3_gate05_sigma35_ba0",
+    "family": "landmark_local_clean_patch_ba",
+    "role": "correspondence_smoothness",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "Gate 0.05 with smoother whole-face landmark displacement weighting, sigma 0.35.",
+    "overrides": {
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -2.70805020110221
+    },
+    "runtime_mutations": {"landmark_local_correspondence": true, "landmark_sigma": 0.35},
+    "generation": {"compare_branched_zero": true}
+  }
+]

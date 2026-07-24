@@ -1,0 +1,124 @@
+{
+  "name": "llvm-openmp",
+  "version": "22.1.8",
+  "build": "h4922eb0_0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/conda-forge/linux-64",
+  "subdir": "linux-64",
+  "fn": "llvm-openmp-22.1.8-h4922eb0_0.conda",
+  "md5": "7bbfdc5a6eca997d3b0873a575c3e155",
+  "url": "https://conda.anaconda.org/conda-forge/linux-64/llvm-openmp-22.1.8-h4922eb0_0.conda",
+  "sha256": "a37aba21b85800af1e7c5b04ba76abab96b6e591eedf99dc6e4df83b0fefd7a5",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0"
+  ],
+  "constrains": [
+    "intel-openmp <0.0a0",
+    "openmp 22.1.8|22.1.8.*"
+  ],
+  "license": "Apache-2.0 WITH LLVM-exception",
+  "license_family": "APACHE",
+  "timestamp": 1781736521736,
+  "size": 6123597,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/niko/miniconda3/pkgs/llvm-openmp-22.1.8-h4922eb0_0.conda",
+  "extracted_package_dir": "/home/niko/miniconda3/pkgs/llvm-openmp-22.1.8-h4922eb0_0",
+  "files": [
+    "include/omp-tools.h",
+    "include/omp.h",
+    "include/ompt-multiplex.h",
+    "include/ompt.h",
+    "include/ompx.h",
+    "lib/cmake/openmp/FindOpenMPTarget.cmake",
+    "lib/libarcher.so.bak",
+    "lib/libarcher_static.a",
+    "lib/libiomp5.so",
+    "lib/libomp.so",
+    "lib/libompd.so"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "include/omp-tools.h",
+        "path_type": "hardlink",
+        "sha256": "4876d0addcf2783953a6d0aeed8efc495ff0476b6a5784ca6e43bdd1c62df5be",
+        "size_in_bytes": 52077,
+        "sha256_in_prefix": "4876d0addcf2783953a6d0aeed8efc495ff0476b6a5784ca6e43bdd1c62df5be"
+      },
+      {
+        "_path": "include/omp.h",
+        "path_type": "hardlink",
+        "sha256": "5974470842520cea4bc50136e2329bbf4e36ba928d317e86f7def2ba1752d3d4",
+        "size_in_bytes": 26072,
+        "sha256_in_prefix": "5974470842520cea4bc50136e2329bbf4e36ba928d317e86f7def2ba1752d3d4"
+      },
+      {
+        "_path": "include/ompt-multiplex.h",
+        "path_type": "hardlink",
+        "sha256": "d77b2b554756bc1b117b10492a0d9134c8b0d4e0a242f83415e7400e77fb2729",
+        "size_in_bytes": 52358,
+        "sha256_in_prefix": "d77b2b554756bc1b117b10492a0d9134c8b0d4e0a242f83415e7400e77fb2729"
+      },
+      {
+        "_path": "include/ompt.h",
+        "path_type": "hardlink",
+        "sha256": "4876d0addcf2783953a6d0aeed8efc495ff0476b6a5784ca6e43bdd1c62df5be",
+        "size_in_bytes": 52077,
+        "sha256_in_prefix": "4876d0addcf2783953a6d0aeed8efc495ff0476b6a5784ca6e43bdd1c62df5be"
+      },
+      {
+        "_path": "include/ompx.h",
+        "path_type": "hardlink",
+        "sha256": "a84d0460771cec5695ce16fc8698bddf3276a1908a372087b3f6aa60782acf88",
+        "size_in_bytes": 7720,
+        "sha256_in_prefix": "a84d0460771cec5695ce16fc8698bddf3276a1908a372087b3f6aa60782acf88"
+      },
+      {
+        "_path": "lib/cmake/openmp/FindOpenMPTarget.cmake",
+        "path_type": "hardlink",
+        "sha256": "3a0dbb8742184dcb6fdd63b6758c406e58b7e208b54f4878c62b8d82d1baff90",
+        "size_in_bytes": 15166,
+        "sha256_in_prefix": "3a0dbb8742184dcb6fdd63b6758c406e58b7e208b54f4878c62b8d82d1baff90"
+      },
+      {
+        "_path": "lib/libarcher.so.bak",
+        "path_type": "hardlink",
+        "sha256": "ec4d90168427057cf7b70b72108cecf2379d0a7b9ad53e7bb6702278843e10ed",
+        "size_in_bytes": 10285104,
+        "sha256_in_prefix": "ec4d90168427057cf7b70b72108cecf2379d0a7b9ad53e7bb6702278843e10ed"
+      },
+      {
+        "_path": "lib/libarcher_static.a",
+        "path_type": "hardlink",
+        "sha256": "a25f53f16016f066df4978fd908ca6a62c467e99d0bd0cf189c1bde6066dbad9",
+        "size_in_bytes": 79790,
+        "sha256_in_prefix": "a25f53f16016f066df4978fd908ca6a62c467e99d0bd0cf189c1bde6066dbad9"
+      },
+      {
+        "_path": "lib/libiomp5.so",
+        "path_type": "softlink",
+        "sha256": "7faf245a78490def15dc89115f217e2f8ba7ce010f63e644209488b321c41c31",
+        "size_in_bytes": 1467232
+      },
+      {
+        "_path": "lib/libomp.so",
+        "path_type": "hardlink",
+        "sha256": "7faf245a78490def15dc89115f217e2f8ba7ce010f63e644209488b321c41c31",
+        "size_in_bytes": 1467232,
+        "sha256_in_prefix": "7faf245a78490def15dc89115f217e2f8ba7ce010f63e644209488b321c41c31"
+      },
+      {
+        "_path": "lib/libompd.so",
+        "path_type": "hardlink",
+        "sha256": "ef76b9c73be4ddc1d6c4edc0b8bdeea4351aecc5c19d97545b4cc90f82ff95f4",
+        "size_in_bytes": 10266992,
+        "sha256_in_prefix": "ef76b9c73be4ddc1d6c4edc0b8bdeea4351aecc5c19d97545b4cc90f82ff95f4"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/niko/miniconda3/pkgs/llvm-openmp-22.1.8-h4922eb0_0",
+    "type": 1
+  }
+}

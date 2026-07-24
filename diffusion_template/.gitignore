@@ -112,3 +112,5 @@ outputs/
 .vscode/
 .idea/
 __MACOSX/
+
+diffusion_template/Jul_new_exp/22Jul_debug/experiments

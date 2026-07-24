@@ -1,0 +1,183 @@
+[
+  {
+    "experiment_id": "n3a_roi_up_confidence25_anchor",
+    "family": "legacy_spatial_ba",
+    "role": "confidence_gain_ablation",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Confidence residual with gain 0.25, normalized ROI, up-only SA, CA off, and protected output.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "confidence_residual",
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "runtime_mutations": {"legacy_confidence_gain": 0.25}
+  },
+  {
+    "experiment_id": "n3a_roi_up_confidence75_anchor",
+    "family": "legacy_spatial_ba",
+    "role": "confidence_gain_ablation",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Confidence residual with gain 0.75, normalized ROI, up-only SA, CA off, and protected output.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "confidence_residual",
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "runtime_mutations": {"legacy_confidence_gain": 0.75}
+  },
+  {
+    "experiment_id": "n3a_roi_up_confidence50_early20_anchor",
+    "family": "legacy_spatial_ba",
+    "role": "schedule_ablation",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Confidence gain 0.50 with BA starting at 20 percent of the 20-step schedule.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "confidence_residual",
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "runtime_mutations": {"legacy_confidence_gain": 0.50},
+    "generation": {"branched_attn_start_step": 4}
+  },
+  {
+    "experiment_id": "n3a_roi_up_confidence50_late40_anchor",
+    "family": "legacy_spatial_ba",
+    "role": "schedule_ablation",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Confidence gain 0.50 with BA starting at 40 percent of the 20-step schedule.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "confidence_residual",
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "runtime_mutations": {"legacy_confidence_gain": 0.50},
+    "generation": {"branched_attn_start_step": 8}
+  },
+  {
+    "experiment_id": "n3a_roi_up_dual35_anchor",
+    "family": "legacy_spatial_ba",
+    "role": "dual_weight_ablation",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Dual target/reference attention with 35 percent reference ownership.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "dual",
+      "model.ba_sa_mix_init": 0.35,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    }
+  },
+  {
+    "experiment_id": "n3a_roi_up_dual50_anchor",
+    "family": "legacy_spatial_ba",
+    "role": "dual_weight_ablation",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Dual target/reference attention with 50 percent reference ownership.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "dual",
+      "model.ba_sa_mix_init": 0.50,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    }
+  },
+  {
+    "experiment_id": "n3a_roi_up_dual65_anchor",
+    "family": "legacy_spatial_ba",
+    "role": "dual_weight_ablation",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Dual target/reference attention with 65 percent reference ownership.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "dual",
+      "model.ba_sa_mix_init": 0.65,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    }
+  },
+  {
+    "experiment_id": "n3a_fullgrid_up_core50_anchor",
+    "family": "legacy_spatial_ba",
+    "role": "core_size_ablation",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Full-grid repaired N3a with a smaller 50 percent reference-owned core.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.50,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    }
+  },
+  {
+    "experiment_id": "n3a_roi6_up_confidence50_anchor",
+    "family": "legacy_spatial_ba",
+    "role": "roi_resolution_ablation",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Confidence gain 0.50 using a 6 by 6 normalized reference ROI.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 6,
+      "model.ba_sa_face_mode": "confidence_residual",
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "runtime_mutations": {"legacy_confidence_gain": 0.50}
+  },
+  {
+    "experiment_id": "n3a_roi12_up_confidence50_anchor",
+    "family": "legacy_spatial_ba",
+    "role": "roi_resolution_ablation",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Confidence gain 0.50 using a 12 by 12 normalized reference ROI.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 12,
+      "model.ba_sa_face_mode": "confidence_residual",
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "runtime_mutations": {"legacy_confidence_gain": 0.50}
+  }
+]

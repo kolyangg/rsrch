@@ -1,0 +1,67 @@
+{
+  "name": "libstdcxx",
+  "version": "13.4.0",
+  "build": "h934c35e_19",
+  "build_number": 19,
+  "channel": "https://conda.anaconda.org/conda-forge/linux-64",
+  "subdir": "linux-64",
+  "fn": "libstdcxx-13.4.0-h934c35e_19.conda",
+  "md5": "b1fa950f1e51e94b6611533fe04ae08d",
+  "url": "https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-13.4.0-h934c35e_19.conda",
+  "sha256": "6ea2cedf270a807d6ae256e699f2806e455ecc2ae2afd6978c7d04652b70080b",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "libgcc 13.4.0 he0feb66_19"
+  ],
+  "constrains": [
+    "libstdcxx-ng ==13.4.0=*_19"
+  ],
+  "license": "GPL-3.0-only WITH GCC-exception-3.1",
+  "license_family": "GPL",
+  "timestamp": 1778268387528,
+  "size": 5679312,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/niko/miniconda3/pkgs/libstdcxx-13.4.0-h934c35e_19.conda",
+  "extracted_package_dir": "/home/niko/miniconda3/pkgs/libstdcxx-13.4.0-h934c35e_19",
+  "files": [
+    "lib/libstdc++.so",
+    "lib/libstdc++.so.6",
+    "lib/libstdc++.so.6.0.32",
+    "share/licenses/libstdc++/RUNTIME.LIBRARY.EXCEPTION"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libstdc++.so",
+        "path_type": "softlink",
+        "sha256": "f312f3f7d5a1e73fc26b9f2408a5290c28c89c92abefa867c9f149e84c8e7d56",
+        "size_in_bytes": 20637608
+      },
+      {
+        "_path": "lib/libstdc++.so.6",
+        "path_type": "softlink",
+        "sha256": "f312f3f7d5a1e73fc26b9f2408a5290c28c89c92abefa867c9f149e84c8e7d56",
+        "size_in_bytes": 20637608
+      },
+      {
+        "_path": "lib/libstdc++.so.6.0.32",
+        "path_type": "hardlink",
+        "sha256": "f312f3f7d5a1e73fc26b9f2408a5290c28c89c92abefa867c9f149e84c8e7d56",
+        "size_in_bytes": 20637608,
+        "sha256_in_prefix": "f312f3f7d5a1e73fc26b9f2408a5290c28c89c92abefa867c9f149e84c8e7d56"
+      },
+      {
+        "_path": "share/licenses/libstdc++/RUNTIME.LIBRARY.EXCEPTION",
+        "path_type": "hardlink",
+        "sha256": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74",
+        "size_in_bytes": 3324,
+        "sha256_in_prefix": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/niko/miniconda3/pkgs/libstdcxx-13.4.0-h934c35e_19",
+    "type": 1
+  }
+}

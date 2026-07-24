@@ -1,0 +1,58 @@
+[
+  {
+    "experiment_id": "n3a_dual35_plus_zero_refpooled_div8",
+    "family": "legacy_spatial_ba",
+    "role": "leading_candidate_refinement",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Leading full-grid dual-0.35 architecture plus zero reference pooled-text conditioning.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "dual",
+      "model.ba_sa_mix_init": 0.35,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core",
+      "model.ba_reference_pooled_text_mode": "zero"
+    }
+  },
+  {
+    "experiment_id": "n3a_dual35_plus_cfg_refnoise_pair_div8",
+    "family": "legacy_spatial_ba",
+    "role": "leading_candidate_refinement",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Leading full-grid dual-0.35 architecture plus paired CFG reference noise.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "dual",
+      "model.ba_sa_mix_init": 0.35,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core",
+      "model.ba_cfg_reference_noise_pairing": true
+    }
+  },
+  {
+    "experiment_id": "n3a_dual35_plus_late7_div8",
+    "family": "legacy_spatial_ba",
+    "role": "leading_candidate_refinement",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Leading full-grid dual-0.35 architecture with branch start delayed from step 6 to step 7 of 20.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "dual",
+      "model.ba_sa_mix_init": 0.35,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "generation": {
+      "branched_attn_start_step": 7
+    }
+  }
+]

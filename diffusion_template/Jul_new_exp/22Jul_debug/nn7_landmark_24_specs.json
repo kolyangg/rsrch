@@ -1,0 +1,40 @@
+[
+  {
+    "experiment_id": "matrix24_nn7v2_lmkidw3_gate05_ba0",
+    "family": "landmark_local_clean_patch_ba",
+    "role": "24_case_modern_promotion",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "Canonical 24-case causal evaluation of the diverse-screen consistency leader: landmark-IDW 3x3 clean-patch attention, sigma 0.22, effective gate 0.05.",
+    "overrides": {
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -2.70805020110221
+    },
+    "runtime_mutations": {
+      "landmark_local_correspondence": true,
+      "landmark_sigma": 0.22
+    },
+    "generation": {
+      "compare_branched_zero": true
+    }
+  },
+  {
+    "experiment_id": "matrix24_nn7v2_lmkidw3_gate065_ba0",
+    "family": "landmark_local_clean_patch_ba",
+    "role": "24_case_modern_promotion",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "Canonical 24-case causal evaluation of the stronger refinement: landmark-IDW 3x3 clean-patch attention, sigma 0.22, effective gate 0.065.",
+    "overrides": {
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -2.4254832293171997
+    },
+    "runtime_mutations": {
+      "landmark_local_correspondence": true,
+      "landmark_sigma": 0.22
+    },
+    "generation": {
+      "compare_branched_zero": true
+    }
+  }
+]

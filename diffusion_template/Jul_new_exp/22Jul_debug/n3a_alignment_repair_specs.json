@@ -1,0 +1,73 @@
+[
+  {
+    "experiment_id": "n3a_alignrepair_core50_div8",
+    "family": "legacy_spatial_ba",
+    "role": "n3a_progressive_alignment_repair",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Repaired N3a full-grid core-ring with later-family safety elements (up-only injection, CA off, protected output) and reference-owned core reduced from 0.68 to 0.50.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.50,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    }
+  },
+  {
+    "experiment_id": "n3a_alignrepair_core35_div8",
+    "family": "legacy_spatial_ba",
+    "role": "n3a_progressive_alignment_repair",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "N3a safety stack with a smaller 0.35 reference-owned core to test whether reduced spatial authority prevents pose/alignment drift.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.35,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    }
+  },
+  {
+    "experiment_id": "n3a_alignrepair_core50_late8_div8",
+    "family": "legacy_spatial_ba",
+    "role": "n3a_progressive_alignment_repair",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Core 0.50 N3a safety stack with BA delayed to step 8/20 so PhotoMaker establishes target pose before spatial reference injection.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.50,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "generation": {
+      "branched_attn_start_step": 8
+    }
+  },
+  {
+    "experiment_id": "n3a_alignrepair_core50_erode20_div8",
+    "family": "legacy_spatial_ba",
+    "role": "n3a_progressive_alignment_repair",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Core 0.50 N3a safety stack with target-core erosion increased to 0.20, restricting reference overwrite to the most interior facial region.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.50,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.20,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    }
+  }
+]

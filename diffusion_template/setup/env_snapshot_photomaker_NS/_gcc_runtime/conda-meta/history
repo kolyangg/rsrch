@@ -1,0 +1,10 @@
+==> 2026-07-19 10:45:19 <==
+# cmd: /home/niko/miniconda3/bin/conda create -y -p /home/niko/rsrch/diffusion_template/setup/env_snapshot_photomaker_NS/_gcc_runtime -c conda-forge --override-channels libstdcxx-ng=13 libgcc-ng=13
+# conda version: 26.5.3
++conda-forge/linux-64::_openmp_mutex-4.5-7_kmp_llvm
++conda-forge/linux-64::libgcc-13.4.0-he0feb66_19
++conda-forge/linux-64::libgcc-ng-13.4.0-h69a702a_19
++conda-forge/linux-64::libstdcxx-13.4.0-h934c35e_19
++conda-forge/linux-64::libstdcxx-ng-13.4.0-hdf11a46_19
++conda-forge/linux-64::llvm-openmp-22.1.8-h4922eb0_0
+# update specs: ['libgcc-ng=13', 'libstdcxx-ng=13']

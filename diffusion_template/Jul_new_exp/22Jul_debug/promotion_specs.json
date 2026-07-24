@@ -1,0 +1,76 @@
+[
+  {
+    "experiment_id": "promote50_confidence50_standard",
+    "family": "legacy_spatial_ba",
+    "role": "50_step_safety_finalist",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Fifty-step confirmation of ROI confidence residual at gain 0.50 using the standard 10/15 switch schedule.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "confidence_residual",
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "runtime_mutations": {"legacy_confidence_gain": 0.50}
+  },
+  {
+    "experiment_id": "promote50_dual25_standard",
+    "family": "legacy_spatial_ba",
+    "role": "50_step_strong_finalist",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Fifty-step confirmation of ROI dual attention with 25 percent reference ownership using the standard 10/15 switch schedule.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "dual",
+      "model.ba_sa_mix_init": 0.25,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    }
+  },
+  {
+    "experiment_id": "wrongref50_confidence50_elon12",
+    "family": "legacy_spatial_ba",
+    "role": "wrong_reference_causality",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Fifty-step causality test: PhotoMaker remains conditioned on Eddie while branched attention receives Elon sample 12.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "confidence_residual",
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "runtime_mutations": {"legacy_confidence_gain": 0.50},
+    "generation": {"ppr_reference_source_index": 12}
+  },
+  {
+    "experiment_id": "wrongref50_dual25_elon12",
+    "family": "legacy_spatial_ba",
+    "role": "wrong_reference_causality",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Fifty-step causality test: PhotoMaker remains conditioned on Eddie while dual branched attention receives Elon sample 12.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "dual",
+      "model.ba_sa_mix_init": 0.25,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "generation": {"ppr_reference_source_index": 12}
+  }
+]

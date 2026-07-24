@@ -1,0 +1,67 @@
+[
+  {
+    "experiment_id": "matrix24_confidence50_step5",
+    "family": "legacy_spatial_ba",
+    "role": "24_case_existing_finalist",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Canonical 24-case evaluation of the safest 20-step repaired-N3a configuration: ROI confidence residual gain 0.50, up-only, CA off, protected output, BA step 5.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "confidence_residual",
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "runtime_mutations": {"legacy_confidence_gain": 0.50},
+    "generation": {"branched_attn_start_step": 5}
+  },
+  {
+    "experiment_id": "matrix24_dual25_step6",
+    "family": "legacy_spatial_ba",
+    "role": "24_case_existing_finalist",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Canonical 24-case evaluation of the stronger repaired-N3a configuration: ROI dual attention with 25 percent reference ownership, up-only, CA off, protected output.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "dual",
+      "model.ba_sa_mix_init": 0.25,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    }
+  },
+  {
+    "experiment_id": "nn4_step0_default",
+    "family": "packed_residual_ba",
+    "role": "historical_architecture_control",
+    "base_config": "one_id_ba_NN4_causal_null_up0",
+    "description": "Untrained NN4 packed spatial residual with causal-null routing and its native step-zero initialization."
+  },
+  {
+    "experiment_id": "nn5a_step0_default",
+    "family": "packed_residual_ba",
+    "role": "historical_architecture_control",
+    "base_config": "one_id_ba_NN5a_counterfactual_directional_ppr",
+    "description": "Untrained NN5a operator; architecture matches NN4 while its training supervision differs."
+  },
+  {
+    "experiment_id": "nn5b_step0_default",
+    "family": "packed_residual_ba",
+    "role": "historical_architecture_control",
+    "base_config": "one_id_ba_NN5b_clean_identity_tokens",
+    "description": "Untrained NN5b packed spatial residual plus clean PMv2 identity-token lane at native initialization."
+  },
+  {
+    "experiment_id": "nn6a_step0_default",
+    "family": "factorized_identity_ba",
+    "role": "historical_architecture_control",
+    "base_config": "one_id_ba_NN6a_factorized_identity_only_up0",
+    "description": "Untrained NN6a identity-only factorized lane with no spatial-reference lane."
+  }
+]

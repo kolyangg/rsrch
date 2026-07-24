@@ -1,0 +1,57 @@
+[
+  {
+    "experiment_id": "rescue50_confidence20_standard",
+    "family": "legacy_spatial_ba",
+    "role": "50_step_strength_rescue",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Fifty-step rescue with confidence gain 0.20 and standard 10/15 switching to compensate for the longer active BA window.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "confidence_residual",
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "runtime_mutations": {"legacy_confidence_gain": 0.20}
+  },
+  {
+    "experiment_id": "rescue50_confidence25_standard",
+    "family": "legacy_spatial_ba",
+    "role": "50_step_strength_rescue",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Fifty-step rescue with confidence gain 0.25 and standard 10/15 switching.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "confidence_residual",
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "runtime_mutations": {"legacy_confidence_gain": 0.25}
+  },
+  {
+    "experiment_id": "rescue50_confidence50_late20",
+    "family": "legacy_spatial_ba",
+    "role": "50_step_duration_rescue",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Fifty-step rescue retaining confidence gain 0.50 but delaying BA until step 20 to shorten reference exposure.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "confidence_residual",
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "runtime_mutations": {"legacy_confidence_gain": 0.50},
+    "generation": {"branched_attn_start_step": 20}
+  }
+]

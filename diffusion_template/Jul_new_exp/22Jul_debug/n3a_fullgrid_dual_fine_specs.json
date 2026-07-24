@@ -1,0 +1,53 @@
+[
+  {
+    "experiment_id": "n3a_fullgrid_up_dual30_div8",
+    "family": "legacy_spatial_ba",
+    "role": "leading_mix_refinement",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Fine sweep between validated dual-0.25 and dual-0.35: 30% reference ownership.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "dual",
+      "model.ba_sa_mix_init": 0.30,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    }
+  },
+  {
+    "experiment_id": "n3a_fullgrid_up_dual40_div8",
+    "family": "legacy_spatial_ba",
+    "role": "leading_mix_refinement",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Fine sweep above validated dual-0.35: 40% reference ownership.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "dual",
+      "model.ba_sa_mix_init": 0.40,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    }
+  },
+  {
+    "experiment_id": "n3a_fullgrid_up_dual45_div8",
+    "family": "legacy_spatial_ba",
+    "role": "leading_mix_refinement",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Fine sweep below the dual-0.50 high-activity boundary: 45% reference ownership.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "dual",
+      "model.ba_sa_mix_init": 0.45,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    }
+  }
+]

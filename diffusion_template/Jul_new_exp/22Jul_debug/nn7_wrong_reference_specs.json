@@ -1,0 +1,31 @@
+[
+  {
+    "experiment_id": "nn7v2_lmkidw3_gate065_wrongref_cycle_ba0",
+    "family": "landmark_local_clean_patch_ba",
+    "role": "wrong_reference_causality",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "Diverse-identity causal control for landmark-local gate 0.065: PhotoMaker target identity remains fixed while branch references cycle Eddie→Elon→Jennie→Jensen→Jisoo→Keanu→Lex→Marion→Eddie.",
+    "overrides": {
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -2.4254832293171997
+    },
+    "runtime_mutations": {
+      "landmark_local_correspondence": true,
+      "landmark_sigma": 0.22
+    },
+    "generation": {
+      "compare_branched_zero": true,
+      "ppr_reference_source_indices": {
+        "5": 14,
+        "14": 31,
+        "31": 36,
+        "36": 51,
+        "51": 64,
+        "64": 72,
+        "72": 84,
+        "84": 5
+      }
+    }
+  }
+]

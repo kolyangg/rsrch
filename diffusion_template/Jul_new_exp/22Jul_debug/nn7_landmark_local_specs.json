@@ -1,0 +1,67 @@
+[
+  {
+    "experiment_id": "nn7v2_local5_gate10_ba0",
+    "family": "clean_patch_local_ba",
+    "role": "diverse_control",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "NN7 init-v2 native bbox-relative 5x5 local correspondence at effective gate 0.10, measured against BA0.",
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn7v2_lmkidw1_gate10_ba0",
+    "family": "landmark_local_clean_patch_ba",
+    "role": "correspondence_ablation",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "NN7 v2 with landmark-IDW mapped exact reference patch correspondence (1x1 window), effective gate 0.10.",
+    "overrides": {"model.ba_spatial_local_window": 1},
+    "runtime_mutations": {"landmark_local_correspondence": true, "landmark_sigma": 0.22},
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn7v2_lmkidw3_gate10_ba0",
+    "family": "landmark_local_clean_patch_ba",
+    "role": "correspondence_ablation",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "NN7 v2 with smooth landmark-IDW correspondence and a 3x3 local reference window at effective gate 0.10.",
+    "overrides": {"model.ba_spatial_local_window": 3},
+    "runtime_mutations": {"landmark_local_correspondence": true, "landmark_sigma": 0.22},
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn7v2_lmkidw5_gate10_ba0",
+    "family": "landmark_local_clean_patch_ba",
+    "role": "correspondence_ablation",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "NN7 v2 with smooth landmark-IDW correspondence and its native 5x5 local reference window at effective gate 0.10.",
+    "runtime_mutations": {"landmark_local_correspondence": true, "landmark_sigma": 0.22},
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn7v2_lmkidw3_gate05_ba0",
+    "family": "landmark_local_clean_patch_ba",
+    "role": "authority_ablation",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "Landmark-IDW 3x3 local correspondence at effective spatial gate 0.05.",
+    "overrides": {
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -2.70805020110221
+    },
+    "runtime_mutations": {"landmark_local_correspondence": true, "landmark_sigma": 0.22},
+    "generation": {"compare_branched_zero": true}
+  },
+  {
+    "experiment_id": "nn7v2_lmkidw3_gate20_ba0",
+    "family": "landmark_local_clean_patch_ba",
+    "role": "authority_ablation",
+    "base_config": "one_id_ba_NN7a_init_v2",
+    "description": "Landmark-IDW 3x3 local correspondence at effective spatial gate 0.20.",
+    "overrides": {
+      "model.ba_spatial_local_window": 3,
+      "model.ba_spatial_gate_max": 0.80,
+      "model.ba_gate_init_logit": -1.0986122886681098
+    },
+    "runtime_mutations": {"landmark_local_correspondence": true, "landmark_sigma": 0.22},
+    "generation": {"compare_branched_zero": true}
+  }
+]

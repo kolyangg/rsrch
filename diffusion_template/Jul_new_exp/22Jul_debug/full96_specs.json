@@ -1,0 +1,19 @@
+[
+  {
+    "experiment_id": "matrix96_n3a_fullgrid_up_core_ring_anchor",
+    "family": "legacy_spatial_ba",
+    "role": "user_requested_full_visual_matrix",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "All 96 manual-validation cases for the repaired full-grid N3a core-ring architecture requested for exhaustive visual inspection.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.68,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    }
+  }
+]

@@ -1,0 +1,77 @@
+[
+  {
+    "experiment_id": "align_confidence50_step5",
+    "family": "landmark_aligned_legacy_spatial_ba",
+    "role": "alignment_repair",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Confidence residual with the reference face similarity-aligned to PhotoMaker target landmarks before ROI K/V extraction.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "confidence_residual",
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "runtime_mutations": {"legacy_confidence_gain": 0.50},
+    "generation": {"branched_attn_start_step": 5, "ppr_reference_preprocess": "pm_landmark_affine"}
+  },
+  {
+    "experiment_id": "align_dual25_step6",
+    "family": "landmark_aligned_legacy_spatial_ba",
+    "role": "alignment_repair",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Dual 25 percent reference ownership after landmark alignment of the reference face crop to the PhotoMaker target.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "dual",
+      "model.ba_sa_mix_init": 0.25,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "generation": {"ppr_reference_preprocess": "pm_landmark_affine"}
+  },
+  {
+    "experiment_id": "align_roi_core50_step6",
+    "family": "landmark_aligned_legacy_spatial_ba",
+    "role": "alignment_repair",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Landmark-aligned normalized ROI with reference ownership only in a 50 percent inner core and target fallback in the ring.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "roi",
+      "model.ba_sa_roi_grid_size": 8,
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.50,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "generation": {"ppr_reference_preprocess": "pm_landmark_affine"}
+  },
+  {
+    "experiment_id": "align_fullgrid_core50_step6",
+    "family": "landmark_aligned_legacy_spatial_ba",
+    "role": "alignment_repair",
+    "base_config": "one_id_ba_NN1a_n3a_replay",
+    "description": "Full-grid core-ring attention after replacing the original reference canvas with a landmark-aligned face-only crop.",
+    "overrides": {
+      "disable_branched_ca": true,
+      "strict_face_routing": false,
+      "model.ba_sa_ref_token_mode": "full_grid",
+      "model.ba_sa_face_mode": "core_ring",
+      "model.ba_sa_core_ratio": 0.50,
+      "model.ba_sa_ref_layer_scope": "up",
+      "model.ba_target_core_erode_frac": 0.10,
+      "model.ba_output_anchor_mode": "base_outside_core"
+    },
+    "generation": {"ppr_reference_preprocess": "pm_landmark_affine"}
+  }
+]

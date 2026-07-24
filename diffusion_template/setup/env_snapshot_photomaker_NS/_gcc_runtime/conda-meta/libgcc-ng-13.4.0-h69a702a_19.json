@@ -1,0 +1,35 @@
+{
+  "name": "libgcc-ng",
+  "version": "13.4.0",
+  "build": "h69a702a_19",
+  "build_number": 19,
+  "channel": "https://conda.anaconda.org/conda-forge/linux-64",
+  "subdir": "linux-64",
+  "fn": "libgcc-ng-13.4.0-h69a702a_19.conda",
+  "md5": "628bee06494557b81337f85875977eb7",
+  "url": "https://conda.anaconda.org/conda-forge/linux-64/libgcc-ng-13.4.0-h69a702a_19.conda",
+  "sha256": "7f23aba718b3170795f60df70e38e02654ec3c7bccdfa3567b1af1c2c3f7a95d",
+  "depends": [
+    "libgcc 13.4.0 he0feb66_19"
+  ],
+  "constrains": [],
+  "license": "GPL-3.0-only WITH GCC-exception-3.1",
+  "license_family": "GPL",
+  "timestamp": 1778268368481,
+  "size": 27796,
+  "requested_spec": "libgcc-ng=13",
+  "package_tarball_full_path": "/home/niko/miniconda3/pkgs/libgcc-ng-13.4.0-h69a702a_19.conda",
+  "extracted_package_dir": "/home/niko/miniconda3/pkgs/libgcc-ng-13.4.0-h69a702a_19",
+  "files": [],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": []
+  },
+  "link": {
+    "source": "/home/niko/miniconda3/pkgs/libgcc-ng-13.4.0-h69a702a_19",
+    "type": 1
+  },
+  "requested_specs": [
+    "libgcc-ng=13"
+  ]
+}
