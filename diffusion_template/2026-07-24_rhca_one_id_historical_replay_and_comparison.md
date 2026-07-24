@@ -281,3 +281,19 @@ For a configuration smoke test without Comet:
 ```bash
 WRITER=console bash run_rhca_apr2026_one_id_1gpu.sh trainer.n_epochs=1 trainer.epoch_len=1
 ```
+
+### Current-environment C++ runtime compatibility
+
+The historical Python code imports InsightFace during model construction.
+Current InsightFace wheels can require `GLIBCXX_3.4.32`, while an older
+`photomaker_NS` environment may resolve an older conda `libstdc++.so.6`.
+The launcher checks candidate runtimes and preloads the first one that exposes
+the required symbol. It prefers the existing repository runtime overlay:
+
+```text
+setup/env_snapshot_photomaker_NS/_gcc_runtime/lib/libstdc++.so.6
+```
+
+This is an environment compatibility fix only; it does not modify branched
+attention. If no compatible runtime exists, install `libstdcxx-ng>=13` in the
+environment or pass `LIBSTDCXX_PATH` explicitly.
