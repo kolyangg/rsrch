@@ -1,0 +1,56 @@
+defaults:
+  - one_id_09Feb_testing
+  - _self_
+
+# Reconstructed replay of the 3–4 April 2026 Comet run
+# `rhca_1e-4_ml_step2_allst_trref_diff`.
+#
+# This file changes configuration only. Model/trainer/runtime code remains the
+# historical implementation from commit 6782e9d.
+train_on_separate_image: true
+train_ba_all_steps: true
+
+train_ba_only: true
+branched_attn_weight_mode: noise_and_ref
+branched_attn_new_weight_kind: lora
+train_branched_ca_lora: true
+ba_patch_top_k: 1.0
+ba_train_top_k: 1.0
+non_ba_train: false
+
+loss_kind: masked_alternating
+lr_for_lora: 1e-4
+
+model:
+  rank: 32
+  weight_dtype: bf16
+  train_branched_ca_lora: ${train_branched_ca_lora}
+
+pipeline:
+  variant: null
+
+trainer:
+  epoch_len: 200
+  n_epochs: 35
+  masked_loss_step: 2
+
+dataloaders:
+  train:
+    batch_size: 4
+    num_workers: 12
+  one_id_val:
+    batch_size: 12
+    num_workers: 1
+
+datasets:
+  val:
+    one_id_val:
+      limit: 12
+
+lr_scheduler:
+  warmup_steps: 2000
+
+validation_args:
+  num_images_per_prompt: 1
+
+val_debug: false
