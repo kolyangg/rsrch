@@ -80,6 +80,7 @@ COMET_PROJECT="${COMET_PROJECT:-rsrch-jul}"
 CONFIG_NAME="${CONFIG_NAME:-one_id_rhca_apr2026_replay}"
 PM_PATH="${PM_PATH:-}"
 LIBSTDCXX_PATH="${LIBSTDCXX_PATH:-}"
+TRAIN_EPOCHS="${TRAIN_EPOCHS:-8}"  # total endpoint; 8 × 500 = 4,000 by default
 
 # Current InsightFace wheels require GLIBCXX_3.4.32, while the historical
 # photomaker_NS environment may resolve an older conda libstdc++. Prefer the
@@ -139,5 +140,6 @@ accelerate launch \
   "writer=${WRITER}" \
   "writer.run_name=${RUN_NAME}" \
   "++writer.project_name=${COMET_PROJECT}" \
+  "trainer.n_epochs=${TRAIN_EPOCHS}" \
   "${MODEL_OVERRIDES[@]}" \
   "$@"
