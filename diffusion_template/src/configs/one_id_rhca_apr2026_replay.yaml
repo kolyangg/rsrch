@@ -30,16 +30,17 @@ pipeline:
   variant: null
 
 trainer:
-  # One optimizer step per batch in this historical trainer. Eight 500-step
-  # epochs therefore give exactly 4,000 steps, with validation/checkpointing
-  # after every 500 steps (plus the built-in deterministic step-zero val).
+  # The original run used 400-step epochs. This replay intentionally uses
+  # eight 500-step epochs only to satisfy the requested 4,000-step run with
+  # validation/checkpointing every 500 steps.
   epoch_len: 500
   n_epochs: 8
   masked_loss_step: 2
 
 dataloaders:
   train:
-    batch_size: 4
+    # Verified from both the historical Comet export and epoch-34 checkpoint.
+    batch_size: 2
     num_workers: 12
   one_id_val:
     batch_size: 12
@@ -51,9 +52,11 @@ datasets:
       limit: 12
 
 lr_scheduler:
-  warmup_steps: 2000
+  # The exact historical run reached full 1e-4 LR after 20 optimizer steps.
+  warmup_steps: 20
 
 validation_args:
   num_images_per_prompt: 1
 
 val_debug: false
+automatic_bboxes_every_val: false

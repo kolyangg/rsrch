@@ -3,12 +3,13 @@
 **Prepared:** 24 July 2026
 **Historical Comet run:** `rhca_1e-4_ml_step2_allst_trref_diff`
 **Replay branch:** `test`
-**Historical base commit:** `6782e9d62345fe910633cc8ceec0e2fda6ec2fd1`
+**Historical runtime commit:** `aede146e2e2a2dae1cb3d14a0ea5daed25ae9604`
 
 ## 1. Provenance decision
 
-The best reproducibility base is commit `6782e9d` from 4 April 2026
-00:35 BST.
+The exact launch-time runtime is commit `aede146` from 3 April 2026 13:55
+BST. The historical process started at 16:20 BST according to its saved log.
+Later commits cannot have affected already-imported Python modules.
 
 The relevant history is:
 
@@ -16,18 +17,18 @@ The relevant history is:
 |---|---:|---|
 | `c60e712` | 3 Apr 13:50 | Introduced `train_ba_all_steps` in the model, training entry point, and one-ID config. |
 | `aede146` | 3 Apr 13:55 | Removed duplicate nested config keys; no model-behaviour change. |
-| `12f900f` | 3 Apr 20:04 | Added the matching RHCA inference path and validation/pipeline support. |
-| `6782e9d` | 4 Apr 00:35 | Completed the inference denoising-window support. This is the last model-relevant commit before/while the run was being tested. |
+| `12f900f` | 3 Apr 20:04 | Added inference and validation-pipeline changes after the historical process started; these are not part of the replay runtime. |
+| `6782e9d` | 4 Apr 00:35 | Completed later inference denoising-window support; also excluded from the replay runtime. |
 | `40ffcfa` | 4 Apr 01:19 | Only changed Cosmic dataset download scripts. |
 | `cadcd7d` | 5 Apr 17:42 | Added the exact `one_id_rhca_diff.yaml` inference manifest after the training run; it confirms checkpoint/config details but is too late to be the training-code base. |
 
-The exact shell command used to start the Comet experiment was not committed.
-The replay config is therefore reconstructed from three mutually consistent
-sources:
+The exact shell command was not committed, but its complete resolved parameters
+are available from the local Comet export and the embedded config in
+`checkpoint-epoch34.pth`. The replay now uses those sources directly:
 
-1. the Comet run name;
-2. the exact inference manifest added immediately after the run; and
-3. the contemporary `one_id_09Feb_testing` config and launchers.
+1. Comet experiment `a7f0681e0a104d10a01cf7bbd181905a`;
+2. the epoch-34 checkpoint embedded config; and
+3. the Apr 3 launch-time code commit.
 
 High-confidence settings are:
 
@@ -40,16 +41,36 @@ High-confidence settings are:
 - trainable branched cross-attention LoRA;
 - all BA sites patched and trained;
 - BA-only optimization;
+- training batch size 2;
+- 20-step LR warmup;
 - rank 32;
 - PhotoMaker at denoising step 10 and spatial BA from step 15 at inference;
 - RealVisXL V4 for the saved-run inference/validation path;
 - checkpoint 34 as the later inspected checkpoint.
 
-The 200-step historical epoch length, batch size 4, and 2,000-step warmup are
-the most likely contemporary launcher values. For the requested control run,
-the replay YAML deliberately uses eight 500-step epochs: exactly 4,000
-optimizer steps, with validation and checkpointing every 500 steps. This
-schedule change does not touch historical model code.
+The exact historical run used 400-step epochs and an open-ended epoch count.
+For the requested control run, the replay changes only the schedule to eight
+500-step epochs: exactly 4,000 optimizer steps, with validation and
+checkpointing every 500 steps. Batch size 2, warmup 20, one-ID training,
+one-ID validation, cached automatic bboxes, rank 32, and all architectural
+settings match the historical Comet parameters.
+
+### Correction after the first replay attempt
+
+The first `test` launcher was not exact. It used batch size 4, a 2,000-step
+warmup, recomputed automatic generation bboxes every validation, and the later
+`6782e9d` validation pipeline. The original run used batch size 2, warmup 20,
+cached automatic bboxes, and the `aede146` pipeline already loaded when the
+process started.
+
+This explains the severe face-local collage at the first replay validation.
+The absolute reference-face operator is artifact-prone before learning; the
+2,000-step warmup kept it at only one quarter of the intended LR even at step
+500. The historical run reached full LR at step 20. The post-launch validation
+changes also altered bbox lookup behavior.
+
+Checkpoints from that incorrect replay are not valid continuation points.
+Restart the corrected replay from step zero.
 
 ## 2. Historical approach
 
@@ -247,10 +268,11 @@ The branch is an isolated worktree at:
 ```
 
 No July model code, analysis folders, downloaded results, saved checkpoints, or
-new diagnostic framework has been copied into it. The historical framework is
-retained because those modules are runtime dependencies of the run.
+new diagnostic framework has been copied into it. Runtime files used by
+training and validation are restored byte-for-byte to `aede146`. The launcher
+checks their Git blob hashes before starting and aborts on any drift.
 
-Replay files added on top of `6782e9d`:
+Replay-specific files:
 
 ```text
 diffusion_template/src/configs/one_id_rhca_apr2026_replay.yaml

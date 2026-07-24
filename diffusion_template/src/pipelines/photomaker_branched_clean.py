@@ -579,7 +579,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         use_branched_attention: bool = False,
         photomaker_scale: float = 1.0,  # Add scale parameter for attention
         branched_attn_start_step: int = 10,
-        branched_attn_end_step: Optional[int] = None,
         face_embed_strategy: str = "face", # "face", #  "face" or "id_embeds"
         use_bbox_mask_ref: bool = False, # BBox-driven masking toggles (validation convenience)
         use_bbox_mask_gen: bool = False, # BBox-driven masking toggles (validation convenience)
@@ -1009,7 +1008,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                         prev_mode=prev_mode,
                         photomaker_start_step=photomaker_start_step,
                         branched_attn_start_step=branched_attn_start_step,
-                        branched_attn_end_step=branched_attn_end_step,
                         prompt_embeds_text_only=prompt_embeds_text_only,
                         pooled_prompt_embeds_text_only=pooled_prompt_embeds_text_only,
                         prompt_embeds=prompt_embeds,
@@ -1236,7 +1234,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         i: int,
         photomaker_start_step: int,
         branched_attn_start_step: int,
-        branched_attn_end_step: Optional[int],
         prompt_embeds_text_only: torch.Tensor,
         pooled_prompt_embeds_text_only: torch.Tensor,
         prompt_embeds: torch.Tensor,
@@ -1250,7 +1247,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             i=i,
             photomaker_start_step=photomaker_start_step,
             branched_attn_start_step=branched_attn_start_step,
-            branched_attn_end_step=branched_attn_end_step,
             prompt_embeds_text_only=prompt_embeds_text_only,
             pooled_prompt_embeds_text_only=pooled_prompt_embeds_text_only,
             prompt_embeds=prompt_embeds,

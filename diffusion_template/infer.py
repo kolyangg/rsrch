@@ -1,4 +1,5 @@
 import os
+from types import SimpleNamespace
 from pathlib import Path
 
 import argparse
@@ -7,7 +8,6 @@ from hydra.utils import instantiate
 from tqdm.auto import tqdm
 from omegaconf import OmegaConf
 import numpy as np  # Alligned with PhotoMaker
-from src.metrics.tracker import MetricTracker
 
 
 class _NoAccelerator:
@@ -25,21 +25,14 @@ def _ensure_dir(p: Path):
     return p
 
 
-def _iter_named_images(images, prompt: str, ref_stem: str):
+def _save_images(images, out_dir: Path, prompt: str, ref_stem: str):
     base = f"{prompt[:10]}_{ref_stem}"
     if isinstance(images, list):
-        if len(images) == 1:
-            yield f"{base}.png", images[0]
-        else:
-            for i, img in enumerate(images):
-                yield f"{base}_{i:02d}.png", img
+        for i, img in enumerate(images):
+            name = f"{base}_{i:02d}.png" if len(images) > 1 else f"{base}.png"
+            img.save(out_dir / name)
     else:
-        yield f"{base}.png", images
-
-
-def _save_images(images, out_dir: Path, prompt: str, ref_stem: str):
-    for name, img in _iter_named_images(images, prompt, ref_stem):
-        img.save(out_dir / name)
+        (images).save(out_dir / f"{base}.png")
 
 
 from pathlib import Path as _Path
@@ -56,15 +49,13 @@ def main():
         default="inference/photomaker_origv2_infer",
         help="Config path relative to src/configs (e.g. inference/photomaker_origv2_infer)",
     )
-    args, overrides = parser.parse_known_args()
+    args = parser.parse_args()
 
     cfg_path = _Path(_ABS_CFG_DIR) / f"{args.config_name}.yaml"
     if not cfg_path.exists():
         raise FileNotFoundError(f"Config not found: {cfg_path}")
     cfg = OmegaConf.load(str(cfg_path))
     OmegaConf.set_struct(cfg, False)
-    if overrides:
-        cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(overrides))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Match torch dtype choice with PhotoMaker (bf16 if supported, else fp16) (Alligned with PhotoMaker)
@@ -85,26 +76,8 @@ def main():
             f"Config must define 'model' and 'pipeline' blocks. Top-level keys: {sorted(top_keys)}"
         )
 
-    writer = None
-    if "writer" in top_keys:
-        project_config = OmegaConf.to_container(cfg, resolve=True)
-        comet_run_id = getattr(cfg, "cometml_id", None)
-        writer = instantiate(cfg.writer, None, project_config, run_id=comet_run_id)
-        if hasattr(writer, "set_step"):
-            writer.set_step(0, mode="infer")
-
-    metrics = []
-    infer_metrics = MetricTracker()
-    if "inference_metrics" in top_keys and "metrics" in top_keys:
-        for metric_name in cfg.inference_metrics:
-            metric_config = cfg.metrics[metric_name]
-            metrics.append(instantiate(metric_config, name=metric_name, device=device))
-
     # Instantiate model (PhotoMaker v2 + LoRA adapters)
     model = instantiate(cfg.model, device=device)
-    for attr in ("disable_branched_sa", "disable_branched_ca", "strict_face_routing"):
-        if attr in top_keys:
-            setattr(model, attr, bool(getattr(cfg, attr)))
     # Ensure LoRA adapter slot "lora_adapter" exists before loading checkpoints
     if hasattr(model, "prepare_for_training"):
         try:
@@ -126,9 +99,6 @@ def main():
     accel = _NoAccelerator()
     pipeline = instantiate(cfg.pipeline, model=model, accelerator=accel, _recursive_=False)
     pipeline.to(device)
-    for attr in ("disable_branched_sa", "disable_branched_ca", "strict_face_routing", "ba_patch_top_k"):
-        if attr in top_keys:
-            setattr(pipeline, attr, getattr(cfg, attr))
     # Ensure custom components attached to the pipeline (e.g., id_encoder) are on device
     if hasattr(pipeline, "id_encoder"):
         try:
@@ -147,9 +117,7 @@ def main():
     # Optional: load generation bbox map keyed by final filename
     gen_bbox_by_name = None
     try:
-        bbox_gen_path = getattr(cfg, "bbox_mask_gen_path", None)
-        if not bbox_gen_path:
-            bbox_gen_path = getattr(cfg.dataset, "bbox_mask_gen", None)
+        bbox_gen_path = getattr(cfg.dataset, "bbox_mask_gen", None)
         if bbox_gen_path and str(bbox_gen_path).strip():
             import json as _json
             with open(str(bbox_gen_path), "r", encoding="utf-8") as _fh:
@@ -176,43 +144,34 @@ def main():
     with tqdm(total=total, desc="Inference", dynamic_ncols=True) as pbar:
         for start in range(0, total, batch_size):
             end = min(start + batch_size, total)
-            batch_samples = [dataset[idx] for idx in range(start, end)]
-            prompts = [sample["prompt"] for sample in batch_samples]
-            refs_batch = [sample["ref_images"] for sample in batch_samples]
-            seeds = [int(sample.get("seed", 0)) for sample in batch_samples]
-            face_bbox_ref_batch = [sample.get("face_bbox_ref") for sample in batch_samples]
-            face_bbox_gen_batch = [sample.get("face_bbox_gen") for sample in batch_samples]
-            ref_stems = []
+            for idx in range(start, end):
+                sample = dataset[idx]
+                prompt = sample["prompt"]
+                ref_images = sample["ref_images"]
+                seed = sample.get("seed", 0)
+                face_bbox_ref = sample.get("face_bbox_ref")
+                face_bbox_gen = sample.get("face_bbox_gen")
 
-            # If a filename-keyed bbox map is provided, override face_bbox_gen by exact output name.
-            for rel_idx, sample in enumerate(batch_samples):
-                idx = start + rel_idx
-                ref_path = sample.get("image_path")
-                ref_stem = Path(ref_path).stem if ref_path is not None else sample.get("id", f"idx{idx:04d}")
-                ref_stems.append(ref_stem)
+                # If a filename-keyed bbox map is provided, override face_bbox_gen by exact output name (Alligned with diffusion_template)
                 if gen_bbox_by_name is not None:
-                    base = f"{prompts[rel_idx][:10]}_{ref_stem}"
+                    ref_path = sample.get("image_path")
+                    ref_stem = Path(ref_path).stem if ref_path is not None else sample.get("id", f"idx{idx:04d}")
+                    base = f"{prompt[:10]}_{ref_stem}"
                     key = f"{base}.png"
                     entry = gen_bbox_by_name.get(key)
-                    if isinstance(entry, dict):
-                        fb = entry.get("face_crop_new")
-                        if fb is None:
-                            fb = entry.get("face_crop_old")
-                        if fb is not None:
-                            face_bbox_gen_batch[rel_idx] = fb
-                    if face_bbox_gen_batch[rel_idx] is None:
-                        raise RuntimeError(
-                            f"No bbox entry in bbox_mask_gen for expected output name '{key}'"
-                        )
+                    if entry is None:
+                        raise RuntimeError(f"No bbox entry in bbox_mask_gen for expected output name '{key}'")
+                    fb = entry.get("face_crop_new") if isinstance(entry, dict) else None
+                    if fb is None and isinstance(entry, dict):
+                        fb = entry.get("face_crop_old")
+                    if fb is None:
+                        raise RuntimeError(f"BBox record for '{key}' missing face_crop_new/old")
+                    face_bbox_gen = fb
 
-            generators = [
-                torch.Generator(device=device.type).manual_seed(seed)
-                for seed in seeds
-            ]
+                # Use generator on pipeline device for parity with PhotoMaker (Alligned with PhotoMaker)
+                gen = torch.Generator(device=device.type).manual_seed(int(seed))
 
-            id_embeds_batch = []
-            has_any_id_embed = False
-            for ref_images in refs_batch:
+                # Precompute 512-D id embedding via FaceAnalysis (Alligned with PhotoMaker)
                 id_embeds_vec = None
                 try:
                     if _face_an is not None and isinstance(ref_images, (list, tuple)) and len(ref_images) > 0:
@@ -223,74 +182,28 @@ def main():
                             id_embeds_vec = torch.from_numpy(_faces[0]["embedding"]).float()
                 except Exception:
                     id_embeds_vec = None
-                if id_embeds_vec is None:
-                    id_embeds_vec = torch.zeros(512, dtype=torch.float32)
-                else:
-                    has_any_id_embed = True
-                id_embeds_batch.append(id_embeds_vec)
 
-            id_embeds_arg = None
-            if has_any_id_embed and id_embeds_batch:
-                id_embeds_arg = torch.stack(id_embeds_batch, dim=0)
+                # per-sample debug directory and indices (to satisfy pipeline debug hooks)
+                call_args = dict(val_args)
+                dbg_base = call_args.get("debug_dir", "hm_debug") or "hm_debug"
+                call_args["debug_dir"] = str(Path(dbg_base) / f"{idx:02d}")
+                call_args["debug_idx"] = idx
+                call_args["debug_total"] = total
 
-            call_args = dict(val_args)
-            dbg_base = call_args.get("debug_dir", "hm_debug") or "hm_debug"
-            call_args["debug_dir"] = str(Path(dbg_base) / f"{start:02d}")
-            call_args["debug_idx"] = start
-            call_args["debug_total"] = total
+                images = pipeline(
+                    prompt=prompt,
+                    input_id_images=ref_images,
+                    generator=gen,
+                    face_bbox_ref=face_bbox_ref,
+                    face_bbox_gen=face_bbox_gen,
+                    id_embeds=id_embeds_vec,  # Alligned with PhotoMaker
+                    **call_args,
+                ).images
 
-            images_flat = pipeline(
-                prompt=prompts if len(prompts) > 1 else prompts[0],
-                input_id_images=refs_batch if len(refs_batch) > 1 else refs_batch[0],
-                generator=generators if len(generators) > 1 else generators[0],
-                face_bbox_ref=face_bbox_ref_batch if len(face_bbox_ref_batch) > 1 else face_bbox_ref_batch[0],
-                face_bbox_gen=face_bbox_gen_batch if len(face_bbox_gen_batch) > 1 else face_bbox_gen_batch[0],
-                id_embeds=id_embeds_arg,
-                **call_args,
-            ).images
-
-            if not isinstance(images_flat, list):
-                images_flat = [images_flat]
-
-            num_per_prompt = int(call_args.get("num_images_per_prompt", 1) or 1)
-            expected_total = len(batch_samples) * num_per_prompt
-            if len(images_flat) != expected_total:
-                if len(batch_samples) == 1:
-                    num_per_prompt = len(images_flat)
-                else:
-                    raise RuntimeError(
-                        f"Inference generation returned {len(images_flat)} images for "
-                        f"batch_size={len(batch_samples)}, num_images_per_prompt={num_per_prompt}."
-                    )
-
-            for rel_idx, sample in enumerate(batch_samples):
-                idx = start + rel_idx
-                img_start = rel_idx * num_per_prompt
-                img_end = img_start + num_per_prompt
-                sample_images = images_flat[img_start:img_end]
-                prompt = prompts[rel_idx]
-                ref_stem = ref_stems[rel_idx]
-                _save_images(sample_images, out_dir, prompt, ref_stem)
-                if writer is not None:
-                    for name, img in _iter_named_images(sample_images, prompt, ref_stem):
-                        writer.add_image(name, img)
-                if metrics:
-                    metric_sample = {
-                        "prompt": prompt,
-                        "generated": sample_images,
-                        "id": sample.get("id"),
-                    }
-                    for metric in metrics:
-                        metric_result = metric(**metric_sample)
-                        for k, v in metric_result.items():
-                            infer_metrics.update(k, v)
+                ref_path = sample.get("image_path")
+                ref_stem = Path(ref_path).stem if ref_path is not None else sample.get("id", f"idx{idx:04d}")
+                _save_images(images, out_dir, prompt, ref_stem)
                 pbar.update(1)
-
-    if writer is not None:
-        for metric_name in infer_metrics.keys():
-            writer.add_scalar(f"infer/{metric_name}", infer_metrics.avg(metric_name))
-    if infer_metrics.keys():
-        print({k: infer_metrics.avg(k) for k in infer_metrics.keys()})
 
 
 

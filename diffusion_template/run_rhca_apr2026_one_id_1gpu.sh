@@ -4,6 +4,45 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${ROOT_DIR}"
 
+EXPECTED_CODE_COMMIT="aede146e2e2a2dae1cb3d14a0ea5daed25ae9604"
+HISTORICAL_RUNTIME_FILES=(
+  "train.py"
+  "src/configs/one_id_09Feb_testing.yaml"
+  "src/configs/datasets/all_datasets.yaml"
+  "src/configs/dataloaders/all_dataloaders.yaml"
+  "src/configs/model/photomaker_branched_lora2.yaml"
+  "src/configs/pipeline/pm_br_09Feb_testing.yaml"
+  "src/configs/trainer/photomaker_lora.yaml"
+  "src/datasets/cosmic.py"
+  "src/datasets/manual_val.py"
+  "src/loss/diffusion_loss.py"
+  "src/model/photomaker_branched/attn_processor_cleanest.py"
+  "src/model/photomaker_branched/branched_runtime.py"
+  "src/model/photomaker_branched/lora2.py"
+  "src/model/photomaker_branched/lora2_helpers.py"
+  "src/pipelines/br_pipeline_helpers.py"
+  "src/pipelines/photomaker_branched_clean.py"
+  "src/trainer/base_trainer.py"
+  "src/trainer/sdxl_trainers.py"
+)
+
+GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "${GIT_ROOT}" ]]; then
+  echo "Historical replay must run from its Git checkout." >&2
+  exit 4
+fi
+for relative_path in "${HISTORICAL_RUNTIME_FILES[@]}"; do
+  repo_path="diffusion_template/${relative_path}"
+  expected_blob="$(git rev-parse "${EXPECTED_CODE_COMMIT}:${repo_path}" 2>/dev/null || true)"
+  actual_blob="$(git hash-object "${ROOT_DIR}/${relative_path}" 2>/dev/null || true)"
+  if [[ -z "${expected_blob}" || "${actual_blob}" != "${expected_blob}" ]]; then
+    echo "Historical code-integrity check failed: ${repo_path}" >&2
+    echo "Expected the Apr 3 launch-time implementation from ${EXPECTED_CODE_COMMIT}." >&2
+    exit 4
+  fi
+done
+echo "Historical runtime verified: ${EXPECTED_CODE_COMMIT}"
+
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
 export ACCELERATE_LOG_LEVEL="${ACCELERATE_LOG_LEVEL:-error}"
