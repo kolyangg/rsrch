@@ -6,7 +6,7 @@ defaults:
 # `rhca_1e-4_ml_step2_allst_trref_diff`.
 #
 # This file changes configuration only. Model/trainer/runtime code remains the
-# historical implementation from commit 6782e9d.
+# historical implementation from launch-time commit aede146.
 train_on_separate_image: true
 train_ba_all_steps: true
 

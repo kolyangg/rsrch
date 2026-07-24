@@ -5,11 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${ROOT_DIR}"
 
 EXPECTED_CODE_COMMIT="aede146e2e2a2dae1cb3d14a0ea5daed25ae9604"
+# Dataset/dataloader registries are intentionally excluded because this branch
+# adds isolated entries for new datasets; the historical model/runtime remains
+# hash-locked below.
 HISTORICAL_RUNTIME_FILES=(
   "train.py"
   "src/configs/one_id_09Feb_testing.yaml"
-  "src/configs/datasets/all_datasets.yaml"
-  "src/configs/dataloaders/all_dataloaders.yaml"
   "src/configs/model/photomaker_branched_lora2.yaml"
   "src/configs/pipeline/pm_br_09Feb_testing.yaml"
   "src/configs/trainer/photomaker_lora.yaml"
@@ -53,6 +54,8 @@ export COMET_LOGGING_CONSOLE="${COMET_LOGGING_CONSOLE:-ERROR}"
 
 WRITER="${WRITER:-cometml}"
 RUN_NAME="${RUN_NAME:-rhca_1e-4_ml_step2_allst_trref_diff_replay}"
+COMET_PROJECT="${COMET_PROJECT:-rsrch-jul}"
+CONFIG_NAME="${CONFIG_NAME:-one_id_rhca_apr2026_replay}"
 PM_PATH="${PM_PATH:-}"
 LIBSTDCXX_PATH="${LIBSTDCXX_PATH:-}"
 
@@ -110,8 +113,9 @@ accelerate launch \
   --config_file=src/configs/ddp/accelerate.yaml \
   --num_processes=1 \
   train.py \
-  --config-name=one_id_rhca_apr2026_replay \
+  "--config-name=${CONFIG_NAME}" \
   "writer=${WRITER}" \
   "writer.run_name=${RUN_NAME}" \
+  "writer.project_name=${COMET_PROJECT}" \
   "${MODEL_OVERRIDES[@]}" \
   "$@"
