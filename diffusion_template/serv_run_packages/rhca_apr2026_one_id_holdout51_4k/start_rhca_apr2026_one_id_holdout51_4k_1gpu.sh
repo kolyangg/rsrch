@@ -21,6 +21,10 @@ fi
 source "${CONDA_BASE}/etc/profile.d/conda.sh"
 conda activate "${CONDA_ENV_PATH}"
 
+# 24 Jul 2026 - Reuse the server's compatible C++ runtime without changing the
+# locked Conda environment or the historical/audited experiment implementation.
+export LIBSTDCXX_PATH="${LIBSTDCXX_PATH:-/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/conda_env/nasilaev/lib/libstdc++.so.6.0.34}"
+
 exec bash \
   "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_test/diffusion_template/launchers/active/run_rhca_apr2026_one_id_holdout51_1gpu.sh" \
   "$@"
