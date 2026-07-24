@@ -42,6 +42,9 @@ train:
         images_path: ../dataset_full/cosmic_large_one_id
         num_refs: 1
         random_horizontal_flip: true
+        # Avoid exhausting and recreating a 12-worker DataLoader every step
+        # when this intentionally contains only one real target.
+        virtual_length: 1000
         instance_transforms: ${transforms.instance_transforms.train}
         
 

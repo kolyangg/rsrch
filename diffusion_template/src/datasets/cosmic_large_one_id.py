@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import math
 from pathlib import Path
 import random
 
@@ -26,6 +27,7 @@ class CosmicLargeOneID(BaseDataset):
         images_path: str,
         num_refs: int = 1,
         random_horizontal_flip: bool = True,
+        virtual_length: int | None = None,
         *args,
         **kwargs,
     ):
@@ -53,6 +55,15 @@ class CosmicLargeOneID(BaseDataset):
                     f"Target/reference leakage in {target_path}: target is in face_paths"
                 )
             index.append(item)
+
+        if virtual_length is not None:
+            virtual_length = int(virtual_length)
+            if virtual_length < len(index):
+                raise ValueError(
+                    f"virtual_length={virtual_length} is smaller than "
+                    f"the {len(index)} real records"
+                )
+            index = (index * math.ceil(virtual_length / len(index)))[:virtual_length]
 
         super().__init__(index, *args, **kwargs)
 

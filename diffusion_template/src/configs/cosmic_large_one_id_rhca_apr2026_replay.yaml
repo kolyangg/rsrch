@@ -8,11 +8,6 @@ train_dataset_name: cosmic_large_one_id
 val_datasets_names: [cosmic_large_one_id_val]
 
 dataloaders:
-  train:
-    # This dataset has one target record, so drop_last training requires
-    # batch size 1. The model, loss, LR, and BA architecture stay unchanged.
-    batch_size: 1
-    num_workers: 12
   cosmic_large_one_id_val:
     batch_size: 12
     num_workers: 1
