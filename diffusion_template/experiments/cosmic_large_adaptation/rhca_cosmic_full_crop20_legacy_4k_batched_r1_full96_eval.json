@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_full_crop20_legacy_4k_batched_r1_full96_eval",
+  "plan": {
+    "status": "scheduled_after_source_endpoint",
+    "machine": "neb",
+    "gpus": 1,
+    "launcher": "launchers/neb/start_rhca_cosmic_full96_batched_legacy_eval.sh",
+    "objective": "Evaluate the speed-fixed legacy full-Cosmic endpoint on the sealed historical 96-image protocol and log all images and aggregate metrics to a distinct Comet experiment.",
+    "source": {
+      "run_name": "rhca_cosmic_full_crop20_legacy_4k_batched_r1",
+      "comet_experiment_key": "7ec45fae85684aac97b2266967adbe2a",
+      "git_commit": "f300ed6a7b7f4f17e2f94cef5a53d4ddaef69200",
+      "checkpoint": "saved/rhca_cosmic_full_crop20_legacy_4k_batched_r1/checkpoint-epoch8.pth",
+      "optimizer_step": 4000
+    },
+    "validation_contract": {
+      "dataset": "manual_val",
+      "images": 96,
+      "layout": "eight sorted identities by twelve prompts, seed 0",
+      "batch_size": 12,
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "inference_steps": 50,
+      "guidance_scale": 5,
+      "photomaker_start_step": 10,
+      "branched_attention_start_step": 15,
+      "branched_self_attention": true,
+      "branched_cross_attention": false,
+      "processor_state": "legacy_full_copy",
+      "bbox_protocol_id": "cosmic_full96_auto_v1",
+      "manual_bbox_sha256": "a39645e22b68027175946a028e185b7c5393a7514f5d68c94cd74e7cc9f5e614",
+      "automatic_bbox_sha256": "e62817aa29e5e69a8e46b20695e0f504fdd4f5c4d360f122e3195aaccf986718",
+      "automatic_bbox_entries": 95,
+      "force_manual_entries": 1
+    },
+    "dependencies": [
+      "source process exits and creates an epoch-8 checkpoint",
+      "source step-4000 panel contains exactly 12 images",
+      "sealed full-96 protocol files pass their recorded hashes",
+      "no other Neb GPU job is running"
+    ]
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}
