@@ -15,8 +15,12 @@ val_datasets_names: [controlled_identity_factorial_val]
 
 dataloaders:
   controlled_identity_factorial_val:
+    # 25 Jul 2026 - This is a new loader key, so it must declare its target
+    # instead of relying on Hydra to inherit one from all_dataloaders.yaml.
+    _target_: torch.utils.data.DataLoader
     batch_size: 12
     num_workers: 1
+    pin_memory: false
 
 datasets:
   train:
