@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_full_crop20_legacy_20k",
+  "plan": {
+    "priority": 3,
+    "status": "gated_long_run",
+    "machine": "serv",
+    "gpus": 1,
+    "optimizer_steps": 20000,
+    "launcher": "serv_run_packages/rhca_cosmic_full_crop20_legacy_20k/start_rhca_cosmic_full_crop20_legacy_20k_1gpu.sh",
+    "objective": "Measure long-run stability of the crop-20 legacy full-Cosmic policy if it remains the best multi-identity candidate after the matched pose-first and batched-conditioning gates.",
+    "control": {
+      "run_name": "rhca_cosmic_full_crop20_legacy_4k",
+      "comet_experiment_key": "96ec8a296e33444e9a63147902eaff76",
+      "full96_eval_experiment_key": "7a9dd2b270dc4b199d023b798020e6bd",
+      "batched_reproduction": "rhca_cosmic_full_crop20_legacy_4k_batched_r1"
+    },
+    "dataset": "gathered_data_cosmic_large_filtered.json",
+    "reference_policy": {
+      "crop_margin_per_side": 0.2,
+      "content_size": 256,
+      "canvas_size": null
+    },
+    "prompt_policy": {
+      "mode": "legacy",
+      "max_words": null
+    },
+    "throughput_policy": {
+      "precompute_frozen_conditioning": true,
+      "conditioning_cache_enabled": true,
+      "conditioning_cache_max_items": 256
+    },
+    "dependencies": [
+      "do not submit until the batched 4k reproduction preserves throughput and endpoint quality",
+      "legacy full96 remains at least as coherent as pose-first full96 on the same 96-image protocol",
+      "no existing saved directory with this run name"
+    ],
+    "promotion_gate": "At least 11/12 valid on each of three held-out identities, no outside-mask regression, and stable identity/text trends beyond 4k."
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}
