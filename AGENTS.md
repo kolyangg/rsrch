@@ -118,6 +118,15 @@ face/body alignment.
 Use `diffusion_template/TOOLS.md` as the entry point for repository tools and
 server-operation helpers.
 
+Before submitting an A100 job on Serv, inspect the running and pending MLS
+jobs. This project may have at most six A100 GPUs requested concurrently,
+counting its own Running and Pending jobs by their actual one- or two-GPU
+request. Other users' jobs do not count toward this six-GPU ceiling. Pending
+means the request was submitted successfully and does not prevent submitting
+more gate-approved jobs while this project's total remains at or below six
+GPUs. If MLS rejects or discards a request because an allocation or request
+limit was exceeded, do not retry that request unless the user later asks.
+
 For every new Comet-tracked experiment, verify during startup that
 `saved/<run_name>/comet_experiment.json` exists and contains the experiment
 key written by `CometMLWriter`. Use
