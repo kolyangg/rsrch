@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_oneid_margin40_4k_r1",
+  "plan": {
+    "priority": 1,
+    "status": "retry_after_unused_registry_env_fix",
+    "machine": "neb",
+    "gpus": 1,
+    "optimizer_steps": 4000,
+    "launcher": "launchers/active/run_rhca_cosmic_one_id_reference_policy_4k_1gpu.sh",
+    "objective": "Test whether wider 40%-per-side context at fixed 256px training-reference resolution improves the Task D multi_cosref result.",
+    "control": "Task D multi_cosref: 20%-per-side 256px crops, identical eight targets and validation contract.",
+    "dataset": "controlled_identity_factorial/nm0004960_v1",
+    "reference_policy": {
+      "source": "full_scene",
+      "crop_margin_per_side": 0.4,
+      "content_size": 256,
+      "canvas_size": null
+    },
+    "retry_of": {
+      "run_name": "rhca_cosmic_oneid_margin40_4k",
+      "comet_experiment_key": "b436d14ec94d4304b73eaacdf43df550",
+      "reason": "Hydra resolved an unused full-Cosmic registry entry whose environment-only paths had no inert defaults; no optimizer step ran."
+    },
+    "dependencies": [
+      "sealed controlled artifact manifest.sha256 passes",
+      "unused full-Cosmic registry paths resolve without being instantiated"
+    ],
+    "promotion_gate": "At least 11/12 anatomically coherent; Jumping and Drumming both pass; text >=26.0 and ID >=0.32."
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}

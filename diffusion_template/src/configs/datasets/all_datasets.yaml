@@ -60,8 +60,11 @@ train:
     # unchanged for exact replay and does not consume the face_paths manifest.
     cosmic_large_adapted:
         _target_: src.datasets.cosmic_large_adapted.CosmicLargeAdaptedTrain
-        manifest_path: ${oc.env:COSMIC_LARGE_MANIFEST}
-        dataset_root: ${oc.env:COSMIC_LARGE_ROOT}
+        # Defaults are inert so OmegaConf can resolve this registry entry when
+        # another dataset is selected. The dedicated full-Cosmic launcher
+        # still requires and exports both real paths before instantiation.
+        manifest_path: ${oc.env:COSMIC_LARGE_MANIFEST,/nonexistent/cosmic_large_manifest.json}
+        dataset_root: ${oc.env:COSMIC_LARGE_ROOT,/nonexistent/cosmic_large_root}
         num_refs: 1
         min_face_res: 192
         min_reference_score: null
