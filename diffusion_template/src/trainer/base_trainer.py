@@ -446,6 +446,20 @@ class BaseTrainer:
                 try:
                     self.config.model.pretrained_model_name_or_path = val_pretrained
                     _val_model = instantiate(self.config.model, device=self.device)
+                    # 25 Jul 2026 - The alternate validation model must receive
+                    # the architecture toggles before processor installation.
+                    # AICODE-NOTE: Setting these after prepare_for_training()
+                    # leaves the already-installed branched processor map intact.
+                    setattr(
+                        _val_model,
+                        "disable_branched_sa",
+                        bool(getattr(self.config, "disable_branched_sa", False)),
+                    )
+                    setattr(
+                        _val_model,
+                        "disable_branched_ca",
+                        bool(getattr(self.config, "disable_branched_ca", False)),
+                    )
                     setattr(_val_model, "strict_face_routing", bool(getattr(self.config, "strict_face_routing", False)))
                     # Ensure adapters are initialized before loading LoRA weights
                     if hasattr(_val_model, "prepare_for_training"):
@@ -497,6 +511,16 @@ class BaseTrainer:
                         self.config.pipeline,
                         model=_val_model,
                         accelerator=self.accelerator,
+                    )
+                    setattr(
+                        self.pipe,
+                        "disable_branched_sa",
+                        bool(getattr(self.config, "disable_branched_sa", False)),
+                    )
+                    setattr(
+                        self.pipe,
+                        "disable_branched_ca",
+                        bool(getattr(self.config, "disable_branched_ca", False)),
                     )
                     # Ensure pipeline modules are on GPU
                     try:
