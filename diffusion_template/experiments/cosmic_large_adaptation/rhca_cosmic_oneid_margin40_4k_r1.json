@@ -3,7 +3,7 @@
   "run_name": "rhca_cosmic_oneid_margin40_4k_r1",
   "plan": {
     "priority": 1,
-    "status": "retry_after_unused_registry_env_fix",
+    "status": "planned_retry_after_environment_fix",
     "machine": "neb",
     "gpus": 1,
     "optimizer_steps": 4000,
@@ -17,15 +17,17 @@
       "content_size": 256,
       "canvas_size": null
     },
-    "retry_of": {
-      "run_name": "rhca_cosmic_oneid_margin40_4k",
-      "comet_experiment_key": "b436d14ec94d4304b73eaacdf43df550",
-      "reason": "Hydra resolved an unused full-Cosmic registry entry whose environment-only paths had no inert defaults; no optimizer step ran."
-    },
     "dependencies": [
       "sealed controlled artifact manifest.sha256 passes",
-      "unused full-Cosmic registry paths resolve without being instantiated"
+      "commit b70c423 or later is synced",
+      "Neb GPU is idle"
     ],
+    "previous_attempt": {
+      "run_name": "rhca_cosmic_oneid_margin40_4k",
+      "outcome": "startup_failed_before_training",
+      "cause": "unrelated full-Cosmic registry environment interpolation was unresolved",
+      "comparable_endpoint": false
+    },
     "promotion_gate": "At least 11/12 anatomically coherent; Jumping and Drumming both pass; text >=26.0 and ID >=0.32."
   },
   "comet": {
