@@ -18,6 +18,7 @@ from src.datasets.reference_policy import apply_reference_policy, valid_bbox
 
 logger = logging.getLogger(__name__)
 CLASS_RE = re.compile(r"\b(woman|man|girl|boy|child|person)\b", re.IGNORECASE)
+TRIGGER_WORD_RE = re.compile(r"\bimg\b")
 LEADING_CLASS_RE = re.compile(
     r"^\s*the\s+(woman|man|girl|boy|child|person)\s+img\s*",
     re.IGNORECASE,
@@ -214,6 +215,13 @@ class CosmicLargeAdaptedTrain(BaseDataset):
             match = CLASS_RE.search(facial)
             class_name = match.group(1).lower() if match else "person"
             appearance = LEADING_CLASS_RE.sub("", facial).strip(" ,")
+            # AICODE-NOTE: 25 Jul 2026 - Full-Cosmic facial captions already
+            # contain the lowercase PhotoMaker trigger. Pose-first adds its
+            # own leading trigger, so remove inherited copies while preserving
+            # legacy prompts and uppercase prose such as "IMG Academy".
+            appearance = " ".join(
+                TRIGGER_WORD_RE.sub("", appearance).split()
+            ).strip(" ,")
             prompt = ", ".join(
                 value
                 for value in (

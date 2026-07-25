@@ -15,7 +15,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.datasets.cosmic_large_adapted import CosmicLargeAdaptedTrain
+from src.datasets.cosmic_large_adapted import (
+    CosmicLargeAdaptedTrain,
+    TRIGGER_WORD_RE,
+)
 from src.datasets.reference_policy import valid_bbox
 
 
@@ -82,8 +85,12 @@ def main() -> int:
                 raise ValueError(f"invalid target bbox {sample['face_bbox']!r}")
             if not valid_bbox(sample["face_bbox_ref"], reference.size):
                 raise ValueError(f"invalid reference bbox {sample['face_bbox_ref']!r}")
-            if " img" not in f" {sample['prompt']}":
-                raise ValueError("prompt is missing the PhotoMaker trigger word")
+            trigger_count = len(TRIGGER_WORD_RE.findall(sample["prompt"]))
+            if trigger_count != 1:
+                raise ValueError(
+                    "prompt must contain exactly one lowercase PhotoMaker "
+                    f"trigger word, found {trigger_count}: {sample['prompt']!r}"
+                )
             target_bbox = sample["face_bbox"]
             ref_bbox = sample["face_bbox_ref"]
             sampled.append(
@@ -105,6 +112,7 @@ def main() -> int:
                         / float(reference.width * reference.height)
                     ),
                     "prompt_words": len(sample["prompt"].split()),
+                    "trigger_count": trigger_count,
                     "reference_cache_key": sample["reference_cache_key"],
                 }
             )
