@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_full_crop20_legacy_4k",
+  "plan": {
+    "priority": 1,
+    "status": "planned",
+    "machine": "serv",
+    "gpus": 1,
+    "optimizer_steps": 4000,
+    "launcher": "launchers/active/run_rhca_cosmic_large_adapted_1gpu.sh",
+    "objective": "Establish a runnable CA-off full-Cosmic baseline using the real face_paths package and the clean loader's 20% crop policy.",
+    "control": "Task D multi_cosref for the one-ID bridge; all later full-Cosmic arms use this run as their direct control.",
+    "dataset": "gathered_data_cosmic_large_filtered.json",
+    "reference_policy": {
+      "crop_margin_per_side": 0.2,
+      "content_size": 256,
+      "canvas_size": null
+    },
+    "prompt_policy": {
+      "mode": "legacy",
+      "max_words": null
+    },
+    "dependencies": [
+      "full-Cosmic path/decode/bbox preflight passes",
+      "no existing saved directory with this run name"
+    ],
+    "promotion_gate": "No systematic small/dynamic-face corruption, positive identity change without prompt/scene regression, then endpoint evaluation on at least three held-out identities."
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}

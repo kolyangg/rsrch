@@ -112,3 +112,15 @@ whether conclusions come from visuals, metrics, logs, or code inspection.
 When comparing runs, prioritize controlled validation and visual face quality,
 while also checking identity similarity, prompt adherence, artifacts, and
 face/body alignment.
+
+# Tool index and Comet run records
+
+Use `diffusion_template/TOOLS.md` as the entry point for repository tools and
+server-operation helpers.
+
+For every new Comet-tracked experiment, verify during startup that
+`saved/<run_name>/comet_experiment.json` exists and contains the experiment
+key written by `CometMLWriter`. Use
+`diffusion_template/tools/comet/comet_experiment.py` and that immutable key to
+retrieve metrics or images. Do not identify an experiment later only by its
+display name.

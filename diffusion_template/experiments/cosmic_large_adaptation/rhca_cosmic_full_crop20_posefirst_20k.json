@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_full_crop20_posefirst_20k",
+  "plan": {
+    "priority": 4,
+    "status": "gated_long_run",
+    "machine": "serv",
+    "gpus": 1,
+    "optimizer_steps": 20000,
+    "launcher": "launchers/active/run_rhca_cosmic_large_adapted_1gpu.sh",
+    "objective": "Measure long-run stability of the crop20 pose-first candidate only after it wins the controlled 4k gates.",
+    "control": "rhca_cosmic_full_crop20_posefirst_4k",
+    "dataset": "gathered_data_cosmic_large_filtered.json",
+    "reference_policy": {
+      "crop_margin_per_side": 0.2,
+      "content_size": 256,
+      "canvas_size": null
+    },
+    "prompt_policy": {
+      "mode": "pose_first",
+      "max_words": 55
+    },
+    "dependencies": [
+      "do not submit unless the 4k arm passes anatomy and multi-identity endpoint gates",
+      "replace this candidate with a newly sealed long-run spec if another 4k policy wins"
+    ],
+    "promotion_gate": "At least 11/12 valid on each of three held-out identities, no outside-mask regression, and stable identity/text trends beyond 4k."
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}

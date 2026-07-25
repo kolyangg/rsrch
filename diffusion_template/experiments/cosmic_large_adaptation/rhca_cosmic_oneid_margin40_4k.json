@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_oneid_margin40_4k",
+  "plan": {
+    "priority": 1,
+    "status": "planned",
+    "machine": "neb",
+    "gpus": 1,
+    "optimizer_steps": 4000,
+    "launcher": "launchers/active/run_rhca_cosmic_one_id_reference_policy_4k_1gpu.sh",
+    "objective": "Test whether wider 40%-per-side context at fixed 256px training-reference resolution improves the Task D multi_cosref result.",
+    "control": "Task D multi_cosref: 20%-per-side 256px crops, identical eight targets and validation contract.",
+    "dataset": "controlled_identity_factorial/nm0004960_v1",
+    "reference_policy": {
+      "source": "full_scene",
+      "crop_margin_per_side": 0.4,
+      "content_size": 256,
+      "canvas_size": null
+    },
+    "dependencies": [
+      "sealed controlled artifact manifest.sha256 passes"
+    ],
+    "promotion_gate": "At least 11/12 anatomically coherent; Jumping and Drumming both pass; text >=26.0 and ID >=0.32."
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}

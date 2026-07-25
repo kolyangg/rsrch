@@ -12,6 +12,7 @@ import random
 from PIL import Image, ImageOps
 
 from src.datasets.base_dataset import BaseDataset
+from src.datasets.reference_policy import apply_reference_policy
 
 
 def _sha256(path: Path) -> str:
@@ -45,6 +46,10 @@ class ControlledIdentityFactorial(BaseDataset):
         random_horizontal_flip: bool = True,
         verify_hashes: bool = True,
         require_sealed_validation: bool = True,
+        reference_crop_margin: float | None = None,
+        reference_content_size: int | None = None,
+        reference_canvas_size: int | None = None,
+        reference_canvas_fill: int = 127,
         *args,
         **kwargs,
     ):
@@ -76,6 +81,22 @@ class ControlledIdentityFactorial(BaseDataset):
         self.target_mode = str(target_mode).lower()
         self.reference_mode = str(reference_mode).lower()
         self.random_horizontal_flip = bool(random_horizontal_flip)
+        self.reference_crop_margin = (
+            None
+            if reference_crop_margin is None
+            else float(reference_crop_margin)
+        )
+        self.reference_content_size = (
+            None
+            if reference_content_size is None
+            else int(reference_content_size)
+        )
+        self.reference_canvas_size = (
+            None
+            if reference_canvas_size is None
+            else int(reference_canvas_size)
+        )
+        self.reference_canvas_fill = int(reference_canvas_fill)
         if self.target_mode not in self.TARGET_MODES:
             raise ValueError(
                 f"target_mode must be one of {sorted(self.TARGET_MODES)}, "
@@ -213,6 +234,14 @@ class ControlledIdentityFactorial(BaseDataset):
         reference_record, reference_relative_path = self._reference_record(reference_id)
         reference = self._open(reference_relative_path)
         reference_bbox = deepcopy(reference_record["face_bbox"])
+        reference, reference_bbox, policy_descriptor = apply_reference_policy(
+            reference,
+            reference_bbox,
+            crop_margin=self.reference_crop_margin,
+            content_size=self.reference_content_size,
+            canvas_size=self.reference_canvas_size,
+            canvas_fill=self.reference_canvas_fill,
+        )
         reference_path = str(self._path(reference_relative_path))
 
         prompt = str(target_record.get("prompt") or "A person img")
@@ -222,6 +251,10 @@ class ControlledIdentityFactorial(BaseDataset):
                 f"{reference_path}::{reference_record.get('artifact_sha256')}",
             )
         )
+        if policy_descriptor != "identity":
+            reference_cache_key = (
+                f"{reference_cache_key}::{policy_descriptor}"
+            )
 
         instance_data = {
             "pixel_values": target,

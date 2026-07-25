@@ -1,0 +1,62 @@
+defaults:
+  - one_id_rhca_apr2026_replay
+  - _self_
+
+# New isolated loader for the real full-Cosmic face_paths package. It keeps the
+# April RHCA optimizer/model contract while making reference formatting and
+# caption ordering explicit.
+cosmic_reference:
+  crop_margin: 0.2
+  content_size: 256
+  canvas_size: null
+  canvas_fill: 127
+  prompt_mode: legacy
+  prompt_max_words: null
+  min_reference_score: null
+
+train_dataset_name: cosmic_large_adapted
+val_datasets_names: [manual_val]
+
+datasets:
+  train:
+    cosmic_large_adapted:
+      reference_crop_margin: ${cosmic_reference.crop_margin}
+      reference_content_size: ${cosmic_reference.content_size}
+      reference_canvas_size: ${cosmic_reference.canvas_size}
+      reference_canvas_fill: ${cosmic_reference.canvas_fill}
+      prompt_mode: ${cosmic_reference.prompt_mode}
+      prompt_max_words: ${cosmic_reference.prompt_max_words}
+      min_reference_score: ${cosmic_reference.min_reference_score}
+  val:
+    manual_val:
+      # The first 12 samples are one fixed identity over the 12 standard
+      # prompts. A shared reference keeps the current batched spatial setup
+      # correct; heterogeneous references must use batch_size=1.
+      limit: 12
+
+dataloaders:
+  manual_val:
+    _target_: torch.utils.data.DataLoader
+    batch_size: 12
+    num_workers: 1
+    pin_memory: false
+
+disable_branched_ca: true
+train_branched_ca_lora: false
+branched_attn_weight_mode: noise_and_ref
+
+model:
+  train_branched_ca_lora: false
+  branched_attn_weight_mode: noise_and_ref
+
+continue_run: false
+saved_checkpoint: null
+
+trainer:
+  resume_from: null
+  masked_loss_step: 1
+  n_epochs: 8
+
+automatic_bboxes: true
+automatic_bboxes_every_val: false
+force_log_first_auto_bbox: false

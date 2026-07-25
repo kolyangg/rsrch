@@ -1,6 +1,8 @@
 # Utilities
 
-- `comet/` — export Comet runs and build PDF reports.
+- `comet/` — automatically record Comet experiment IDs, retrieve metrics and
+  images by ID, export runs, and build PDF reports. See
+  [`comet/README.md`](comet/README.md).
 - `inference/` — calculate metrics and build image/metric PDFs.
 - `datasets/` — prepare validation embeddings and the Cosmic Large one-ID
   dataset.

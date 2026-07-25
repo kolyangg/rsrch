@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_full_crop20_posefirst_4k",
+  "plan": {
+    "priority": 2,
+    "status": "planned_after_baseline",
+    "machine": "serv",
+    "gpus": 1,
+    "optimizer_steps": 4000,
+    "launcher": "launchers/active/run_rhca_cosmic_large_adapted_1gpu.sh",
+    "objective": "Isolate prompt truncation/order by preserving the 20% crop while moving class img and pose/background before appearance and capping at 55 words.",
+    "control": "rhca_cosmic_full_crop20_legacy_4k",
+    "dataset": "gathered_data_cosmic_large_filtered.json",
+    "reference_policy": {
+      "crop_margin_per_side": 0.2,
+      "content_size": 256,
+      "canvas_size": null
+    },
+    "prompt_policy": {
+      "mode": "pose_first",
+      "max_words": 55
+    },
+    "dependencies": [
+      "full-Cosmic baseline starts cleanly and produces valid step-500 outputs"
+    ],
+    "promotion_gate": "Matched visual anatomy is no worse than baseline and prompt/text adherence improves without outside-face degradation."
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}

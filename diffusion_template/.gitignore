@@ -16,6 +16,8 @@ downloads/
 eggs/
 .eggs/
 lib/
+!launchers/lib/
+!launchers/lib/prepare_comet_record.sh
 lib64/
 parts/
 sdist/
@@ -106,6 +108,7 @@ input/
 saved/
 wandb/
 .cometml-runs/
+comet_records/
 outputs/
 logs/
 runs/

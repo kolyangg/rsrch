@@ -1,4 +1,9 @@
-from datetime import datetime
+import json
+import os
+import socket
+import subprocess
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -93,6 +98,181 @@ class CometMLWriter:
                 self.run_id = self._experiment.get_key()
             except Exception:
                 pass
+
+        if self.run_id:
+            try:
+                self._write_experiment_record(
+                    project_config=project_config,
+                    project_name=project_name,
+                    workspace=workspace,
+                    run_name=run_name,
+                    mode=mode,
+                )
+            except Exception as error:
+                if self.logger is not None:
+                    self.logger.warning(f"Failed to write Comet experiment record: {error}")
+
+    def _write_experiment_record(
+        self,
+        *,
+        project_config: Any,
+        project_name: str,
+        workspace: Optional[str],
+        run_name: Optional[str],
+        mode: str,
+    ) -> None:
+        """
+        Persist the Comet experiment key beside the run checkpoints.
+
+        The record is intentionally small and contains no API key. Retrieval
+        tools can use this stable key instead of searching Comet by a mutable
+        or reused experiment name.
+        """
+        record_path = self._experiment_record_path(project_config, run_name)
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+
+        existing: dict[str, Any] = {}
+        if record_path.is_file():
+            try:
+                value = json.loads(record_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                value = {}
+            if isinstance(value, dict):
+                existing = value
+
+        resolved_workspace = workspace or self._experiment_attribute(
+            "workspace", "_workspace"
+        )
+        experiment_url = self._experiment_attribute("url", "_url")
+        if not experiment_url and resolved_workspace:
+            experiment_url = (
+                f"https://www.comet.com/{resolved_workspace}/"
+                f"{project_name}/{self.run_id}"
+            )
+
+        now = datetime.now(timezone.utc).isoformat()
+        project_root = Path(__file__).resolve().parents[2]
+        record = dict(existing)
+        record.update(
+            {
+                "schema_version": 1,
+                "run_name": str(run_name or ""),
+                "created_at_utc": existing.get("created_at_utc", now),
+                "updated_at_utc": now,
+                "source": "CometMLWriter",
+                "runtime": {
+                    "hostname": socket.gethostname(),
+                    "pid": os.getpid(),
+                    "project_root": str(project_root),
+                    "save_dir": str(record_path.parent),
+                },
+                "git": self._git_metadata(project_root),
+                "comet": {
+                    "experiment_key": str(self.run_id),
+                    "project_name": str(project_name),
+                    "workspace": (
+                        None
+                        if resolved_workspace in (None, "")
+                        else str(resolved_workspace)
+                    ),
+                    "url": (
+                        None if experiment_url in (None, "") else str(experiment_url)
+                    ),
+                    "mode": str(mode),
+                },
+            }
+        )
+
+        # 25 Jul 2026 - AICODE-NOTE: write atomically so monitoring/export
+        # never observes a partial experiment key while training starts.
+        temp_name: Optional[str] = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=record_path.parent,
+                prefix=".comet-experiment-",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temp_name = handle.name
+                os.fchmod(handle.fileno(), 0o600)
+                json.dump(record, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            os.replace(temp_name, record_path)
+        finally:
+            if temp_name and os.path.exists(temp_name):
+                os.unlink(temp_name)
+
+        if self.logger is not None:
+            self.logger.info(
+                "Comet experiment record: %s (key=%s)",
+                record_path,
+                self.run_id,
+            )
+
+    @staticmethod
+    def _experiment_record_path(
+        project_config: Any,
+        run_name: Optional[str],
+    ) -> Path:
+        project_root = Path(__file__).resolve().parents[2]
+        trainer_config = (
+            project_config.get("trainer", {})
+            if hasattr(project_config, "get")
+            else {}
+        )
+        save_dir_value = (
+            trainer_config.get("save_dir", "saved")
+            if hasattr(trainer_config, "get")
+            else "saved"
+        )
+        save_dir = Path(str(save_dir_value)).expanduser()
+        if not save_dir.is_absolute():
+            save_dir = project_root / save_dir
+
+        final_run_name = str(run_name or "unnamed_run")
+        override = os.getenv("COMET_EXPERIMENT_RECORD_PATH")
+        if override:
+            override_path = Path(override).expanduser()
+            return (
+                override_path
+                if override_path.is_absolute()
+                else project_root / override_path
+            )
+        return save_dir / final_run_name / "comet_experiment.json"
+
+    @staticmethod
+    def _git_metadata(project_root: Path) -> dict[str, Optional[str]]:
+        def read_git_value(*arguments: str) -> Optional[str]:
+            try:
+                result = subprocess.run(
+                    ["git", *arguments],
+                    cwd=project_root,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=5,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                return None
+            value = result.stdout.strip()
+            return value if result.returncode == 0 and value else None
+
+        return {
+            "branch": read_git_value("branch", "--show-current"),
+            "commit": read_git_value("rev-parse", "HEAD"),
+        }
+
+    def _experiment_attribute(self, *names: str) -> Any:
+        for name in names:
+            try:
+                value = getattr(self._experiment, name, None)
+            except Exception:
+                continue
+            if value not in (None, "") and not callable(value):
+                return value
+        return None
 
     def set_step(self, step, mode="train"):
         """
