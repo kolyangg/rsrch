@@ -136,6 +136,17 @@ def prepare_branched_training_inputs(
     Returns prompt embeddings, pooled embeddings, class-token mask, face-branch embeds,
     optional ID features, masks, and reference latents.
     """
+    if bool(getattr(model, "batched_conditioning_preparation", False)):
+        return _prepare_branched_training_inputs_batched(
+            model,
+            prompts=prompts,
+            ref_images=ref_images,
+            face_bbox=face_bbox,
+            face_bbox_ref=face_bbox_ref,
+            pixel_values=pixel_values,
+            noisy_latents=noisy_latents,
+        )
+
     prompt_embeds_list = []
     pooled_prompt_embeds_list = []
     class_tokens_mask_list = []
@@ -326,6 +337,160 @@ def prepare_branched_training_inputs(
     mask4 = torch.cat(mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
     mask4_ref = torch.cat(ref_mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
     reference_latents = torch.cat(ref_latents_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
+
+    model._ref_latents_all = reference_latents
+    model._face_prompt_embeds = prompt_embeds
+    model.do_classifier_free_guidance = False
+    if hasattr(model, "_ref_noise"):
+        delattr(model, "_ref_noise")
+
+    return (
+        prompt_embeds,
+        pooled_prompt_embeds,
+        class_tokens_mask,
+        face_prompt_embeds,
+        id_features,
+        mask4,
+        mask4_ref,
+        reference_latents,
+    )
+
+
+def _prepare_branched_training_inputs_batched(
+    model,
+    *,
+    prompts: Sequence[str],
+    ref_images: Sequence[Sequence],
+    face_bbox: Sequence[Sequence[float]],
+    face_bbox_ref: Sequence[Sequence[float]] | None,
+    pixel_values: torch.Tensor,
+    noisy_latents: torch.Tensor,
+):
+    """Batch frozen conditioning work for large datasets with unique samples."""
+    if face_bbox_ref is None:
+        raise ValueError("Training batch is missing face_bbox_ref")
+
+    refs_per_sample = [
+        refs if isinstance(refs, (list, tuple)) else [refs]
+        for refs in ref_images
+    ]
+    if any(len(refs) != 1 for refs in refs_per_sample):
+        raise ValueError(
+            "batched_conditioning_preparation currently requires one reference "
+            "image per training sample"
+        )
+    flat_refs = [refs[0] for refs in refs_per_sample]
+    batch_size = len(flat_refs)
+    if not (
+        len(prompts)
+        == len(face_bbox)
+        == len(face_bbox_ref)
+        == batch_size
+        == pixel_values.shape[0]
+    ):
+        raise ValueError("Batched conditioning inputs have inconsistent batch sizes")
+
+    image_h, image_w = pixel_values.shape[-2:]
+    latent_h, latent_w = noisy_latents.shape[-2:]
+    prompt_embeds, pooled_prompt_embeds, class_tokens_mask = (
+        model.encode_prompts_with_trigger_word(prompts, num_id_images=1)
+    )
+
+    # 26 Jul 2026 - Full Cosmic supplies effectively unique target/reference
+    # pairs. Batch all frozen encoders so throughput does not depend on cache
+    # reuse; legacy per-sample preparation remains the default.
+    # AICODE-NOTE: Batching changes only execution grouping. References,
+    # supplied boxes, PhotoMaker features, and target masks remain per sample.
+    with torch.no_grad():
+        id_pixel_values = model.id_image_processor(
+            flat_refs, return_tensors="pt"
+        ).pixel_values.unsqueeze(1)
+        id_pixel_values = id_pixel_values.to(
+            model.device, dtype=model.id_encoder.dtype
+        )
+
+        id_embed_list = []
+        for ref in flat_refs:
+            img_np = np.array(ref.convert("RGB"))[:, :, ::-1]
+            faces = analyze_faces(model.face_analyzer, img_np)
+            if faces:
+                embedding = torch.from_numpy(faces[0]["embedding"]).float()
+            else:
+                embedding = torch.zeros(512, dtype=torch.float32)
+            id_embed_list.append(embedding)
+        id_embeds = torch.stack(id_embed_list, dim=0).unsqueeze(1).to(
+            device=model.device, dtype=model.id_encoder.dtype
+        )
+
+        prompt_embeds = model.id_encoder(
+            id_pixel_values,
+            prompt_embeds.to(dtype=model.id_encoder.dtype),
+            class_tokens_mask,
+            id_embeds,
+        )
+        reference_latents = model._encode_reference_latents(
+            flat_refs, target_shape=(latent_h, latent_w)
+        )
+
+        id_features = None
+        if model.face_embed_strategy == "id_embeds":
+            id_features = model.id_encoder.extract_id_features(
+                id_pixel_values,
+                id_embeds=id_embeds,
+                class_tokens_mask=class_tokens_mask,
+            ).to(device=model.device, dtype=model.unet.dtype)
+
+    target_masks = []
+    ref_masks = []
+    for bbox, ref_bbox, ref in zip(face_bbox, face_bbox_ref, flat_refs):
+        ref_w, ref_h = ref.size
+        target_masks.append(
+            model._bbox_to_mask(
+                bbox,
+                latent_shape=(latent_h, latent_w),
+                image_shape=(image_h, image_w),
+            )
+        )
+        ref_masks.append(
+            model._bbox_to_ref_mask(
+                ref_bbox,
+                latent_shape=(latent_h, latent_w),
+                image_shape=(ref_h, ref_w),
+            )
+        )
+
+    prompt_embeds = prompt_embeds.to(device=model.device, dtype=model.unet.dtype)
+    pooled_prompt_embeds = pooled_prompt_embeds.to(
+        device=model.device, dtype=model.unet.dtype
+    )
+    class_tokens_mask = class_tokens_mask.to(device=model.device)
+
+    if model.face_embed_strategy == "face":
+        face_prompt_text = ["a close-up human face laughing hard"] * batch_size
+        face_prompt_embeds, _ = model.encode_prompt(
+            face_prompt_text, do_cfg=False
+        )
+        face_prompt_embeds = face_prompt_embeds.to(
+            device=model.device, dtype=model.unet.dtype
+        )
+    elif model.face_embed_strategy == "id_embeds":
+        seq_len = prompt_embeds.shape[1]
+        dim = prompt_embeds.shape[2]
+        face_prompt_embeds = id_features.unsqueeze(1).expand(
+            -1, seq_len, dim
+        ).contiguous()
+    else:
+        face_prompt_embeds = prompt_embeds
+
+    mask4 = torch.cat(target_masks, dim=0).to(
+        device=model.device, dtype=noisy_latents.dtype
+    )
+    mask4_ref = torch.cat(ref_masks, dim=0).to(
+        device=model.device, dtype=noisy_latents.dtype
+    )
+    reference_latents = reference_latents.to(
+        device=model.device, dtype=noisy_latents.dtype
+    )
 
     model._ref_latents_all = reference_latents
     model._face_prompt_embeds = prompt_embeds

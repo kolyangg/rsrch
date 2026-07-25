@@ -75,6 +75,7 @@ class PhotomakerBranchedLora(SDXL):
         skip_unused_text_conditioning: bool = False,
         conditioning_cache_enabled: bool = False,
         conditioning_cache_max_entries: int = 512,
+        batched_conditioning_preparation: bool = False,
         cache_prepared_masks: bool = False,
         compute_branch_debug_outputs: bool = True,
         ##### BRANCHED ATTENTION - NEW PARAMS 1 #####
@@ -177,6 +178,9 @@ class PhotomakerBranchedLora(SDXL):
         self.skip_unused_text_conditioning = bool(skip_unused_text_conditioning)
         self.conditioning_cache_enabled = bool(conditioning_cache_enabled)
         self.conditioning_cache_max_entries = max(0, int(conditioning_cache_max_entries))
+        self.batched_conditioning_preparation = bool(
+            batched_conditioning_preparation
+        )
         self.cache_prepared_masks = bool(cache_prepared_masks)
         self.compute_branch_debug_outputs = bool(compute_branch_debug_outputs)
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
@@ -584,6 +588,97 @@ class PhotomakerBranchedLora(SDXL):
 
         return prompt_embeds, pooled_prompt_embeds, class_tokens_mask
 
+    def encode_prompts_with_trigger_word(
+        self,
+        prompts: Sequence[str],
+        *,
+        num_id_images: int = 1,
+    ):
+        """Encode a one-trigger PhotoMaker prompt batch in one encoder pass."""
+        prompts = list(prompts)
+        if not prompts:
+            raise ValueError("prompts must not be empty")
+
+        image_token_id = self.tokenizer_2.convert_tokens_to_ids(self.trigger_word)
+        tokenizers = (
+            [self.tokenizer, self.tokenizer_2]
+            if self.tokenizer is not None
+            else [self.tokenizer_2]
+        )
+        text_encoders = (
+            [self.text_encoder, self.text_encoder_2]
+            if self.text_encoder is not None
+            else [self.text_encoder_2]
+        )
+
+        prompt_embeds_list = []
+        class_tokens_mask = None
+        pooled_prompt_embeds = None
+        for tokenizer, text_encoder in zip(tokenizers, text_encoders):
+            text_inputs = tokenizer(
+                prompts,
+                padding="max_length",
+                max_length=tokenizer.model_max_length,
+                truncation=True,
+                return_tensors="pt",
+            )
+
+            cleaned_rows = []
+            mask_rows = []
+            for prompt, token_ids in zip(prompts, text_inputs.input_ids.tolist()):
+                clean_input_ids = []
+                class_token_indices = []
+                for token_id in token_ids:
+                    if token_id == image_token_id:
+                        class_token_indices.append(len(clean_input_ids) - 1)
+                    else:
+                        clean_input_ids.append(token_id)
+
+                if len(class_token_indices) != 1:
+                    raise ValueError(
+                        "PhotoMaker currently requires exactly one trigger word "
+                        f"per prompt. Trigger word: {self.trigger_word}, "
+                        f"Prompt: {prompt}."
+                    )
+                class_token_index = class_token_indices[0]
+                class_token = clean_input_ids[class_token_index]
+                clean_input_ids = (
+                    clean_input_ids[:class_token_index]
+                    + [class_token] * num_id_images * self.num_tokens
+                    + clean_input_ids[class_token_index + 1 :]
+                )
+
+                max_len = tokenizer.model_max_length
+                clean_input_ids = clean_input_ids[:max_len]
+                clean_input_ids += [tokenizer.pad_token_id] * (
+                    max_len - len(clean_input_ids)
+                )
+                cleaned_rows.append(clean_input_ids)
+                mask_rows.append(
+                    [
+                        class_token_index
+                        <= index
+                        < class_token_index + (num_id_images * self.num_tokens)
+                        for index in range(max_len)
+                    ]
+                )
+
+            text_input_ids = torch.tensor(
+                cleaned_rows, dtype=torch.long, device=self.device
+            )
+            class_tokens_mask = torch.tensor(
+                mask_rows, dtype=torch.bool, device=self.device
+            )
+            prompt_embeds_curr = text_encoder(
+                text_input_ids, output_hidden_states=True
+            )
+            pooled_prompt_embeds = prompt_embeds_curr[0]
+            prompt_embeds_list.append(prompt_embeds_curr.hidden_states[-2])
+
+        prompt_embeds = torch.cat(prompt_embeds_list, dim=-1).to(self.device)
+        pooled_prompt_embeds = pooled_prompt_embeds.view(len(prompts), -1)
+        return prompt_embeds, pooled_prompt_embeds, class_tokens_mask
+
     ##### BRANCHED ATTENTION - HELPER UTILS #####
     """HELPER UTILS: utilities for bbox-to-latent masks, reference-latent encoding, and branched re-patching after eval."""
     def _bbox_to_ref_mask(
@@ -695,6 +790,48 @@ class PhotomakerBranchedLora(SDXL):
         if latents.shape[-2:] != target_shape:
             latents = F.interpolate(latents, size=target_shape, mode="bilinear", align_corners=False)
 
+        return latents
+
+    def _encode_reference_latents(
+        self,
+        ref_images: Sequence[Image.Image],
+        target_shape: tuple[int, int],
+    ) -> torch.Tensor:
+        """Encode an equal-sized reference batch with the frozen VAE."""
+        ref_tensors = []
+        for ref_image in ref_images:
+            if not isinstance(ref_image, Image.Image):
+                raise TypeError(
+                    "Batched conditioning currently requires PIL references, "
+                    f"got {type(ref_image)}"
+                )
+            ow, oh = ref_image.size
+            scale = min(self.target_size / ow, self.target_size / oh)
+            rw = max(8, int(round(ow * scale)) // 8 * 8)
+            rh = max(8, int(round(oh * scale)) // 8 * 8)
+            pl = (self.target_size - rw) // 2
+            pr = self.target_size - rw - pl
+            pt = (self.target_size - rh) // 2
+            pb = self.target_size - rh - pt
+            ref_resized = ref_image.resize((rw, rh), Image.BILINEAR)
+            ref_np = np.array(ref_resized).astype(np.float32) / 255.0
+            ref_tensor = torch.from_numpy(ref_np).permute(2, 0, 1)
+            ref_tensor = (ref_tensor - 0.5) / 0.5
+            ref_tensors.append(F.pad(ref_tensor, (pl, pr, pt, pb), value=0.0))
+
+        ref_batch = torch.stack(ref_tensors).to(
+            device=self.device, dtype=self.vae.dtype
+        )
+        with torch.no_grad():
+            latents = self.vae.encode(ref_batch).latent_dist.mode()
+        latents = latents * self.vae.config.scaling_factor
+        if latents.shape[-2:] != target_shape:
+            latents = F.interpolate(
+                latents,
+                size=target_shape,
+                mode="bilinear",
+                align_corners=False,
+            )
         return latents
 
     def ensure_branched_after_eval(self):

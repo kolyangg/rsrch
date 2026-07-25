@@ -37,8 +37,10 @@ declare -A AUDITED_RUNTIME_SHA256=(
   ["src/datasets/cosmic.py"]="660d069a9f77ac1b7e0cb06fce245a342428159d9f05c49db32140bbd1a2467e"
   ["src/model/photomaker_branched/attn_processor_cleanest.py"]="4bb4f0f483faac5cd4f446ecae7e16bcb8560e1fdacdceb561930582544be76d"
   ["src/model/photomaker_branched/branched_runtime.py"]="1102412fa1d2a545066e4793265f43c7c6216b01f6f1cbe3d86bf6400b666ff3"
-  ["src/model/photomaker_branched/lora2.py"]="b3645c0cb7dbb36fc1495e019d8ca06b4a4a93af8324625b3fd3aea2f8b400ab"
-  ["src/model/photomaker_branched/lora2_helpers.py"]="b18465db606f4af3b84d49dfc3586cc2f5e2b1591bc7c9b738b2e40950ad1c8a"
+  # 26 Jul 2026 - Adds opt-in batched frozen conditioning for unique-reference
+  # datasets; historical one-ID configs retain the per-sample/cache path.
+  ["src/model/photomaker_branched/lora2.py"]="f67b5153600ea3cbc0defd2511cc38b15665f95c4c0992c40a128116287abd96"
+  ["src/model/photomaker_branched/lora2_helpers.py"]="404316d06ad5b253bdfc28269aa0c46ce162b90899898e6645db2991798efdd9"
   # 25 Jul 2026 - Adds an opt-in validation-only branch; default training
   # behavior and the historical model path remain unchanged.
   ["src/trainer/base_trainer.py"]="a0b8e6c35c3c2fefbf66afcf67d9d40add96049c59e18c8fbe81a3101ee0d927"

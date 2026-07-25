@@ -48,6 +48,10 @@ branched_attn_weight_mode: noise_and_ref
 model:
   train_branched_ca_lora: false
   branched_attn_weight_mode: noise_and_ref
+  # Full Cosmic samples effectively unique target/reference pairs, so the
+  # one-ID LRU never warms. Batch frozen conditioning instead of relying on it.
+  conditioning_cache_enabled: false
+  batched_conditioning_preparation: true
 
 continue_run: false
 saved_checkpoint: null
