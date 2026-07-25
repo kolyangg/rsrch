@@ -39,7 +39,9 @@ declare -A AUDITED_RUNTIME_SHA256=(
   ["src/model/photomaker_branched/branched_runtime.py"]="1102412fa1d2a545066e4793265f43c7c6216b01f6f1cbe3d86bf6400b666ff3"
   ["src/model/photomaker_branched/lora2.py"]="b3645c0cb7dbb36fc1495e019d8ca06b4a4a93af8324625b3fd3aea2f8b400ab"
   ["src/model/photomaker_branched/lora2_helpers.py"]="b18465db606f4af3b84d49dfc3586cc2f5e2b1591bc7c9b738b2e40950ad1c8a"
-  ["src/trainer/base_trainer.py"]="938a921ad3734d41abd8b97273b7c82f5f5f73758f9d0092653786246c61d935"
+  # 25 Jul 2026 - Adds an opt-in validation-only branch; default training
+  # behavior and the historical model path remain unchanged.
+  ["src/trainer/base_trainer.py"]="a0b8e6c35c3c2fefbf66afcf67d9d40add96049c59e18c8fbe81a3101ee0d927"
 )
 
 GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"

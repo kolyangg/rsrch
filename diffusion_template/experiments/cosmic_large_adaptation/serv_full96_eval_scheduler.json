@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "owner": "nyuchelysheva@edu.hse.ru",
+  "max_a100_gpus": 6,
+  "evaluations": [
+    {
+      "name": "rhca_cosmic_full_crop20_legacy_4k_full96_eval",
+      "source_job": "lm-mpi-job-7aad23d8-2782-4683-997e-9998e3c258a1",
+      "checkpoint": "diffusion_template/saved/rhca_cosmic_full_crop20_legacy_4k/checkpoint-epoch8.pth",
+      "yaml_path": "diffusion_template/serv_run_packages/rhca_cosmic_full_crop20_legacy_4k_full96_eval/run_rhca_cosmic_full_crop20_legacy_4k_full96_eval_1gpu.yaml",
+      "gpus": 1,
+      "prerequisite_command": "python diffusion_template/tools/inference/check_full96_eval_prerequisites.py --project-root diffusion_template --source-run rhca_cosmic_full_crop20_legacy_4k --source-comet-key 96ec8a296e33444e9a63147902eaff76 --bbox-manual dataset_full/val_dataset/protocols/cosmic_full96_auto_v1/pm96_bboxes_new.json",
+      "comment": "Trainer-native full 96-image Comet validation of the legacy full-Cosmic 4k endpoint"
+    },
+    {
+      "name": "rhca_cosmic_full_crop20_posefirst_4k_r1_full96_eval",
+      "source_job": "lm-mpi-job-3fae29b7-5c3a-49cc-8afb-d9bf9e268254",
+      "checkpoint": "diffusion_template/saved/rhca_cosmic_full_crop20_posefirst_4k_r1/checkpoint-epoch8.pth",
+      "yaml_path": "diffusion_template/serv_run_packages/rhca_cosmic_full_crop20_posefirst_4k_r1_full96_eval/run_rhca_cosmic_full_crop20_posefirst_4k_r1_full96_eval_1gpu.yaml",
+      "gpus": 1,
+      "prerequisite_command": "python diffusion_template/tools/inference/check_full96_eval_prerequisites.py --project-root diffusion_template --source-run rhca_cosmic_full_crop20_posefirst_4k_r1 --source-comet-key 81cc7532b22841908a5bc70205c18fa3 --bbox-manual dataset_full/val_dataset/protocols/cosmic_full96_auto_v1/pm96_bboxes_new.json --auto-min 95 --require-completed-eval rhca_cosmic_full_crop20_legacy_4k_full96_eval",
+      "comment": "Trainer-native full 96-image Comet validation of the pose-first full-Cosmic 4k endpoint"
+    }
+  ]
+}

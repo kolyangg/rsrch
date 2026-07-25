@@ -1,0 +1,36 @@
+defaults:
+  - cosmic_large_adapted_rhca
+  - _self_
+
+# Evaluation-only companion for full-Cosmic endpoints. The normal training
+# configuration and launcher remain unchanged.
+validation_only: true
+validation_epoch: 8
+validation_source_run_name: ${oc.env:VALIDATION_SOURCE_RUN}
+validation_source_comet_key: ${oc.env:VALIDATION_SOURCE_COMET_KEY}
+validation_checkpoint_sha256: ${oc.env:VALIDATION_CHECKPOINT_SHA256}
+validation_bbox_protocol: cosmic_full96_auto_v1
+
+datasets:
+  val:
+    manual_val:
+      limit: 96
+      # This points at a machine-local, sealed copy of the historical manual
+      # map. Its derived *_auto.json cache is filled once and then shared by
+      # the two sequential endpoint evaluations.
+      bbox_mask_gen: ${oc.env:FULL96_BBOX_MANUAL}
+
+dataloaders:
+  manual_val:
+    _target_: torch.utils.data.DataLoader
+    batch_size: 12
+    num_workers: 1
+    pin_memory: false
+
+trainer:
+  from_pretrained: ${oc.env:VALIDATION_CHECKPOINT}
+
+automatic_bboxes: true
+automatic_bboxes_every_val: false
+force_log_first_auto_bbox: false
+val_debug: false

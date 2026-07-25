@@ -145,6 +145,15 @@ class BaseTrainer:
         """
         Wrapper around training process to save model on keyboard interrupt.
         """
+        # 25 Jul 2026 - Evaluation jobs must be able to reuse the trainer's
+        # exact batched validation/Comet path without taking an optimizer step.
+        # AICODE-NOTE: This opt-in branch is intentionally before the training
+        # interrupt handler so validation-only interruption never saves a new
+        # checkpoint that could be mistaken for a trained endpoint.
+        if bool(getattr(self.config, "validation_only", False)):
+            self._validate_only()
+            return
+
         try:
             self._train_process()
         except KeyboardInterrupt as e:
@@ -152,6 +161,38 @@ class BaseTrainer:
                 self.logger.info("Saving model on keyboard interrupt")
             self._save_checkpoint(self._last_epoch)
             raise e
+
+    def _validate_only(self):
+        """Run each configured evaluation dataloader once and exit."""
+        checkpoint_path = getattr(self.config.trainer, "from_pretrained", None)
+        if checkpoint_path in (None, ""):
+            raise ValueError(
+                "validation_only=true requires trainer.from_pretrained to point "
+                "to a checkpoint"
+            )
+
+        validation_epoch = int(getattr(self.config, "validation_epoch", 0))
+        if validation_epoch < 0:
+            raise ValueError("validation_epoch must be non-negative")
+
+        self.accelerator.wait_for_everyone()
+        if self.accelerator.is_main_process:
+            validation_step = validation_epoch * self.epoch_len
+            self.logger.info(
+                "Validation-only run: checkpoint=%s epoch=%s step=%s",
+                checkpoint_path,
+                validation_epoch,
+                validation_step,
+            )
+            for part, dataloader in self.evaluation_dataloaders.items():
+                val_logs = self._evaluation_epoch(
+                    validation_epoch,
+                    part,
+                    dataloader,
+                )
+                for name, value in val_logs.items():
+                    self.logger.info("    %s/%s: %s", part, name, value)
+        self.accelerator.wait_for_everyone()
 
     def _sync_start_epoch(self):
         """Force a single start_epoch value across all distributed ranks."""

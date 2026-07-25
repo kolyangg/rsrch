@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_full_crop20_posefirst_4k_r1_full96_eval",
+  "plan": {
+    "status": "planned_after_source_endpoint",
+    "machine": "serv",
+    "gpus": 1,
+    "launcher": "launchers/active/run_rhca_cosmic_full96_eval_1gpu.sh",
+    "objective": "Evaluate the completed full-Cosmic pose-first endpoint on the same sealed 96-sample automatic-bbox protocol as its legacy control, logging all outputs and aggregate metrics to a new Comet experiment.",
+    "source": {
+      "run_name": "rhca_cosmic_full_crop20_posefirst_4k_r1",
+      "mls_job": "lm-mpi-job-3fae29b7-5c3a-49cc-8afb-d9bf9e268254",
+      "comet_experiment_key": "81cc7532b22841908a5bc70205c18fa3",
+      "git_commit": "cbe55ba585e8715b55d9138425647c9842bed324",
+      "checkpoint": "saved/rhca_cosmic_full_crop20_posefirst_4k_r1/checkpoint-epoch8.pth",
+      "optimizer_step": 4000
+    },
+    "validation_contract": {
+      "dataset": "manual_val",
+      "images": 96,
+      "layout": "eight sorted identities by twelve prompts, seed 0",
+      "batch_size": 12,
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "inference_steps": 50,
+      "guidance_scale": 5,
+      "photomaker_start_step": 10,
+      "branched_attention_start_step": 15,
+      "branched_self_attention": true,
+      "branched_cross_attention": false,
+      "processor_state": "legacy_full_copy",
+      "bbox_protocol_id": "cosmic_full96_auto_v1",
+      "manual_bbox_sha256": "a39645e22b68027175946a028e185b7c5393a7514f5d68c94cd74e7cc9f5e614",
+      "automatic_bbox_seed_entries": 95,
+      "automatic_bbox_seed_sha256": null,
+      "automatic_bbox_seed_source": "filled, sealed, and recorded by the legacy full-96 evaluation",
+      "force_manual_entries": 1,
+      "routing_entries": 96,
+      "generation_bbox_policy": "exact 95-entry automatic cache from the legacy full-96 evaluation plus the historical Jensen/Reading force-manual override",
+      "static_input_sha256": {
+        "prompts_10.txt": "e8fb3290e6da6eacc70c6cc67f2affa0c923c1ca605efc35ddca95ee48f1ebaf",
+        "classes_ref.json": "d1f53322d6964c2d30d28ef2cc765366a42776117e3982909d6fdfc1ae99872b",
+        "ref_bboxes.json": "eadb9411b9d0b98238714bb263db708e56a30abee91c67c4df0c7e1e5c4a268f",
+        "id_embeds_manual_val.pth": "23ae97075e967f2bcb790c5094ef350b316249c7023df67a68f735bfebb747c6"
+      },
+      "pre_comet_protocol_gate": "an untracked 12-image preflight reuses the exact sealed legacy routing protocol and requires 12/12 SHA-256 equality with the source step-4000 Eddie panel before creating the Comet experiment",
+      "comet_postflight_gate": "immutable-key export must contain exactly 96 images and manual_val/text_sim plus manual_val/id_sim at exact step 4000"
+    },
+    "dependencies": [
+      "source MLS job exits successfully",
+      "legacy full-96 evaluation completes and seals 95 automatic plus one forced-manual bbox route",
+      "epoch-8 checkpoint loads and contains a state_dict",
+      "source step-4000 panel contains 12 images",
+      "project Running+Pending A100 requests remain at or below six after submission"
+    ]
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}
