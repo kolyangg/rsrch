@@ -49,7 +49,7 @@ declare -A AUDITED_RUNTIME_SHA256=(
   # training and validation on the historical shared setting.
   # 26 Jul 2026 - Adds an opt-in multi-checkpoint validation schedule; the
   # historical single-checkpoint path remains the default.
-  ["src/trainer/base_trainer.py"]="a2f6c3702a2ddbc25a09e4b12c36320fb82312ae4761a0603a49686786a450e2"
+  ["src/trainer/base_trainer.py"]="8f076b31c999fa676ce0c18270cf445c124a82dea36a6e5cafe19558d231d291"
 )
 
 GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"

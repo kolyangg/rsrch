@@ -167,11 +167,14 @@ class BaseTrainer:
     def _validate_only(self):
         """Run the configured single- or multi-checkpoint validation schedule."""
         schedule = self._validation_only_schedule()
+        is_multistep = getattr(self.config, "validation_epochs", None) is not None
         for validation_epoch, checkpoint_path in schedule:
             # 26 Jul 2026 - AICODE-NOTE: Epoch zero intentionally evaluates the
             # seeded model initialization. Later entries load source checkpoints
             # into that same model/writer so one Comet run records the trajectory.
-            if checkpoint_path is not None:
+            # The historical single-checkpoint path was already loaded by
+            # __init__. Only the opt-in schedule changes weights between gates.
+            if checkpoint_path is not None and is_multistep:
                 self._from_pretrained(checkpoint_path)
 
             self.accelerator.wait_for_everyone()
