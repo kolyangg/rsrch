@@ -26,6 +26,9 @@ export RUN_NAME="${RUN_ID}"
 export VALIDATION_SOURCE_RUN="rhca_cosmic_full_crop20_legacy_4k_batched_r1"
 export VALIDATION_SOURCE_COMET_KEY="7ec45fae85684aac97b2266967adbe2a"
 export FULL96_BBOX_MANUAL="/home/niko/rsrch/dataset_full/val_dataset/protocols/cosmic_full96_auto_v1/pm96_bboxes_new.json"
+# Reproduce the source endpoint against its original machine-local routing;
+# the actual 96-image evaluation remains on the sealed canonical protocol.
+export FULL96_SOURCE_REPRO_BBOX_MANUAL="/home/niko/rsrch/dataset_full/val_dataset/pm96_bboxes_new.json"
 export EXPERIMENT_SPEC_PATH="${PROJECT_ROOT}/experiments/cosmic_large_adaptation/${RUN_ID}.json"
 
 exec bash launchers/active/run_rhca_cosmic_full96_eval_1gpu.sh

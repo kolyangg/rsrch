@@ -16,6 +16,11 @@ source "${ROOT_DIR}/launchers/lib/prepare_comet_record.sh"
 export VALIDATION_CHECKPOINT="${ROOT_DIR}/saved/${VALIDATION_SOURCE_RUN}/checkpoint-epoch8.pth"
 SOURCE_IMAGES="${ROOT_DIR}/saved/${VALIDATION_SOURCE_RUN}/val_images/manual_val/step_4000_batch_0"
 AUTO_BBOX="${FULL96_BBOX_MANUAL%.json}_auto.json"
+SOURCE_REPRO_BBOX_MANUAL="${FULL96_SOURCE_REPRO_BBOX_MANUAL:-${FULL96_BBOX_MANUAL}}"
+DUAL_BBOX_PROTOCOL=false
+if [[ "$(realpath "${SOURCE_REPRO_BBOX_MANUAL}")" != "$(realpath "${FULL96_BBOX_MANUAL}")" ]]; then
+  DUAL_BBOX_PROTOCOL=true
+fi
 
 refresh_bbox_protocol() {
   if [[ -n "${FULL96_HISTORICAL_MANUAL:-}" && -n "${FULL96_AUTO_SEED:-}" ]]; then
@@ -41,11 +46,12 @@ print(len(automatic))
 PY
 }
 
-compare_first_batch() {
-  local candidate_images="$1"
+compare_png_batches() {
+  local expected_images="$1"
+  local candidate_images="$2"
   diff -u \
     <(
-      cd "${SOURCE_IMAGES}"
+      cd "${expected_images}"
       sha256sum ./*.png | sed 's#  \\./#  #' | sort
     ) \
     <(
@@ -84,6 +90,30 @@ export CONFIG_NAME="cosmic_large_adapted_full96_eval_rhca"
 export TRAIN_EPOCHS="8"
 export COMET_PROJECT="${COMET_PROJECT:-rsrch-jul}"
 
+# 26 Jul 2026 - AICODE-NOTE: A source trainer may have used a machine-local
+# 12-entry automatic bbox cache while the sealed full-96 protocol intentionally
+# uses its own 95-entry cache. In the opt-in dual mode, reproduce the trainer
+# endpoint under its original bbox routing first, without modifying either
+# cache, then use a fresh canonical preflight as the full-96 comparison source.
+SOURCE_REPRO_IMAGES="${SOURCE_IMAGES}"
+if [[ "${DUAL_BBOX_PROTOCOL}" == "true" ]]; then
+  SOURCE_REPRO_RUN="${RUN_NAME}__source_repro_$(date -u +%Y%m%dT%H%M%SZ)_$$"
+  WRITER=console RUN_NAME="${SOURCE_REPRO_RUN}" \
+    bash "${SCRIPT_DIR}/run_rhca_apr2026_one_id_1gpu.sh" \
+      "trainer.from_pretrained=${VALIDATION_CHECKPOINT}" \
+      "validation_source_run_name=${VALIDATION_SOURCE_RUN}" \
+      "validation_source_comet_key=${VALIDATION_SOURCE_COMET_KEY}" \
+      "validation_checkpoint_sha256=${VALIDATION_CHECKPOINT_SHA256}" \
+      "datasets.val.manual_val.bbox_mask_gen=${SOURCE_REPRO_BBOX_MANUAL}" \
+      "datasets.val.manual_val.limit=12"
+  SOURCE_REPRO_IMAGES="${ROOT_DIR}/saved/${SOURCE_REPRO_RUN}/val_images/manual_val/step_4000_batch_0"
+  if [[ "$(find "${SOURCE_REPRO_IMAGES}" -maxdepth 1 -type f -name '*.png' | wc -l)" -ne 12 ]] \
+    || ! compare_png_batches "${SOURCE_IMAGES}" "${SOURCE_REPRO_IMAGES}"; then
+    echo "Source-protocol preflight did not reproduce the trainer endpoint" >&2
+    exit 6
+  fi
+fi
+
 # 25 Jul 2026 - Build and validate the shared automatic-bbox protocol before
 # opening the tracked experiment. This is a real reproduction gate and keeps
 # bbox overlays from being mixed with the 96 requested Comet generations.
@@ -111,8 +141,13 @@ if (( PREFLIGHT_STATUS != 0 )); then
 fi
 
 PREFLIGHT_IMAGES="${ROOT_DIR}/saved/${PREFLIGHT_RUN}/val_images/manual_val/step_4000_batch_0"
-if [[ "$(find "${PREFLIGHT_IMAGES}" -maxdepth 1 -type f -name '*.png' | wc -l)" -ne 12 ]] \
-  || ! compare_first_batch "${PREFLIGHT_IMAGES}"; then
+if [[ "$(find "${PREFLIGHT_IMAGES}" -maxdepth 1 -type f -name '*.png' | wc -l)" -ne 12 ]]; then
+  echo "Protocol preflight did not create 12 first-batch images" >&2
+  quarantine_new_auto_cache "${AUTO_COUNT_BEFORE}"
+  exit 6
+fi
+if [[ "${DUAL_BBOX_PROTOCOL}" != "true" ]] \
+  && ! compare_png_batches "${SOURCE_IMAGES}" "${PREFLIGHT_IMAGES}"; then
   echo "Protocol preflight did not reproduce the source endpoint's first 12 images" >&2
   quarantine_new_auto_cache "${AUTO_COUNT_BEFORE}"
   exit 6
@@ -146,8 +181,14 @@ if [[ "$(find "${EVAL_ROOT}"/step_4000_batch_* -maxdepth 1 -type f -name '*.png'
   exit 5
 fi
 
-if ! compare_first_batch "${EVAL_ROOT}/step_4000_batch_0"; then
-  echo "The first 12 full-96 images do not reproduce the source endpoint" >&2
+EXPECTED_FIRST_BATCH_IMAGES="${SOURCE_IMAGES}"
+if [[ "${DUAL_BBOX_PROTOCOL}" == "true" ]]; then
+  EXPECTED_FIRST_BATCH_IMAGES="${PREFLIGHT_IMAGES}"
+fi
+if ! compare_png_batches \
+    "${EXPECTED_FIRST_BATCH_IMAGES}" \
+    "${EVAL_ROOT}/step_4000_batch_0"; then
+  echo "The first 12 full-96 images do not reproduce the expected protocol panel" >&2
   exit 6
 fi
 
@@ -155,6 +196,14 @@ refresh_bbox_protocol --require-complete
 
 COMET_EXPORT_ROOT="${ROOT_DIR}/saved/${RUN_NAME}/comet_step4000_export"
 COMET_EXPORT_JSON="${COMET_EXPORT_ROOT}/comet_runs_export.json"
+FINALIZER_EXTRA_ARGS=()
+if [[ "${DUAL_BBOX_PROTOCOL}" == "true" ]]; then
+  FINALIZER_EXTRA_ARGS+=(
+    --trainer-source-images "${SOURCE_IMAGES}"
+    --trainer-reproduction-images "${SOURCE_REPRO_IMAGES}"
+    --first-batch-source-kind canonical_protocol_preflight
+  )
+fi
 COMET_VERIFIED=false
 for attempt in 1 2 3 4 5; do
   if python tools/comet/comet_experiment.py fetch \
@@ -166,8 +215,9 @@ for attempt in 1 2 3 4 5; do
       --checkpoint "${VALIDATION_CHECKPOINT}" \
       --bbox-manual "${FULL96_BBOX_MANUAL}" \
       --images-root "${EVAL_ROOT}" \
-      --source-images "${SOURCE_IMAGES}" \
+      --source-images "${EXPECTED_FIRST_BATCH_IMAGES}" \
       --comet-export "${COMET_EXPORT_JSON}" \
+      "${FINALIZER_EXTRA_ARGS[@]}" \
       --verify-only; then
     COMET_VERIFIED=true
     break
@@ -187,8 +237,9 @@ python tools/inference/finalize_full96_eval_record.py \
   --checkpoint "${VALIDATION_CHECKPOINT}" \
   --bbox-manual "${FULL96_BBOX_MANUAL}" \
   --images-root "${EVAL_ROOT}" \
-  --source-images "${SOURCE_IMAGES}" \
-  --comet-export "${COMET_EXPORT_JSON}"
+  --source-images "${EXPECTED_FIRST_BATCH_IMAGES}" \
+  --comet-export "${COMET_EXPORT_JSON}" \
+  "${FINALIZER_EXTRA_ARGS[@]}"
 
 refresh_bbox_protocol --require-complete
 

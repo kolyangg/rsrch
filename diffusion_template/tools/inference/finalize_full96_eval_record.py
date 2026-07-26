@@ -68,7 +68,7 @@ def pixel_fingerprint(path: Path) -> dict:
     }
 
 
-def pixel_manifest_sha256(manifest: dict[str, dict]) -> str:
+def manifest_sha256(manifest: dict[str, object]) -> str:
     encoded = json.dumps(
         manifest,
         sort_keys=True,
@@ -192,7 +192,7 @@ def verify_comet_export(
         "experiment_key": experiment_key,
         "resolved_step": 4000,
         "downloaded_images": len(downloaded),
-        "pixel_manifest_sha256": pixel_manifest_sha256(
+        "pixel_manifest_sha256": manifest_sha256(
             downloaded_pixel_manifest
         ),
         "metric_values": metric_values,
@@ -207,6 +207,13 @@ def main() -> int:
     parser.add_argument("--bbox-manual", type=Path, required=True)
     parser.add_argument("--images-root", type=Path, required=True)
     parser.add_argument("--source-images", type=Path, required=True)
+    parser.add_argument("--trainer-source-images", type=Path)
+    parser.add_argument("--trainer-reproduction-images", type=Path)
+    parser.add_argument(
+        "--first-batch-source-kind",
+        choices=("trainer_endpoint", "canonical_protocol_preflight"),
+        default="trainer_endpoint",
+    )
     parser.add_argument("--comet-export", type=Path, required=True)
     parser.add_argument(
         "--validation-data-dir",
@@ -220,6 +227,23 @@ def main() -> int:
     checkpoint_path = args.checkpoint.resolve()
     manual_path = args.bbox_manual.resolve()
     images_root = args.images_root.resolve()
+    trainer_pair = (
+        args.trainer_source_images is not None,
+        args.trainer_reproduction_images is not None,
+    )
+    if trainer_pair[0] != trainer_pair[1]:
+        raise ValueError(
+            "--trainer-source-images and --trainer-reproduction-images "
+            "must be supplied together"
+        )
+    if (
+        args.first_batch_source_kind == "canonical_protocol_preflight"
+        and not all(trainer_pair)
+    ):
+        raise ValueError(
+            "Canonical-protocol preflight mode requires the trainer "
+            "source-reproduction pair"
+        )
 
     record = load_object(record_path)
     experiment_key = str((record.get("comet") or {}).get("experiment_key", ""))
@@ -258,6 +282,27 @@ def main() -> int:
     if source_hashes != first_batch_hashes:
         raise ValueError("First full-96 batch does not reproduce the source panel")
 
+    trainer_source_reproduction = None
+    if all(trainer_pair):
+        trainer_source_hashes = png_hashes(args.trainer_source_images.resolve())
+        trainer_reproduction_hashes = png_hashes(
+            args.trainer_reproduction_images.resolve()
+        )
+        if trainer_source_hashes != trainer_reproduction_hashes:
+            raise ValueError(
+                "Source-protocol preflight does not reproduce the trainer endpoint"
+            )
+        trainer_source_reproduction = {
+            "verified": True,
+            "trainer_source_images": str(args.trainer_source_images.resolve()),
+            "reproduction_images": str(
+                args.trainer_reproduction_images.resolve()
+            ),
+            "trainer_source_png_sha256": trainer_source_hashes,
+            "reproduction_png_sha256": trainer_reproduction_hashes,
+            "manifest_sha256": manifest_sha256(trainer_source_hashes),
+        }
+
     comet_verification = verify_comet_export(
         args.comet_export,
         experiment_key=experiment_key,
@@ -276,8 +321,9 @@ def main() -> int:
         "optimizer_step": 4000,
         "batch_count": 8,
         "image_count": 96,
-        "pixel_manifest_sha256": pixel_manifest_sha256(local_pixels),
+        "pixel_manifest_sha256": manifest_sha256(local_pixels),
         "first_batch_reproduced_source": True,
+        "first_batch_source_kind": args.first_batch_source_kind,
         "first_batch_sha256": first_batch_hashes,
         "checkpoint_sha256": sha256(checkpoint_path),
         "manual_bbox_sha256": sha256(manual_path),
@@ -289,6 +335,10 @@ def main() -> int:
         "static_inputs": static_inputs,
         "comet_verification": comet_verification,
     }
+    if trainer_source_reproduction is not None:
+        record["validation_result"][
+            "trainer_source_reproduction"
+        ] = trainer_source_reproduction
     write_atomic(record_path, record)
     print(
         "FULL96_RECORD_FINALIZED "
