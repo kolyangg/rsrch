@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_full_crop20_posefirst_par100_20k",
+  "plan": {
+    "priority": 2,
+    "status": "gated_not_submitted",
+    "machine": "serv",
+    "gpus": 1,
+    "optimizer_steps": 20000,
+    "launcher": "launchers/active/run_rhca_cosmic_large_adapted_1gpu.sh",
+    "objective": "Measure whether target-native face K/V during both training and validation improves long-run identity retention without sacrificing the anatomy stability established by target-native validation.",
+    "training_policy": {
+      "pose_adapt_ratio": 1.0,
+      "reference_face_kv_weight": 0.0,
+      "target_native_face_kv_weight": 1.0
+    },
+    "validation_policy": {
+      "pose_adapt_ratio": 1.0,
+      "reference_face_kv_weight": 0.0,
+      "target_native_face_kv_weight": 1.0
+    },
+    "source_4k_gate": {
+      "run_name": "rhca_cosmic_full_crop20_posefirst_par100_4k_r2",
+      "comet_experiment_key": "e6cfd6b676ba474fad5f97824ec3d37d",
+      "full96_run_name": "rhca_cosmic_full_crop20_posefirst_par100_4k_r2_full96_par100",
+      "full96_comet_experiment_key": null,
+      "checkpoint_sha256": null,
+      "images": 96,
+      "per_identity_min_coherent": null,
+      "visual_result": "pending"
+    },
+    "long_run_control": {
+      "run_name": "rhca_cosmic_full_crop20_posefirst_trainpar0_valpar100_20k",
+      "comet_experiment_key": "326fa0e0ea82490abdde08eb1b94eff9",
+      "required_checkpoint": "checkpoint-epoch8.pth",
+      "required_step": 4000,
+      "required_images": 12,
+      "visual_result": "pending"
+    },
+    "dataset": "gathered_data_cosmic_large_filtered.json",
+    "reference_policy": {
+      "crop_margin_per_side": 0.2,
+      "content_size": 256,
+      "canvas_size": null
+    },
+    "prompt_policy": {
+      "mode": "pose_first",
+      "max_words": 55
+    },
+    "throughput_policy": {
+      "batched_conditioning_preparation": true,
+      "conditioning_cache_enabled": false,
+      "train_dataloader_workers": 2,
+      "cuda_launch_blocking": false,
+      "onnxruntime_version": "1.20.1",
+      "insightface_provider": "CUDAExecutionProvider"
+    },
+    "dependencies": [
+      "target-native 4k endpoint has checkpoint-epoch8 and 12 coherent step-4000 images",
+      "target-native 4k full-96 record is finalized and every identity has at least 11 of 12 coherent faces",
+      "train-0/validate-1 long-run control has a coherent step-4000 milestone",
+      "project Running plus Pending requests remain within six A100s",
+      "no existing saved directory with this run name"
+    ],
+    "promotion_gate": "At 4k, 8k, 12k, 16k, and 20k compare against the matched train-0/validate-1 arm and require coherent panels with no reference-fragment recurrence; run the sealed full-96 evaluation at the selected endpoint."
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}

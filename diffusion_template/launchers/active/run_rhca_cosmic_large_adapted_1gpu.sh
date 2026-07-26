@@ -42,6 +42,19 @@ case "${EXPERIMENT_ARM}" in
     POSE_ADAPT_RATIO="1.0"
     TRAIN_EPOCHS_DEFAULT="8"
     ;;
+  crop20_posefirst_par100_20k)
+    # 26 Jul 2026 - Keep the promoted target-native training policy behind an
+    # explicit arm so all historical selectors retain their original routing.
+    RUN_NAME_DEFAULT="rhca_cosmic_full_crop20_posefirst_par100_20k"
+    CROP_MARGIN="0.2"
+    CONTENT_SIZE="256"
+    CANVAS_SIZE="null"
+    PROMPT_MODE="pose_first"
+    PROMPT_MAX_WORDS="55"
+    POSE_ADAPT_RATIO="1.0"
+    VALIDATION_POSE_ADAPT_RATIO="1.0"
+    TRAIN_EPOCHS_DEFAULT="40"
+    ;;
   canvas1024_posefirst_4k)
     RUN_NAME_DEFAULT="rhca_cosmic_full_canvas1024_posefirst_4k"
     CROP_MARGIN="0.2"
@@ -74,6 +87,7 @@ case "${EXPERIMENT_ARM}" in
     echo "Unknown EXPERIMENT_ARM=${EXPERIMENT_ARM}" >&2
     echo "Expected: crop20_legacy_4k, crop20_posefirst_4k," >&2
     echo "          crop20_posefirst_par100_4k," >&2
+    echo "          crop20_posefirst_par100_20k," >&2
     echo "          canvas1024_posefirst_4k, crop20_posefirst_20k," >&2
     echo "          crop20_posefirst_trainpar0_valpar100_20k" >&2
     exit 2
