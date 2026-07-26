@@ -35,7 +35,8 @@ python tools/inference/check_full96_eval_prerequisites.py \
   --source-comet-key "${VALIDATION_SOURCE_COMET_KEY}" \
   --bbox-manual "${FULL96_BBOX_MANUAL}" \
   --auto-min 95 \
-  --require-completed-eval "${CANONICAL_FULL96_RUN}"
+  --require-completed-eval "${CANONICAL_FULL96_RUN}" \
+  --required-eval-kind intervention
 
 export VALIDATION_CHECKPOINT_SHA256
 VALIDATION_CHECKPOINT_SHA256="$(sha256sum "${VALIDATION_CHECKPOINT}" | awk '{print $1}')"

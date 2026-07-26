@@ -59,6 +59,15 @@ def main() -> int:
         "--require-completed-eval",
         help="Also require this full-96 evaluation run to be complete",
     )
+    parser.add_argument(
+        "--required-eval-kind",
+        choices=("reproduction", "intervention"),
+        default="reproduction",
+        help=(
+            "Expected relationship between the required evaluation and its "
+            "source first batch. Defaults to exact reproduction."
+        ),
+    )
     args = parser.parse_args()
 
     project_root = args.project_root.resolve()
@@ -104,11 +113,28 @@ def main() -> int:
         require_comet_record(completed_record_path)
         completed_record = load_object(completed_record_path)
         result = completed_record.get("validation_result")
-        if not isinstance(result, dict) or not bool(
-            result.get("first_batch_reproduced_source")
-        ):
+        if not isinstance(result, dict):
             raise ValueError(
                 f"Required evaluation is not finalized: {args.require_completed_eval}"
+            )
+        # 26 Jul 2026 - AICODE-NOTE: A documented fixed-checkpoint intervention
+        # must change the source pixels. Keep exact reproduction as the default,
+        # and accept changed pixels only through the explicit intervention mode.
+        reproduced_source = result.get("first_batch_reproduced_source")
+        if args.required_eval_kind == "reproduction":
+            relationship_is_valid = reproduced_source is True
+        else:
+            relationship_is_valid = (
+                reproduced_source is False
+                and result.get("first_batch_source_kind")
+                == "fixed_checkpoint_intervention"
+                and bool(result.get("intervention_label"))
+            )
+        if not relationship_is_valid:
+            raise ValueError(
+                "Required evaluation has the wrong source-pixel relationship: "
+                f"expected {args.required_eval_kind}, "
+                f"found reproduced_source={reproduced_source!r}"
             )
         completed_images = completed_dir / "val_images" / "manual_val"
         batch_dirs = sorted(completed_images.glob("step_4000_batch_*"))
