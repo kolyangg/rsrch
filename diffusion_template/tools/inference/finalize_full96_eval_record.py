@@ -214,6 +214,14 @@ def main() -> int:
         choices=("trainer_endpoint", "canonical_protocol_preflight"),
         default="trainer_endpoint",
     )
+    parser.add_argument(
+        "--intervention-label",
+        help=(
+            "Allow the first batch to differ from the source and record the "
+            "named fixed-checkpoint intervention. The intervention must change "
+            "at least one first-batch image."
+        ),
+    )
     parser.add_argument("--comet-export", type=Path, required=True)
     parser.add_argument(
         "--validation-data-dir",
@@ -279,7 +287,13 @@ def main() -> int:
     )
     source_hashes = png_hashes(args.source_images.resolve())
     first_batch_hashes = png_hashes(images_root / "step_4000_batch_0")
-    if source_hashes != first_batch_hashes:
+    first_batch_reproduced_source = source_hashes == first_batch_hashes
+    if args.intervention_label:
+        if first_batch_reproduced_source:
+            raise ValueError(
+                "The fixed-checkpoint intervention did not change the first batch"
+            )
+    elif not first_batch_reproduced_source:
         raise ValueError("First full-96 batch does not reproduce the source panel")
 
     trainer_source_reproduction = None
@@ -322,8 +336,14 @@ def main() -> int:
         "batch_count": 8,
         "image_count": 96,
         "pixel_manifest_sha256": manifest_sha256(local_pixels),
-        "first_batch_reproduced_source": True,
-        "first_batch_source_kind": args.first_batch_source_kind,
+        "first_batch_reproduced_source": first_batch_reproduced_source,
+        "first_batch_source_kind": (
+            "fixed_checkpoint_intervention"
+            if args.intervention_label
+            else args.first_batch_source_kind
+        ),
+        "intervention_label": args.intervention_label,
+        "source_first_batch_sha256": source_hashes,
         "first_batch_sha256": first_batch_hashes,
         "checkpoint_sha256": sha256(checkpoint_path),
         "manual_bbox_sha256": sha256(manual_path),

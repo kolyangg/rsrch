@@ -123,6 +123,9 @@ class BranchedAttnProcessor(nn.Module):
         # Opt-in per-forward memoization. The cache lives on the injected mask
         # tensor, so it cannot leak across samples or training steps.
         self.cache_prepared_masks: bool = False
+        # Historical behavior uses reference-only face K/V. The runtime patcher
+        # may opt in to target-native face features without changing this default.
+        self.pose_adapt_ratio: float = 0.0
         # Let diffusers know we accept cross_attention_kwargs to silence warnings
         self.has_cross_attention_kwargs = True
 
@@ -293,9 +296,14 @@ class BranchedAttnProcessor(nn.Module):
         # POSE_ADAPT_RATIO   = getattr(self, "pose_adapt_ratio", 0.25)
         # CA_MIXING_FOR_FACE = getattr(self, "ca_mixing_for_face", True)
         
-        # Runtime values are passed via UNet cross_attention_kwargs
-        runtime = cross_attention_kwargs if isinstance(cross_attention_kwargs, dict) else {}
-        POSE_ADAPT_RATIO = 0.0 # hardcoded to 0.0 for simplicity
+        # 26 Jul 2026 - AICODE-NOTE: This value is refreshed from the pipeline
+        # before every branched forward. A ratio of 0.0 preserves the historical
+        # reference-only K/V path; higher values add target-native face geometry.
+        POSE_ADAPT_RATIO = float(getattr(self, "pose_adapt_ratio", 0.0))
+        if not 0.0 <= POSE_ADAPT_RATIO <= 1.0:
+            raise ValueError(
+                f"pose_adapt_ratio must be in [0, 1], got {POSE_ADAPT_RATIO}"
+            )
         CA_MIXING_FOR_FACE = False # hardcoded to False for simplicity
 
 

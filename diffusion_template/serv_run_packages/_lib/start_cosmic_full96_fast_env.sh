@@ -76,4 +76,4 @@ if "CUDAExecutionProvider" not in ort.get_available_providers():
 print("ONNX Runtime production provider:", ort.__version__, ort.get_available_providers())
 PY
 
-exec bash launchers/active/run_rhca_cosmic_full96_eval_1gpu.sh
+exec bash "${FULL96_ACTIVE_LAUNCHER:-launchers/active/run_rhca_cosmic_full96_eval_1gpu.sh}"

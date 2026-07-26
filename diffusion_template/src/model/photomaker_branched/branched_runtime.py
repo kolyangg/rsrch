@@ -87,13 +87,15 @@ def patch_unet_attention_processors(
 
 
     def _apply_runtime_flags(proc, pipe):
-        # propagate key runtime knobs from model/pipeline onto processors
-        # for k in ("pose_adapt_ratio", "ca_mixing_for_face", "train_branch_mode", "id_alpha", "use_id_embeds"):
-        #     if hasattr(pipe, k):
-        #         setattr(proc, k, getattr(pipe, k))
-        
-        # Keep only static toggles on processor instances.
-        # Per-step runtime knobs are passed via UNet cross_attention_kwargs
+        # 26 Jul 2026 - Refresh the face K/V blend on every patch call so
+        # training and validation honor the same pipeline setting. The default
+        # remains 0.0, which is byte-for-byte the historical reference-only mix.
+        pose_adapt_ratio = float(getattr(pipe, "pose_adapt_ratio", 0.0))
+        if not 0.0 <= pose_adapt_ratio <= 1.0:
+            raise ValueError(
+                f"pose_adapt_ratio must be in [0, 1], got {pose_adapt_ratio}"
+            )
+        setattr(proc, "pose_adapt_ratio", pose_adapt_ratio)
 
         # Optional toggle for per-branch BA-specific adapters.
         if hasattr(pipe, "ba_weights_split"):
@@ -235,6 +237,19 @@ def patch_unet_attention_processors(
                 if hasattr(proc, "id_embeds"):
                     proc.id_embeds = _idem
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
+
+    pose_adapt_ratio = float(getattr(pipeline, "pose_adapt_ratio", 0.0))
+    if (
+        pose_adapt_ratio != 0.0
+        and getattr(pipeline, "_logged_pose_adapt_ratio", None)
+        != pose_adapt_ratio
+    ):
+        print(
+            "POSE_ADAPT_RUNTIME "
+            f"ratio={pose_adapt_ratio:.4f} "
+            f"processors={len(getattr(pipeline, '_ba_patched_processor_names', ()))}"
+        )
+        pipeline._logged_pose_adapt_ratio = pose_adapt_ratio
 
 def encode_face_prompt(
     pipeline,

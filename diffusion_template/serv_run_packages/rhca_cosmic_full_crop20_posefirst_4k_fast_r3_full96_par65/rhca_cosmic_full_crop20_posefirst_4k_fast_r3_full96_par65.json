@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_full_crop20_posefirst_4k_fast_r3_full96_par65",
+  "plan": {
+    "status": "ready_fixed_checkpoint_diagnostic",
+    "machine": "serv",
+    "gpus": 1,
+    "launcher": "launchers/active/run_rhca_cosmic_pose_adapt_full96_eval_1gpu.sh",
+    "objective": "Test the planned 65% target-native face K/V fallback against systematic reference-fragment failures at the fixed pose-first 4k checkpoint.",
+    "intervention": {
+      "name": "pose_adapt_ratio",
+      "value": 0.65,
+      "historical_value": 0.0
+    },
+    "source": {
+      "run_name": "rhca_cosmic_full_crop20_posefirst_4k_fast_r3",
+      "mls_job": "lm-mpi-job-5a739f00-c7e2-4359-b4c3-88e072f6a201",
+      "comet_experiment_key": "7839bf5f50924f3ab2bb848fd97837e0",
+      "git_commit": "85ef39ed73b0919d919e6f9bd442137b028d51cb",
+      "checkpoint": "saved/rhca_cosmic_full_crop20_posefirst_4k_fast_r3/checkpoint-epoch8.pth",
+      "checkpoint_sha256": "2ea4544d1ba621e8ca6169d15b8c5c402ee56ceb8478fe4e0b19cfe903e13177",
+      "optimizer_step": 4000
+    },
+    "canonical_control": {
+      "run_name": "rhca_cosmic_full_crop20_posefirst_4k_fast_r3_full96_eval",
+      "comet_experiment_key": "7c80400b23ba4a1683d4b034abdbb12c",
+      "pixel_manifest_sha256": "5380b47fde8a8959eeec2bd899e984963ab0468e5baf1b5a820cddccb820574a"
+    },
+    "validation_contract": {
+      "images": 96,
+      "layout": "eight sorted identities by twelve prompts, seed 0",
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "inference_steps": 50,
+      "guidance_scale": 5,
+      "bbox_protocol_id": "cosmic_full96_auto_v1",
+      "manual_bbox_sha256": "a39645e22b68027175946a028e185b7c5393a7514f5d68c94cd74e7cc9f5e614",
+      "automatic_bbox_sha256": "e62817aa29e5e69a8e46b20695e0f504fdd4f5c4d360f122e3195aaccf986718",
+      "source_first_batch_reproduction_required": false
+    },
+    "decision_rule": "Promote only if every identity has at least 11/12 coherent faces and aggregate identity/prompt quality does not materially regress."
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}
