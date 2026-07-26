@@ -165,36 +165,102 @@ class BaseTrainer:
             raise e
 
     def _validate_only(self):
-        """Run each configured evaluation dataloader once and exit."""
-        checkpoint_path = getattr(self.config.trainer, "from_pretrained", None)
-        if checkpoint_path in (None, ""):
-            raise ValueError(
-                "validation_only=true requires trainer.from_pretrained to point "
-                "to a checkpoint"
-            )
+        """Run the configured single- or multi-checkpoint validation schedule."""
+        schedule = self._validation_only_schedule()
+        for validation_epoch, checkpoint_path in schedule:
+            # 26 Jul 2026 - AICODE-NOTE: Epoch zero intentionally evaluates the
+            # seeded model initialization. Later entries load source checkpoints
+            # into that same model/writer so one Comet run records the trajectory.
+            if checkpoint_path is not None:
+                self._from_pretrained(checkpoint_path)
 
-        validation_epoch = int(getattr(self.config, "validation_epoch", 0))
-        if validation_epoch < 0:
-            raise ValueError("validation_epoch must be non-negative")
-
-        self.accelerator.wait_for_everyone()
-        if self.accelerator.is_main_process:
-            validation_step = validation_epoch * self.epoch_len
-            self.logger.info(
-                "Validation-only run: checkpoint=%s epoch=%s step=%s",
-                checkpoint_path,
-                validation_epoch,
-                validation_step,
-            )
-            for part, dataloader in self.evaluation_dataloaders.items():
-                val_logs = self._evaluation_epoch(
-                    validation_epoch,
-                    part,
-                    dataloader,
+            self.accelerator.wait_for_everyone()
+            if self.accelerator.is_main_process:
+                validation_step = validation_epoch * self.epoch_len
+                checkpoint_label = (
+                    str(checkpoint_path)
+                    if checkpoint_path is not None
+                    else "seeded_initial_state"
                 )
-                for name, value in val_logs.items():
-                    self.logger.info("    %s/%s: %s", part, name, value)
-        self.accelerator.wait_for_everyone()
+                self.logger.info(
+                    "Validation-only run: checkpoint=%s epoch=%s step=%s",
+                    checkpoint_label,
+                    validation_epoch,
+                    validation_step,
+                )
+                for part, dataloader in self.evaluation_dataloaders.items():
+                    val_logs = self._evaluation_epoch(
+                        validation_epoch,
+                        part,
+                        dataloader,
+                    )
+                    for name, value in val_logs.items():
+                        self.logger.info("    %s/%s: %s", part, name, value)
+            self.accelerator.wait_for_everyone()
+
+    def _validation_only_schedule(self):
+        """Resolve a backward-compatible validation-only checkpoint schedule."""
+        configured_epochs = getattr(self.config, "validation_epochs", None)
+        if configured_epochs is None:
+            checkpoint_path = getattr(
+                self.config.trainer,
+                "from_pretrained",
+                None,
+            )
+            if checkpoint_path in (None, ""):
+                raise ValueError(
+                    "validation_only=true requires trainer.from_pretrained to "
+                    "point to a checkpoint"
+                )
+            validation_epoch = int(
+                getattr(self.config, "validation_epoch", 0)
+            )
+            if validation_epoch < 0:
+                raise ValueError("validation_epoch must be non-negative")
+            return [(validation_epoch, checkpoint_path)]
+
+        epochs = [int(epoch) for epoch in configured_epochs]
+        configured_paths = getattr(
+            self.config,
+            "validation_checkpoint_paths",
+            None,
+        )
+        if configured_paths is None:
+            raise ValueError(
+                "validation_epochs requires validation_checkpoint_paths"
+            )
+        paths = [
+            None if path in (None, "") else str(path)
+            for path in configured_paths
+        ]
+        if len(epochs) != len(paths):
+            raise ValueError(
+                "validation_epochs and validation_checkpoint_paths must have "
+                "the same length"
+            )
+        if not epochs or epochs != sorted(set(epochs)):
+            raise ValueError(
+                "validation_epochs must be a non-empty, strictly increasing "
+                "sequence"
+            )
+        for epoch, path in zip(epochs, paths):
+            if epoch < 0:
+                raise ValueError("validation epochs must be non-negative")
+            if epoch == 0 and path is not None:
+                raise ValueError(
+                    "validation epoch zero must use the seeded initial state"
+                )
+            if epoch > 0 and path is None:
+                raise ValueError(
+                    f"validation epoch {epoch} requires a checkpoint path"
+                )
+            if path is not None:
+                checkpoint = Path(path)
+                if not checkpoint.is_file() or checkpoint.stat().st_size == 0:
+                    raise ValueError(
+                        f"validation checkpoint is missing: {checkpoint}"
+                    )
+        return list(zip(epochs, paths))
 
     def _sync_start_epoch(self):
         """Force a single start_epoch value across all distributed ranks."""

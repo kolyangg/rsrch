@@ -1,0 +1,21 @@
+defaults:
+  - cosmic_large_adapted_full96_eval_rhca
+  - _self_
+
+# One Comet experiment records the checkpoint trajectory at optimizer steps
+# 0, 1000, 2000, 3000, and 4000. Epoch zero is the seeded initialization.
+validation_epochs:
+  - 0
+  - 2
+  - 4
+  - 6
+  - 8
+validation_checkpoint_paths:
+  - null
+  - ${oc.env:VALIDATION_CHECKPOINT_EPOCH2}
+  - ${oc.env:VALIDATION_CHECKPOINT_EPOCH4}
+  - ${oc.env:VALIDATION_CHECKPOINT_EPOCH6}
+  - ${oc.env:VALIDATION_CHECKPOINT_EPOCH8}
+
+trainer:
+  from_pretrained: null

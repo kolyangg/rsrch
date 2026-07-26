@@ -114,6 +114,7 @@ def verify_comet_export(
     experiment_key: str,
     run_name: str,
     expected_pixel_manifest: dict[str, dict],
+    optimizer_step: int = 4000,
 ) -> dict:
     export_path = export_path.resolve()
     export = load_object(export_path)
@@ -128,13 +129,16 @@ def verify_comet_export(
     selection = run.get("step_selection")
     if (
         not isinstance(selection, dict)
-        or int(run.get("resolved_step_number", -1)) != 4000
-        or int(selection.get("requested_step_number", -1)) != 4000
-        or int(selection.get("resolved_step_number", -1)) != 4000
+        or int(run.get("resolved_step_number", -1)) != optimizer_step
+        or int(selection.get("requested_step_number", -1)) != optimizer_step
+        or int(selection.get("resolved_step_number", -1)) != optimizer_step
         or bool(selection.get("fallback_used"))
         or not bool(selection.get("exact_match_found"))
     ):
-        raise ValueError("Comet export did not resolve the exact requested step 4000")
+        raise ValueError(
+            "Comet export did not resolve the exact requested step "
+            f"{optimizer_step}"
+        )
     if run.get("warnings") not in (None, []):
         raise ValueError(f"Comet export contains warnings: {run.get('warnings')}")
     if run.get("errors") not in (None, []):
@@ -148,8 +152,14 @@ def verify_comet_export(
     downloaded_pixel_manifest: dict[str, dict] = {}
     export_root = export_path.parent
     for image in downloaded:
-        if not isinstance(image, dict) or int(image.get("step", -1)) != 4000:
-            raise ValueError("Comet export contains an image outside step 4000")
+        if (
+            not isinstance(image, dict)
+            or int(image.get("step", -1)) != optimizer_step
+        ):
+            raise ValueError(
+                "Comet export contains an image outside step "
+                f"{optimizer_step}"
+            )
         name = str(image.get("file_name", ""))
         if not name.endswith(".png") or name in downloaded_pixel_manifest:
             raise ValueError(f"Comet export contains an invalid image name: {name!r}")
@@ -176,11 +186,15 @@ def verify_comet_export(
         points = [
             point
             for point in history
-            if isinstance(point, dict) and int(point.get("step", -1)) == 4000
+            if (
+                isinstance(point, dict)
+                and int(point.get("step", -1)) == optimizer_step
+            )
         ]
         if len(points) != 1:
             raise ValueError(
-                f"Comet metric {name} has {len(points)} values at step 4000"
+                f"Comet metric {name} has {len(points)} values at step "
+                f"{optimizer_step}"
             )
         value = float(points[0].get("value"))
         if not math.isfinite(value):
@@ -190,7 +204,7 @@ def verify_comet_export(
     return {
         "verified": True,
         "experiment_key": experiment_key,
-        "resolved_step": 4000,
+        "resolved_step": optimizer_step,
         "downloaded_images": len(downloaded),
         "pixel_manifest_sha256": manifest_sha256(
             downloaded_pixel_manifest

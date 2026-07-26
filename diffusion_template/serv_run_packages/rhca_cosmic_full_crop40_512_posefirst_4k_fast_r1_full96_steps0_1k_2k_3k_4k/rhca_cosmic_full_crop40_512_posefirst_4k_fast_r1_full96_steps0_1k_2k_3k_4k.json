@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_full_crop40_512_posefirst_4k_fast_r1_full96_steps0_1k_2k_3k_4k",
+  "plan": {
+    "status": "ready",
+    "machine": "serv",
+    "gpus": 1,
+    "launcher": "launchers/active/run_rhca_cosmic_full96_eval_1gpu.sh",
+    "objective": "Evaluate the full-Cosmic crop40 512px pose-first trajectory at steps 0, 1000, 2000, 3000, and 4000 on the sealed 96-image protocol in one Comet experiment.",
+    "source": {
+      "run_name": "rhca_cosmic_full_crop40_512_posefirst_4k_fast_r1",
+      "mls_job": "lm-mpi-job-29283861-49e2-4ee3-8572-d8ba3970fa31",
+      "comet_experiment_key": "c354369af45b4c9da84f1124cf3e9a88",
+      "git_commit": "cfa4bffebfbb46e324a7b503bdbfd786bea5e6e6",
+      "checkpoint_sha256": {
+        "1000": "eb97f2a429618daf21ab960a9160c26a73a1dd8de4be681828839a20b610f9ec",
+        "2000": "a6ad47edbad88dcbca788738d3598d28391dff814104269f01ac086830694c73",
+        "3000": "8d8ff48b04fb99f9a12f4442fc4200c8c4e71831b4f0e43d1f00ba19e0d80341",
+        "4000": "819bebbdcb6a3ec2e901efd84872cffa3bac7d8d2f45d20a5887a9616587e22e"
+      }
+    },
+    "validation_contract": {
+      "optimizer_steps": [0, 1000, 2000, 3000, 4000],
+      "images_per_step": 96,
+      "batch_size": 12,
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "bbox_protocol_id": "cosmic_full96_auto_v1",
+      "comet_exact_step_required": true
+    }
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}
