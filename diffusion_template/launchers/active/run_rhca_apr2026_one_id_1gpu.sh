@@ -35,8 +35,10 @@ HISTORICAL_RUNTIME_FILES=(
 declare -A AUDITED_RUNTIME_SHA256=(
   ["src/configs/model/photomaker_branched_lora2.yaml"]="5c894c48a646ad4b7548ca71f0f29809a27c2cd1683a87081e73039772c1e6c5"
   ["src/datasets/cosmic.py"]="660d069a9f77ac1b7e0cb06fce245a342428159d9f05c49db32140bbd1a2467e"
-  ["src/model/photomaker_branched/attn_processor_cleanest.py"]="4bb4f0f483faac5cd4f446ecae7e16bcb8560e1fdacdceb561930582544be76d"
-  ["src/model/photomaker_branched/branched_runtime.py"]="1102412fa1d2a545066e4793265f43c7c6216b01f6f1cbe3d86bf6400b666ff3"
+  # 26 Jul 2026 - Restores the existing pose-adapt config as an opt-in runtime
+  # control; the historical zero ratio remains the default.
+  ["src/model/photomaker_branched/attn_processor_cleanest.py"]="e1c9f2bcbf5ebbc5e80ebb2b82fdd4471d0c0b4ea28ab01cb2fb680da969149a"
+  ["src/model/photomaker_branched/branched_runtime.py"]="0589ffc9a4a6628db3a8238994855ef8e4c47457f636130e9884d86fffc21ffc"
   # 26 Jul 2026 - Adds opt-in batched frozen conditioning for unique-reference
   # datasets; historical one-ID configs retain the per-sample/cache path.
   ["src/model/photomaker_branched/lora2.py"]="f67b5153600ea3cbc0defd2511cc38b15665f95c4c0992c40a128116287abd96"
