@@ -20,8 +20,18 @@
       "mode": "pose_first",
       "max_words": 55
     },
+    "throughput_policy": {
+      "batched_conditioning_preparation": true,
+      "conditioning_cache_enabled": false,
+      "train_dataloader_workers": 2,
+      "cuda_launch_blocking": false,
+      "onnxruntime_overlay": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_overlays/onnxruntime_gpu_1_20_1",
+      "onnxruntime_version": "1.20.1",
+      "insightface_provider": "CUDAExecutionProvider"
+    },
     "dependencies": [
       "do not submit unless the 4k arm passes anatomy and multi-identity endpoint gates",
+      "combined asynchronous-CUDA and GPU-InsightFace probe completes without OOM or provider fallback",
       "replace this candidate with a newly sealed long-run spec if another 4k policy wins"
     ],
     "promotion_gate": "At least 11/12 valid on each of three held-out identities, no outside-mask regression, and stable identity/text trends beyond 4k."

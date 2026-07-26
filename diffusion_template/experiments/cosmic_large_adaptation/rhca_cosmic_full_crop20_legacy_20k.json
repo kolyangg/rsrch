@@ -26,12 +26,16 @@
       "max_words": null
     },
     "throughput_policy": {
-      "precompute_frozen_conditioning": true,
-      "conditioning_cache_enabled": true,
-      "conditioning_cache_max_items": 256
+      "batched_conditioning_preparation": true,
+      "conditioning_cache_enabled": false,
+      "train_dataloader_workers": 2,
+      "cuda_launch_blocking": false,
+      "onnxruntime_overlay": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_overlays/onnxruntime_gpu_1_20_1",
+      "onnxruntime_version": "1.20.1",
+      "insightface_provider": "CUDAExecutionProvider"
     },
     "dependencies": [
-      "do not submit until the batched 4k reproduction preserves throughput and endpoint quality",
+      "combined asynchronous-CUDA and GPU-InsightFace probe completes without OOM or provider fallback",
       "legacy full96 remains at least as coherent as pose-first full96 on the same 96-image protocol",
       "no existing saved directory with this run name"
     ],

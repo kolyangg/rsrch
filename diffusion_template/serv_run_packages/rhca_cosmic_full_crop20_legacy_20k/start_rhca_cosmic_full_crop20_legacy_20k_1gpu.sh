@@ -3,6 +3,8 @@ set -euo pipefail
 
 CONDA_ENV="/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/conda_env/photomaker_NS"
 PROJECT_ROOT="/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_test/diffusion_template"
+ORT_OVERLAY="/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_overlays/onnxruntime_gpu_1_20_1"
+NVIDIA_LIB_ROOT="${CONDA_ENV}/lib/python3.10/site-packages/nvidia"
 RUN_ID="rhca_cosmic_full_crop20_legacy_20k"
 
 if command -v conda >/dev/null 2>&1; then
@@ -43,6 +45,8 @@ export LIBSTDCXX_PATH="${LIBSTDCXX_PATH:-/mnt/virtual_ai0001053-01309_SR006-nfs1
 export COSMIC_LARGE_MANIFEST="/mnt/virtual_ai0001053-01309_SR006-nfs1/bobkov/cosmic_data/gathered_data_cosmic_large_filtered.json"
 export COSMIC_LARGE_ROOT="/mnt/virtual_ai0001053-01309_SR006-nfs1/bobkov/cosmic_data"
 export CUDA_VISIBLE_DEVICES="0"
+export PYTHONPATH="${ORT_OVERLAY}${PYTHONPATH:+:${PYTHONPATH}}"
+export LD_LIBRARY_PATH="${NVIDIA_LIB_ROOT}/cudnn/lib:${NVIDIA_LIB_ROOT}/cublas/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 export RUN_NAME="${RUN_ID}"
 export EXPERIMENT_SPEC_PATH="/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_test/diffusion_template/serv_run_packages/rhca_cosmic_full_crop20_legacy_20k/${RUN_ID}.json"
 
@@ -69,4 +73,22 @@ case "${RUN_ID}" in
     ;;
 esac
 
-exec bash launchers/active/run_rhca_cosmic_large_adapted_1gpu.sh
+if [[ "${CUDA_LAUNCH_BLOCKING:-0}" != "0" ]]; then
+  echo "Production training received CUDA_LAUNCH_BLOCKING=${CUDA_LAUNCH_BLOCKING}" >&2
+  exit 73
+fi
+test -f "${NVIDIA_LIB_ROOT}/cudnn/lib/libcudnn_adv.so.9"
+test -f "${NVIDIA_LIB_ROOT}/cublas/lib/libcublasLt.so.12"
+
+python - <<'PY'
+import onnxruntime as ort
+
+if ort.__version__ != "1.20.1":
+    raise RuntimeError(f"Unexpected ONNX Runtime version: {ort.__version__}")
+if "CUDAExecutionProvider" not in ort.get_available_providers():
+    raise RuntimeError("CUDAExecutionProvider is unavailable")
+print("ONNX Runtime production provider:", ort.__version__, ort.get_available_providers())
+PY
+
+exec bash launchers/active/run_rhca_cosmic_large_adapted_1gpu.sh \
+  dataloaders.train.num_workers=2

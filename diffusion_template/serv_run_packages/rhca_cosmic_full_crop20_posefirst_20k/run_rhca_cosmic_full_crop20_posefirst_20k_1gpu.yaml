@@ -9,5 +9,5 @@ job:
     instance_type: a100.1gpu.8C.243G
     processes: 1
     workers: 1
-  script: "mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/rhca_cosmic_full_crop20_posefirst_20k && CUDA_LAUNCH_BLOCKING=1 TORCH_SHOW_CPP_STACKTRACES=1 NCCL_ASYNC_ERROR_HANDLING=1 bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_test/diffusion_template/serv_run_packages/rhca_cosmic_full_crop20_posefirst_20k/start_rhca_cosmic_full_crop20_posefirst_20k_1gpu.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/rhca_cosmic_full_crop20_posefirst_20k/stdout_1gpu.log 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/rhca_cosmic_full_crop20_posefirst_20k/stderr_1gpu.log"
+  script: "mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/rhca_cosmic_full_crop20_posefirst_20k && TORCH_SHOW_CPP_STACKTRACES=1 NCCL_ASYNC_ERROR_HANDLING=1 bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_test/diffusion_template/serv_run_packages/rhca_cosmic_full_crop20_posefirst_20k/start_rhca_cosmic_full_crop20_posefirst_20k_1gpu.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/rhca_cosmic_full_crop20_posefirst_20k/stdout_1gpu.log 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/rhca_cosmic_full_crop20_posefirst_20k/stderr_1gpu.log"
   type: binary
