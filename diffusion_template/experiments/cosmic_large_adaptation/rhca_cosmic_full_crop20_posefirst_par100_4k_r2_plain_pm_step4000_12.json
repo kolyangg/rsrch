@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_full_crop20_posefirst_par100_4k_r2_plain_pm_step4000_12",
+  "plan": {
+    "status": "ready_to_run",
+    "priority": 1,
+    "machine": "neb",
+    "gpus": 1,
+    "optimizer_steps": 0,
+    "objective": "Test whether the promoted ratio-1.0 endpoint differs materially from plain PhotoMaker by disabling branched attention at inference while holding the checkpoint, first 12 full-Cosmic protocol samples, prompts, references, seeds, scheduler, steps, guidance, and validation base fixed.",
+    "source": {
+      "run_name": "rhca_cosmic_full_crop20_posefirst_par100_4k_r2",
+      "comet_experiment_key": "e6cfd6b676ba474fad5f97824ec3d37d",
+      "checkpoint_epoch": 8,
+      "checkpoint_step": 4000,
+      "checkpoint_sha256": "a62ece86f7da072863344dd7d7011bc8805222fbb3f45d99cd179f6a03976c80"
+    },
+    "intervention": {
+      "validation_args.use_branched_attention": false,
+      "meaning": "Use the original UNet attention processors and PhotoMaker default adapter; the source run trained only branched processor parameters, so this is the plain PhotoMaker V2 inference path."
+    },
+    "comparison": {
+      "branched_run_name": "rhca_cosmic_full_crop20_posefirst_par100_4k_r2",
+      "branched_step": 4000,
+      "branched_pose_adapt_ratio": 1.0,
+      "required_samples": 12,
+      "required_checks": [
+        "same filenames and seeds",
+        "pixel SHA-256 comparison",
+        "paired visual review",
+        "text and identity metrics"
+      ]
+    },
+    "launcher": "launchers/active/run_rhca_apr2026_one_id_1gpu.sh with validation_only=true and validation_args.use_branched_attention=false"
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}
