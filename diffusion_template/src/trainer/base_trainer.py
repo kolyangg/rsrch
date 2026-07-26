@@ -47,6 +47,7 @@ class BaseTrainer:
         seed,
         post_backward_parameter_touch=True,
         grad_norm_log_only=False,
+        validation_pose_adapt_ratio=None,
     ):
         """
         Args:
@@ -116,6 +117,7 @@ class BaseTrainer:
         self.cfg_step = cfg_step
         self.post_backward_parameter_touch = bool(post_backward_parameter_touch)
         self.grad_norm_log_only = bool(grad_norm_log_only)
+        self.validation_pose_adapt_ratio = validation_pose_adapt_ratio
         
 
         # define metrics
@@ -578,11 +580,7 @@ class BaseTrainer:
                     except Exception:
                         pass
             total_images = len(dataloader.dataset) if hasattr(dataloader, "dataset") else len(dataloader)
-            validation_pose_adapt_ratio = getattr(
-                self.config,
-                "validation_pose_adapt_ratio",
-                None,
-            )
+            validation_pose_adapt_ratio = self.validation_pose_adapt_ratio
             validation_pose_restore = None
             if validation_pose_adapt_ratio is not None:
                 validation_pose_adapt_ratio = float(validation_pose_adapt_ratio)

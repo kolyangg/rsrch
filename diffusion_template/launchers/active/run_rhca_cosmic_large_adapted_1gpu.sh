@@ -33,7 +33,7 @@ case "${EXPERIMENT_ARM}" in
     TRAIN_EPOCHS_DEFAULT="8"
     ;;
   crop20_posefirst_par100_4k)
-    RUN_NAME_DEFAULT="rhca_cosmic_full_crop20_posefirst_par100_4k_r1"
+    RUN_NAME_DEFAULT="rhca_cosmic_full_crop20_posefirst_par100_4k_r2"
     CROP_MARGIN="0.2"
     CONTENT_SIZE="256"
     CANVAS_SIZE="null"
@@ -100,6 +100,13 @@ python tools/datasets/preflight_cosmic_large_adapted.py \
 SPEC_PATH="${EXPERIMENT_SPEC_PATH:-${ROOT_DIR}/experiments/cosmic_large_adaptation/${RUN_NAME}.json}"
 prepare_comet_record "${ROOT_DIR}" "${RUN_NAME}" "${SPEC_PATH}"
 
+TRAINER_OVERRIDES=()
+if [[ "${VALIDATION_POSE_ADAPT_RATIO}" != "null" ]]; then
+  TRAINER_OVERRIDES+=(
+    "++trainer.validation_pose_adapt_ratio=${VALIDATION_POSE_ADAPT_RATIO}"
+  )
+fi
+
 exec bash "${SCRIPT_DIR}/run_rhca_apr2026_one_id_1gpu.sh" \
   "cosmic_reference.crop_margin=${CROP_MARGIN}" \
   "cosmic_reference.content_size=${CONTENT_SIZE}" \
@@ -107,5 +114,5 @@ exec bash "${SCRIPT_DIR}/run_rhca_apr2026_one_id_1gpu.sh" \
   "cosmic_reference.prompt_mode=${PROMPT_MODE}" \
   "cosmic_reference.prompt_max_words=${PROMPT_MAX_WORDS}" \
   "pipeline.pose_adapt_ratio=${POSE_ADAPT_RATIO}" \
-  "++trainer.validation_pose_adapt_ratio=${VALIDATION_POSE_ADAPT_RATIO}" \
+  "${TRAINER_OVERRIDES[@]}" \
   "$@"

@@ -47,7 +47,7 @@ declare -A AUDITED_RUNTIME_SHA256=(
   # behavior and the historical model path remain unchanged.
   # 26 Jul 2026 - Adds an opt-in validation-only pose-adapt ratio; null keeps
   # training and validation on the historical shared setting.
-  ["src/trainer/base_trainer.py"]="4066854cdf7d012f63f3971798a66f8c7c520c2cb1552da93402082adedb8179"
+  ["src/trainer/base_trainer.py"]="7a72c34b1b46a061e1f92a15afb77db45a1e0f7d6f8c39faeb34761891d9081f"
 )
 
 GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
