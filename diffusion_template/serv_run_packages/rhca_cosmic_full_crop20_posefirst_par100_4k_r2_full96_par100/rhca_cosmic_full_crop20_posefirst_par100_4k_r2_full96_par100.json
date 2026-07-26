@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_full_crop20_posefirst_par100_4k_r2_full96_par100",
+  "plan": {
+    "priority": 1,
+    "status": "gated_after_neb_par100_endpoint",
+    "machine": "serv",
+    "gpus": 1,
+    "launcher": "launchers/active/run_rhca_cosmic_pose_adapt_full96_eval_1gpu.sh",
+    "objective": "Evaluate the Neb 4k target-native training ablation on the sealed 96-image protocol with the same target-native inference ratio.",
+    "source": {
+      "run_name": "rhca_cosmic_full_crop20_posefirst_par100_4k_r2",
+      "machine": "neb",
+      "process_group": 3918175,
+      "comet_experiment_key": "e6cfd6b676ba474fad5f97824ec3d37d",
+      "git_commit": "c01a73bd3759a712284c535aa4fc60259237244c",
+      "checkpoint": "saved/rhca_cosmic_full_crop20_posefirst_par100_4k_r2/checkpoint-epoch8.pth",
+      "optimizer_step": 4000,
+      "pose_adapt_ratio": 1.0
+    },
+    "control": {
+      "run_name": "rhca_cosmic_full_crop20_posefirst_4k_fast_r3_full96_par100",
+      "comet_experiment_key": "90c8297973a7456496200e9f8c042755",
+      "text_similarity": 27.197916666666668,
+      "id_similarity": 0.44206045862908167,
+      "visual_result": "all eight identities pass at least 11/12 coherent faces"
+    },
+    "validation_contract": {
+      "images": 96,
+      "layout": "eight sorted identities by twelve prompts, seed 0",
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "inference_steps": 50,
+      "guidance_scale": 5,
+      "photomaker_start_step": 10,
+      "branched_attention_start_step": 15,
+      "pose_adapt_ratio": 1.0,
+      "bbox_protocol_id": "cosmic_full96_auto_v1",
+      "manual_bbox_sha256": "a39645e22b68027175946a028e185b7c5393a7514f5d68c94cd74e7cc9f5e614",
+      "automatic_bbox_entries": 95,
+      "automatic_bbox_sha256": "e62817aa29e5e69a8e46b20695e0f504fdd4f5c4d360f122e3195aaccf986718",
+      "force_manual_entries": 1,
+      "runtime": {
+        "cuda_launch_blocking": false,
+        "onnxruntime_version": "1.20.1",
+        "insightface_provider": "CUDAExecutionProvider"
+      }
+    },
+    "dependencies": [
+      "Neb source process group exits successfully",
+      "source epoch-8 checkpoint and twelve step-4000 images exist",
+      "source Comet record retains the immutable key and exact source commit",
+      "source checkpoint, Comet record, and endpoint images are synced under the Serv nasilaev checkout",
+      "ratio-1.0 control full-96 evaluation remains finalized",
+      "project Running plus Pending requests remain within six A100s"
+    ],
+    "promotion_gate": "Require 96 exact outputs, verified Comet metrics/images, and at least 11/12 coherent faces for each identity before promoting target-native training."
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}
