@@ -578,6 +578,35 @@ class BaseTrainer:
                     except Exception:
                         pass
             total_images = len(dataloader.dataset) if hasattr(dataloader, "dataset") else len(dataloader)
+            validation_pose_adapt_ratio = getattr(
+                self.config,
+                "validation_pose_adapt_ratio",
+                None,
+            )
+            validation_pose_restore = None
+            if validation_pose_adapt_ratio is not None:
+                validation_pose_adapt_ratio = float(validation_pose_adapt_ratio)
+                if not 0.0 <= validation_pose_adapt_ratio <= 1.0:
+                    raise ValueError(
+                        "validation_pose_adapt_ratio must be in [0, 1], "
+                        f"got {validation_pose_adapt_ratio}"
+                    )
+                if not hasattr(self, "pipe"):
+                    raise RuntimeError(
+                        "validation_pose_adapt_ratio requires an active pipeline"
+                    )
+                # 26 Jul 2026 - AICODE-NOTE: Keep the training branch ratio
+                # unchanged while allowing a fixed inference intervention.
+                # The original value is restored before training resumes.
+                validation_pose_restore = float(
+                    getattr(self.pipe, "pose_adapt_ratio", 0.0)
+                )
+                self.pipe.pose_adapt_ratio = validation_pose_adapt_ratio
+                print(
+                    "VALIDATION_POSE_ADAPT_RUNTIME "
+                    f"ratio={validation_pose_adapt_ratio:.4f} "
+                    f"training_ratio={validation_pose_restore:.4f}"
+                )
             if hasattr(self, 'pipe'):
                 for attr in ('_call_debug_counter', '_current_debug_idx', '_current_debug_total'):
                     if hasattr(self.pipe, attr):
@@ -647,6 +676,9 @@ class BaseTrainer:
                     batch_idx, batch, part
                 ) 
             self._log_scalars(self.evaluation_metrics, part)
+
+        if validation_pose_restore is not None and hasattr(self, "pipe"):
+            self.pipe.pose_adapt_ratio = validation_pose_restore
 
         # Restore original training model and pipeline after validation
         if val_pretrained:

@@ -45,7 +45,9 @@ declare -A AUDITED_RUNTIME_SHA256=(
   ["src/model/photomaker_branched/lora2_helpers.py"]="404316d06ad5b253bdfc28269aa0c46ce162b90899898e6645db2991798efdd9"
   # 25 Jul 2026 - Adds an opt-in validation-only branch; default training
   # behavior and the historical model path remain unchanged.
-  ["src/trainer/base_trainer.py"]="a0b8e6c35c3c2fefbf66afcf67d9d40add96049c59e18c8fbe81a3101ee0d927"
+  # 26 Jul 2026 - Adds an opt-in validation-only pose-adapt ratio; null keeps
+  # training and validation on the historical shared setting.
+  ["src/trainer/base_trainer.py"]="4066854cdf7d012f63f3971798a66f8c7c520c2cb1552da93402082adedb8179"
 )
 
 GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"

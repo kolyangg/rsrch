@@ -11,6 +11,8 @@ source "${ROOT_DIR}/launchers/lib/prepare_comet_record.sh"
 : "${COSMIC_LARGE_ROOT:?Set COSMIC_LARGE_ROOT to the directory containing target/ref trees}"
 
 EXPERIMENT_ARM="${EXPERIMENT_ARM:-crop20_legacy_4k}"
+POSE_ADAPT_RATIO="0.0"
+VALIDATION_POSE_ADAPT_RATIO="null"
 case "${EXPERIMENT_ARM}" in
   crop20_legacy_4k)
     RUN_NAME_DEFAULT="rhca_cosmic_full_crop20_legacy_4k"
@@ -28,6 +30,16 @@ case "${EXPERIMENT_ARM}" in
     CANVAS_SIZE="null"
     PROMPT_MODE="pose_first"
     PROMPT_MAX_WORDS="55"
+    TRAIN_EPOCHS_DEFAULT="8"
+    ;;
+  crop20_posefirst_par100_4k)
+    RUN_NAME_DEFAULT="rhca_cosmic_full_crop20_posefirst_par100_4k_r1"
+    CROP_MARGIN="0.2"
+    CONTENT_SIZE="256"
+    CANVAS_SIZE="null"
+    PROMPT_MODE="pose_first"
+    PROMPT_MAX_WORDS="55"
+    POSE_ADAPT_RATIO="1.0"
     TRAIN_EPOCHS_DEFAULT="8"
     ;;
   canvas1024_posefirst_4k)
@@ -48,10 +60,22 @@ case "${EXPERIMENT_ARM}" in
     PROMPT_MAX_WORDS="55"
     TRAIN_EPOCHS_DEFAULT="40"
     ;;
+  crop20_posefirst_trainpar0_valpar100_20k)
+    RUN_NAME_DEFAULT="rhca_cosmic_full_crop20_posefirst_trainpar0_valpar100_20k"
+    CROP_MARGIN="0.2"
+    CONTENT_SIZE="256"
+    CANVAS_SIZE="null"
+    PROMPT_MODE="pose_first"
+    PROMPT_MAX_WORDS="55"
+    VALIDATION_POSE_ADAPT_RATIO="1.0"
+    TRAIN_EPOCHS_DEFAULT="40"
+    ;;
   *)
     echo "Unknown EXPERIMENT_ARM=${EXPERIMENT_ARM}" >&2
     echo "Expected: crop20_legacy_4k, crop20_posefirst_4k," >&2
-    echo "          canvas1024_posefirst_4k, crop20_posefirst_20k" >&2
+    echo "          crop20_posefirst_par100_4k," >&2
+    echo "          canvas1024_posefirst_4k, crop20_posefirst_20k," >&2
+    echo "          crop20_posefirst_trainpar0_valpar100_20k" >&2
     exit 2
     ;;
 esac
@@ -82,4 +106,6 @@ exec bash "${SCRIPT_DIR}/run_rhca_apr2026_one_id_1gpu.sh" \
   "cosmic_reference.canvas_size=${CANVAS_SIZE}" \
   "cosmic_reference.prompt_mode=${PROMPT_MODE}" \
   "cosmic_reference.prompt_max_words=${PROMPT_MAX_WORDS}" \
+  "pipeline.pose_adapt_ratio=${POSE_ADAPT_RATIO}" \
+  "++trainer.validation_pose_adapt_ratio=${VALIDATION_POSE_ADAPT_RATIO}" \
   "$@"
