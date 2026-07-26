@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_full_crop40_512_posefirst_4k_fast_r1",
+  "plan": {
+    "priority": 4,
+    "status": "ready",
+    "machine": "serv",
+    "gpus": 1,
+    "optimizer_steps": 4000,
+    "launcher": "launchers/active/run_rhca_cosmic_large_adapted_1gpu.sh",
+    "objective": "Test whether preserving the 40%-margin reference crop at 512-pixel content resolution improves full-Cosmic identity conditioning.",
+    "experiment_arm": "crop40_512_posefirst_4k",
+    "branched_attention_invariants": {
+      "use_branched_attention": true,
+      "pose_adapt_ratio": 0.0,
+      "ca_mixing_for_face": false,
+      "reference_face_kv_weight": 1.0
+    },
+    "runtime_contract": {
+      "onnxruntime_version": "1.20.1",
+      "required_provider": "CUDAExecutionProvider",
+      "train_num_workers": 2
+    },
+    "supersedes": {
+      "run_name": "rhca_cosmic_full_crop40_512_posefirst_4k",
+      "comet_experiment_key": "a3336edfbc434cd8a19dd091632e175c",
+      "serv_job": "lm-mpi-job-d39b6d6a-5c9c-449d-8a6d-392041108cf0",
+      "reason": "Stopped during startup because the package lacked the CUDA ONNX Runtime overlay."
+    }
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}
