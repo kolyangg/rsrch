@@ -15,6 +15,13 @@ case "${REFERENCE_POLICY}" in
     CONTENT_SIZE="256"
     CANVAS_SIZE="null"
     ;;
+  margin60)
+    RUN_NAME_DEFAULT="rhca_cosmic_oneid_margin60_4k"
+    BASE_REFERENCE_MODE="full_scene"
+    CROP_MARGIN="0.6"
+    CONTENT_SIZE="256"
+    CANVAS_SIZE="null"
+    ;;
   canvas1024)
     RUN_NAME_DEFAULT="rhca_cosmic_oneid_canvas1024_4k"
     BASE_REFERENCE_MODE="cosmic_256"
@@ -24,7 +31,7 @@ case "${REFERENCE_POLICY}" in
     ;;
   *)
     echo "Unknown REFERENCE_POLICY=${REFERENCE_POLICY}" >&2
-    echo "Expected one of: margin40, canvas1024" >&2
+    echo "Expected one of: margin40, margin60, canvas1024" >&2
     exit 2
     ;;
 esac
@@ -42,4 +49,6 @@ exec bash "${SCRIPT_DIR}/run_rhca_apr2026_one_id_1gpu.sh" \
   "controlled_factorial.reference_crop_margin=${CROP_MARGIN}" \
   "controlled_factorial.reference_content_size=${CONTENT_SIZE}" \
   "controlled_factorial.reference_canvas_size=${CANVAS_SIZE}" \
+  "pipeline.pose_adapt_ratio=0" \
+  "pipeline.ca_mixing_for_face=false" \
   "$@"

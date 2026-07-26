@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_oneid_margin60_4k",
+  "plan": {
+    "priority": 1,
+    "status": "ready_after_margin40",
+    "machine": "neb",
+    "gpus": 1,
+    "optimizer_steps": 4000,
+    "launcher": "launchers/active/run_rhca_cosmic_one_id_reference_policy_4k_1gpu.sh",
+    "objective": "Determine whether increasing reference context from the mostly coherent 40%-margin result to 60% further reduces geometry copying without losing identity.",
+    "control": {
+      "run_name": "rhca_cosmic_oneid_margin40_4k_r1",
+      "comet_experiment_key": "9a947bd85a7745e29ddf329b9be16763",
+      "endpoint_text_sim": 26.740885416666668,
+      "endpoint_id_sim": 0.3076044265180826
+    },
+    "dataset": "controlled_identity_factorial/nm0004960_v1",
+    "reference_policy": {
+      "source": "full_scene",
+      "crop_margin_per_side": 0.6,
+      "content_size": 256,
+      "canvas_size": null
+    },
+    "branched_attention_invariants": {
+      "use_branched_attention": true,
+      "pose_adapt_ratio": 0.0,
+      "ca_mixing_for_face": false,
+      "reference_face_kv_weight": 1.0
+    },
+    "dependencies": [
+      "sealed controlled artifact manifest.sha256 passes",
+      "Neb GPU is idle",
+      "40%-margin endpoint completed and is materially better than canvas1024"
+    ],
+    "promotion_gate": "At least 11/12 anatomically coherent; no regression versus margin40 on Jumping or Drumming; text >=26.0 and ID >=0.30."
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}

@@ -32,6 +32,15 @@ case "${EXPERIMENT_ARM}" in
     PROMPT_MAX_WORDS="55"
     TRAIN_EPOCHS_DEFAULT="8"
     ;;
+  crop40_posefirst_4k)
+    RUN_NAME_DEFAULT="rhca_cosmic_full_crop40_posefirst_4k"
+    CROP_MARGIN="0.4"
+    CONTENT_SIZE="256"
+    CANVAS_SIZE="null"
+    PROMPT_MODE="pose_first"
+    PROMPT_MAX_WORDS="55"
+    TRAIN_EPOCHS_DEFAULT="8"
+    ;;
   crop20_posefirst_par100_4k)
     RUN_NAME_DEFAULT="rhca_cosmic_full_crop20_posefirst_par100_4k_r2"
     CROP_MARGIN="0.2"
@@ -86,6 +95,7 @@ case "${EXPERIMENT_ARM}" in
   *)
     echo "Unknown EXPERIMENT_ARM=${EXPERIMENT_ARM}" >&2
     echo "Expected: crop20_legacy_4k, crop20_posefirst_4k," >&2
+    echo "          crop40_posefirst_4k," >&2
     echo "          crop20_posefirst_par100_4k," >&2
     echo "          crop20_posefirst_par100_20k," >&2
     echo "          canvas1024_posefirst_4k, crop20_posefirst_20k," >&2
@@ -128,5 +138,6 @@ exec bash "${SCRIPT_DIR}/run_rhca_apr2026_one_id_1gpu.sh" \
   "cosmic_reference.prompt_mode=${PROMPT_MODE}" \
   "cosmic_reference.prompt_max_words=${PROMPT_MAX_WORDS}" \
   "pipeline.pose_adapt_ratio=${POSE_ADAPT_RATIO}" \
+  "pipeline.ca_mixing_for_face=false" \
   "${TRAINER_OVERRIDES[@]}" \
   "$@"

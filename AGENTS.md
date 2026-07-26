@@ -113,6 +113,14 @@ When comparing runs, prioritize controlled validation and visual face quality,
 while also checking identity similarity, prompt adherence, artifacts, and
 face/body alignment.
 
+For all new branched-attention experiments, keep
+`pipeline.pose_adapt_ratio=0` and `pipeline.ca_mixing_for_face=false` in both
+training and validation. A nonzero pose-adapt ratio replaces some or all
+reference-face K/V with target features and is therefore an ablation, not an
+eligible implementation of the project's reference-conditioned BA design.
+Do not launch such ablations unless the user explicitly reverses this
+instruction.
+
 # Tool index and Comet run records
 
 Use `diffusion_template/TOOLS.md` as the entry point for repository tools and

@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_full_crop40_posefirst_4k",
+  "plan": {
+    "priority": 1,
+    "status": "ready_after_one_id_margin40",
+    "machine": "serv",
+    "gpus": 1,
+    "optimizer_steps": 4000,
+    "launcher": "launchers/active/run_rhca_cosmic_large_adapted_1gpu.sh",
+    "objective": "Test whether the one-ID benefit from wider 40%-margin reference context transfers to all 22,140 accepted full-Cosmic target/reference pairs.",
+    "controls": [
+      {
+        "run_name": "rhca_cosmic_full_crop20_posefirst_4k_fast_r3",
+        "comet_experiment_key": "7839bf5f50924f3ab2bb848fd97837e0"
+      },
+      {
+        "run_name": "rhca_cosmic_oneid_margin40_4k_r1",
+        "comet_experiment_key": "9a947bd85a7745e29ddf329b9be16763"
+      }
+    ],
+    "dataset": "gathered_data_cosmic_large_filtered.json",
+    "reference_policy": {
+      "crop_margin_per_side": 0.4,
+      "content_size": 256,
+      "canvas_size": null
+    },
+    "prompt_policy": {
+      "mode": "pose_first",
+      "max_words": 55
+    },
+    "branched_attention_invariants": {
+      "use_branched_attention": true,
+      "pose_adapt_ratio": 0.0,
+      "ca_mixing_for_face": false,
+      "reference_face_kv_weight": 1.0
+    },
+    "dependencies": [
+      "one-ID margin40 completed and is visually superior to canvas1024",
+      "64-sample full-manifest preflight passes",
+      "Serv project allocation remains at or below six A100s"
+    ],
+    "promotion_gate": "Complete 4k with no OOM; matched anatomy improves over crop20 pose-first while preserving text and identity metrics; then require canonical ratio-zero full-96 validation."
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}
