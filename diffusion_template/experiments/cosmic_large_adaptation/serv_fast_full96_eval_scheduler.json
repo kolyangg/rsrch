@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "owner": "nyuchelysheva@edu.hse.ru",
+  "max_a100_gpus": 6,
+  "evaluations": [
+    {
+      "name": "rhca_cosmic_full_crop20_posefirst_4k_fast_r3_full96_eval",
+      "source_job": "lm-mpi-job-5a739f00-c7e2-4359-b4c3-88e072f6a201",
+      "checkpoint": "diffusion_template/saved/rhca_cosmic_full_crop20_posefirst_4k_fast_r3/checkpoint-epoch8.pth",
+      "yaml_path": "diffusion_template/serv_run_packages/rhca_cosmic_full_crop20_posefirst_4k_fast_r3_full96_eval/run_rhca_cosmic_full_crop20_posefirst_4k_fast_r3_full96_eval_1gpu.yaml",
+      "gpus": 1,
+      "prerequisite_command": "python diffusion_template/tools/inference/check_full96_eval_prerequisites.py --project-root diffusion_template --source-run rhca_cosmic_full_crop20_posefirst_4k_fast_r3 --source-comet-key 7839bf5f50924f3ab2bb848fd97837e0 --bbox-manual dataset_full/val_dataset/protocols/cosmic_full96_auto_v1/pm96_bboxes_new.json --auto-min 95 --require-completed-eval rhca_cosmic_full_crop20_legacy_4k_full96_eval",
+      "comment": "Full 96-image Comet validation of the promoted-runtime pose-first 4k endpoint"
+    },
+    {
+      "name": "rhca_cosmic_full_crop20_legacy_4k_fast_r2_full96_eval",
+      "source_job": "lm-mpi-job-1f40842b-ea08-4029-93b6-c96732f7bd3c",
+      "checkpoint": "diffusion_template/saved/rhca_cosmic_full_crop20_legacy_4k_fast_r2/checkpoint-epoch8.pth",
+      "yaml_path": "diffusion_template/serv_run_packages/rhca_cosmic_full_crop20_legacy_4k_fast_r2_full96_eval/run_rhca_cosmic_full_crop20_legacy_4k_fast_r2_full96_eval_1gpu.yaml",
+      "gpus": 1,
+      "prerequisite_command": "python diffusion_template/tools/inference/check_full96_eval_prerequisites.py --project-root diffusion_template --source-run rhca_cosmic_full_crop20_legacy_4k_fast_r2 --source-comet-key f2cd04577b014e6bb2b98fbea5d5472e --bbox-manual dataset_full/val_dataset/protocols/cosmic_full96_auto_v1/pm96_bboxes_new.json --auto-min 95 --require-completed-eval rhca_cosmic_full_crop20_legacy_4k_full96_eval",
+      "comment": "Full 96-image Comet validation of the promoted-runtime legacy-caption 4k endpoint"
+    }
+  ]
+}
