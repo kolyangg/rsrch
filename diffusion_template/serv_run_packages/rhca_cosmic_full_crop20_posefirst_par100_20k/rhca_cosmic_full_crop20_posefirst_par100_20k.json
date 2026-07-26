@@ -3,7 +3,7 @@
   "run_name": "rhca_cosmic_full_crop20_posefirst_par100_20k",
   "plan": {
     "priority": 2,
-    "status": "gated_not_submitted",
+    "status": "gate_passed_ready_to_submit",
     "machine": "serv",
     "gpus": 1,
     "optimizer_steps": 20000,
@@ -23,11 +23,14 @@
       "run_name": "rhca_cosmic_full_crop20_posefirst_par100_4k_r2",
       "comet_experiment_key": "e6cfd6b676ba474fad5f97824ec3d37d",
       "full96_run_name": "rhca_cosmic_full_crop20_posefirst_par100_4k_r2_full96_par100",
-      "full96_comet_experiment_key": null,
-      "checkpoint_sha256": null,
+      "full96_comet_experiment_key": "762db6cfcf654dfd93cb45122bc0ceef",
+      "checkpoint_sha256": "a62ece86f7da072863344dd7d7011bc8805222fbb3f45d99cd179f6a03976c80",
       "images": 96,
-      "per_identity_min_coherent": null,
-      "visual_result": "pending"
+      "per_identity_min_coherent": 12,
+      "text_similarity": 26.2822265625,
+      "id_similarity": 0.5135621405206621,
+      "pixel_manifest_sha256": "8c9a64d3927db73568d0fc46992aa251ab402635608a8b589a5f11003bddb0d3",
+      "visual_result": "pass"
     },
     "long_run_control": {
       "run_name": "rhca_cosmic_full_crop20_posefirst_trainpar0_valpar100_20k",
@@ -35,7 +38,11 @@
       "required_checkpoint": "checkpoint-epoch8.pth",
       "required_step": 4000,
       "required_images": 12,
-      "visual_result": "pending"
+      "checkpoint_sha256": "bf50d8a1b205f6c59cddf156302245bcd34e4fb9aebb965ab550a08adda2a85f",
+      "text_similarity": 29.533854166666668,
+      "id_similarity": 0.22486064955592155,
+      "comet_exact_images": 12,
+      "visual_result": "pass"
     },
     "dataset": "gathered_data_cosmic_large_filtered.json",
     "reference_policy": {

@@ -39,6 +39,7 @@ cd "${PROJECT_ROOT}"
 # full-96 visual gate and the matched long-run control's 4k gate are sealed.
 python3 - <<'PY'
 import json
+import hashlib
 from pathlib import Path
 
 run_id = "rhca_cosmic_full_crop20_posefirst_par100_20k"
@@ -87,6 +88,17 @@ if control_record["comet"]["experiment_key"] != control_gate["comet_experiment_k
 checkpoint = control_dir / control_gate["required_checkpoint"]
 if not checkpoint.is_file() or checkpoint.stat().st_size == 0:
     raise RuntimeError("Long-run control step-4000 checkpoint is missing")
+# AICODE-NOTE: 26 Jul 2026 - The successor must bind to the reviewed control
+# checkpoint bytes; a same-named checkpoint from another run cannot satisfy it.
+expected_control_sha = control_gate.get("checkpoint_sha256")
+if not expected_control_sha:
+    raise RuntimeError("Long-run control checkpoint SHA-256 is missing")
+digest = hashlib.sha256()
+with checkpoint.open("rb") as checkpoint_file:
+    for chunk in iter(lambda: checkpoint_file.read(1024 * 1024), b""):
+        digest.update(chunk)
+if digest.hexdigest() != expected_control_sha:
+    raise RuntimeError("Long-run control checkpoint SHA-256 does not match")
 images = (
     control_dir
     / "val_images"
