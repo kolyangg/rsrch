@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_full_posefirst_speed_async_cpu_workers12_50",
+  "plan": {
+    "priority": 0,
+    "status": "bounded_serv_throughput_quality_probe",
+    "machine": "serv",
+    "gpus": 1,
+    "optimizer_steps": 50,
+    "launcher": "serv_run_packages/rhca_cosmic_full_posefirst_speed_async_cpu_workers12_50/start_rhca_cosmic_full_posefirst_speed_async_cpu_workers12_50_1gpu.sh",
+    "objective": "Test whether asynchronous CUDA plus twelve loader workers recovers useful Serv throughput while retaining the original CPU InsightFace conditioning behavior.",
+    "controls": {
+      "blocking_cpu_provider": {
+        "run_name": "rhca_cosmic_full_crop20_posefirst_4k_r1",
+        "comet_experiment_key": "81cc7532b22841908a5bc70205c18fa3"
+      },
+      "async_gpu_provider": {
+        "run_name": "rhca_cosmic_full_posefirst_speed_async_ortcuda_workers2_50",
+        "comet_experiment_key": "0a9821eeaf9e46968537893987c100a4"
+      }
+    },
+    "dataset": "gathered_data_cosmic_large_filtered.json",
+    "reference_policy": {
+      "crop_margin_per_side": 0.2,
+      "content_size": 256,
+      "canvas_size": null
+    },
+    "prompt_policy": {
+      "mode": "pose_first",
+      "max_words": 55
+    },
+    "throughput_policy": {
+      "batched_conditioning_preparation": true,
+      "conditioning_cache_enabled": false,
+      "train_dataloader_workers": 12,
+      "cuda_launch_blocking": false,
+      "onnxruntime_version": "1.16.0",
+      "insightface_provider": "CPUExecutionProvider fallback"
+    },
+    "dependencies": [
+      "full-Cosmic path/decode/bbox preflight passes",
+      "no existing saved directory with this run name",
+      "project Running plus Pending requests remain within six A100s"
+    ],
+    "decision_rule": "If post-warmup throughput approaches the GPU-provider probe without OOM and step-0/50 validation remains stable, use the CPU provider for a bounded 4k quality reproduction; otherwise keep the GPU-provider runs and judge them at 4k/full96."
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}
