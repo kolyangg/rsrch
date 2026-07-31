@@ -109,10 +109,10 @@ target itself only where a true singleton has no alternative. A local/Neb
 smoke test verified exclude mode selects a distinct reference, include mode
 fails under the default policy, and include+`self` loads a singleton.
 
-### Big Celebs training path — prepared 31 July 2026
+### Big Celebs 40k training — running on Neb, 31 July 2026
 
-The dedicated `big_celebs` dataset path is prepared but no training run has
-been launched. `BigCelebsTrain` reuses the Large Dataset target/reference and
+`rhca_big_celebs_sameid_40k_full96_r1` is running on Neb under launcher PGID
+`3228642`. `BigCelebsTrain` reuses the Large Dataset target/reference and
 transform behavior while failing closed on the sealed-release contract:
 distinct same-ID references, exact `{new_face_crop, text}` records, in-bounds
 faces with minimum side 192px, and exactly one lowercase `img` trigger.
@@ -133,10 +133,22 @@ fixed full-96 validation configuration and changes only
 2,000-step epoch length × 20 epochs (40k total), validation/checkpoint gates
 every 2,000 steps, `pose_adapt_ratio=0`, and `ca_mixing_for_face=false`. The
 prepared immutable experiment spec is
-`experiments/big_celebs/rhca_big_celebs_sameid_40k_full96_r1.json`. Before a
-real launch, sync these new files to Neb; during startup verify the new Comet
-key, step-0 96-image validation and face-quality output, 840/840 processor
-tensors in the optimizer, and the first optimizer step.
+`experiments/big_celebs/rhca_big_celebs_sameid_40k_full96_r1.json`.
+
+Startup is verified through batch 42 with no traceback or CUDA OOM:
+
+- immutable Comet key
+  [`569cc685ff9144f5a9b42bf70e14e040`](https://www.comet.com/nikolay-2104/jul-comet-large-testing-tr/569cc685ff9144f5a9b42bf70e14e040);
+- full sealed-release preflight and 64/64 decoded target/reference pairs;
+- historical architecture/runtime hashes and CUDA ONNX provider passed;
+- 840/840 branched-processor tensors are present in the optimizer;
+- step-0 fixed validation produced exactly 96 images, followed by a complete
+  96-row face-quality CSV (94 detected faces);
+- epoch 1 training reached batch 42 at approximately 1.34 seconds/batch.
+
+The live log is
+`logs/rhca_big_celebs_sameid_40k_full96_r1.log`; leave the detached process
+running unless a real failure or user request requires intervention.
 
 `rhca_large_dataset_sameid_40k_full96_r4` was stopped by user request on
 28 July 2026. It kept the
