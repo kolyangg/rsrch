@@ -33,6 +33,11 @@ export TRAIN_EPOCHS="${TRAIN_EPOCHS:-20}"
 export COMET_PROJECT="${COMET_PROJECT:-jul-comet-large-testing-tr}"
 
 exec bash "${SCRIPT_DIR}/run_rhca_apr2026_one_id_1gpu.sh" \
+  "trainer.epoch_len=${TRAIN_EPOCH_LEN}" \
+  "trainer.n_epochs=${TRAIN_EPOCHS}" \
+  "trainer.validation_interval_steps=2000" \
+  "trainer.save_period=1" \
+  "weights_only_save_period=1" \
   "pipeline.pose_adapt_ratio=0.0" \
   "pipeline.ca_mixing_for_face=false" \
   "$@"
