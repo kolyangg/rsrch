@@ -121,6 +121,16 @@ def main() -> int:
         # must change the source pixels. Keep exact reproduction as the default,
         # and accept changed pixels only through the explicit intervention mode.
         reproduced_source = result.get("first_batch_reproduced_source")
+        # 27 Jul 2026 - Multi-checkpoint full-96 records name this relationship
+        # for the compared endpoint explicitly; it is the same reproduction
+        # invariant as the older single-checkpoint field.
+        if (
+            reproduced_source is None
+            and result.get("kind") == "multi_checkpoint_full96"
+        ):
+            reproduced_source = result.get(
+                "step4000_first_batch_reproduced_source"
+            )
         if args.required_eval_kind == "reproduction":
             relationship_is_valid = reproduced_source is True
         else:
@@ -159,6 +169,12 @@ def main() -> int:
         if result.get("static_inputs") != static_inputs:
             raise ValueError("Required evaluation recorded different static inputs")
         comet_verification = result.get("comet_verification")
+        if (
+            not isinstance(comet_verification, dict)
+            and result.get("kind") == "multi_checkpoint_full96"
+        ):
+            step_result = (result.get("step_results") or {}).get("4000") or {}
+            comet_verification = step_result.get("comet_verification")
         if (
             not isinstance(comet_verification, dict)
             or not bool(comet_verification.get("verified"))

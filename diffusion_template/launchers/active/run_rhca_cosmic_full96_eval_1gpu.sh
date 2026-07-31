@@ -113,6 +113,7 @@ if [[ "${FULL96_MULTISTEP}" == "true" ]]; then
   TRACKED_CONFIG_NAME="cosmic_large_adapted_full96_multistep_eval_rhca"
 fi
 export TRAIN_EPOCHS="8"
+export TRAIN_EPOCH_LEN="500"
 export COMET_PROJECT="${COMET_PROJECT:-rsrch-jul}"
 
 # 26 Jul 2026 - AICODE-NOTE: A source trainer may have used a machine-local
@@ -130,7 +131,8 @@ if [[ "${DUAL_BBOX_PROTOCOL}" == "true" ]]; then
       "validation_source_comet_key=${VALIDATION_SOURCE_COMET_KEY}" \
       "validation_checkpoint_sha256=${VALIDATION_CHECKPOINT_SHA256}" \
       "datasets.val.manual_val.bbox_mask_gen=${SOURCE_REPRO_BBOX_MANUAL}" \
-      "datasets.val.manual_val.limit=12"
+      "datasets.val.manual_val.limit=12" \
+      "trainer.face_quality.enabled=false"
   SOURCE_REPRO_IMAGES="${ROOT_DIR}/saved/${SOURCE_REPRO_RUN}/val_images/manual_val/step_4000_batch_0"
   if [[ "$(find "${SOURCE_REPRO_IMAGES}" -maxdepth 1 -type f -name '*.png' | wc -l)" -ne 12 ]] \
     || ! compare_png_batches "${SOURCE_IMAGES}" "${SOURCE_REPRO_IMAGES}"; then
@@ -157,7 +159,8 @@ WRITER=console RUN_NAME="${PREFLIGHT_RUN}" \
     "validation_source_comet_key=${VALIDATION_SOURCE_COMET_KEY}" \
     "validation_checkpoint_sha256=${VALIDATION_CHECKPOINT_SHA256}" \
     "datasets.val.manual_val.bbox_mask_gen=${FULL96_BBOX_MANUAL}" \
-    "datasets.val.manual_val.limit=${PREFLIGHT_LIMIT}"
+    "datasets.val.manual_val.limit=${PREFLIGHT_LIMIT}" \
+    "trainer.face_quality.enabled=false"
 PREFLIGHT_STATUS=$?
 set -e
 if (( PREFLIGHT_STATUS != 0 )); then

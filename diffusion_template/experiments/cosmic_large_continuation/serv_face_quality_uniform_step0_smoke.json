@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "status": "cancelled_no_workspace_gpu_capacity",
+  "prepared_at_utc": "2026-07-27T14:05:00Z",
+  "submission_attempted_at_utc": "2026-07-27T14:07:18Z",
+  "submission_result": {
+    "jobs_created": 0,
+    "error": "WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE",
+    "action": "Cancelled without retry as requested.",
+    "record": "local_scripts/serv_job_records/unparsed-submit-2026-07-27T15-07-18+01-00.json",
+    "comet_writes": 0
+  },
+  "kind": "serv_gpu_metric_smoke_test",
+  "machine": "serv",
+  "package_id": "cosmic_large_face_quality_uniform_step0_smoke_1gpu",
+  "resource": {
+    "gpus": 1,
+    "instance_type": "a100.1gpu.8C.243G"
+  },
+  "source_validation_comet_key": "ced6658b5b12484a9e003fe47cd0c2bf",
+  "comet_project": "jul-comet-large-testing",
+  "scope": {
+    "validation_step": 0,
+    "images": 96,
+    "metrics": [
+      "topiq_nr-face",
+      "topiq_nr",
+      "musiq",
+      "maniqa-pipal"
+    ]
+  },
+  "environment": {
+    "base_conda": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/conda_env/photomaker_NS",
+    "package_overlay": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/python_overlays/pyiqa-0.1.15",
+    "pyiqa_version": "0.1.15"
+  },
+  "write_policy": "Dry-run only: calculate local JSON/CSV and do not write metrics or assets to Comet.",
+  "capacity_policy": "Submit once. If MLS reports no free workspace GPU capacity, do not retry.",
+  "launcher": "launchers/active/smoke_face_quality_serv_uniform_step0_1gpu.sh",
+  "script_sha256": {
+    "launcher_template": "24e5ef9274dc7b9b369a1d800bacb212da84f99fc43445acc5f60c7358d5ec5b",
+    "rendered_launcher": "61f60b09e291c313415a847021e8bdb854d73bcca1ce2ded59f829f81e878945",
+    "mls_yaml": "4bc557d4bb3055b474ef9abb5b04792d5b9721eba23ef9e61a9441c153640650"
+  },
+  "expected_completion_marker": "SERV_FACE_QUALITY_SMOKE_COMPLETE"
+}

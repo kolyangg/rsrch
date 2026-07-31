@@ -117,6 +117,17 @@ diffusion_template/ppr_NN5a_4000step_realvis_scale1_reference_vs_noise/
 dataset_full/cosmic_large_one_id/**/*.jpg
 dataset_full/cosmic_large_one_id/**/*.pdf
 
+# Local three-identity Large Dataset sample (images plus subset metadata).
+dataset_full/large_dataset_sample_3ids/
+
+# Generated/local dataset payloads retained on EQR6.
+dataset_full/controlled_identity_factorial/
+
+# Regenerable visual experiment outputs retained on EQR6. Keep the Markdown
+# reports and source code that describe and reproduce them in Git.
+diffusion_template/analysis/assets/
+diffusion_template/docs/experiments/assets/
+
 # Local machine access and operations notes (contains server connection details).
 diffusion_template/LOCAL_NEB_SERVER_OPERATIONS.md
 

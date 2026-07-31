@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_initial_distinct_top3softmax_4k_full96_steps0_1k_2k_3k_4k",
+  "plan": {
+    "status": "not_started_source_failed",
+    "machine": "serv",
+    "gpus": 1,
+    "launcher": "launchers/active/run_rhca_cosmic_full96_eval_1gpu.sh",
+    "source_run": "rhca_cosmic_initial_distinct_top3softmax_4k",
+    "source_comet_key": "ec43ee00375f4563b353bf701720c9eb",
+    "superseded_by": "rhca_cosmic_initial_distinct_top3softmax_4k_r2_full96_steps0_1k_2k_3k_4k",
+    "reason": "The source trainer stalled during startup and was stopped before optimizer step 1; this validation run was never started.",
+    "validation_contract": {
+      "optimizer_steps": [0, 1000, 2000, 3000, 4000],
+      "images_per_step": 96,
+      "batch_size": 12,
+      "base_model": "SG161222/RealVisXL_V4.0",
+      "bbox_protocol_id": "cosmic_full96_auto_v1",
+      "comet_exact_step_required": true
+    }
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": null,
+    "mode": "online"
+  }
+}

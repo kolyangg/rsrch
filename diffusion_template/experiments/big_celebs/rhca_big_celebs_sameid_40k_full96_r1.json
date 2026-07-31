@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_big_celebs_sameid_40k_full96_r1",
+  "plan": {
+    "status": "prepared_not_launched",
+    "machine": "neb",
+    "gpus": 1,
+    "objective": "Train the eligible SA-only branched-attention model on the sealed Big Celebs v2 dataset for 40,000 optimizer steps.",
+    "launcher": "launchers/neb/start_rhca_big_celebs_sameid_40k.sh",
+    "config": "src/configs/big_celebs_rhca_40k.yaml",
+    "model_control": {
+      "template": "src/configs/large_dataset_rhca_40k.yaml",
+      "use_branched_attention": true,
+      "disable_branched_ca": true,
+      "branched_attn_weight_mode": "noise_and_ref",
+      "train_ba_only": true,
+      "train_branched_ca_lora": false,
+      "rank": 32,
+      "lr_for_lora": 0.0001,
+      "masked_loss_step": 1,
+      "pose_adapt_ratio": 0.0,
+      "ca_mixing_for_face": false
+    },
+    "dataset": {
+      "name": "big_celebs",
+      "release": "v2",
+      "release_root": "/home/niko/rsrch/dataset_publish/releases/v2",
+      "manifest": "/home/niko/rsrch/dataset_publish/releases/v2/filtered_ids3_adj.json",
+      "manifest_sha256": "f846b8cc8a4ce087c78130beee48a65f1b13560b63e42a9715cb5686526e5efa",
+      "dataset_manifest": "/home/niko/rsrch/dataset_publish/releases/v2/dataset_manifest.json",
+      "images": 349348,
+      "identities": 68648,
+      "minimum_face_side": 192,
+      "reference_policy": "uniform distinct image from the same sealed identity",
+      "target_reference_leakage": "forbidden",
+      "fixed_full96_identity_overlap": 0,
+      "exact_and_perceptual_validation_image_overlap": 0
+    },
+    "training": {
+      "optimizer_steps": 40000,
+      "epoch_len": 2000,
+      "epochs": 20,
+      "batch_size": 2,
+      "checkpoint_interval_steps": 2000
+    },
+    "validation": {
+      "dataset": "manual_val",
+      "protocol": "cosmic_full96_auto_v1",
+      "images_per_step": 96,
+      "steps": "0 and every 2000 through 40000",
+      "face_quality_enabled": true,
+      "face_quality_runtime": "PyIQA 0.1.15 package overlay on photomaker_NS CUDA PyTorch"
+    },
+    "runtime_gate": {
+      "onnxruntime_version": "1.20.1",
+      "provider": "CUDAExecutionProvider",
+      "provider_library_must_load": true,
+      "immutable_comet_record_required": true
+    },
+    "startup_checks": {
+      "sealed_dataset_preflight": "passed 31 July 2026",
+      "dataset_preflight_decodes": "64/64 target-reference pairs",
+      "dataset_class_full_manifest_init": true,
+      "dataset_class_runtime_samples": "3/3 distinct same-ID references",
+      "launcher_equivalent_hydra_composition": true,
+      "onnx_cuda_provider": true
+    },
+    "comet_project": "jul-comet-large-testing-tr"
+  }
+}

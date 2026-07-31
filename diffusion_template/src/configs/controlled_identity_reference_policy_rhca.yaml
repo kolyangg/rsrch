@@ -23,5 +23,5 @@ datasets:
       reference_canvas_fill: ${controlled_factorial.reference_canvas_fill}
 
 trainer:
-  n_epochs: 8
+  n_epochs: 2
   masked_loss_step: 1

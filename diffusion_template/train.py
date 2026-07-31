@@ -176,6 +176,23 @@ def main(config):
         ### 29 Nov - Clean separataion of BA-specific parameters ###
     ### 28 Nov: train only BA layers ###
 
+    # 28 Jul 2026 - AICODE-NOTE: Fresh MLS containers can deadlock when two
+    # ranks populate the same model cache concurrently. This opt-in gate keeps
+    # model construction identical but lets rank 0 populate the cache first.
+    serialize_model_init = bool(
+        getattr(config, "serialize_distributed_model_init", False)
+    )
+    if (
+        serialize_model_init
+        and accelerator.num_processes > 1
+        and not accelerator.is_main_process
+    ):
+        print(
+            f"[Distributed Init] rank={accelerator.process_index} "
+            "waiting for rank 0 model-cache warmup"
+        )
+        accelerator.wait_for_everyone()
+
     # build model architecture, then print to console
     model = instantiate(config.model, device=device, **ba_kwargs)
     if accelerator.is_main_process:
@@ -196,6 +213,15 @@ def main(config):
     ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
 
     model.prepare_for_training()
+    if serialize_model_init and accelerator.num_processes > 1:
+        if accelerator.is_main_process:
+            print("[Distributed Init] rank=0 model ready; releasing other ranks")
+            accelerator.wait_for_everyone()
+        accelerator.wait_for_everyone()
+        print(
+            f"[Distributed Init] rank={accelerator.process_index} "
+            "all model replicas ready"
+        )
 
     # get function handles of loss and metrics
     loss_kind = str(getattr(config, "loss_kind", "masked_alternating")).lower()

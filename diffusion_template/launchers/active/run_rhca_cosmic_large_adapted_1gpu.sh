@@ -21,7 +21,7 @@ case "${EXPERIMENT_ARM}" in
     CANVAS_SIZE="null"
     PROMPT_MODE="legacy"
     PROMPT_MAX_WORDS="null"
-    TRAIN_EPOCHS_DEFAULT="8"
+    TRAIN_EPOCHS_DEFAULT="2"
     ;;
   crop20_posefirst_4k)
     RUN_NAME_DEFAULT="rhca_cosmic_full_crop20_posefirst_4k"
@@ -30,7 +30,7 @@ case "${EXPERIMENT_ARM}" in
     CANVAS_SIZE="null"
     PROMPT_MODE="pose_first"
     PROMPT_MAX_WORDS="55"
-    TRAIN_EPOCHS_DEFAULT="8"
+    TRAIN_EPOCHS_DEFAULT="2"
     ;;
   crop40_posefirst_4k)
     RUN_NAME_DEFAULT="rhca_cosmic_full_crop40_posefirst_4k"
@@ -39,7 +39,7 @@ case "${EXPERIMENT_ARM}" in
     CANVAS_SIZE="null"
     PROMPT_MODE="pose_first"
     PROMPT_MAX_WORDS="55"
-    TRAIN_EPOCHS_DEFAULT="8"
+    TRAIN_EPOCHS_DEFAULT="2"
     ;;
   crop60_posefirst_4k)
     RUN_NAME_DEFAULT="rhca_cosmic_full_crop60_posefirst_4k"
@@ -48,7 +48,7 @@ case "${EXPERIMENT_ARM}" in
     CANVAS_SIZE="null"
     PROMPT_MODE="pose_first"
     PROMPT_MAX_WORDS="55"
-    TRAIN_EPOCHS_DEFAULT="8"
+    TRAIN_EPOCHS_DEFAULT="2"
     ;;
   crop40_legacy_4k)
     RUN_NAME_DEFAULT="rhca_cosmic_full_crop40_legacy_4k"
@@ -57,7 +57,7 @@ case "${EXPERIMENT_ARM}" in
     CANVAS_SIZE="null"
     PROMPT_MODE="legacy"
     PROMPT_MAX_WORDS="null"
-    TRAIN_EPOCHS_DEFAULT="8"
+    TRAIN_EPOCHS_DEFAULT="2"
     ;;
   crop40_512_posefirst_4k)
     RUN_NAME_DEFAULT="rhca_cosmic_full_crop40_512_posefirst_4k"
@@ -66,7 +66,7 @@ case "${EXPERIMENT_ARM}" in
     CANVAS_SIZE="null"
     PROMPT_MODE="pose_first"
     PROMPT_MAX_WORDS="55"
-    TRAIN_EPOCHS_DEFAULT="8"
+    TRAIN_EPOCHS_DEFAULT="2"
     ;;
   crop20_posefirst_par100_4k)
     RUN_NAME_DEFAULT="rhca_cosmic_full_crop20_posefirst_par100_4k_r2"
@@ -76,7 +76,7 @@ case "${EXPERIMENT_ARM}" in
     PROMPT_MODE="pose_first"
     PROMPT_MAX_WORDS="55"
     POSE_ADAPT_RATIO="1.0"
-    TRAIN_EPOCHS_DEFAULT="8"
+    TRAIN_EPOCHS_DEFAULT="2"
     ;;
   crop20_posefirst_par100_20k)
     # 26 Jul 2026 - Keep the promoted target-native training policy behind an
@@ -89,7 +89,7 @@ case "${EXPERIMENT_ARM}" in
     PROMPT_MAX_WORDS="55"
     POSE_ADAPT_RATIO="1.0"
     VALIDATION_POSE_ADAPT_RATIO="1.0"
-    TRAIN_EPOCHS_DEFAULT="40"
+    TRAIN_EPOCHS_DEFAULT="10"
     ;;
   canvas1024_posefirst_4k)
     RUN_NAME_DEFAULT="rhca_cosmic_full_canvas1024_posefirst_4k"
@@ -98,7 +98,7 @@ case "${EXPERIMENT_ARM}" in
     CANVAS_SIZE="1024"
     PROMPT_MODE="pose_first"
     PROMPT_MAX_WORDS="55"
-    TRAIN_EPOCHS_DEFAULT="8"
+    TRAIN_EPOCHS_DEFAULT="2"
     ;;
   crop20_posefirst_20k)
     RUN_NAME_DEFAULT="rhca_cosmic_full_crop20_posefirst_20k"
@@ -107,7 +107,7 @@ case "${EXPERIMENT_ARM}" in
     CANVAS_SIZE="null"
     PROMPT_MODE="pose_first"
     PROMPT_MAX_WORDS="55"
-    TRAIN_EPOCHS_DEFAULT="40"
+    TRAIN_EPOCHS_DEFAULT="10"
     ;;
   crop20_posefirst_trainpar0_valpar100_20k)
     RUN_NAME_DEFAULT="rhca_cosmic_full_crop20_posefirst_trainpar0_valpar100_20k"
@@ -117,7 +117,7 @@ case "${EXPERIMENT_ARM}" in
     PROMPT_MODE="pose_first"
     PROMPT_MAX_WORDS="55"
     VALIDATION_POSE_ADAPT_RATIO="1.0"
-    TRAIN_EPOCHS_DEFAULT="40"
+    TRAIN_EPOCHS_DEFAULT="10"
     ;;
   *)
     echo "Unknown EXPERIMENT_ARM=${EXPERIMENT_ARM}" >&2

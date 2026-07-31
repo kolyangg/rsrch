@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "status": "failed_on_serv_at_10k_recovering_on_neb",
+  "serv_completed_validation_steps": [6000, 8000, 10000],
+  "neb_completed_validation_steps": [12000, 14000, 16000],
+  "machine": "serv",
+  "package_id": "rhca_cosmic_initial_distinct_uniform_continue20k",
+  "mls_job_id": "lm-mpi-job-bb07b32f-2e2e-4c63-943c-d880274e92eb",
+  "recovery_process_group_id": 637653,
+  "failed_startup_attempts": ["lm-mpi-job-8d0b9302-2a6b-4dd4-81ee-d04c461ca40e", "lm-mpi-job-3a33f1f3-af74-42e8-bf6e-d2880378394e"],
+  "source_run": "rhca_cosmic_initial_distinct_uniform_4k",
+  "source_checkpoint": "saved/rhca_cosmic_initial_distinct_uniform_4k/checkpoint-epoch8.pth",
+  "source_checkpoint_sha256": "44dc7e84acc2cc81451ed6327a0716dbfb315d2f29ed745deee62c32c82c5cc0",
+  "training_comet_key": "288ebfe3ccf74d5ea328a55b3abe31cb",
+  "validation_run": "rhca_cosmic_initial_distinct_uniform_4k_full96_steps0_1k_2k_3k_4k",
+  "validation_comet_key": "ced6658b5b12484a9e003fe47cd0c2bf",
+  "dataset_policy_arm": "distinct_uniform",
+  "schedule": {"source_step": 4000, "target_step": 20000, "segment_steps": 2000, "validation_steps": [6000, 8000, 10000, 12000, 14000, 16000, 18000, 20000], "validation_images": 96, "validation_batch_size": 12, "training_validation": false},
+  "model_controls": {"branched_attention": true, "disable_branched_ca": true, "pose_adapt_ratio": 0.0, "ca_mixing_for_face": false},
+  "comet_policy": "Append training to training_comet_key and full-96 validation to validation_comet_key."
+}

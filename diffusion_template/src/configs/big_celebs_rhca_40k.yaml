@@ -1,0 +1,7 @@
+defaults:
+  - large_dataset_rhca_40k
+  - _self_
+
+# Keep the complete model, optimizer, schedule, and fixed full-96 validation
+# contract of the Large Dataset run. Only the training dataset changes.
+train_dataset_name: big_celebs

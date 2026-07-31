@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 export RUN_NAME="${RUN_NAME:-rhca_apr2026_cosmic_large_one_id_faceonly_8k}"
-export TRAIN_EPOCHS="${TRAIN_EPOCHS:-16}"  # 16 × 500 steps = 8,000 total
+export TRAIN_EPOCHS="${TRAIN_EPOCHS:-4}"  # 4 × 2,000 steps = 8,000 total
 export COMET_PROJECT="${COMET_PROJECT:-rsrch-jul}"
 
 # Clean face-only run: preserve the RHCA architecture and Cosmic dataset while

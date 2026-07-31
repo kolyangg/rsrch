@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "record_name": "rhca_large_dataset_sameid_40k_full96_serv_r1_continue4k_deferred_val_2gpu",
+  "run_name": "rhca_large_dataset_sameid_40k_full96_serv_r1_2gpu",
+  "plan": {
+    "status": "running_verified_epoch9",
+    "machine": "serv",
+    "gpus": 2,
+    "objective": "Continue the same immutable Large Dataset experiment from its intact step-4000 checkpoint while preventing rank-0-only validation and Comet asset logging from blocking the two-rank training process.",
+    "superseded_job": "lm-mpi-job-33f3c842-7d1c-4a39-bdec-d6acb69c7f23",
+    "observed_stall": {
+      "completed_training_step": 4000,
+      "completed_validation_images": 96,
+      "completed_face_quality": true,
+      "checkpoint_epoch": 8,
+      "checkpoint_bytes": 653129930,
+      "optimizer_states": 2240,
+      "rank1_state": "Created the epoch-9 training progress iterator at 0/500.",
+      "rank0_state": "Did not create its epoch-9 iterator after the post-checkpoint barrier.",
+      "last_rank0_boundary": "The next rank-0-only Comet writer set_step/add_scalar call after the 96-image validation asset stream.",
+      "nccl_error": false,
+      "interpretation": "The apparent DDP stall was caused by the rank-0 logging path blocking after full-96 Comet asset logging; rank 1 then waited at the next training boundary. The model forward/backward and atomic checkpoint path had completed successfully."
+    },
+    "preserved_outputs": {
+      "validation_steps": [0, 2000, 4000],
+      "images_per_step": 96,
+      "face_quality_complete": true,
+      "checkpoint": "saved/rhca_large_dataset_sameid_40k_full96_serv_r1_2gpu/checkpoint-epoch8.pth",
+      "comet_experiment_key": "db32f157e75a4798b2dfa530477c66d6"
+    },
+    "recovery": {
+      "training": "Resume epoch 9 and train continuously on two GPUs through epoch 80/step 40000 with online scalar logging but no in-process validation.",
+      "checkpointing": "Write atomic full and weights-only checkpoints every four historical 500-step epochs, preserving every 2000-step gate.",
+      "validation": "After training completes, evaluate checkpoints 6k through 40k sequentially in fresh one-process invocations, each on the fixed 96-image panel with the seven face-quality metrics.",
+      "comet": "Training scalars and every deferred validation append to the original immutable Comet experiment.",
+      "why_deferred": "It preserves one uninterrupted optimizer trajectory while removing rank-asymmetric validation/asset logging from the live DDP process."
+    },
+    "unchanged_controls": {
+      "model": "same eligible SA-only branched-attention model",
+      "pose_adapt_ratio": 0.0,
+      "ca_mixing_for_face": false,
+      "dataset": "large_dataset",
+      "reference_policy": "uniform distinct image from the same explicit identity",
+      "batch_size_per_gpu": 2,
+      "optimizer_steps_per_gpu": 40000,
+      "checkpoint_and_validation_steps": "0 and every 2000 through 40000",
+      "validation_images": 96,
+      "face_quality_enabled": true
+    },
+    "launcher_source": "serv_run_packages/_sources/continue4k_deferred_validation_large_dataset_sameid_40k_2gpu.sh",
+    "package": "serv_run_packages/rhca_large_dataset_sameid_40k_full96_serv_r1_continue4k_deferred_val",
+    "comet_project": "jul-comet-large-testing-tr"
+  },
+  "comet": {
+    "experiment_key": "db32f157e75a4798b2dfa530477c66d6",
+    "project_name": "jul-comet-large-testing-tr",
+    "url": "https://www.comet.com/nikolay-2104/jul-comet-large-testing-tr/db32f157e75a4798b2dfa530477c66d6"
+  },
+  "artifacts": {
+    "launcher_source_sha256": "2a2ed06de285908f906de9cd22314736d9bdd9e48e4bdfb366d1d5b74600e945",
+    "rendered_launcher_sha256": "6ca58c8db38d4d6256f874f75fa8c52a1f1c5988f97bcb75a2ceaf92370104e5",
+    "yaml_sha256": "d57b04358cb87b9ce6402f26e810212989f7eeb27649c6a74fc9d0c9d1d5423b"
+  },
+  "discarded_startup_attempts": [
+    {
+      "job_name": "lm-mpi-job-be7f89c8-74fd-4bc8-856e-e0e1667d2380",
+      "outcome": "Failed before model initialization at the fail-closed trainer-config hash gate; no Comet or checkpoint mutation."
+    },
+    {
+      "job_name": "lm-mpi-job-ff071d18-8698-45d5-a632-bb8896d9a1a1",
+      "outcome": "Confirmed the same stale expected hash and failed before model initialization; no Comet or checkpoint mutation."
+    }
+  ],
+  "submission": {
+    "job_name": "lm-mpi-job-79007b8b-a9f0-41db-a15a-802ffea65658",
+    "submitted_status": "Pending",
+    "live_status": "Running",
+    "created_at_unix": 1785252137,
+    "running_at_unix": 1785252160,
+    "audit_record": "../local_scripts/serv_job_records/lm-mpi-job-79007b8b-a9f0-41db-a15a-802ffea65658.json"
+  },
+  "startup_checks": {
+    "existing_validation": "96 images plus face-quality metrics at steps 0, 2000, and 4000",
+    "checkpoint_epoch": 8,
+    "checkpoint_bytes": 653129930,
+    "optimizer_states": 2240,
+    "comet_key_reused": true,
+    "all_model_replicas_ready": true,
+    "ddp_start_epoch": "rank0=9 rank1=9",
+    "processor_params_in_optimizer": "840/840",
+    "first_new_reduced_loss": 0.043631,
+    "first_new_optimizer_step": true,
+    "latest_verified_progress": "epoch 9 batch 100/500",
+    "latest_verified_reduced_loss": 0.359489
+  }
+}

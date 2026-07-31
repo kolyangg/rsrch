@@ -29,10 +29,8 @@ datasets:
       min_reference_score: ${cosmic_reference.min_reference_score}
   val:
     manual_val:
-      # The first 12 samples are one fixed identity over the 12 standard
-      # prompts. A shared reference keeps the current batched spatial setup
-      # correct; heterogeneous references must use batch_size=1.
-      limit: 12
+      # Standard validation is the fixed eight-identity, 96-image panel.
+      limit: 96
 
 dataloaders:
   manual_val:
@@ -59,7 +57,9 @@ saved_checkpoint: null
 trainer:
   resume_from: null
   masked_loss_step: 1
-  n_epochs: 8
+  n_epochs: 2
+  face_quality:
+    expected_images: 96
 
 automatic_bboxes: true
 automatic_bboxes_every_val: false

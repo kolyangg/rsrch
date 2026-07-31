@@ -11,6 +11,19 @@ Treat experiment comparability as part of correctness. Do not silently change
 the validation model, seeds, prompts, reference images, face masks/bounding
 boxes, scheduler, inference steps, or metric definitions.
 
+# Required new-session handoff
+
+At the start of every new session involving `diffusion_template`, read
+`diffusion_template/docs/handoffs/LATEST.md` completely before changing code,
+interpreting experiment results, or launching jobs. It is the stable current
+state handoff and contains the experiment history, immutable Comet IDs,
+machine status caveats, architectural boundaries, and recommended next work.
+
+When a material experiment result or decision supersedes that handoff, update
+`LATEST.md` in place so this session-entry rule remains valid. Verify live
+machine state and immutable experiment JSON records rather than treating the
+handoff's resource snapshot as permanent.
+
 # Repository layout
 
 - `diffusion_template/` is the primary training and validation project.
@@ -50,6 +63,10 @@ tokens, proxy credentials, or machine-specific secrets. Keep
 
 # Working practices
 
+- Reply concisely where possible while preserving the details needed to make
+  or audit a decision. Lead with the outcome; include relevant run names,
+  machines, immutable experiment IDs, observed evidence, failures, and next
+  action when they materially affect the answer.
 - Check the current branch, worktree, and dirty status before editing. Preserve
   unrelated user changes.
 - Keep code changes concise and localized. Avoid broad cleanup, refactors, or
@@ -112,6 +129,17 @@ whether conclusions come from visuals, metrics, logs, or code inspection.
 When comparing runs, prioritize controlled validation and visual face quality,
 while also checking identity similarity, prompt adherence, artifacts, and
 face/body alignment.
+
+The standard validation contract is step 0 plus every 2,000 optimizer steps on
+the fixed 96-image `manual_val` panel with one generated image per item.
+`trainer.face_quality.enabled` defaults to true and logs the compact seven
+face-quality curves plus an API-only per-image CSV at every validation event.
+New training launchers default to `trainer.epoch_len=2000`, so epoch,
+checkpoint, and validation boundaries coincide; derive `n_epochs` from the
+requested total step budget. Historical launchers that address immutable
+500-step checkpoint epoch numbers must pin `TRAIN_EPOCH_LEN=500` explicitly.
+Keep explicit historical 12-image protocols labeled as exceptions; see
+`diffusion_template/docs/validation_protocol.md`.
 
 For all new branched-attention experiments, keep
 `pipeline.pose_adapt_ratio=0` and `pipeline.ca_mixing_for_face=false` in both

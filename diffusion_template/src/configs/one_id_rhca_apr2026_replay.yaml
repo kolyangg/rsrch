@@ -37,14 +37,15 @@ pipeline:
   variant: null
 
 trainer:
-  # The original run used 400-step epochs. This replay intentionally uses
-  # eight 500-step epochs only to satisfy the requested 4,000-step run with
-  # validation/checkpointing every 500 steps.
-  epoch_len: 500
-  n_epochs: 8
+  # 28 Jul 2026 - New runs use one 2,000-step epoch per standard validation
+  # gate. Historical checkpoint/evaluation launchers pin 500 explicitly.
+  epoch_len: 2000
+  n_epochs: 2
   masked_loss_step: 2
   post_backward_parameter_touch: false
   grad_norm_log_only: true
+  face_quality:
+    expected_images: 12
 
 dataloaders:
   train:

@@ -45,6 +45,30 @@ train:
         excluded_filenames: [51.jpg]
         instance_transforms: ${transforms.instance_transforms.train}
 
+    large_dataset:
+        _target_: src.datasets.large_dataset.LargeDatasetTrain
+        data_json_pth: ${oc.env:LARGE_DATASET_MANIFEST,../dataset_full/filtered_ids3_adj.json}
+        images_path: ${oc.env:LARGE_DATASET_IMAGES,../dataset_full/large_dataset_adj/large_dataset}
+        num_refs: 1
+        train_on_separate_image: ${train_on_separate_image}
+        singleton_reference_policy: ${oc.env:LARGE_DATASET_SINGLETON_REFERENCE_POLICY,error}
+        same_id_ref_map_json_pth: null
+        random_horizontal_flip: true
+        instance_transforms: ${transforms.instance_transforms.train}
+
+    # Versioned clean celebrity release. Unlike the historical Large Dataset,
+    # this entry fails closed on singletons, small faces, and malformed prompts.
+    big_celebs:
+        _target_: src.datasets.big_celebs.BigCelebsTrain
+        manifest_path: ${oc.env:BIG_CELEBS_MANIFEST,/nonexistent/big_celebs_manifest.json}
+        images_path: ${oc.env:BIG_CELEBS_IMAGES,/nonexistent/big_celebs_images}
+        num_refs: 1
+        min_face_res: ${oc.env:BIG_CELEBS_MIN_FACE_RES,192}
+        trigger_word: img
+        strict_manifest_fields: true
+        random_horizontal_flip: true
+        instance_transforms: ${transforms.instance_transforms.train}
+
     cosmic_large_one_id:
         _target_: src.datasets.cosmic_large_one_id.CosmicLargeOneID
         data_json_path: ../dataset_full/cosmic_large_one_id/train.json
@@ -76,6 +100,24 @@ train:
         random_reference_flip: true
         prompt_mode: legacy
         prompt_max_words: null
+        instance_transforms: ${transforms.instance_transforms.train}
+
+    cosmic_large_initial_usage:
+        _target_: src.datasets.cosmic_large_initial_usage.CosmicLargeInitialUsageTrain
+        cosmic_large_json_pth: ../dataset_full/cosmic_large_alldata.json
+        cosmic_large_texts_json_pth: ../dataset_full/all_texts_cosmic_large_by_qween3_trigger_word.json
+        images_path: ${oc.env:COSMIC_INITIAL_IMAGES_ROOT,/nonexistent/cosmic_initial_images}
+        candidate_manifest_path: ${oc.env:COSMIC_LARGE_MANIFEST,null}
+        num_refs: 1
+        reference_mode: self
+        min_face_res: 0
+        reference_crop_margin: null
+        reference_content_size: 256
+        reference_canvas_size: null
+        reference_canvas_fill: 127
+        random_horizontal_flip: true
+        random_reference_flip: true
+        topk_temperature: 0.05
         instance_transforms: ${transforms.instance_transforms.train}
 
     controlled_identity_factorial:

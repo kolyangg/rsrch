@@ -1,0 +1,59 @@
+defaults:
+  - one_id_rhca_apr2026_replay
+  - _self_
+
+# The model/trainer block is intentionally identical to the eligible
+# full-Cosmic SA-only BA runs. Only `dataset_policy` changes across this matrix.
+dataset_policy:
+  reference_mode: self
+  min_face_res: 0
+  topk_temperature: 0.05
+
+train_dataset_name: cosmic_large_initial_usage
+val_datasets_names: [manual_val]
+
+datasets:
+  train:
+    cosmic_large_initial_usage:
+      reference_mode: ${dataset_policy.reference_mode}
+      min_face_res: ${dataset_policy.min_face_res}
+      topk_temperature: ${dataset_policy.topk_temperature}
+      reference_crop_margin: null
+      reference_content_size: 256
+      reference_canvas_size: null
+  val:
+    manual_val:
+      limit: 96
+
+dataloaders:
+  train:
+    num_workers: 2
+  manual_val:
+    _target_: torch.utils.data.DataLoader
+    batch_size: 12
+    num_workers: 1
+    pin_memory: false
+
+disable_branched_ca: true
+train_branched_ca_lora: false
+branched_attn_weight_mode: noise_and_ref
+
+model:
+  train_branched_ca_lora: false
+  branched_attn_weight_mode: noise_and_ref
+  conditioning_cache_enabled: false
+  batched_conditioning_preparation: true
+
+continue_run: false
+saved_checkpoint: null
+
+trainer:
+  resume_from: null
+  masked_loss_step: 1
+  n_epochs: 2
+  face_quality:
+    expected_images: 96
+
+automatic_bboxes: true
+automatic_bboxes_every_val: false
+force_log_first_auto_bbox: false

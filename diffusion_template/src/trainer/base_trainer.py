@@ -1,10 +1,12 @@
 from abc import abstractmethod
 from pathlib import Path
 
+import gc
 import torch
 from tqdm.auto import tqdm
 
 from src.datasets.data_utils import inf_loop
+from src.metrics.face_quality_validation import FaceQualityValidationSession
 from src.metrics.tracker import MetricTracker
 from src.utils.io_utils import ROOT_PATH
 from hydra.utils import instantiate
@@ -48,6 +50,9 @@ class BaseTrainer:
         post_backward_parameter_touch=True,
         grad_norm_log_only=False,
         validation_pose_adapt_ratio=None,
+        validation_interval_steps=2000,
+        face_quality=None,
+        skip_initial_validation=False,
     ):
         """
         Args:
@@ -118,6 +123,24 @@ class BaseTrainer:
         self.post_backward_parameter_touch = bool(post_backward_parameter_touch)
         self.grad_norm_log_only = bool(grad_norm_log_only)
         self.validation_pose_adapt_ratio = validation_pose_adapt_ratio
+        self.validation_interval_steps = (
+            None
+            if validation_interval_steps is None
+            else int(validation_interval_steps)
+        )
+        self.face_quality_config = face_quality
+        self.skip_initial_validation = bool(skip_initial_validation)
+        if (
+            not bool(getattr(self.config, "validation_only", False))
+            and self.validation_interval_steps is not None
+            and self.validation_interval_steps > 0
+            and self.validation_interval_steps % self.epoch_len != 0
+        ):
+            raise ValueError(
+                "trainer.validation_interval_steps must be an exact multiple "
+                f"of trainer.epoch_len ({self.epoch_len}); got "
+                f"{self.validation_interval_steps}"
+            )
         
 
         # define metrics
@@ -324,6 +347,11 @@ class BaseTrainer:
             self._last_epoch = epoch
             result = self._train_epoch(epoch)
 
+            # 28 Jul 2026 - AICODE-NOTE: Keep every rank behind rank 0 while
+            # it logs and writes checkpoints. Letting another rank start its
+            # next backward while rank 0 serializes state can enqueue different
+            # NCCL collectives and corrupt the checkpoint on watchdog abort.
+            self.accelerator.wait_for_everyone()
             if self.accelerator.is_main_process:
                 # save logged information into logs dict
                 logs = {"epoch": epoch}
@@ -338,6 +366,7 @@ class BaseTrainer:
                 weights_only_period = int(getattr(self.config, "weights_only_save_period", 0) or 0)
                 if weights_only_period > 0 and epoch % weights_only_period == 0:
                     self._save_weights_only_checkpoint(epoch)
+            self.accelerator.wait_for_everyone()
 
 
     def _train_epoch(self, epoch):
@@ -360,7 +389,10 @@ class BaseTrainer:
             self.writer.set_step((epoch - 1) * self.epoch_len)
             self.writer.add_scalar("general/epoch", epoch)
 
-        if epoch == 1:
+        # 28 Jul 2026 - AICODE-NOTE: A no-update recovery may reuse a completed
+        # step-0 validation and enter training directly. This explicit opt-in
+        # avoids duplicating Comet assets while preserving the default protocol.
+        if epoch == 1 and not self.skip_initial_validation:
             self.accelerator.wait_for_everyone()
             if self.accelerator.is_main_process:
                 for part, dataloader in self.evaluation_dataloaders.items():
@@ -466,9 +498,12 @@ class BaseTrainer:
 
         # logs.update(last_train_metrics)
 
-        # Run val/test
+        # Run val/test at an exact optimizer-step cadence. Step zero remains a
+        # separate initial validation above.
+        validation_step = epoch * self.epoch_len
+        should_validate = self._should_run_periodic_validation(validation_step)
         self.accelerator.wait_for_everyone()
-        if self.accelerator.is_main_process:
+        if should_validate and self.accelerator.is_main_process:
             for part, dataloader in self.evaluation_dataloaders.items():
                 val_logs = self._evaluation_epoch(epoch, part, dataloader)
                 logs.update(**{f"{part}/{name}": value for name, value in val_logs.items()})
@@ -478,19 +513,29 @@ class BaseTrainer:
         ### Modified for attention processors training ###
         # Ensure branched processors are re-installed only when validation used
         # the training base model itself.
-        val_pretrained = getattr(self.config, "pretrained_model_for_validation_name_or_path", None)
-        needs_reinstall = not bool(val_pretrained)
-        if needs_reinstall:
-            try:
-                unwrapped = self.accelerator.unwrap_model(self.model)
-            except Exception:
-                unwrapped = self.model
-            if hasattr(unwrapped, "ensure_branched_after_eval"):
-                unwrapped.ensure_branched_after_eval()
+        if should_validate:
+            val_pretrained = getattr(self.config, "pretrained_model_for_validation_name_or_path", None)
+            needs_reinstall = not bool(val_pretrained)
+            if needs_reinstall:
+                try:
+                    unwrapped = self.accelerator.unwrap_model(self.model)
+                except Exception:
+                    unwrapped = self.model
+                if hasattr(unwrapped, "ensure_branched_after_eval"):
+                    unwrapped.ensure_branched_after_eval()
         self.accelerator.wait_for_everyone()
         ### Modified for attention processors training ###
 
         return logs
+
+    def _should_run_periodic_validation(self, step):
+        """Return whether this optimizer step is a configured validation gate."""
+        interval = self.validation_interval_steps
+        if interval is None:
+            return True
+        if interval <= 0:
+            return False
+        return int(step) % interval == 0
 
     def _evaluation_epoch(self, epoch, part, dataloader):
         """
@@ -516,7 +561,23 @@ class BaseTrainer:
         for metric in self.metrics:
             metric.to_cuda()
 
-        self.writer.set_step(epoch * self.epoch_len, part)
+        validation_step = epoch * self.epoch_len
+        self.writer.set_step(validation_step, part)
+        face_quality_enabled = bool(
+            self.face_quality_config is not None
+            and self.face_quality_config.get("enabled", True)
+        )
+        face_quality_session = None
+        if face_quality_enabled:
+            face_quality_session = FaceQualityValidationSession(
+                config=self.face_quality_config,
+                checkpoint_dir=self.checkpoint_dir,
+                writer=self.writer,
+                logger=self.logger,
+                part=part,
+                step=validation_step,
+                partition_count=len(self.evaluation_dataloaders),
+            )
         prev_time = time.time()
         with torch.no_grad():
             # Optionally swap to an alternate base model for validation only
@@ -701,6 +762,8 @@ class BaseTrainer:
                     batch,
                     eval_metrics=self.evaluation_metrics,
                 )
+                if face_quality_session is not None:
+                    face_quality_session.add_batch(batch, batch_idx)
                 process_time = time.time() - process_start
                 prev_time = time.time()
 
@@ -747,36 +810,64 @@ class BaseTrainer:
         if validation_pose_restore is not None and hasattr(self, "pipe"):
             self.pipe.pose_adapt_ratio = validation_pose_restore
 
-        # Restore original training model and pipeline after validation
+        # Restore the original pipeline object after alternate-base validation.
+        # Moving the training model back to GPU is deferred until after optional
+        # GPU face-quality scoring.
         if val_pretrained:
-            try:
-                # Announce restoration back to training base model
-                if _created_val and self.accelerator.is_main_process:
-                    try:
-                        print(f"[Base Model Switch] Validation end: restoring base '{val_pretrained}' -> '{prev_model_base}'")
-                    except Exception:
-                        pass
-                if _orig_pipe is not None:
-                    self.pipe = _orig_pipe
-                # Move training model back to GPU if we offloaded it
-                if _offloaded_train_model:
-                    try:
-                        self.accelerator.unwrap_model(self.model).to(self.device)
-                    except Exception:
-                        pass
+            # Announce restoration back to training base model
+            if _created_val and self.accelerator.is_main_process:
                 try:
-                    torch.cuda.empty_cache()
+                    print(f"[Base Model Switch] Validation end: restoring base '{val_pretrained}' -> '{prev_model_base}'")
                 except Exception:
                     pass
-            finally:
-                # Ensure temporary validation model is dereferenced
-                _val_model = None
+            if _orig_pipe is not None:
+                self.pipe = _orig_pipe
+            # Ensure temporary validation model is dereferenced before IQA.
+            _val_model = None
 
         for metric in self.metrics:
             metric.to_cpu()
-            
-        torch.cuda.empty_cache()
-        return self.evaluation_metrics.result()
+
+        face_quality_result = {}
+        face_quality_offloaded_pipe = False
+        face_quality_offloaded_model = False
+        try:
+            if face_quality_session is not None:
+                num_procs = int(getattr(self.accelerator, "num_processes", 1))
+                face_quality_device = face_quality_session.resolve_device(num_procs)
+                if face_quality_device.startswith("cuda"):
+                    if _offloaded_train_model:
+                        pass
+                    elif hasattr(self, "pipe") and hasattr(self.pipe, "to"):
+                        self.pipe.to("cpu")
+                        face_quality_offloaded_pipe = True
+                    else:
+                        self.accelerator.unwrap_model(self.model).to("cpu")
+                        face_quality_offloaded_model = True
+                    # 27 Jul 2026 - AICODE-NOTE: PyIQA peaks near 25 GB for
+                    # this metric set. Single-GPU validation must release the
+                    # generation model before the scorer subprocess starts.
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                face_quality_result = face_quality_session.finalize(
+                    num_processes=num_procs
+                )
+        finally:
+            if face_quality_offloaded_pipe:
+                self.pipe.to(self.device)
+            elif face_quality_offloaded_model or _offloaded_train_model:
+                self.accelerator.unwrap_model(self.model).to(self.device)
+            gc.collect()
+            torch.cuda.empty_cache()
+
+        result = self.evaluation_metrics.result()
+        result.update(
+            {
+                f"face_quality/{name}": value
+                for name, value in face_quality_result.items()
+            }
+        )
+        return result
 
 
     def move_batch_to_device(self, batch):
@@ -953,14 +1044,18 @@ class BaseTrainer:
         if self.accelerator.is_main_process:
             self.logger.info(f"Saving checkpoint: {filename} ...")
 
-        torch.save(state, filename)
+        temporary = f"{filename}.tmp"
+        torch.save(state, temporary)
+        os.replace(temporary, filename)
 
     def _save_weights_only_checkpoint(self, epoch):
         state = self.accelerator.unwrap_model(self.model).get_state_dict()
         filename = str(self.checkpoint_dir / f"weights-epoch{epoch}.pth")
         if self.accelerator.is_main_process:
             self.logger.info(f"Saving weights-only checkpoint: {filename} ...")
-        torch.save(state, filename)
+        temporary = f"{filename}.tmp"
+        torch.save(state, temporary)
+        os.replace(temporary, filename)
 
     def _resume_checkpoint(self, resume_path):
         """

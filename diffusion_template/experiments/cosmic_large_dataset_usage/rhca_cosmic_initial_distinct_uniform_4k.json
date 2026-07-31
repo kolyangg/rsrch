@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_cosmic_initial_distinct_uniform_4k",
+  "plan": {
+    "status": "running",
+    "machine": "serv",
+    "gpus": 1,
+    "launcher": "launchers/active/run_rhca_cosmic_large_dataset_usage_train_full96_1gpu.sh",
+    "hypothesis": "Replacing the initial target-as-reference policy with a uniformly sampled distinct candidate reduces target leakage and improves transfer.",
+    "baseline_run": "rhca_cosmic_initial_selfref_4k_baseline_r2",
+    "single_changed_variable": {
+      "name": "dataset_policy.reference_mode",
+      "baseline": "self",
+      "value": "uniform"
+    },
+    "scheduler": {
+      "job_id": "lm-mpi-job-8f161a20-3303-40e2-8884-8c137348d9bb",
+      "status": "running",
+      "running_at": "2026-07-26T20:01:24+01:00"
+    },
+    "startup_checks": {
+      "preflight_decodes": "64/64",
+      "accepted_records": 74754,
+      "accepted_with_candidates": 59143,
+      "accepted_self_fallback": 15611,
+      "onnx_cuda_provider": true,
+      "processor_params_in_optimizer": "840/840",
+      "first_optimizer_step": true
+    },
+    "dataset_policy": {
+      "metadata": "../dataset_full/cosmic_large_alldata.json",
+      "candidate_manifest": "gathered_data_cosmic_large_filtered.json",
+      "reference_mode": "uniform",
+      "missing_candidate_policy": "self_fallback",
+      "min_face_res": 0,
+      "prompt_mode": "legacy_appearance_first"
+    },
+    "fixed_model": {
+      "use_branched_attention": true,
+      "disable_branched_ca": true,
+      "branched_attn_weight_mode": "noise_and_ref",
+      "pose_adapt_ratio": 0.0,
+      "ca_mixing_for_face": false,
+      "reference_face_kv_weight": 1.0,
+      "rank": 32,
+      "lr_for_lora": 0.0001,
+      "masked_loss_step": 1
+    },
+    "training": {
+      "optimizer_steps": 4000,
+      "checkpoint_steps": [1000, 2000, 3000, 4000]
+    },
+    "validation": {
+      "run_name": "rhca_cosmic_initial_distinct_uniform_4k_full96_steps0_1k_2k_3k_4k",
+      "steps": [0, 1000, 2000, 3000, 4000],
+      "images_per_step": 96,
+      "protocol": "cosmic_full96_auto_v1"
+    }
+  },
+  "comet": {
+    "experiment_key": "288ebfe3ccf74d5ea328a55b3abe31cb",
+    "project_name": "rsrch-jul",
+    "workspace": null,
+    "url": "https://www.comet.com/nikolay-2104/rsrch-jul/288ebfe3ccf74d5ea328a55b3abe31cb",
+    "mode": "online"
+  }
+}

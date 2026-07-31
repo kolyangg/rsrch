@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_large_dataset_sameid_40k_full96_serv_r1_2gpu",
+  "plan": {
+    "status": "step4000_deferred_validation_recovery_running_verified",
+    "machine": "serv",
+    "gpus": 2,
+    "objective": "Mirror the live Neb Large Dataset same-ID experiment on two Serv GPUs while preserving 40,000 optimizer updates and batch size 2 on each GPU.",
+    "source_experiment": {
+      "run_name": "rhca_large_dataset_sameid_40k_full96_r4",
+      "experiment_key": "a99db1fb953d4511827672380e6c1645",
+      "machine": "neb"
+    },
+    "launcher_source": "serv_run_packages/_sources/start_large_dataset_sameid_40k_2gpu.sh",
+    "package": "serv_run_packages/rhca_large_dataset_sameid_40k_full96_serv_r1",
+    "yaml": "serv_run_packages/rhca_large_dataset_sameid_40k_full96_serv_r1/run_rhca_large_dataset_sameid_40k_full96_serv_r1_2gpu.yaml",
+    "model_control": {
+      "config": "src/configs/large_dataset_rhca_40k.yaml",
+      "use_branched_attention": true,
+      "disable_branched_ca": true,
+      "branched_attn_weight_mode": "noise_and_ref",
+      "train_ba_only": true,
+      "train_branched_ca_lora": false,
+      "rank": 32,
+      "lr_for_lora": 0.0001,
+      "masked_loss_step": 1,
+      "pose_adapt_ratio": 0.0,
+      "ca_mixing_for_face": false
+    },
+    "dataset": {
+      "name": "large_dataset",
+      "manifest": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/datasets/dataset_full/filtered_ids3_adj.json",
+      "manifest_sha256": "0056f9647c6ca69079c3b7ae479ea5cdf9e642f076460249b160000eecb3ee50",
+      "images": 47500,
+      "identities": 2561,
+      "reference_policy": "uniform distinct image from the same explicit identity",
+      "target_reference_leakage": "forbidden"
+    },
+    "training": {
+      "optimizer_steps_per_gpu": 40000,
+      "epoch_len_per_gpu": 500,
+      "epochs": 80,
+      "batch_size_per_gpu": 2,
+      "global_batch_size": 4,
+      "checkpoint_interval_steps": 2000,
+      "world_size": 2
+    },
+    "validation": {
+      "dataset": "manual_val",
+      "protocol": "cosmic_full96_auto_v1",
+      "images_per_step": 96,
+      "steps": "0 and every 2000 through 40000",
+      "rank": "rank 0 only",
+      "face_quality_enabled": true,
+      "face_quality_runtime": "PyIQA 0.1.15 overlay on photomaker_NS CUDA PyTorch"
+    },
+    "fixed_differences_from_neb": {
+      "machine": "serv",
+      "world_size": 2,
+      "global_batch_size": 4,
+      "run_name": "rhca_large_dataset_sameid_40k_full96_serv_r1_2gpu"
+    },
+    "gates": {
+      "project_running_plus_pending_gpu_ceiling": 6,
+      "onnxruntime_version": "1.20.1",
+      "onnxruntime_provider": "CUDAExecutionProvider",
+      "dataset_preflight_decodes": 64,
+      "processor_params_in_optimizer": "840/840",
+      "step0_validation_images": 96,
+      "first_optimizer_step_on_both_ranks": true,
+      "immutable_comet_record_required": true
+    },
+    "comet_project": "jul-comet-large-testing-tr"
+  },
+  "artifacts": {
+    "launcher_sha256": "2b85c9a9bdbd07867b43fcfb998fbb3396cb24b77d5efcd73f2fc1dc16bc9604",
+    "yaml_sha256": "e39b03a6bc1e281ac1a0a68124e09cc62877f9d176b3009703003150d06b09d0",
+    "base_launcher_sha256": "ea4a6c1a7c0e9948c89d6617d028dae57d9b79f92f4a538f1a0ebe076ec87ee8",
+    "config_sha256": "718b4fd365411122bd3e2ca236c95b33aa1399b8571b69fd27767a80a916bb15",
+    "dataset_loader_sha256": "ff1e2aa664319ce30dda08a13d5158f024f19c0b8e790246bff2d215adb1ff6b"
+  },
+  "startup_checks": {
+    "dataset_preflight_decodes": "64/64",
+    "onnx_cuda_provider": true,
+    "pyiqa_version": "0.1.15",
+    "processor_params_in_optimizer": "840/840",
+    "ddp_start_epoch": "rank0=1 rank1=1",
+    "step0_validation_started": true,
+    "step0_images_observed": 96,
+    "step0_face_quality_complete": true,
+    "first_optimizer_step": false,
+    "incident": "The original two-rank process stalled at its first training batch after completed rank-0-only validation; it was stopped with zero optimizer updates and no checkpoint."
+  },
+  "comet": {
+    "experiment_key": "db32f157e75a4798b2dfa530477c66d6",
+    "project_name": "jul-comet-large-testing-tr",
+    "url": "https://www.comet.com/nikolay-2104/jul-comet-large-testing-tr/db32f157e75a4798b2dfa530477c66d6",
+    "mode": "online"
+  },
+  "submission": {
+    "job_name": "lm-mpi-job-3809c1e1-9749-4dd6-9ef9-7fcc0f84e3e4",
+    "submitted_status": "Pending",
+    "live_status": "Deleted",
+    "submitted_at_unix": 1785184975,
+    "running_at_unix": 1785185007,
+    "audit_record": "../local_scripts/serv_job_records/lm-mpi-job-3809c1e1-9749-4dd6-9ef9-7fcc0f84e3e4.json",
+    "deleted_at_unix": 1785194014
+  },
+  "recovery": {
+    "job_name": "lm-mpi-job-a8852c27-6027-4e4e-8b9c-515261ef687c",
+    "status": "Failed after completed step-2000 validation",
+    "running_at_unix": 1785194144,
+    "completed_at_unix": 1785225940,
+    "audit_record": "../local_scripts/serv_job_records/lm-mpi-job-a8852c27-6027-4e4e-8b9c-515261ef687c.json",
+    "record": "experiments/large_dataset/rhca_large_dataset_sameid_40k_full96_serv_r1_recover_2gpu.json",
+    "verification": "Both ranks trained through step 2000 and completed the fixed 96-image validation. The transition to epoch 5 desynchronized NCCL while rank 0 wrote the checkpoint; the resulting epoch-4 checkpoint was truncated.",
+    "replay_continuation": {
+      "job_name": "lm-mpi-job-33f3c842-7d1c-4a39-bdec-d6acb69c7f23",
+      "status": "Deleted after completed step-4000 validation and intact checkpoint",
+      "running_at_unix": 1785233966,
+      "audit_record": "../local_scripts/serv_job_records/lm-mpi-job-33f3c842-7d1c-4a39-bdec-d6acb69c7f23.json",
+      "record": "experiments/large_dataset/rhca_large_dataset_sameid_40k_full96_serv_r1_replay2k_continue_2gpu.json",
+      "fixes": [
+        "barriers before and after rank-0-only checkpoint/logging",
+        "same-directory temporary checkpoint plus atomic replace",
+        "rank-serialized fresh-container model-cache warmup",
+        "original Comet initialization with replay events suppressed"
+      ],
+      "startup_verification": "Both model replicas and DDP ranks became ready; first replay reduced loss exactly matched the original 0.057932.",
+      "terminal_state": "Completed step 4000, full-96 validation, face-quality metrics, and an intact epoch-8 optimizer checkpoint. Rank 0 then blocked at the next Comet writer boundary while rank 1 entered epoch 9.",
+      "deferred_validation_recovery": {
+        "job_name": "lm-mpi-job-79007b8b-a9f0-41db-a15a-802ffea65658",
+        "status": "Running and verified at first epoch-9 optimizer step",
+        "record": "experiments/large_dataset/rhca_large_dataset_sameid_40k_full96_serv_r1_continue4k_deferred_val_2gpu.json",
+        "strategy": "Continuous two-GPU training to 40k with 2k checkpoints, followed by fresh single-process full-96 validation of every checkpoint in the same Comet run."
+      }
+    }
+  }
+}

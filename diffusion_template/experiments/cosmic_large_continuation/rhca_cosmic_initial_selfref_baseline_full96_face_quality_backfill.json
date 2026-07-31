@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "status": "completed",
+  "observed_at_utc": "2026-07-27T12:47:12Z",
+  "machine": "neb",
+  "process_group_ids": [766616, 770587],
+  "kind": "offline_metric_backfill",
+  "source_run": "rhca_cosmic_initial_selfref_4k_baseline_r2",
+  "validation_run": "rhca_cosmic_initial_selfref_4k_baseline_r2_full96_steps0_1k_2k_3k_4k",
+  "validation_comet_key": "658d22341cf24accb5a3890869e76c28",
+  "comet_project": "jul-comet-large-testing",
+  "steps": [0, 1000, 2000, 3000, 4000, 6000, 8000, 10000, 12000, 14000, 16000, 18000, 20000],
+  "validation_images_per_step": 96,
+  "metric_namespace": "face_quality",
+  "metrics": [
+    "topiq_nr-face",
+    "topiq_nr",
+    "musiq",
+    "maniqa-pipal"
+  ],
+  "comet_indicators": [
+    "face_quality/face_detection_rate",
+    "face_quality/topiq_face_mean",
+    "face_quality/topiq_face_p10",
+    "face_quality/topiq_face_coverage",
+    "face_quality/topiq_mean",
+    "face_quality/musiq_mean",
+    "face_quality/maniqa_mean"
+  ],
+  "crop_policy": {
+    "detector": "InsightFace detection-only on CPU",
+    "face_selection": "largest detected face",
+    "padding_each_side": 0.25,
+    "square_crop": true,
+    "resize": [512, 512],
+    "resampling": "PIL Lanczos",
+    "undetected_faces": "excluded from IQA aggregates and reported by face_detection_rate"
+  },
+  "metric_backend": {
+    "pyiqa_version": "0.1.15",
+    "device": "cuda",
+    "batch_size": 8,
+    "topiq_nr_face_batch_size": 1
+  },
+  "scripts": {
+    "scorer": "tools/inference/calculate_face_quality_metrics.py",
+    "backfill": "tools/comet/backfill_face_quality_metrics.py",
+    "launcher": "launchers/neb/backfill_neb_baseline_full96_face_quality.sh"
+  },
+  "script_sha256": {
+    "scorer": "8225a0f009c5c5f588afef63ddcd6db3248e4b442940ce8e5bb65f5e32e78c3a",
+    "backfill": "cdefa86e73286a4274707c4c99a7cbd1ebb7534af77e3e1f0036a08be73c0bfd",
+    "launcher": "2539a069091a012b46376bf59014213d960a7b1029f7d072f6e8f257c299e972"
+  },
+  "prewrite_failure": {
+    "process_group_id": 761143,
+    "stage": "scorer startup after all downloads passed",
+    "cause": "Path.resolve followed the PyIQA venv interpreter symlink into the base Conda interpreter.",
+    "effect": "No scoring result, scalar, or asset was written to Comet; verified downloads were retained.",
+    "fix": "Preserve the venv interpreter path with Path.absolute and reuse the verified download cache."
+  },
+  "write_policy": "Append only seven compact scalar curves to the immutable validation key; do not upload result tables. Equal existing values are idempotent and conflicts abort.",
+  "local_results": {
+    "summary_json": "analysis/assets/face_quality/neb_baseline_658d22341cf24accb5a3890869e76c28/face_quality_metrics.json",
+    "summary_json_sha256": "5c5496e5c99d0242214bd8e7bd2e750c083c79b04884293adb71dd13fe19b7c7",
+    "per_image_csv": "analysis/assets/face_quality/neb_baseline_658d22341cf24accb5a3890869e76c28/face_quality_per_image.csv",
+    "per_image_csv_sha256": "5386fcdf00e6d1962a72afcb5a6a01502e504b17670558c5369b086f9567f46f",
+    "per_image_rows": 1248
+  },
+  "per_image_comet_asset": {
+    "uploaded_at_utc": "2026-07-27T13:11:00Z",
+    "asset_id": "26160c7a6a18404a8087de4bdb67290e",
+    "file_name": "face_quality_details__per_image_metrics.csv",
+    "logical_path": "face_quality_details/per_image_metrics.csv",
+    "rows": 1248,
+    "sha256": "5386fcdf00e6d1962a72afcb5a6a01502e504b17670558c5369b086f9567f46f",
+    "visibility": "Comet asset/API only; no table or report curves"
+  },
+  "comet_audit": {
+    "metric_names": 7,
+    "metric_points": 91,
+    "per_step_table_assets": 0,
+    "legacy_metric_names_removed": 21,
+    "legacy_table_assets_removed": 26,
+    "legacy_namespace_absent": true,
+    "images_per_step_unchanged": 96,
+    "identity_and_text_metrics_unchanged": true,
+    "errors": []
+  },
+  "observed_summary": {
+    "face_detection_rate_range": [0.9583333333333334, 1.0],
+    "topiq_nr_face_score_coverage_rate_range": [0.8229166666666666, 0.9270833333333334],
+    "interpretation": "The four IQA means are mixed rather than monotonic; use the Comet trajectories and the low-tail/coverage metrics for the pilot decision."
+  }
+}

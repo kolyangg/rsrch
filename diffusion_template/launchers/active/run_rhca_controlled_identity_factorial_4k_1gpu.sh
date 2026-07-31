@@ -26,7 +26,7 @@ esac
 
 export CONFIG_NAME="controlled_identity_factorial_rhca"
 export RUN_NAME="${RUN_NAME:-rhca_controlled_identity_factorial_${FACTORIAL_ARM}_4k}"
-export TRAIN_EPOCHS="${TRAIN_EPOCHS:-8}"  # 8 × 500 steps = 4,000 total
+export TRAIN_EPOCHS="${TRAIN_EPOCHS:-2}"  # 2 × 2,000 steps = 4,000 total
 export COMET_PROJECT="${COMET_PROJECT:-rsrch-jul}"
 
 exec bash "${SCRIPT_DIR}/run_rhca_apr2026_one_id_1gpu.sh" \

@@ -1,0 +1,51 @@
+title: Cosmic Large initial-usage comparison
+out_pdf: ../../analysis/cosmic_large_initial_usage_20k_comparison.pdf
+steps: [0, 4000, 8000, 12000, 16000, 20000]
+expected_images_per_step: 96
+samples_per_page: 6
+dpi: 180
+thumbnail_side: 512
+
+# Optional report-ready PNG copies of pages containing selected audit samples.
+# Omit these fields when only the complete PDF is needed.
+# highlight_dir: ../../analysis/report_highlights
+# highlight_steps: [20000]
+# highlight_samples: [Jumping_ma_elon, Skiing_wom_jisoo]
+
+# Prepare each run's manifest with download_face_quality_images.py using the
+# same six steps. Then calculate exact per-image ID similarity with:
+#
+# python tools/inference/calc_metrics.py \
+#   --manifest RUN_DIR/download_manifest.json \
+#   --ref_dir ../dataset_full/val_dataset/references \
+#   --prompts ../dataset_full/val_dataset/prompts_10.txt \
+#   --classes ../dataset_full/val_dataset/classes_ref.json \
+#   --id-only --expected-images-per-step 96 \
+#   --out_json RUN_DIR/id_metrics_per_image.json
+#
+# All metrics below are per image. Step-level p10/coverage curves belong in the
+# accompanying analysis, not repeated under every image.
+metrics:
+  - {key: id_sim, label: ID, format: .3f}
+  - {key: face_detected, label: FD, format: .0f}
+  - {key: topiq_nr_face, label: TQ-F, format: .3f}
+  - {key: topiq_nr, label: TQ, format: .3f}
+  - {key: musiq, label: MUSIQ, format: .1f}
+  - {key: maniqa_pipal, label: MANIQA, format: .3f}
+
+runs:
+  - name: baseline
+    validation_key: REPLACE_WITH_VALIDATION_KEY
+    training_key: REPLACE_WITH_TRAINING_KEY
+    download_manifest: REPLACE_WITH_RUN_DIR/download_manifest.json
+    per_image_metrics:
+      - REPLACE_WITH_RUN_DIR/id_metrics_per_image.json
+      - REPLACE_WITH_RUN_DIR/face_quality_per_image.csv
+
+  - name: comparison
+    validation_key: REPLACE_WITH_VALIDATION_KEY
+    training_key: REPLACE_WITH_TRAINING_KEY
+    download_manifest: REPLACE_WITH_RUN_DIR/download_manifest.json
+    per_image_metrics:
+      - REPLACE_WITH_RUN_DIR/id_metrics_per_image.json
+      - REPLACE_WITH_RUN_DIR/face_quality_per_image.csv

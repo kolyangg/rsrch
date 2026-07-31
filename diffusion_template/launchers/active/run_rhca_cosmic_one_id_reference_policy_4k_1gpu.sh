@@ -38,7 +38,7 @@ esac
 
 export CONFIG_NAME="controlled_identity_reference_policy_rhca"
 export RUN_NAME="${RUN_NAME:-${RUN_NAME_DEFAULT}}"
-export TRAIN_EPOCHS="${TRAIN_EPOCHS:-8}"
+export TRAIN_EPOCHS="${TRAIN_EPOCHS:-2}"
 export COMET_PROJECT="${COMET_PROJECT:-rsrch-jul}"
 
 SPEC_PATH="${ROOT_DIR}/experiments/cosmic_large_adaptation/${RUN_NAME}.json"

@@ -42,6 +42,7 @@ export VALIDATION_CHECKPOINT_SHA256
 VALIDATION_CHECKPOINT_SHA256="$(sha256sum "${VALIDATION_CHECKPOINT}" | awk '{print $1}')"
 export CONFIG_NAME="cosmic_large_adapted_full96_eval_rhca"
 export TRAIN_EPOCHS="8"
+export TRAIN_EPOCH_LEN="500"
 export COMET_PROJECT="${COMET_PROJECT:-rsrch-jul}"
 
 prepare_comet_record "${ROOT_DIR}" "${RUN_NAME}" "${EXPERIMENT_SPEC_PATH}"

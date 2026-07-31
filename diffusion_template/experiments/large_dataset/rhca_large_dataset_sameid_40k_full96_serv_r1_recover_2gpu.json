@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "record_name": "rhca_large_dataset_sameid_40k_full96_serv_r1_recover_2gpu",
+  "run_name": "rhca_large_dataset_sameid_40k_full96_serv_r1_2gpu",
+  "plan": {
+    "status": "failed_after_completed_step2000_validation",
+    "machine": "serv",
+    "gpus": 2,
+    "objective": "Recover the zero-update Serv run in the same Comet experiment after its first post-validation training batch stalled.",
+    "incident_job": "lm-mpi-job-3809c1e1-9749-4dd6-9ef9-7fcc0f84e3e4",
+    "incident_observation": {
+      "step0_validation_images": 96,
+      "step0_face_quality_complete": true,
+      "optimizer_steps": 0,
+      "checkpoints": 0,
+      "stalled_at": "first training batch after rank-0-only validation"
+    },
+    "recovery_changes": {
+      "reuse_completed_step0_validation": true,
+      "trainer.skip_initial_validation": true,
+      "dataloaders.train.num_workers": 0,
+      "ddp_find_unused_parameters": true
+    },
+    "unchanged_controls": {
+      "model": "same eligible SA-only branched-attention model",
+      "pose_adapt_ratio": 0.0,
+      "ca_mixing_for_face": false,
+      "dataset": "large_dataset",
+      "reference_policy": "uniform distinct image from the same explicit identity",
+      "optimizer_steps_per_gpu": 40000,
+      "batch_size_per_gpu": 2,
+      "validation": "96 fixed images at step 0 and every 2000 optimizer steps",
+      "comet_experiment_key": "db32f157e75a4798b2dfa530477c66d6"
+    },
+    "launcher_source": "serv_run_packages/_sources/recover_large_dataset_sameid_40k_2gpu.sh",
+    "package": "serv_run_packages/rhca_large_dataset_sameid_40k_full96_serv_r1_recover",
+    "comet_project": "jul-comet-large-testing-tr"
+  },
+  "comet": {
+    "experiment_key": "db32f157e75a4798b2dfa530477c66d6",
+    "project_name": "jul-comet-large-testing-tr",
+    "url": "https://www.comet.com/nikolay-2104/jul-comet-large-testing-tr/db32f157e75a4798b2dfa530477c66d6"
+  },
+  "submission": {
+    "job_name": "lm-mpi-job-a8852c27-6027-4e4e-8b9c-515261ef687c",
+    "submitted_status": "Pending",
+    "live_status": "Failed",
+    "created_at_unix": 1785194109,
+    "running_at_unix": 1785194144,
+    "completed_at_unix": 1785225940,
+    "audit_record": "../local_scripts/serv_job_records/lm-mpi-job-a8852c27-6027-4e4e-8b9c-515261ef687c.json"
+  },
+  "startup_checks": {
+    "composed_config": true,
+    "completed_step0_images_reused": 96,
+    "completed_step0_face_quality_reused": true,
+    "checkpoints_before_recovery": 0,
+    "comet_key_reused": true,
+    "processor_params_in_optimizer": "840/840",
+    "ddp_start_epoch": "rank0=1 rank1=1",
+    "first_gathered_optimizer_step": true,
+    "first_reduced_loss": 0.057932
+  },
+  "terminal_incident": {
+    "completed_optimizer_steps": 2000,
+    "step2000_validation_images": 96,
+    "step2000_face_quality_complete": true,
+    "failure": "Rank 1 entered the next backward while rank 0 logged and wrote checkpoint-epoch4.pth, causing mismatched NCCL collectives at sequence 32048 and a six-hour watchdog abort.",
+    "checkpoint": "checkpoint-epoch4.pth was truncated and failed torch.load because its ZIP central directory was missing.",
+    "superseded_by": "experiments/large_dataset/rhca_large_dataset_sameid_40k_full96_serv_r1_replay2k_continue_2gpu.json"
+  }
+}

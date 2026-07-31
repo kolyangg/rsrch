@@ -29,6 +29,7 @@ class CometMLWriter:
         run_name=None,
         mode="online",
         tags: Optional[Iterable[str]] = None,
+        suppress_events=False,
         **kwargs,
     ):
         self.logger = logger
@@ -37,6 +38,10 @@ class CometMLWriter:
         self.timer = datetime.now()
         self.run_id = run_id
         self._experiment = None
+        # 28 Jul 2026 - AICODE-NOTE: Recovery replay may need the exact Comet
+        # initialization path for deterministic data RNG while withholding
+        # duplicate metrics and assets from the immutable experiment.
+        self._suppress_events = bool(suppress_events)
 
         try:
             from comet_ml import Experiment, OfflineExperiment, ExistingExperiment  # type: ignore
@@ -293,7 +298,7 @@ class CometMLWriter:
         """
         Log a scalar metric to CometML.
         """
-        if self._experiment is None:
+        if self._experiment is None or self._suppress_events:
             return
         value = self._to_number(scalar)
         try:
@@ -309,7 +314,7 @@ class CometMLWriter:
         """
         Log multiple scalar metrics in a single call.
         """
-        if self._experiment is None:
+        if self._experiment is None or self._suppress_events:
             return
         for name, value in scalars.items():
             self.add_scalar(name, value)
@@ -318,7 +323,7 @@ class CometMLWriter:
         """
         Log an image to CometML.
         """
-        if self._experiment is None:
+        if self._experiment is None or self._suppress_events:
             return
         prepared = self._prepare_image(image)
         if prepared is None:
@@ -336,7 +341,7 @@ class CometMLWriter:
         """
         Log audio to CometML (expects numpy array or path).
         """
-        if self._experiment is None or audio is None:
+        if self._experiment is None or self._suppress_events or audio is None:
             return
         audio_np = self._to_numpy(audio)
         try:
@@ -353,7 +358,7 @@ class CometMLWriter:
         """
         Log a text snippet to CometML.
         """
-        if self._experiment is None:
+        if self._experiment is None or self._suppress_events:
             return
         try:
             self._experiment.log_text(text_name, str(text), step=int(self.step))
@@ -364,7 +369,11 @@ class CometMLWriter:
         """
         Log histogram data to CometML.
         """
-        if self._experiment is None or values_for_hist is None:
+        if (
+            self._experiment is None
+            or self._suppress_events
+            or values_for_hist is None
+        ):
             return
         values = self._to_numpy(values_for_hist)
         try:
@@ -381,7 +390,7 @@ class CometMLWriter:
         """
         Log tabular data to CometML.
         """
-        if self._experiment is None or table is None:
+        if self._experiment is None or self._suppress_events or table is None:
             return
         try:
             self._experiment.log_table(
@@ -391,6 +400,22 @@ class CometMLWriter:
             )
         except Exception as error:
             self._log_warning("log_table", error)
+
+    def add_asset(self, asset_name, path, metadata=None, overwrite=False):
+        """Log a file as an API asset rather than a report table."""
+        if self._experiment is None or self._suppress_events:
+            return
+        try:
+            self._experiment.log_asset(
+                str(path),
+                file_name=str(asset_name),
+                step=int(self.step),
+                metadata=metadata,
+                overwrite=bool(overwrite),
+                copy_to_tmp=True,
+            )
+        except Exception as error:
+            self._log_warning("log_asset", error)
 
     def add_images(self, images_name, images):
         """

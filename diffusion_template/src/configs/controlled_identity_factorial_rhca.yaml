@@ -54,7 +54,7 @@ saved_checkpoint: null
 trainer:
   resume_from: null
   masked_loss_step: 1
-  n_epochs: 8
+  n_epochs: 2
 
 # Final factorial arms load the once-generated filename-keyed `_auto.json`
 # companion, but never recompute it. The manifest seals both bbox maps.

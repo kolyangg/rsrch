@@ -16,16 +16,58 @@ if [[ -f "${ENV_FILE}" ]]; then
   echo "Loaded environment from ${ENV_FILE}"
 fi
 
+face_quality_enabled="${FACE_QUALITY_ENABLED:-true}"
+for override in "$@"; do
+  if [[ "${override}" == "trainer.face_quality.enabled=false" ]]; then
+    face_quality_enabled=false
+  fi
+done
+if [[ "${face_quality_enabled}" == "true" ]]; then
+  scorer_python="${FACE_QUALITY_SCORER_PYTHON:-}"
+  neb_metric_python="$(dirname "${ROOT_DIR}")/metric_envs/pyiqa-0.1.15/bin/python"
+  serv_owner_root=""
+  if [[ "${CONDA_PREFIX:-}" == */conda_env/* ]]; then
+    serv_owner_root="${CONDA_PREFIX%%/conda_env/*}"
+  fi
+  pyiqa_overlay="${PYIQA_OVERLAY:-}"
+  if [[ -z "${pyiqa_overlay}" && -n "${serv_owner_root}" ]]; then
+    pyiqa_overlay="${serv_owner_root}/python_overlays/pyiqa-0.1.15"
+  fi
+  if [[ -n "${pyiqa_overlay}" && -d "${pyiqa_overlay}/pyiqa" ]]; then
+    export PYTHONPATH="${pyiqa_overlay}${PYTHONPATH:+:${PYTHONPATH}}"
+    if [[ -n "${serv_owner_root}" ]]; then
+      export TORCH_HOME="${FACE_QUALITY_TORCH_HOME:-${serv_owner_root}/metric_cache/torch}"
+      mkdir -p "${TORCH_HOME}"
+    fi
+  fi
+  if [[ -z "${scorer_python}" ]]; then
+    if python -c 'import importlib.metadata; assert importlib.metadata.version("pyiqa") == "0.1.15"' \
+        >/dev/null 2>&1; then
+      scorer_python="$(command -v python)"
+    elif [[ -x "${neb_metric_python}" ]] \
+        && "${neb_metric_python}" -c 'import importlib.metadata; assert importlib.metadata.version("pyiqa") == "0.1.15"' \
+          >/dev/null 2>&1; then
+      scorer_python="${neb_metric_python}"
+    fi
+  fi
+  if [[ -z "${scorer_python}" ]] \
+      || ! "${scorer_python}" -c 'import importlib.metadata; assert importlib.metadata.version("pyiqa") == "0.1.15"' \
+        >/dev/null 2>&1; then
+    echo "PyIQA 0.1.15 is required by default validation." >&2
+    echo "Set FACE_QUALITY_SCORER_PYTHON or PYIQA_OVERLAY, or explicitly pass trainer.face_quality.enabled=false." >&2
+    exit 3
+  fi
+  export FACE_QUALITY_SCORER_PYTHON="${scorer_python}"
+  echo "Face-quality scorer verified: ${FACE_QUALITY_SCORER_PYTHON}"
+fi
+
 EXPECTED_CODE_COMMIT="aede146e2e2a2dae1cb3d14a0ea5daed25ae9604"
 # Dataset/dataloader registries are intentionally excluded because this branch
 # adds isolated entries for new datasets. Unmodified architecture files remain
 # locked to the historical commit; the audited runtime patch is hash-locked
 # separately below.
 HISTORICAL_RUNTIME_FILES=(
-  "train.py"
-  "src/configs/one_id_09Feb_testing.yaml"
   "src/configs/pipeline/pm_br_09Feb_testing.yaml"
-  "src/configs/trainer/photomaker_lora.yaml"
   "src/datasets/manual_val.py"
   "src/loss/diffusion_loss.py"
   "src/pipelines/br_pipeline_helpers.py"
@@ -33,6 +75,16 @@ HISTORICAL_RUNTIME_FILES=(
   "src/trainer/sdxl_trainers.py"
 )
 declare -A AUDITED_RUNTIME_SHA256=(
+  # 28 Jul 2026 - Adds an opt-in rank-serialized model-cache warmup for fresh
+  # distributed MLS containers; model construction itself is unchanged.
+  ["train.py"]="0219250219046fa98e8a92d95d986c49ea8580006edee6f88402e9f059d1b46a"
+  # 27 Jul 2026 - Defaults validation to one image per item and installs the
+  # exact 2k/full-96 face-quality contract without changing model routing.
+  ["src/configs/one_id_09Feb_testing.yaml"]="5fa548c2da9458d113ee6b8ae4bf1b687d6c224c26ee78b60cdeadeb33e60aae"
+  ["src/configs/trainer/photomaker_lora.yaml"]="395b7f77881eee609dd6a00264c7c26c09ef7e9deb4e8bc21a806e0d5fadb3b8"
+  ["src/logger/cometml.py"]="1987d8ff26f2bb43ffa9ea63b31a0ddcc36b19cc0d87023a47a04c833b53637b"
+  ["src/metrics/face_quality_validation.py"]="141b21dd9f95be547cf2df4d3d2572d85dae6154dd3ad40867a7cd8135cb8605"
+  ["tools/inference/calculate_face_quality_metrics.py"]="8225a0f009c5c5f588afef63ddcd6db3248e4b442940ce8e5bb65f5e32e78c3a"
   ["src/configs/model/photomaker_branched_lora2.yaml"]="5c894c48a646ad4b7548ca71f0f29809a27c2cd1683a87081e73039772c1e6c5"
   ["src/datasets/cosmic.py"]="660d069a9f77ac1b7e0cb06fce245a342428159d9f05c49db32140bbd1a2467e"
   # 26 Jul 2026 - Restores the existing pose-adapt config as an opt-in runtime
@@ -49,7 +101,7 @@ declare -A AUDITED_RUNTIME_SHA256=(
   # training and validation on the historical shared setting.
   # 26 Jul 2026 - Adds an opt-in multi-checkpoint validation schedule; the
   # historical single-checkpoint path remains the default.
-  ["src/trainer/base_trainer.py"]="8f076b31c999fa676ce0c18270cf445c124a82dea36a6e5cafe19558d231d291"
+  ["src/trainer/base_trainer.py"]="fdf91ecff26272313a3ecbc4f2190d4e3beece571b579c83e71eec4ba639155d"
 )
 
 GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
@@ -90,7 +142,17 @@ COMET_PROJECT="${COMET_PROJECT:-rsrch-jul}"
 CONFIG_NAME="${CONFIG_NAME:-one_id_rhca_apr2026_replay}"
 PM_PATH="${PM_PATH:-}"
 LIBSTDCXX_PATH="${LIBSTDCXX_PATH:-}"
-TRAIN_EPOCHS="${TRAIN_EPOCHS:-8}"  # total endpoint; 8 × 500 = 4,000 by default
+TRAIN_EPOCH_LEN="${TRAIN_EPOCH_LEN:-2000}"
+TRAIN_EPOCHS="${TRAIN_EPOCHS:-2}"  # total endpoint; 2 × 2,000 = 4,000 by default
+ACCELERATE_NUM_PROCESSES="${ACCELERATE_NUM_PROCESSES:-1}"
+if ! [[ "${ACCELERATE_NUM_PROCESSES}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ACCELERATE_NUM_PROCESSES must be a positive integer." >&2
+  exit 2
+fi
+if ! [[ "${TRAIN_EPOCH_LEN}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "TRAIN_EPOCH_LEN must be a positive integer." >&2
+  exit 2
+fi
 
 # Current InsightFace wheels require GLIBCXX_3.4.32, while the historical
 # photomaker_NS environment may resolve an older conda libstdc++. Prefer the
@@ -144,12 +206,13 @@ fi
 
 accelerate launch \
   --config_file=src/configs/ddp/accelerate.yaml \
-  --num_processes=1 \
+  --num_processes="${ACCELERATE_NUM_PROCESSES}" \
   train.py \
   "--config-name=${CONFIG_NAME}" \
   "writer=${WRITER}" \
   "writer.run_name=${RUN_NAME}" \
   "++writer.project_name=${COMET_PROJECT}" \
+  "trainer.epoch_len=${TRAIN_EPOCH_LEN}" \
   "trainer.n_epochs=${TRAIN_EPOCHS}" \
   "${MODEL_OVERRIDES[@]}" \
   "$@"
