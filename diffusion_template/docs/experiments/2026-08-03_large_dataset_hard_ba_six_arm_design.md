@@ -2,13 +2,27 @@
 
 **Date:** 3 August 2026
 
-**Status:** E1/E2 approved for Serv submission; E3-E6 remain prepared only
+**Status:** E1/E2 running on Serv; E3-E6 remain prepared only
 
 **Training dataset:** adjusted Large Dataset, 47,500 images / 2,561 identities
 
 **Historical anchor:** `rhca_large_dataset_sameid_40k_full96_r4`
 
 **Historical Comet key:** `a99db1fb953d4511827672380e6c1645`
+
+### Live E1/E2 submission record
+
+| Run | MLS job | Immutable Comet key | Verified startup ownership |
+|---|---|---|---|
+| `E1_large_ds_truekey_r32_20k_full96_r1` | `lm-mpi-job-a686e213-b211-48e2-bc0b-7a26ae06f307` | `ce0c9b918d79449b92fa83ef970285c3` | 840 tensors / 31,948,800 parameters; optimizer 840/840 |
+| `E2_large_ds_branchout_r32_20k_full96_r1` | `lm-mpi-job-555ea214-95e9-41f6-a470-68587451dcd6` | `4c8af4e867b14377b69fa250fae5cde9` | 980 tensors / 37,273,600 parameters; optimizer 980/980 |
+
+Both jobs passed the exact config delta, 64-image decoded dataset preflight,
+CUDA ONNX Runtime, PyIQA, audited runtime hash, online Comet registration, and
+experiment-comment gates. Serv's preserved checkout reported historical HEAD
+`c04970f`, so the 49 launch files were selectively synchronized from pushed
+commit `e860f9e`, backed up first, and SHA-256 verified individually. This
+explicit source-sync record is retained in both experiment JSONs.
 
 ## Decision summary
 
