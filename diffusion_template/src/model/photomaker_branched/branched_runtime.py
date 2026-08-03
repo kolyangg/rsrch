@@ -47,6 +47,7 @@ def patch_unet_attention_processors(
     scale: float = 1.0,
     id_embeds: Optional[torch.Tensor] = None,
     class_tokens_mask: Optional[torch.Tensor] = None,
+    ba_denoise_progress: Optional[torch.Tensor] = None,
 )-> None:
     """
     Patch UNet with branched attention processors for both self and cross attention.
@@ -54,15 +55,118 @@ def patch_unet_attention_processors(
     disable_sa = bool(getattr(pipeline, "disable_branched_sa", False))
     disable_ca = bool(getattr(pipeline, "disable_branched_ca", False))
 
-    # Default to legacy (v1) when flag is not provided.
-    use_attn_v2 = bool(getattr(pipeline, "use_attn_v2", False))
-    # if use_attn_v2:
-    #     from ._old2.attn_processor2 import BranchedAttnProcessor, BranchedCrossAttnProcessor
-    # else:
-    #     # from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
-    #     # from .attn_processor_clean import BranchedAttnProcessor, BranchedCrossAttnProcessor
-    
-    from .attn_processor_cleanest import BranchedAttnProcessor, BranchedCrossAttnProcessor # New ver 25 Feb
+    # Historical configs keep the current hard replacement implementation.
+    # The old use_attn_v2 flag never selected a different active processor and
+    # is retained only for replay compatibility.
+    configured_architecture_version = getattr(
+        pipeline, "ba_architecture_version", None
+    )
+    from .attn_processor_cleanest import (
+        BranchedAttnProcessor as HardReplaceBranchedAttnProcessor,
+        BranchedCrossAttnProcessor,
+    )
+    from .anchored_mix_sa_processor_v3 import (
+        AnchoredMixBranchedSelfAttnProcessorV3,
+    )
+    from .query_adaptive_hard_sa_processor_v4 import (
+        QueryAdaptiveHardBranchedSelfAttnProcessorV4,
+    )
+    from .residual_sa_processor_v2 import ResidualBranchedSelfAttnProcessorV2
+
+    if configured_architecture_version is None:
+        # Validation pipelines reuse the already-installed training U-Net but
+        # historically copy only a subset of model attributes. Infer the exact
+        # processor version; an unpatched pipeline remains legacy.
+        if any(
+            type(proc) is QueryAdaptiveHardBranchedSelfAttnProcessorV4
+            for proc in pipeline.unet.attn_processors.values()
+        ):
+            architecture_version = "query_adaptive_hard_sa_v4"
+        elif any(
+            type(proc) is AnchoredMixBranchedSelfAttnProcessorV3
+            for proc in pipeline.unet.attn_processors.values()
+        ):
+            architecture_version = "anchored_mix_sa_v3"
+        elif any(
+            type(proc) is ResidualBranchedSelfAttnProcessorV2
+            for proc in pipeline.unet.attn_processors.values()
+        ):
+            architecture_version = "residual_sa_v2"
+        else:
+            architecture_version = "hard_replace_v1"
+    else:
+        architecture_version = str(configured_architecture_version).lower()
+
+    if bool(getattr(pipeline, "ba_enforce_reference_only_hard_route", False)):
+        if architecture_version != "hard_replace_v1":
+            raise RuntimeError(
+                "The audited Large Dataset suite requires hard_replace_v1"
+            )
+        if not disable_ca:
+            raise RuntimeError(
+                "The audited Large Dataset suite requires disable_branched_ca=true"
+            )
+        if float(getattr(pipeline, "pose_adapt_ratio", 0.0)) != 0.0:
+            raise RuntimeError(
+                "The audited Large Dataset suite requires pose_adapt_ratio=0"
+            )
+        if bool(getattr(pipeline, "ca_mixing_for_face", False)):
+            raise RuntimeError(
+                "The audited Large Dataset suite requires ca_mixing_for_face=false"
+            )
+        if str(
+            getattr(pipeline, "ba_face_fusion_mode", "hard_reference_replace")
+        ).lower() != "hard_reference_replace":
+            raise RuntimeError(
+                "The audited Large Dataset suite forbids native/reference face mixing"
+            )
+
+    if architecture_version == "hard_replace_v1":
+        BranchedAttnProcessor = HardReplaceBranchedAttnProcessor
+    elif architecture_version == "residual_sa_v2":
+        BranchedAttnProcessor = ResidualBranchedSelfAttnProcessorV2
+    elif architecture_version == "anchored_mix_sa_v3":
+        BranchedAttnProcessor = AnchoredMixBranchedSelfAttnProcessorV3
+    elif architecture_version == "query_adaptive_hard_sa_v4":
+        BranchedAttnProcessor = QueryAdaptiveHardBranchedSelfAttnProcessorV4
+    else:
+        raise ValueError(
+            f"Unknown ba_architecture_version={architecture_version!r}"
+        )
+
+    if architecture_version in {
+        "residual_sa_v2",
+        "anchored_mix_sa_v3",
+        "query_adaptive_hard_sa_v4",
+    }:
+        reusing_installed_version = any(
+            type(proc) is BranchedAttnProcessor
+            for proc in pipeline.unet.attn_processors.values()
+        )
+        if not disable_ca and not reusing_installed_version:
+            raise RuntimeError(
+                f"{architecture_version} requires disable_branched_ca=true"
+            )
+        if reusing_installed_version and any(
+            isinstance(proc, BranchedCrossAttnProcessor)
+            for proc in pipeline.unet.attn_processors.values()
+        ):
+            raise RuntimeError(
+                f"{architecture_version} cannot reuse a U-Net with branched CA processors"
+            )
+        if float(getattr(pipeline, "pose_adapt_ratio", 0.0)) != 0.0:
+            raise RuntimeError(f"{architecture_version} requires pose_adapt_ratio=0")
+        if bool(getattr(pipeline, "ca_mixing_for_face", False)):
+            raise RuntimeError(
+                f"{architecture_version} requires ca_mixing_for_face=false"
+            )
+    known_branched_types = (
+        HardReplaceBranchedAttnProcessor,
+        ResidualBranchedSelfAttnProcessorV2,
+        AnchoredMixBranchedSelfAttnProcessorV3,
+        QueryAdaptiveHardBranchedSelfAttnProcessorV4,
+        BranchedCrossAttnProcessor,
+    )
 
     # print(f'[TEMP DEBUG] mask in patch_unet_attention_processors: {mask}')
     
@@ -74,10 +178,19 @@ def patch_unet_attention_processors(
     
     # Check if already patched
     current_procs = pipeline.unet.attn_processors
-    has_branched = any(
-        isinstance(p, (BranchedAttnProcessor, BranchedCrossAttnProcessor)) 
-        for p in current_procs.values()
-    )
+    has_branched = any(isinstance(p, known_branched_types) for p in current_procs.values())
+    incompatible_self_processors = [
+        name
+        for name, proc in current_procs.items()
+        if name.endswith("attn1.processor")
+        and isinstance(proc, known_branched_types)
+        and type(proc) is not BranchedAttnProcessor
+    ]
+    if incompatible_self_processors:
+        raise RuntimeError(
+            "Installed branched processor architecture does not match "
+            f"{architecture_version}: {incompatible_self_processors[:5]}"
+        )
 
     def _resolve_attn_module(unet, proc_name):
         mod = unet
@@ -102,6 +215,17 @@ def patch_unet_attention_processors(
             setattr(proc, "ba_weights_split", getattr(pipe, "ba_weights_split"))
         if hasattr(pipe, "force_binary_masks"):
             setattr(proc, "force_binary_masks", bool(getattr(pipe, "force_binary_masks")))
+        if isinstance(proc, HardReplaceBranchedAttnProcessor):
+            setattr(
+                proc,
+                "true_reference_key_mask",
+                bool(getattr(pipe, "ba_hard_v1_true_reference_key_mask", False)),
+            )
+            setattr(
+                proc,
+                "reference_roi_warp",
+                bool(getattr(pipe, "ba_hard_v1_reference_roi_warp", False)),
+            )
         # Explicitly reset to False on validation pipelines, which do not
         # opt in even when they reuse processors from the training U-Net.
         setattr(
@@ -109,6 +233,15 @@ def patch_unet_attention_processors(
             "cache_prepared_masks",
             bool(getattr(pipe, "cache_prepared_masks", False)),
         )
+        if hasattr(proc, "set_denoise_progress"):
+            proc.set_denoise_progress(ba_denoise_progress)
+        if hasattr(proc, "set_mix_override"):
+            proc.set_mix_override(getattr(pipe, "ba_mix_override", None))
+        if hasattr(proc, "set_telemetry_enabled"):
+            telemetry_enabled = bool(
+                getattr(pipe, "ba_telemetry_enabled", False)
+            ) and not bool(getattr(pipe, "_ba_suppress_telemetry", False))
+            proc.set_telemetry_enabled(telemetry_enabled)
             
         
 
@@ -130,7 +263,36 @@ def patch_unet_attention_processors(
         top_k=ba_patch_top_k,
         param_name="ba_patch_top_k",
     )
+    semantic_groups = getattr(pipeline, "ba_self_attention_groups", None)
+    if semantic_groups:
+        semantic_groups = tuple(str(group) for group in semantic_groups)
+        invalid_groups = [
+            group
+            for group in semantic_groups
+            if not (
+                group == "mid_block"
+                or group.startswith("down_blocks.")
+                or group.startswith("up_blocks.")
+            )
+        ]
+        if invalid_groups:
+            raise ValueError(
+                f"Unknown ba_self_attention_groups={invalid_groups!r}"
+            )
+        patchable_sa_names = [
+            name
+            for name in patchable_sa_names
+            if any(
+                name.startswith(f"{group}.")
+                for group in semantic_groups
+            )
+        ]
+        if not patchable_sa_names:
+            raise RuntimeError(
+                "ba_self_attention_groups selected zero self-attention processors"
+            )
     patchable_sa_name_set = set(patchable_sa_names)
+    setattr(pipeline, "_ba_semantic_processor_names", tuple(patchable_sa_names))
 
     if not has_branched:
         # Create new processors
@@ -161,18 +323,217 @@ def patch_unet_attention_processors(
                     new_procs[name] = pipeline._original_attn_processors[name]
                 else:
                     # Self-attention: use branched processor
-                    proc = BranchedAttnProcessor(
-                        hidden_size=hidden_size,
-                        cross_attention_dim=hidden_size,
-                        scale=scale,
-                        branched_attn_weight_mode=getattr(pipeline, "branched_attn_weight_mode", "shared"),
-                        branched_attn_new_weight_kind=getattr(pipeline, "branched_attn_new_weight_kind", "full"),
-                        branched_attn_lora_rank=int(
-                            getattr(pipeline, "branched_attn_lora_rank", getattr(pipeline, "lora_rank", 16))
-                        ),
-                    )
+                    if architecture_version in {
+                        "residual_sa_v2",
+                        "anchored_mix_sa_v3",
+                        "query_adaptive_hard_sa_v4",
+                    }:
+                        trainable_dtype_name = str(
+                            getattr(pipeline, "branched_trainable_dtype", "fp32")
+                        ).lower()
+                        if trainable_dtype_name not in {"fp32", "float32"}:
+                            raise ValueError(
+                                f"{architecture_version} currently requires "
+                                "branched_trainable_dtype=fp32"
+                            )
+                        configured_ref_rank = getattr(
+                            pipeline, "ba_ref_kv_rank", None
+                        )
+                        configured_output_rank = getattr(
+                            pipeline, "ba_output_rank", None
+                        )
+                        fallback_rank = int(
+                            getattr(
+                                pipeline,
+                                "branched_attn_lora_rank",
+                                getattr(pipeline, "lora_rank", 32),
+                            )
+                        )
+                        if architecture_version == "residual_sa_v2":
+                            proc = BranchedAttnProcessor(
+                                hidden_size=hidden_size,
+                                cross_attention_dim=hidden_size,
+                                scale=scale,
+                                ref_kv_rank=int(configured_ref_rank or fallback_rank),
+                                output_rank=int(configured_output_rank or fallback_rank),
+                                gate_init=float(
+                                    getattr(pipeline, "ba_gate_init", 0.10)
+                                ),
+                                gate_max=float(
+                                    getattr(pipeline, "ba_gate_max", 1.0)
+                                ),
+                                gate_timestep=bool(
+                                    getattr(pipeline, "ba_gate_timestep", True)
+                                ),
+                                gate_face_area=bool(
+                                    getattr(pipeline, "ba_gate_face_area", True)
+                                ),
+                                trainable_dtype=torch.float32,
+                                require_denoise_progress=bool(
+                                    getattr(
+                                        pipeline,
+                                        "ba_require_denoise_progress",
+                                        True,
+                                    )
+                                ),
+                            )
+                        elif architecture_version == "anchored_mix_sa_v3":
+                            proc = BranchedAttnProcessor(
+                                hidden_size=hidden_size,
+                                cross_attention_dim=hidden_size,
+                                scale=scale,
+                                ref_kv_rank=int(configured_ref_rank or fallback_rank),
+                                output_rank=int(configured_output_rank or fallback_rank),
+                                mix_init=float(
+                                    getattr(pipeline, "ba_mix_init", 0.50)
+                                ),
+                                mix_floor=float(
+                                    getattr(pipeline, "ba_mix_floor", 0.25)
+                                ),
+                                mix_max=float(
+                                    getattr(pipeline, "ba_mix_max", 0.90)
+                                ),
+                                mix_timestep=bool(
+                                    getattr(pipeline, "ba_mix_timestep", True)
+                                ),
+                                mix_face_area=bool(
+                                    getattr(pipeline, "ba_mix_face_area", True)
+                                ),
+                                reference_rms_match=bool(
+                                    getattr(
+                                        pipeline,
+                                        "ba_reference_rms_match",
+                                        True,
+                                    )
+                                ),
+                                reference_rms_clip_min=float(
+                                    getattr(
+                                        pipeline,
+                                        "ba_reference_rms_clip_min",
+                                        0.50,
+                                    )
+                                ),
+                                reference_rms_clip_max=float(
+                                    getattr(
+                                        pipeline,
+                                        "ba_reference_rms_clip_max",
+                                        2.00,
+                                    )
+                                ),
+                                trainable_dtype=torch.float32,
+                                require_denoise_progress=bool(
+                                    getattr(
+                                        pipeline,
+                                        "ba_require_denoise_progress",
+                                        True,
+                                    )
+                                ),
+                                telemetry_enabled=bool(
+                                    getattr(
+                                        pipeline,
+                                        "ba_telemetry_enabled",
+                                        False,
+                                    )
+                                ),
+                                telemetry_interval=int(
+                                    getattr(
+                                        pipeline,
+                                        "ba_telemetry_interval",
+                                        50,
+                                    )
+                                ),
+                                mix_override=getattr(
+                                    pipeline, "ba_mix_override", None
+                                ),
+                            )
+                        else:
+                            proc = BranchedAttnProcessor(
+                                hidden_size=hidden_size,
+                                cross_attention_dim=hidden_size,
+                                scale=float(
+                                    getattr(
+                                        pipeline,
+                                        "ba_face_branch_scale",
+                                        scale,
+                                    )
+                                ),
+                                branch_q_rank=int(
+                                    getattr(
+                                        pipeline,
+                                        "ba_branch_q_rank",
+                                        16,
+                                    )
+                                ),
+                                ref_kv_rank=int(configured_ref_rank or fallback_rank),
+                                output_rank=int(configured_output_rank or fallback_rank),
+                                trainable_dtype=torch.float32,
+                                telemetry_enabled=bool(
+                                    getattr(
+                                        pipeline,
+                                        "ba_telemetry_enabled",
+                                        False,
+                                    )
+                                ),
+                                telemetry_interval=int(
+                                    getattr(
+                                        pipeline,
+                                        "ba_telemetry_interval",
+                                        50,
+                                    )
+                                ),
+                            )
+                    else:
+                        trainable_dtype_name = str(
+                            getattr(pipeline, "branched_trainable_dtype", "inherit")
+                        ).lower()
+                        hard_trainable_dtype = (
+                            torch.float32
+                            if trainable_dtype_name in {"fp32", "float32"}
+                            else None
+                        )
+                        proc = BranchedAttnProcessor(
+                            hidden_size=hidden_size,
+                            cross_attention_dim=hidden_size,
+                            scale=scale,
+                            branched_attn_weight_mode=getattr(pipeline, "branched_attn_weight_mode", "shared"),
+                            branched_attn_new_weight_kind=getattr(pipeline, "branched_attn_new_weight_kind", "full"),
+                            branched_attn_lora_rank=int(
+                                getattr(pipeline, "branched_attn_lora_rank", getattr(pipeline, "lora_rank", 16))
+                            ),
+                            trainable_dtype=hard_trainable_dtype,
+                            true_reference_key_mask=bool(
+                                getattr(
+                                    pipeline,
+                                    "ba_hard_v1_true_reference_key_mask",
+                                    False,
+                                )
+                            ),
+                            branch_output_rank=getattr(
+                                pipeline,
+                                "ba_hard_v1_branch_output_rank",
+                                None,
+                            ),
+                            reference_roi_warp=bool(
+                                getattr(
+                                    pipeline,
+                                    "ba_hard_v1_reference_roi_warp",
+                                    False,
+                                )
+                            ),
+                        )
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
-                    proc = proc.to(pipeline.device, dtype=pipeline.unet.dtype)
+                    if architecture_version in {
+                        "residual_sa_v2",
+                        "anchored_mix_sa_v3",
+                        "query_adaptive_hard_sa_v4",
+                    }:
+                        proc = proc.to(pipeline.device)
+                    elif hard_trainable_dtype is not None:
+                        # 3 Aug 2026 - Keep only hard-v1 BA parameters in FP32;
+                        # cloned effective base weights remain frozen BF16 buffers.
+                        proc = proc.to(pipeline.device)
+                    else:
+                        proc = proc.to(pipeline.device, dtype=pipeline.unet.dtype)
                     proc.set_masks(_mask, _mref)
                     setattr(proc, "strict_face_routing", bool(getattr(pipeline, "strict_face_routing", False)))
                     _apply_runtime_flags(proc, pipeline)
@@ -302,6 +663,7 @@ def two_branch_predict(
     mask4: torch.Tensor,
     mask4_ref: torch.Tensor,
     reference_latents: torch.Tensor,
+    reference_noise: Optional[torch.Tensor] = None,
     face_prompt_embeds: Optional[torch.Tensor] = None,
     class_tokens_mask: Optional[torch.Tensor] = None,
     face_embed_strategy: str = "face",
@@ -343,7 +705,7 @@ def two_branch_predict(
     
     
     REF_NOISE_ONCE = True  # keep same ref noise across steps within one generation
-    if not hasattr(pipeline, "_ref_noise"):
+    if reference_noise is None and not hasattr(pipeline, "_ref_noise"):
         gen = getattr(pipeline, "generator", None)
         if isinstance(gen, (list, tuple)):
             gen = gen[0] if gen else None
@@ -379,9 +741,21 @@ def two_branch_predict(
         reps = (expected_ref + current_ref - 1) // current_ref
         t_ref = t_ref.repeat(reps)[:expected_ref]
     
+    if reference_noise is None:
+        reference_noise = pipeline._ref_noise
+    if reference_noise.shape != reference_latents.shape:
+        raise RuntimeError(
+            "Reference-noise shape mismatch: "
+            f"noise={tuple(reference_noise.shape)}, "
+            f"latents={tuple(reference_latents.shape)}"
+        )
+    reference_noise = reference_noise.to(
+        device=reference_latents.device,
+        dtype=reference_latents.dtype,
+    )
     ref_noised = pipeline.scheduler.add_noise(
         reference_latents,
-        pipeline._ref_noise[:reference_latents.shape[0]],
+        reference_noise,
         t_ref
     )
 
@@ -400,11 +774,26 @@ def two_branch_predict(
     # Create doubled batch: [noise, reference]
     batched_latents = torch.cat([latent_model_input, ref_noised], dim=0)
     
-    # Patch processors with masks
+    timestep_for_progress = t if torch.is_tensor(t) else torch.tensor([t], device=device)
+    if timestep_for_progress.ndim == 0:
+        timestep_for_progress = timestep_for_progress.unsqueeze(0)
+    num_train_timesteps = int(pipeline.scheduler.config.num_train_timesteps)
+    if num_train_timesteps <= 1:
+        raise RuntimeError(
+            f"Invalid scheduler num_train_timesteps={num_train_timesteps}"
+        )
+    ba_denoise_progress = 1.0 - (
+        timestep_for_progress.to(device=device, dtype=torch.float32)
+        / float(num_train_timesteps - 1)
+    )
+
+    # Patch processors with masks and the real scheduler timestep. Training
+    # historically passes step_idx=0, so architecture gates must not use it.
     patch_unet_attention_processors(
         pipeline, mask4, mask4_ref, scale,
         id_embeds=id_embeds if face_embed_strategy == "id_embeds" else None,
-        class_tokens_mask=class_tokens_mask
+        class_tokens_mask=class_tokens_mask,
+        ba_denoise_progress=ba_denoise_progress,
     )
 
     # --- quick patch check

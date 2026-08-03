@@ -19,21 +19,30 @@ class BranchLoRALinear(nn.Module):
         bias: bool = True,
         device=None,
         dtype=None,
+        trainable_dtype=None,
     ):
         super().__init__()
         self.rank = int(rank)
         self.scaling = float(alpha if alpha is not None else rank) / float(rank)
         self.register_buffer("base_weight", torch.empty(out_features, in_features, device=device, dtype=dtype))
         self.register_buffer("base_bias", torch.empty(out_features, device=device, dtype=dtype) if bias else None)
-        self.lora_A = nn.Parameter(torch.empty(self.rank, in_features, device=device, dtype=dtype))
-        self.lora_B = nn.Parameter(torch.zeros(out_features, self.rank, device=device, dtype=dtype))
+        parameter_dtype = trainable_dtype if trainable_dtype is not None else dtype
+        self.lora_A = nn.Parameter(
+            torch.empty(self.rank, in_features, device=device, dtype=parameter_dtype)
+        )
+        self.lora_B = nn.Parameter(
+            torch.zeros(out_features, self.rank, device=device, dtype=parameter_dtype)
+        )
         nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return F.linear(x, self.base_weight, self.base_bias) + F.linear(
-            F.linear(x, self.lora_A),
+        base = F.linear(x, self.base_weight, self.base_bias)
+        parameter_dtype = self.lora_A.dtype
+        delta = F.linear(
+            F.linear(x.to(dtype=parameter_dtype), self.lora_A),
             self.lora_B,
-        ) * self.scaling
+        )
+        return base + (delta * self.scaling).to(dtype=base.dtype)
 
 
 def _clone_effective_linear(
@@ -43,6 +52,7 @@ def _clone_effective_linear(
     rank: int,
     alpha: Optional[int] = None,
     adapter_name: str = "default",
+    trainable_dtype=None,
 ):
     base = attn_linear.get_base_layer() if hasattr(attn_linear, "get_base_layer") else attn_linear
     if kind == "full":
@@ -62,6 +72,7 @@ def _clone_effective_linear(
             bias=base.bias is not None,
             device=base.weight.device,
             dtype=base.weight.dtype,
+            trainable_dtype=trainable_dtype,
         )
     else:
         raise ValueError(f"Unknown branched_attn_new_weight_kind: {kind}")
@@ -94,6 +105,10 @@ class BranchedAttnProcessor(nn.Module):
         branched_attn_weight_mode: str = "shared",
         branched_attn_new_weight_kind: str = "full",
         branched_attn_lora_rank: int = 16,
+        trainable_dtype=None,
+        true_reference_key_mask: bool = False,
+        branch_output_rank: Optional[int] = None,
+        reference_roi_warp: bool = False,
     ):
         super().__init__()
 
@@ -108,6 +123,14 @@ class BranchedAttnProcessor(nn.Module):
         self.branched_attn_weight_mode = (branched_attn_weight_mode or "shared").lower()
         self.branched_attn_new_weight_kind = (branched_attn_new_weight_kind or "full").lower()
         self.branched_attn_lora_rank = int(branched_attn_lora_rank)
+        self.trainable_dtype = trainable_dtype
+        self.true_reference_key_mask = bool(true_reference_key_mask)
+        self.branch_output_rank = (
+            None if branch_output_rank is None else int(branch_output_rank)
+        )
+        if self.branch_output_rank is not None and self.branch_output_rank <= 0:
+            raise ValueError("branch_output_rank must be positive when enabled")
+        self.reference_roi_warp = bool(reference_roi_warp)
         
         self.mask = None
         self.mask_ref = None
@@ -117,6 +140,7 @@ class BranchedAttnProcessor(nn.Module):
         self.noise_to_q = None
         self.noise_to_k = None
         self.noise_to_v = None
+        self.face_to_out = None
         
         # If True: keep masks strictly binary after resize (avoids soft boundary blending)
         self.force_binary_masks: bool = True # False
@@ -136,32 +160,45 @@ class BranchedAttnProcessor(nn.Module):
                 attn.to_q,
                 kind=self.branched_attn_new_weight_kind,
                 rank=self.branched_attn_lora_rank,
+                trainable_dtype=self.trainable_dtype,
             )
             self.ref_to_k = _clone_effective_linear(
                 attn.to_k,
                 kind=self.branched_attn_new_weight_kind,
                 rank=self.branched_attn_lora_rank,
+                trainable_dtype=self.trainable_dtype,
             )
             self.ref_to_v = _clone_effective_linear(
                 attn.to_v,
                 kind=self.branched_attn_new_weight_kind,
                 rank=self.branched_attn_lora_rank,
+                trainable_dtype=self.trainable_dtype,
             )
         if mode == "noise_and_ref":
             self.noise_to_q = _clone_effective_linear(
                 attn.to_q,
                 kind=self.branched_attn_new_weight_kind,
                 rank=self.branched_attn_lora_rank,
+                trainable_dtype=self.trainable_dtype,
             )
             self.noise_to_k = _clone_effective_linear(
                 attn.to_k,
                 kind=self.branched_attn_new_weight_kind,
                 rank=self.branched_attn_lora_rank,
+                trainable_dtype=self.trainable_dtype,
             )
             self.noise_to_v = _clone_effective_linear(
                 attn.to_v,
                 kind=self.branched_attn_new_weight_kind,
                 rank=self.branched_attn_lora_rank,
+                trainable_dtype=self.trainable_dtype,
+            )
+        if self.branch_output_rank is not None:
+            self.face_to_out = _clone_effective_linear(
+                attn.to_out[0],
+                kind="lora",
+                rank=self.branch_output_rank,
+                trainable_dtype=self.trainable_dtype,
             )
 
     def _q_noise(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
@@ -333,6 +370,25 @@ class BranchedAttnProcessor(nn.Module):
         # Extract face regions from both noise and reference
         noise_face_hidden = noise_hidden * mask_flat  # Face from current noise
         ref_face_hidden = ref_hidden * ref_mask_flat   # Face from reference
+        face_key_mask_flat = ref_mask_flat
+
+        if self.reference_roi_warp:
+            if POSE_ADAPT_RATIO != 0.0:
+                raise RuntimeError(
+                    "reference_roi_warp requires pose_adapt_ratio=0"
+                )
+            # 3 Aug 2026 - Map reference-face features into the target bbox
+            # coordinate frame without introducing target K/V or a native-face
+            # output mixer. This isolates spatial alignment as one BA element.
+            ref_face_hidden = self._warp_reference_roi_to_target(
+                ref_face_hidden,
+                reference_mask=ref_mask_flat,
+                target_mask=mask_flat,
+            )
+            face_key_mask_flat = mask_flat.to(
+                dtype=ref_mask_flat.dtype,
+                device=ref_mask_flat.device,
+            )
 
         # Blend them to allow pose adaptation while preserving identity
         # Higher POSE_ADAPT_RATIO = more pose flexibility, less identity preservation
@@ -351,7 +407,25 @@ class BranchedAttnProcessor(nn.Module):
         
         q_face = q * mask_gate # face area of noise_hidden
             
-        hidden_face = F.scaled_dot_product_attention(q_face, key_face, value_face, dropout_p=0.0, is_causal=False)
+        reference_attention_mask = None
+        if self.true_reference_key_mask:
+            valid_reference_keys = face_key_mask_flat.squeeze(-1) > 0.5
+            if not bool(valid_reference_keys.any(dim=1).all()):
+                raise RuntimeError(
+                    "true reference-key masking requires at least one valid key per sample"
+                )
+            # 3 Aug 2026 - Zeroing reference features is not a key mask: those
+            # zero keys still consume softmax probability. True means allowed
+            # for PyTorch SDPA and broadcasts across heads and target queries.
+            reference_attention_mask = valid_reference_keys[:, None, None, :]
+        hidden_face = F.scaled_dot_product_attention(
+            q_face,
+            key_face,
+            value_face,
+            attn_mask=reference_attention_mask,
+            dropout_p=0.0,
+            is_causal=False,
+        )
         hidden_face = hidden_face.transpose(1, 2).reshape(batch_size, -1, noise_hidden.shape[-1])
 
 
@@ -385,14 +459,23 @@ class BranchedAttnProcessor(nn.Module):
 
         mask_flat = mask_gate.squeeze(1).to(dtype=hidden_bg.dtype)  # [B, L, 1]
         
-        merged = hidden_bg * (1 - mask_flat) + hidden_face * mask_flat * self.scale
-    
-        
-        # Combine:
-        hidden_states = torch.cat([merged, hidden_ref], dim=0) # merged = updated noise and face branch output
+        if self.face_to_out is None:
+            merged = hidden_bg * (1 - mask_flat) + hidden_face * mask_flat * self.scale
+            hidden_states = torch.cat([merged, hidden_ref], dim=0)
+            hidden_states = attn.to_out[0](hidden_states)
+        else:
+            # 3 Aug 2026 - The optional output LoRA is reference-branch-local.
+            # Its frozen base is cloned from native to_out, so zero LoRA-B gives
+            # exact baseline parity while generic U-Net output weights stay frozen.
+            hidden_bg_out = attn.to_out[0](hidden_bg)
+            hidden_face_out = self.face_to_out(hidden_face * self.scale)
+            hidden_ref_out = attn.to_out[0](hidden_ref)
+            merged = (
+                hidden_bg_out * (1 - mask_flat)
+                + hidden_face_out * mask_flat
+            )
+            hidden_states = torch.cat([merged, hidden_ref_out], dim=0)
 
-        # Apply output projection
-        hidden_states = attn.to_out[0](hidden_states)
         hidden_states = attn.to_out[1](hidden_states)  # dropout
         
         # Reshape if needed
@@ -419,6 +502,77 @@ class BranchedAttnProcessor(nn.Module):
         hidden_states = hidden_states / attn.rescale_output_factor # TODO check if neeeded / do separately for each branch
         
         return hidden_states
+
+    @staticmethod
+    def _warp_reference_roi_to_target(
+        reference_hidden: torch.Tensor,
+        *,
+        reference_mask: torch.Tensor,
+        target_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Bilinearly express a masked reference ROI in the target bbox frame."""
+        batch_size, seq_len, channels = reference_hidden.shape
+        side = int(math.isqrt(seq_len))
+        if side * side != seq_len:
+            raise RuntimeError(f"reference sequence length {seq_len} is not square")
+
+        reference_mask_2d = reference_mask.reshape(batch_size, side, side) > 0.5
+        target_mask_2d = target_mask.reshape(batch_size, side, side) > 0.5
+        if not bool(reference_mask_2d.flatten(1).any(dim=1).all()):
+            raise RuntimeError("reference ROI warp received an empty reference mask")
+        if not bool(target_mask_2d.flatten(1).any(dim=1).all()):
+            raise RuntimeError("reference ROI warp received an empty target mask")
+
+        def bounds(mask_2d: torch.Tensor):
+            rows = mask_2d.any(dim=2)
+            cols = mask_2d.any(dim=1)
+            y0 = rows.float().argmax(dim=1)
+            x0 = cols.float().argmax(dim=1)
+            y1 = (side - 1) - rows.flip(1).float().argmax(dim=1)
+            x1 = (side - 1) - cols.flip(1).float().argmax(dim=1)
+            return x0.float(), y0.float(), x1.float(), y1.float()
+
+        ref_x0, ref_y0, ref_x1, ref_y1 = bounds(reference_mask_2d)
+        tgt_x0, tgt_y0, tgt_x1, tgt_y1 = bounds(target_mask_2d)
+        device = reference_hidden.device
+        coord_dtype = torch.float32
+        ys = torch.arange(side, device=device, dtype=coord_dtype)[None, :, None]
+        xs = torch.arange(side, device=device, dtype=coord_dtype)[None, None, :]
+
+        target_width = (tgt_x1 - tgt_x0).clamp_min(1.0)[:, None, None]
+        target_height = (tgt_y1 - tgt_y0).clamp_min(1.0)[:, None, None]
+        relative_x = (xs - tgt_x0[:, None, None]) / target_width
+        relative_y = (ys - tgt_y0[:, None, None]) / target_height
+        source_x = ref_x0[:, None, None] + relative_x * (
+            ref_x1 - ref_x0
+        )[:, None, None]
+        source_y = ref_y0[:, None, None] + relative_y * (
+            ref_y1 - ref_y0
+        )[:, None, None]
+
+        if side > 1:
+            grid_x = source_x.mul(2.0 / float(side - 1)).sub(1.0)
+            grid_y = source_y.mul(2.0 / float(side - 1)).sub(1.0)
+        else:
+            grid_x = torch.zeros_like(source_x)
+            grid_y = torch.zeros_like(source_y)
+        grid = torch.stack(
+            [grid_x.expand(-1, side, -1), grid_y.expand(-1, -1, side)],
+            dim=-1,
+        )
+
+        source = reference_hidden.transpose(1, 2).reshape(
+            batch_size, channels, side, side
+        )
+        warped = F.grid_sample(
+            source.float(),
+            grid,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=True,
+        ).to(dtype=reference_hidden.dtype)
+        warped = warped * target_mask_2d[:, None].to(dtype=warped.dtype)
+        return warped.flatten(2).transpose(1, 2)
     
     
     def _prepare_mask(self, mask: torch.Tensor, target_len: int, batch_size: int) -> torch.Tensor:

@@ -83,3 +83,18 @@ available.
 With one validation process, `device: auto` uses CUDA and temporarily offloads
 the generation pipeline before scoring. With multi-process DDP it uses CPU on
 rank 0 because moving only one rank's wrapped model is unsafe.
+
+## Per-image identity similarity
+
+Every validation event also logs the individual identity-similarity result for
+each validation item as a Comet table. The deterministic table name is
+`id_sim__<partition>__step_<six-digit-step>.csv`; for example,
+`id_sim__manual_val__step_002000.csv`. The same CSV is retained locally at
+`saved/<run_name>/validation_tables/`. It contains the validation step,
+partition, image index, output key, identity, prompt, seed, generated-image
+count, and `id_sim`. The trainer fails the table upload if the row count or
+image indices do not exactly match the validation dataset.
+
+For the standard panel, each table therefore has exactly 96 rows. Keep
+`trainer.log_per_image_id_sim_table: true` for comparable runs. Retrieval by
+immutable Comet experiment key is documented in `tools/comet/README.md`.

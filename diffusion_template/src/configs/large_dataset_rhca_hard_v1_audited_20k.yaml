@@ -1,0 +1,59 @@
+defaults:
+  - large_dataset_rhca_40k
+  - _self_
+
+# Audited reconstruction of the intended rhca_large_dataset_sameid_40k_full96_r4
+# substrate. Scientific child configs change exactly one defaults-off element.
+train_ba_only: true
+branched_attn_weight_mode: noise_and_ref
+train_branched_ca_lora: false
+disable_branched_sa: false
+disable_branched_ca: true
+ba_patch_top_k: 1.0
+ba_train_top_k: 1.0
+non_ba_train: false
+train_ba_all_steps: true
+strict_face_routing: false
+
+model:
+  ba_architecture_version: hard_replace_v1
+  branched_trainable_dtype: inherit
+  ba_self_attention_groups: null
+  ba_training_timestep_policy: uniform_all
+  ba_enforce_reference_only_hard_route: true
+  ba_hard_v1_true_reference_key_mask: false
+  ba_hard_v1_branch_output_rank: null
+  ba_hard_v1_reference_roi_warp: false
+  branched_attn_weight_mode: noise_and_ref
+  train_branched_ca_lora: false
+  strict_branched_install: true
+  strict_trainable_contract: true
+  branched_state_dict_mode: trainable_v2
+
+trainer:
+  epoch_len: 2000
+  n_epochs: 10
+  validation_interval_steps: 2000
+  save_period: 1
+  log_per_image_id_sim_table: true
+  face_quality:
+    expected_images: 96
+
+weights_only_save_period: 1
+
+writer:
+  project_name: aug-large-ds
+  experiment_comment: >-
+    Audited Large Dataset r4 baseline: clean hard rank-32 BA-only ownership,
+    complete schema-v2 checkpoints, and no additional scientific extension.
+  require_online_registration: true
+
+# Preserve the historical r4 validation family explicitly while making its
+# processor copy fail closed.
+validation_processor_base_mode: legacy_full_copy
+strict_validation_processor_copy: true
+update_proc_weights_val: true
+
+pipeline:
+  pose_adapt_ratio: 0.0
+  ca_mixing_for_face: false

@@ -28,3 +28,42 @@ conditioning_cache_enabled: false
 conditioning_cache_max_entries: 512
 cache_prepared_masks: false
 compute_branch_debug_outputs: true
+
+# Versioned attention architecture. Historical configs retain hard replacement
+# and inherited trainable precision unless they explicitly opt into BA-v2/v3.
+ba_architecture_version: hard_replace_v1
+branched_trainable_dtype: inherit
+ba_ref_kv_rank: null
+ba_output_rank: null
+ba_branch_q_rank: 16
+ba_face_fusion_mode: hard_reference_replace
+ba_face_branch_scale: 1.0
+ba_gate_init: 0.10
+ba_gate_max: 1.0
+ba_gate_timestep: true
+ba_gate_face_area: true
+# Anchored-mix v3 controls are inert for historical architectures.
+ba_mix_init: 0.50
+ba_mix_floor: 0.0
+ba_mix_max: 1.0
+ba_mix_timestep: true
+ba_mix_face_area: true
+ba_reference_rms_match: false
+ba_reference_rms_clip_min: 0.50
+ba_reference_rms_clip_max: 2.00
+ba_mix_override: null
+ba_telemetry_enabled: false
+ba_telemetry_interval: 50
+ba_reference_loss_mode: detached_diagnostic
+ba_require_denoise_progress: true
+ba_self_attention_groups: null
+ba_training_timestep_policy: uniform_all
+ba_spatial_reference_shuffle_probability: 0.0
+ba_install_on_device: false
+
+# Audited hard-v1 controls. All are defaults-off so historical checkpoints and
+# configs retain their original processor equation and manifest.
+ba_enforce_reference_only_hard_route: false
+ba_hard_v1_true_reference_key_mask: false
+ba_hard_v1_branch_output_rank: null
+ba_hard_v1_reference_roi_warp: false

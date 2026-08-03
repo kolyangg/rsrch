@@ -4,6 +4,11 @@ Use `comet_experiment.py` for every new Comet-tracked training run. It makes
 the immutable Comet experiment key the link between a saved run and its
 metrics/images.
 
+> **Neb outage — 3 August 2026:** Do not use `--host neb` or otherwise route
+> Comet access through Neb. Use a local credential and immutable local record,
+> or Serv when appropriate. If a user asks for Neb, obtain separate explicit
+> confirmation that it is working again before testing connectivity.
+
 ## Automatic record
 
 `CometMLWriter` writes this file immediately after Comet creates or resumes an
@@ -36,20 +41,18 @@ path. The writer preserves its `plan` object and replaces the placeholder
 JSON containing both intent and observed registration; do not redirect the
 record to a second tracked location.
 
-## Retrieve from a remote run
+## Retrieve a run
 
-The easiest Neb workflow pulls and validates the remote record, caches it
-under the ignored local `comet_records/` directory, and exports the requested
-Comet step:
+During the Neb outage, prefer a local immutable record and a locally available
+`COMET_API_KEY`:
 
 ```bash
 python tools/comet/comet_experiment.py fetch \
-  --host neb \
-  --run-name <run_name> \
+  --record saved/<run_name>/comet_experiment.json \
   --step-number 4000
 ```
 
-For another machine or checkout:
+For Serv or another approved machine/checkout:
 
 ```bash
 python tools/comet/comet_experiment.py fetch \
@@ -62,14 +65,6 @@ python tools/comet/comet_experiment.py fetch \
 
 The `serv` host profile activates the required absolute Conda environment and
 selects `rsrch_test` for every pull/export/copy/cleanup SSH hop.
-
-For a local record:
-
-```bash
-python tools/comet/comet_experiment.py fetch \
-  --record saved/<run_name>/comet_experiment.json \
-  --step-number 4000
-```
 
 The command uses `COMET_API_KEY` without printing it. If the local
 `diffusion_template/.env` contains the key, export happens locally. If it is
@@ -90,6 +85,37 @@ comet_data/<run_name>/
 ```
 
 Both `comet_data/` and the cached `comet_records/` are excluded from Git.
+
+## Retrieve per-image ID similarity and the experiment comment
+
+New Large Dataset BA runs upload one 96-row table at every validation event,
+named `id_sim__manual_val__step_<six-digit-step>.csv`. They also store their
+one-sentence delta and hypothesis in Comet's Other metadata under
+`experiment_comment`.
+
+Given an immutable experiment key, the Comet Python API can retrieve both:
+
+```python
+import comet_ml
+
+experiment = comet_ml.API().get_experiment_by_key(
+    "<32-character-experiment-key>"
+)
+
+comment_values = experiment.get_others_summary("experiment_comment")
+comment = comment_values[-1] if comment_values else None
+
+table_name = "id_sim__manual_val__step_002000.csv"
+table_asset = next(
+    asset for asset in experiment.get_asset_list()
+    if asset["fileName"] == table_name
+)
+table_csv = experiment.get_asset(table_asset["assetId"]).decode("utf-8")
+```
+
+Use the key in `saved/<run_name>/comet_experiment.json`; do not search by the
+display name. The table is also available without Comet from
+`saved/<run_name>/validation_tables/<table_name>` on the training machine.
 
 ## Backfill an older active run
 

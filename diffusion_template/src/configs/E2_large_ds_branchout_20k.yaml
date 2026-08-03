@@ -1,0 +1,13 @@
+defaults:
+  - large_dataset_rhca_hard_v1_audited_20k
+  - _self_
+
+# E2: the only scientific delta is a reference-face-only rank-32 output basis.
+model:
+  ba_hard_v1_branch_output_rank: 32
+
+writer:
+  experiment_comment: >-
+    E2 vs audited Large Dataset r4 baseline: add an exact-parity rank-32 output
+    LoRA only to the hard reference-face branch; test whether missing output
+    basis capacity limits ID similarity without generic U-Net drift.

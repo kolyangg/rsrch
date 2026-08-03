@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import time
 from typing import Optional, Sequence
 
 import numpy as np
@@ -15,6 +17,7 @@ from diffusers.utils import (
     convert_state_dict_to_diffusers,
     convert_unet_state_dict_to_peft,
 )
+from diffusers import DDIMScheduler
 from src.model.photomaker_path import resolve_photomaker_path
 from src.model.sdxl.original import SDXL
 
@@ -22,6 +25,9 @@ from src.model.sdxl.original import SDXL
 """Import branched-attention forward/patch helpers and PMv2 face-ID dependencies used by training."""
 from .insightface_package import create_face_analyzer
 from .lora2_helpers import (
+    assert_branched_trainable_contract,
+    branched_trainable_role_groups,
+    collect_branched_telemetry,
     install_branched_processors_for_training,
     prepare_branched_training_inputs,
     run_branched_forward_pass,
@@ -78,6 +84,41 @@ class PhotomakerBranchedLora(SDXL):
         batched_conditioning_preparation: bool = False,
         cache_prepared_masks: bool = False,
         compute_branch_debug_outputs: bool = True,
+        strict_branched_install: bool = False,
+        strict_trainable_contract: bool = False,
+        branched_state_dict_mode: str = "legacy",
+        ba_architecture_version: str = "hard_replace_v1",
+        branched_trainable_dtype: str = "inherit",
+        ba_ref_kv_rank: Optional[int] = None,
+        ba_output_rank: Optional[int] = None,
+        ba_branch_q_rank: int = 16,
+        ba_face_fusion_mode: str = "hard_reference_replace",
+        ba_face_branch_scale: float = 1.0,
+        ba_gate_init: float = 0.10,
+        ba_gate_max: float = 1.0,
+        ba_gate_timestep: bool = True,
+        ba_gate_face_area: bool = True,
+        ba_mix_init: float = 0.50,
+        ba_mix_floor: float = 0.0,
+        ba_mix_max: float = 1.0,
+        ba_mix_timestep: bool = True,
+        ba_mix_face_area: bool = True,
+        ba_reference_rms_match: bool = False,
+        ba_reference_rms_clip_min: float = 0.50,
+        ba_reference_rms_clip_max: float = 2.00,
+        ba_mix_override: Optional[float] = None,
+        ba_telemetry_enabled: bool = False,
+        ba_telemetry_interval: int = 50,
+        ba_reference_loss_mode: str = "detached_diagnostic",
+        ba_require_denoise_progress: bool = True,
+        ba_self_attention_groups: Optional[Sequence[str]] = None,
+        ba_training_timestep_policy: str = "uniform_all",
+        ba_spatial_reference_shuffle_probability: float = 0.0,
+        ba_install_on_device: bool = False,
+        ba_enforce_reference_only_hard_route: bool = False,
+        ba_hard_v1_true_reference_key_mask: bool = False,
+        ba_hard_v1_branch_output_rank: Optional[int] = None,
+        ba_hard_v1_reference_roi_warp: bool = False,
         ##### BRANCHED ATTENTION - NEW PARAMS 1 #####
     ):
         """NEW PARAMS 1: define BA training controls (strategy, processor variant, ID mixing, and BA-only toggles)."""
@@ -183,6 +224,183 @@ class PhotomakerBranchedLora(SDXL):
         )
         self.cache_prepared_masks = bool(cache_prepared_masks)
         self.compute_branch_debug_outputs = bool(compute_branch_debug_outputs)
+        self.strict_branched_install = bool(strict_branched_install)
+        self.strict_trainable_contract = bool(strict_trainable_contract)
+        self.branched_state_dict_mode = (branched_state_dict_mode or "legacy").lower()
+        if self.branched_state_dict_mode not in {"legacy", "trainable_v2"}:
+            raise ValueError(
+                "branched_state_dict_mode must be 'legacy' or 'trainable_v2', "
+                f"got {self.branched_state_dict_mode!r}"
+            )
+        self.ba_architecture_version = (
+            ba_architecture_version or "hard_replace_v1"
+        ).lower()
+        if self.ba_architecture_version not in {
+            "hard_replace_v1",
+            "residual_sa_v2",
+            "anchored_mix_sa_v3",
+            "query_adaptive_hard_sa_v4",
+        }:
+            raise ValueError(
+                "ba_architecture_version must be 'hard_replace_v1', "
+                "'residual_sa_v2', 'anchored_mix_sa_v3', or "
+                "'query_adaptive_hard_sa_v4'; got "
+                f"{self.ba_architecture_version!r}"
+            )
+        self.branched_trainable_dtype = (
+            branched_trainable_dtype or "inherit"
+        ).lower()
+        if self.branched_trainable_dtype not in {
+            "inherit",
+            "fp32",
+            "float32",
+        }:
+            raise ValueError(
+                "branched_trainable_dtype must be 'inherit' or 'fp32', "
+                f"got {self.branched_trainable_dtype!r}"
+            )
+        if (
+            self.ba_architecture_version in {
+                "residual_sa_v2",
+                "anchored_mix_sa_v3",
+                "query_adaptive_hard_sa_v4",
+            }
+            and self.branched_trainable_dtype not in {"fp32", "float32"}
+        ):
+            raise ValueError(
+                f"{self.ba_architecture_version} requires branched_trainable_dtype=fp32"
+            )
+        self.ba_ref_kv_rank = int(
+            ba_ref_kv_rank if ba_ref_kv_rank is not None else rank
+        )
+        self.ba_output_rank = int(
+            ba_output_rank if ba_output_rank is not None else rank
+        )
+        self.ba_branch_q_rank = int(ba_branch_q_rank)
+        self.ba_face_fusion_mode = str(ba_face_fusion_mode).lower()
+        self.ba_face_branch_scale = float(ba_face_branch_scale)
+        if min(
+            self.ba_ref_kv_rank,
+            self.ba_output_rank,
+            self.ba_branch_q_rank,
+        ) <= 0:
+            raise ValueError("Versioned BA ranks must be positive")
+        self.ba_gate_init = float(ba_gate_init)
+        self.ba_gate_max = float(ba_gate_max)
+        self.ba_gate_timestep = bool(ba_gate_timestep)
+        self.ba_gate_face_area = bool(ba_gate_face_area)
+        self.ba_mix_init = float(ba_mix_init)
+        self.ba_mix_floor = float(ba_mix_floor)
+        self.ba_mix_max = float(ba_mix_max)
+        self.ba_mix_timestep = bool(ba_mix_timestep)
+        self.ba_mix_face_area = bool(ba_mix_face_area)
+        self.ba_reference_rms_match = bool(ba_reference_rms_match)
+        self.ba_reference_rms_clip_min = float(ba_reference_rms_clip_min)
+        self.ba_reference_rms_clip_max = float(ba_reference_rms_clip_max)
+        self.ba_mix_override = (
+            None if ba_mix_override is None else float(ba_mix_override)
+        )
+        if self.ba_mix_override is not None and not 0.0 <= self.ba_mix_override <= 1.0:
+            raise ValueError("ba_mix_override must be in [0, 1]")
+        if self.ba_architecture_version == "query_adaptive_hard_sa_v4":
+            if self.ba_face_fusion_mode != "hard_reference_replace":
+                raise ValueError(
+                    "Hard BA-v4 requires ba_face_fusion_mode="
+                    "hard_reference_replace"
+                )
+            if self.ba_face_branch_scale != 1.0:
+                raise ValueError("Hard BA-v4 requires ba_face_branch_scale=1.0")
+            if self.ba_mix_override is not None:
+                raise ValueError("Hard BA-v4 does not accept ba_mix_override")
+        self.ba_telemetry_enabled = bool(ba_telemetry_enabled)
+        self.ba_telemetry_interval = int(ba_telemetry_interval)
+        if self.ba_telemetry_interval <= 0:
+            raise ValueError("ba_telemetry_interval must be positive")
+        self.ba_reference_loss_mode = (
+            ba_reference_loss_mode or "detached_diagnostic"
+        ).lower()
+        if self.ba_reference_loss_mode not in {
+            "detached_diagnostic",
+            "differentiable_rank",
+        }:
+            raise ValueError(
+                "ba_reference_loss_mode must be 'detached_diagnostic' or "
+                f"'differentiable_rank', got {self.ba_reference_loss_mode!r}"
+            )
+        if self.ba_architecture_version == "anchored_mix_sa_v3":
+            if not 0.0 <= self.ba_mix_floor < self.ba_mix_max <= 1.0:
+                raise ValueError(
+                    "BA-v3 mix bounds require 0 <= floor < max <= 1"
+                )
+            if not self.ba_mix_floor < self.ba_mix_init < self.ba_mix_max:
+                raise ValueError("BA-v3 mix_init must be strictly inside its bounds")
+            if self.ba_reference_rms_clip_min <= 0.0:
+                raise ValueError("BA-v3 reference RMS clip minimum must be positive")
+            if self.ba_reference_rms_clip_max < self.ba_reference_rms_clip_min:
+                raise ValueError("BA-v3 reference RMS clip bounds are reversed")
+        self.ba_require_denoise_progress = bool(ba_require_denoise_progress)
+        self.ba_self_attention_groups = (
+            None
+            if ba_self_attention_groups is None
+            else tuple(str(group) for group in ba_self_attention_groups)
+        )
+        self.ba_training_timestep_policy = (
+            ba_training_timestep_policy or "uniform_all"
+        ).lower()
+        if self.ba_training_timestep_policy not in {
+            "uniform_all",
+            "inference_active",
+        }:
+            raise ValueError(
+                "ba_training_timestep_policy must be 'uniform_all' or "
+                f"'inference_active', got {self.ba_training_timestep_policy!r}"
+            )
+        if (
+            self.ba_training_timestep_policy == "inference_active"
+            and not self.train_ba_all_steps
+        ):
+            raise ValueError(
+                "inference_active timestep sampling requires train_ba_all_steps=true"
+            )
+        self.ba_spatial_reference_shuffle_probability = float(
+            ba_spatial_reference_shuffle_probability
+        )
+        if not 0.0 <= self.ba_spatial_reference_shuffle_probability <= 1.0:
+            raise ValueError(
+                "ba_spatial_reference_shuffle_probability must be in [0, 1], "
+                f"got {self.ba_spatial_reference_shuffle_probability}"
+            )
+        self.ba_install_on_device = bool(ba_install_on_device)
+        self.ba_enforce_reference_only_hard_route = bool(
+            ba_enforce_reference_only_hard_route
+        )
+        self.ba_hard_v1_true_reference_key_mask = bool(
+            ba_hard_v1_true_reference_key_mask
+        )
+        self.ba_hard_v1_branch_output_rank = (
+            None
+            if ba_hard_v1_branch_output_rank is None
+            else int(ba_hard_v1_branch_output_rank)
+        )
+        if (
+            self.ba_hard_v1_branch_output_rank is not None
+            and self.ba_hard_v1_branch_output_rank <= 0
+        ):
+            raise ValueError(
+                "ba_hard_v1_branch_output_rank must be positive when enabled"
+            )
+        self.ba_hard_v1_reference_roi_warp = bool(
+            ba_hard_v1_reference_roi_warp
+        )
+        if self.ba_architecture_version != "hard_replace_v1" and any(
+            (
+                self.ba_enforce_reference_only_hard_route,
+                self.ba_hard_v1_true_reference_key_mask,
+                self.ba_hard_v1_branch_output_rank is not None,
+                self.ba_hard_v1_reference_roi_warp,
+            )
+        ):
+            raise ValueError("Hard-v1 controls require ba_architecture_version=hard_replace_v1")
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 
         photomaker_lora_config = LoraConfig(
@@ -198,7 +416,30 @@ class PhotomakerBranchedLora(SDXL):
         self.load_photomaker_state_dict_(photomaker_state_dict)
 
     def prepare_for_training(self):
+        prepare_started = time.perf_counter()
+        if (
+            self.ba_architecture_version in {
+                "residual_sa_v2",
+                "anchored_mix_sa_v3",
+                "query_adaptive_hard_sa_v4",
+            }
+            and self.ba_install_on_device
+        ):
+            # 2 Aug 2026 - AICODE-NOTE: Effective PEFT K/V materialization is
+            # prohibitively slow in BF16 on CPU. Opt-in v2 runs stage only the
+            # U-Net on its assigned GPU before dtype conversion and processor
+            # installation; historical hard-replacement behavior is unchanged.
+            self.unet.to(self.device)
+            print(
+                "[BA Init Timing] staged_unet_on_device "
+                f"seconds={time.perf_counter() - prepare_started:.3f} "
+                f"device={self.device}"
+            )
         super().prepare_for_training()
+        print(
+            "[BA Init Timing] base_prepare_complete "
+            f"seconds={time.perf_counter() - prepare_started:.3f}"
+        )
         self.unet.requires_grad_(False)
         self.id_encoder.to(dtype=self.weight_dtype)
         self.id_encoder.requires_grad_(False)
@@ -211,11 +452,19 @@ class PhotomakerBranchedLora(SDXL):
         )
         self.unet.add_adapter(adapter_lora_config, adapter_name="lora_adapter")
         self.unet.set_adapter(["lora_adapter", "default"])
+        print(
+            "[BA Init Timing] adapters_ready "
+            f"seconds={time.perf_counter() - prepare_started:.3f}"
+        )
 
 
         ##### BRANCHED ATTENTION - NEW BLOCK 1 #####
         """NEW BLOCK 1: pre-install branched attention processors before optimizer creation and mark their params trainable."""
         install_branched_processors_for_training(self)
+        print(
+            "[BA Init Timing] processors_ready "
+            f"seconds={time.perf_counter() - prepare_started:.3f}"
+        )
 
         ##### BRANCHED ATTENTION - NEW BLOCK 1 #####
 
@@ -264,6 +513,45 @@ class PhotomakerBranchedLora(SDXL):
         # ### TRAIN_BA_ONLY - CHECK ###
         ##### BRANCHED ATTENTION - NEW BLOCK 2 #####
 
+        if self.ba_architecture_version in {
+            "residual_sa_v2",
+            "anchored_mix_sa_v3",
+            "query_adaptive_hard_sa_v4",
+        } and self.train_ba_only:
+            role_groups = branched_trainable_role_groups(self)
+            lr_by_role = {
+                "ref_kv": float(getattr(config, "ba_ref_kv_lr", config.lr_for_lora)),
+                "ref_output": float(
+                    getattr(config, "ba_ref_output_lr", config.lr_for_lora)
+                ),
+                "gate": float(getattr(config, "ba_gate_lr", config.lr_for_lora)),
+                "mix": float(getattr(config, "ba_mix_lr", config.lr_for_lora)),
+                "ref_query": float(
+                    getattr(config, "ba_ref_query_lr", config.lr_for_lora)
+                ),
+            }
+            unknown_roles = set(role_groups) - set(lr_by_role)
+            if unknown_roles:
+                raise RuntimeError(
+                    f"Unknown {self.ba_architecture_version} optimizer roles: "
+                    f"{unknown_roles}"
+                )
+            if self.ba_architecture_version == "residual_sa_v2":
+                role_order = ("ref_kv", "ref_output", "gate")
+            elif self.ba_architecture_version == "anchored_mix_sa_v3":
+                role_order = ("ref_kv", "ref_output", "mix")
+            else:
+                role_order = ("ref_query", "ref_kv", "ref_output")
+            return [
+                {
+                    "params": role_groups[role],
+                    "lr": lr_by_role[role],
+                    "name": f"ba_{role}",
+                }
+                for role in role_order
+                if role_groups.get(role)
+            ]
+
         # Default behavior: train all UNet parameters with requires_grad=True (LoRA + processors).
         lora_params = filter(lambda p: p.requires_grad, self.unet.parameters())
         trainable_params = [
@@ -271,7 +559,211 @@ class PhotomakerBranchedLora(SDXL):
         ]
         return trainable_params
 
+    def assert_trainable_contract(self, optimizer=None) -> dict:
+        if not self.strict_trainable_contract:
+            return {}
+        return assert_branched_trainable_contract(self, optimizer=optimizer)
+
+    def _branched_architecture_manifest(self) -> dict:
+        named_parameters = dict(self.unet.named_parameters())
+        trainable_names = tuple(
+            sorted(
+                name for name, parameter in named_parameters.items()
+                if parameter.requires_grad
+            )
+        )
+        processor_names = list(getattr(self, "_ba_patched_processor_names", ()))
+        semantic_names = list(getattr(self, "_ba_semantic_processor_names", ()))
+        semantic_names_sha256 = hashlib.sha256(
+            "\n".join(semantic_names).encode("utf-8")
+        ).hexdigest()
+        hard_v1_extended = bool(
+            self.ba_architecture_version == "hard_replace_v1"
+            and (
+                self.ba_hard_v1_true_reference_key_mask
+                or self.ba_hard_v1_branch_output_rank is not None
+                or self.ba_hard_v1_reference_roi_warp
+            )
+        )
+        processor_code_version = {
+            "hard_replace_v1": 2 if hard_v1_extended else 1,
+            "residual_sa_v2": 2,
+            "anchored_mix_sa_v3": 3,
+            "query_adaptive_hard_sa_v4": 4,
+        }[self.ba_architecture_version]
+        manifest = {
+            "format": "photomaker_branched_trainable_unet_v2",
+            "ba_architecture_version": self.ba_architecture_version,
+            "processor_code_version": processor_code_version,
+            "branched_attn_lora_rank": int(self.branched_attn_lora_rank),
+            "branched_attn_weight_mode": self.branched_attn_weight_mode,
+            "branched_attn_new_weight_kind": self.branched_attn_new_weight_kind,
+            "train_ba_only": bool(self.train_ba_only),
+            "train_branched_ca_lora": bool(self.train_branched_ca_lora),
+            "ba_patch_top_k": float(self.ba_patch_top_k),
+            "ba_train_top_k": float(self.ba_train_top_k),
+            "non_ba_train": bool(self.non_ba_train),
+            "disable_branched_sa": bool(getattr(self, "disable_branched_sa", False)),
+            "disable_branched_ca": bool(getattr(self, "disable_branched_ca", False)),
+            "branched_trainable_dtype": self.branched_trainable_dtype,
+            "ba_ref_kv_rank": int(self.ba_ref_kv_rank),
+            "ba_output_rank": int(self.ba_output_rank),
+            "ba_branch_q_rank": int(self.ba_branch_q_rank),
+            "ba_face_fusion_mode": self.ba_face_fusion_mode,
+            "ba_face_branch_scale": float(self.ba_face_branch_scale),
+            "ba_gate_init": float(self.ba_gate_init),
+            "ba_gate_max": float(self.ba_gate_max),
+            "ba_gate_timestep": bool(self.ba_gate_timestep),
+            "ba_gate_face_area": bool(self.ba_gate_face_area),
+            "ba_require_denoise_progress": bool(self.ba_require_denoise_progress),
+            "ba_training_timestep_policy": self.ba_training_timestep_policy,
+            "ba_spatial_reference_shuffle_probability": float(
+                self.ba_spatial_reference_shuffle_probability
+            ),
+            "ba_install_on_device": bool(self.ba_install_on_device),
+            "ba_self_attention_groups": (
+                None
+                if self.ba_self_attention_groups is None
+                else list(self.ba_self_attention_groups)
+            ),
+            "semantic_processor_names": semantic_names,
+            "semantic_processor_names_sha256": semantic_names_sha256,
+            "merge_kind": (
+                "reference_residual"
+                if self.ba_architecture_version == "residual_sa_v2"
+                else (
+                    "anchored_reference_interpolation"
+                    if self.ba_architecture_version == "anchored_mix_sa_v3"
+                    else (
+                        "query_adaptive_hard_reference_replacement"
+                        if self.ba_architecture_version
+                        == "query_adaptive_hard_sa_v4"
+                        else "hard_face_replacement"
+                    )
+                )
+            ),
+            "target_query_source": (
+                "frozen_target"
+                if self.ba_architecture_version in {
+                    "residual_sa_v2",
+                    "anchored_mix_sa_v3",
+                }
+                else (
+                    "branch_adapted_target"
+                    if self.ba_architecture_version
+                    == "query_adaptive_hard_sa_v4"
+                    else "configured_noise_projection"
+                )
+            ),
+            "reference_key_mask": (
+                self.ba_hard_v1_true_reference_key_mask
+                if self.ba_architecture_version == "hard_replace_v1"
+                else self.ba_architecture_version in {
+                    "residual_sa_v2",
+                    "anchored_mix_sa_v3",
+                    "query_adaptive_hard_sa_v4",
+                }
+            ),
+            "strict_face_routing": bool(getattr(self, "strict_face_routing", False)),
+            "pose_adapt_ratio": float(self.pose_adapt_ratio),
+            "ca_mixing_for_face": bool(self.ca_mixing_for_face),
+            "photomaker_start_step": int(self.photomaker_start_step),
+            "branched_attn_start_step": int(self.branched_attn_start_step),
+            "num_inference_steps": int(self.num_inference_steps),
+            "patched_processor_names": processor_names,
+            "trainable_processor_names": list(
+                getattr(self, "_ba_trainable_processor_names", ())
+            ),
+            "trainable_names": list(trainable_names),
+            "trainable_shapes": {
+                name: list(named_parameters[name].shape) for name in trainable_names
+            },
+            "trainable_dtypes": {
+                name: str(named_parameters[name].dtype).replace("torch.", "")
+                for name in trainable_names
+            },
+        }
+        if hard_v1_extended:
+            manifest["hard_v1_extensions"] = {
+                "true_reference_key_mask": bool(
+                    self.ba_hard_v1_true_reference_key_mask
+                ),
+                "branch_output_rank": self.ba_hard_v1_branch_output_rank,
+                "reference_roi_warp": bool(
+                    self.ba_hard_v1_reference_roi_warp
+                ),
+                "face_fusion_mode": "hard_reference_replace",
+            }
+        if self.ba_architecture_version == "anchored_mix_sa_v3":
+            manifest.update(
+                {
+                    "routing": "target_q_reference_kv_true_key_mask",
+                    "merge_equation": (
+                        "native_plus_target_mask_times_alpha_times_"
+                        "reference_minus_native"
+                    ),
+                    "reference_output_base": "frozen_native_to_out",
+                    "ba_mix_init": float(self.ba_mix_init),
+                    "ba_mix_floor": float(self.ba_mix_floor),
+                    "ba_mix_max": float(self.ba_mix_max),
+                    "ba_mix_timestep": bool(self.ba_mix_timestep),
+                    "ba_mix_face_area": bool(self.ba_mix_face_area),
+                    "ba_reference_rms_match": bool(
+                        self.ba_reference_rms_match
+                    ),
+                    "ba_reference_rms_clip": [
+                        float(self.ba_reference_rms_clip_min),
+                        float(self.ba_reference_rms_clip_max),
+                    ],
+                    "ba_telemetry_enabled": bool(self.ba_telemetry_enabled),
+                    "ba_telemetry_interval": int(self.ba_telemetry_interval),
+                    "ba_reference_loss_mode": self.ba_reference_loss_mode,
+                }
+            )
+        elif self.ba_architecture_version == "query_adaptive_hard_sa_v4":
+            manifest.update(
+                {
+                    "routing": "branch_target_q_reference_kv_true_key_mask",
+                    "merge_equation": (
+                        "native_outside_target_mask_reference_inside_target_mask"
+                    ),
+                    "face_fusion_mode": "hard_reference_replace",
+                    "face_branch_scale": 1.0,
+                    "reference_output_base": "frozen_native_to_out",
+                    "ba_reference_loss_mode": self.ba_reference_loss_mode,
+                    "ba_telemetry_enabled": bool(self.ba_telemetry_enabled),
+                    "ba_telemetry_interval": int(self.ba_telemetry_interval),
+                }
+            )
+        return manifest
+
+    def _get_trainable_state_dict_v2(self) -> dict:
+        self.assert_trainable_contract()
+        named_parameters = dict(self.unet.named_parameters())
+        trainable_names = tuple(
+            sorted(
+                name for name, parameter in named_parameters.items()
+                if parameter.requires_grad
+            )
+        )
+        if not trainable_names:
+            raise RuntimeError("Refusing to save an empty trainable U-Net state")
+        return {
+            "schema_version": 2,
+            "state_format": "trainable_unet_v2",
+            "architecture": self._branched_architecture_manifest(),
+            "trainable_unet": {
+                name: named_parameters[name].detach().cpu().clone()
+                for name in trainable_names
+            },
+        }
+
     def get_state_dict(self):
+        if self.branched_state_dict_mode == "trainable_v2":
+            # 1 Aug 2026 - Save the exact requires-grad allowlist so checkpoint
+            # fidelity cannot depend on a hand-maintained adapter-name subset.
+            return self._get_trainable_state_dict_v2()
+
         lora_weights = convert_state_dict_to_diffusers(get_peft_model_state_dict(self.unet, adapter_name="lora_adapter"))
         state = {
             'lora_weights': lora_weights,
@@ -298,7 +790,53 @@ class PhotomakerBranchedLora(SDXL):
                 state["attn_processors"] = proc_sd
         return state
 
+    def _load_trainable_state_dict_v2(self, state_dict: dict) -> None:
+        if state_dict.get("state_format") != "trainable_unet_v2":
+            raise RuntimeError(
+                f"Unknown schema-v2 state format: {state_dict.get('state_format')!r}"
+            )
+        saved_manifest = state_dict.get("architecture")
+        current_manifest = self._branched_architecture_manifest()
+        if saved_manifest != current_manifest:
+            raise RuntimeError(
+                "Branched checkpoint architecture mismatch: "
+                f"saved={saved_manifest!r}, current={current_manifest!r}"
+            )
+
+        received = state_dict.get("trainable_unet")
+        if not isinstance(received, dict):
+            raise RuntimeError("Schema-v2 checkpoint is missing trainable_unet")
+        named_parameters = dict(self.unet.named_parameters())
+        expected = set(current_manifest["trainable_names"])
+        received_names = set(received)
+        if expected != received_names:
+            raise RuntimeError(
+                "Schema-v2 trainable state mismatch: "
+                f"missing={sorted(expected - received_names)}, "
+                f"unexpected={sorted(received_names - expected)}"
+            )
+
+        with torch.no_grad():
+            for name in sorted(expected):
+                value = received[name]
+                parameter = named_parameters[name]
+                if not torch.is_tensor(value):
+                    raise TypeError(f"Checkpoint value for {name} is not a tensor")
+                if tuple(value.shape) != tuple(parameter.shape):
+                    raise RuntimeError(
+                        f"Checkpoint shape mismatch for {name}: "
+                        f"saved={tuple(value.shape)}, current={tuple(parameter.shape)}"
+                    )
+                parameter.copy_(value.to(device=parameter.device, dtype=parameter.dtype))
+        self.assert_trainable_contract()
+
     def load_state_dict_(self, state_dict):
+        if int(state_dict.get("schema_version", 1)) == 2:
+            self._load_trainable_state_dict_v2(state_dict)
+            return
+
+        # Historical schema-v1 checkpoints retain their original loader even
+        # when the current run writes schema v2.
         lora_state_dict = state_dict["lora_weights"]
         unet_state_dict = {k.replace("unet.", ""): v for k, v in lora_state_dict.items()}
         unet_state_dict = convert_unet_state_dict_to_peft(unet_state_dict)
@@ -312,6 +850,76 @@ class PhotomakerBranchedLora(SDXL):
             if proc is not None and hasattr(proc, "load_state_dict"):
                 proc.load_state_dict(sd, strict=False)
 
+    def _sample_training_timesteps(
+        self,
+        *,
+        batch_size: int,
+        device: torch.device,
+    ) -> torch.Tensor:
+        num_train_timesteps = int(self.noise_scheduler.config.num_train_timesteps)
+        if self.ba_training_timestep_policy == "uniform_all":
+            # Preserve the exact historical scalar-per-batch behavior.
+            scalar = torch.randint(
+                0,
+                num_train_timesteps,
+                (1,),
+                device=device,
+            ).long()
+            return scalar.repeat(batch_size)
+
+        if self.ba_training_timestep_policy != "inference_active":
+            raise RuntimeError(
+                f"Unhandled timestep policy {self.ba_training_timestep_policy!r}"
+            )
+        if not 0 <= self.branched_attn_start_step < self.num_inference_steps:
+            raise ValueError(
+                "branched_attn_start_step must be within the inference schedule: "
+                f"start={self.branched_attn_start_step}, "
+                f"steps={self.num_inference_steps}"
+            )
+
+        # 2 Aug 2026 - AICODE-NOTE: BA-v2 samples only DDIM timesteps at which
+        # the fixed validation protocol actually enables branched attention.
+        scheduler = DDIMScheduler.from_config(self.noise_scheduler.config)
+        scheduler.set_timesteps(self.num_inference_steps, device=device)
+        active = scheduler.timesteps[self.branched_attn_start_step :]
+        if active.numel() == 0:
+            raise RuntimeError("Inference-active BA timestep set is empty")
+        indices = torch.randint(
+            0,
+            active.numel(),
+            (batch_size,),
+            device=device,
+        )
+        return active.index_select(0, indices).long()
+
+    @staticmethod
+    def _reference_prediction_delta_ratio(
+        correct: torch.Tensor,
+        wrong: torch.Tensor,
+        target_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        mask = target_mask.detach().float()
+        if mask.shape[-2:] != correct.shape[-2:]:
+            mask = F.interpolate(mask, size=correct.shape[-2:], mode="nearest")
+        if mask.shape[0] != correct.shape[0]:
+            if correct.shape[0] % mask.shape[0] != 0:
+                raise RuntimeError("BA prediction-delta mask batch mismatch")
+            mask = mask.repeat(correct.shape[0] // mask.shape[0], 1, 1, 1)
+        denom = (
+            mask.sum(dim=(1, 2, 3)) * correct.shape[1]
+        ).clamp_min(1.0)
+        correct_energy = (
+            correct.detach().float().square() * mask
+        ).sum(dim=(1, 2, 3)) / denom
+        delta_energy = (
+            (correct.detach().float() - wrong.detach().float()).square() * mask
+        ).sum(dim=(1, 2, 3)) / denom
+        return (
+            delta_energy.clamp_min(0.0).sqrt()
+            / correct_energy.clamp_min(1.0e-12).sqrt()
+        ).mean()
+
     def forward(
         self,
         pixel_values: torch.Tensor,
@@ -322,6 +930,7 @@ class PhotomakerBranchedLora(SDXL):
         face_bbox: Sequence[Sequence[float]],
         face_bbox_ref: Sequence[Sequence[float]] | None = None,
         reference_cache_key: Sequence[str] | None = None,
+        identity_id: Sequence[str] | None = None,
         do_cfg: bool = False,
         *args,
         **kwargs,
@@ -337,15 +946,10 @@ class PhotomakerBranchedLora(SDXL):
         noise = torch.randn_like(latents)
         batch_size = latents.shape[0]
 
-        # Match the current inference schedule at batch level:
-        # NO_ID (0-9), PHOTOMAKER (10-14), BOTH (15-49)
-        t_scalar = torch.randint(
-            0,
-            self.noise_scheduler.config.num_train_timesteps,
-            (1,),
+        timesteps = self._sample_training_timesteps(
+            batch_size=batch_size,
             device=latents.device,
-        ).long()
-        timesteps = t_scalar.repeat(batch_size)
+        )
 
         # Add noise to the model input according to the noise magnitude at each timestep
         # (this is the forward diffusion process)
@@ -411,10 +1015,15 @@ class PhotomakerBranchedLora(SDXL):
             branched_start_ratio = float(self.branched_attn_start_step) / float(
                 num_inference_steps
             )
-            denoise_progress = 1.0 - (
-                float(t_scalar.item())
-                / float(self.noise_scheduler.config.num_train_timesteps - 1)
-            )
+            if not self.train_ba_all_steps:
+                if timesteps.unique().numel() != 1:
+                    raise RuntimeError(
+                        "Mixed per-sample timesteps require train_ba_all_steps=true"
+                    )
+                denoise_progress = 1.0 - (
+                    float(timesteps[0].item())
+                    / float(self.noise_scheduler.config.num_train_timesteps - 1)
+                )
 
             text_only_prompts = []
             trigger_word_token = self.tokenizer.convert_tokens_to_ids(self.trigger_word)
@@ -489,9 +1098,106 @@ class PhotomakerBranchedLora(SDXL):
             )
             ##### BRANCHED ATTENTION - FORWARD PASS #####
 
+        # Read matched-forward telemetry before an optional counterfactual
+        # pass. The latter is deliberately suppressed so it cannot overwrite
+        # the actual production-path sample.
+        ba_telemetry = collect_branched_telemetry(self)
+        wrong_spatial_reference_pred = None
+        reference_shuffle_applied = noise_pred.new_tensor(0.0)
+        reference_prediction_delta_ratio = noise_pred.new_tensor(0.0)
+        shuffle_probability = self.ba_spatial_reference_shuffle_probability
+        if (
+            self.training
+            and shuffle_probability > 0.0
+            and batch_size > 1
+            and torch.rand((), device=latents.device).item() < shuffle_probability
+        ):
+            if identity_id is None:
+                identities = None
+            elif isinstance(identity_id, str):
+                if batch_size != 1:
+                    raise ValueError(
+                        "identity_id must contain one value per training sample"
+                    )
+                identities = [identity_id]
+            else:
+                identities = [str(value) for value in identity_id]
+                if len(identities) != batch_size:
+                    raise ValueError(
+                        "identity_id batch mismatch: "
+                        f"received={len(identities)}, expected={batch_size}"
+                    )
+            permutation = None
+            for shift in range(1, batch_size):
+                candidate = torch.roll(
+                    torch.arange(batch_size, device=latents.device),
+                    shifts=shift,
+                )
+                if identities is None or all(
+                    identities[index] != identities[int(candidate[index].item())]
+                    for index in range(batch_size)
+                ):
+                    permutation = candidate
+                    break
+            if permutation is not None:
+                # Keep PhotoMaker prompt/ID conditioning, target noise, and
+                # timestep fixed; shuffle only spatial reference latents/masks.
+                paired_reference_noise = getattr(self, "_ref_noise", None)
+                previous_suppression = bool(
+                    getattr(self, "_ba_suppress_telemetry", False)
+                )
+                self._ba_suppress_telemetry = True
+
+                def _wrong_reference_forward():
+                    return run_branched_forward_pass(
+                        self,
+                        noisy_latents=noisy_latents,
+                        timesteps=timesteps,
+                        prompt_embeds=prompt_embeds,
+                        added_cond_kwargs=added_cond_kwargs,
+                        mask4=mask4,
+                        mask4_ref=mask4_ref.index_select(0, permutation),
+                        reference_latents=reference_latents.index_select(
+                            0, permutation
+                        ),
+                        face_prompt_embeds=face_prompt_embeds,
+                        class_tokens_mask=class_tokens_mask,
+                        id_features=id_features,
+                        reference_noise=paired_reference_noise,
+                    )
+
+                try:
+                    if self.ba_reference_loss_mode == "differentiable_rank":
+                        wrong_spatial_reference_pred = _wrong_reference_forward()
+                    else:
+                        # Preserve residual-v2's exact detached diagnostic path.
+                        with torch.no_grad():
+                            wrong_spatial_reference_pred = _wrong_reference_forward()
+                finally:
+                    self._ba_suppress_telemetry = previous_suppression
+
+                if paired_reference_noise is not None and getattr(
+                    self, "_ref_noise", None
+                ) is not paired_reference_noise:
+                    raise RuntimeError(
+                        "Correct/wrong BA forwards did not reuse reference noise"
+                    )
+                reference_prediction_delta_ratio = (
+                    self._reference_prediction_delta_ratio(
+                        noise_pred,
+                        wrong_spatial_reference_pred,
+                        mask4,
+                    ).to(device=noise_pred.device)
+                )
+                reference_shuffle_applied = noise_pred.new_tensor(1.0)
+
         return {
             'model_pred': noise_pred,
             'target': noise,
+            'pred_wrong_spatial_ref': wrong_spatial_reference_pred,
+            'reference_shuffle_applied': reference_shuffle_applied,
+            'reference_prediction_delta_ratio': reference_prediction_delta_ratio,
+            'ba_telemetry': ba_telemetry,
         }
 
     def encode_prompt_with_trigger_word(

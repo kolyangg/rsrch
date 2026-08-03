@@ -1,0 +1,13 @@
+defaults:
+  - large_dataset_rhca_hard_v1_audited_20k
+  - _self_
+
+# E3: the only scientific delta is bbox-frame alignment before reference K/V.
+model:
+  ba_hard_v1_reference_roi_warp: true
+
+writer:
+  experiment_comment: >-
+    E3 vs audited Large Dataset r4 baseline: bbox-normalize the masked reference
+    ROI into the target-face frame before hard-BA K/V projection; test whether
+    spatial misregistration causes seams, duplicated features, and the ID plateau.

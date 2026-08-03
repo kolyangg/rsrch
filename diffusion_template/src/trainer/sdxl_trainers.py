@@ -262,10 +262,48 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
 
+        # 2 Aug 2026 - AICODE-NOTE: reference counterfactuals are sampled, so
+        # unconditional Comet curves contain zeros on inactive ranks/batches.
+        # Keep those historical curves and add shuffle-conditional companions.
+        conditional_reference_metrics = {}
+        active_rank = None
+        if "reference_shuffle_applied" in batch:
+            conditional_reference_metrics = {
+                "reference_error_gap": "reference_error_gap_conditional",
+                "reference_error_relative_gap": (
+                    "reference_error_relative_gap_conditional"
+                ),
+                "reference_prediction_delta_ratio": (
+                    "reference_prediction_delta_ratio_conditional"
+                ),
+            }
+            shuffle_by_rank = self.accelerator.gather(
+                batch["reference_shuffle_applied"].detach().reshape(1)
+            ).float()
+            active_rank = shuffle_by_rank > 0.5
+
         # update metrics for each loss (in case of multiple losses)
         for loss_name in self.config.writer.loss_names:
-            batch[loss_name] = self.accelerator.gather(batch[loss_name]).mean()
+            gathered = self.accelerator.gather(
+                batch[loss_name].detach().reshape(1)
+            ).float()
+            batch[loss_name] = gathered.mean()
             train_metrics.update(loss_name, batch[loss_name].item())
+            conditional_name = conditional_reference_metrics.get(loss_name)
+            if (
+                conditional_name is not None
+                and active_rank is not None
+                and active_rank.any().item()
+            ):
+                train_metrics.update(
+                    conditional_name,
+                    gathered[active_rank].mean().item(),
+                )
+        if active_rank is not None:
+            train_metrics.update(
+                "reference_shuffle_rank_fraction",
+                active_rank.float().mean().item(),
+            )
 
         return batch
         
@@ -735,6 +773,13 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 generated_masks_collection.append([sample_mask_images[idx].copy() for _ in range(len(sample_images))])
 
         for idx in range(batch_size):
+            # 3 Aug 2026 - Use the validation stream ordinal rather than
+            # batch_idx * current_batch_size, which mislabels a short final
+            # batch and can make a supposedly per-image Comet table ambiguous.
+            table_image_index = int(
+                getattr(self, "_validation_per_image_id_next_index", 0)
+            )
+            self._validation_per_image_id_next_index = table_image_index + 1
             sample = {}
             for key, value in batch.items():
                 if isinstance(value, list) and batch_size > 1 and len(value) == batch_size:
@@ -749,13 +794,39 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             sample["seed"] = seeds_list[idx]
 
             metric_time = 0.0
+            id_sim_value = None
             for metric in self.metrics:
                 metric_start = time.time()
                 metric_result = metric(**sample)
                 metric_time += time.time() - metric_start
                 for k, v in metric_result.items():
                     eval_metrics.update(k, v)
+                    if k == "id_sim":
+                        id_sim_value = float(
+                            v.item() if hasattr(v, "item") else v
+                        )
             total_metric_time += metric_time
+
+            if id_sim_value is not None and hasattr(
+                self, "_validation_per_image_id_rows"
+            ):
+                seed = seeds_list[idx]
+                if hasattr(seed, "item"):
+                    seed = seed.item()
+                output_key = keys[idx]
+                if output_key is None:
+                    output_key = f"{str(prompts[idx])[:10]}_{ids_list[idx]}.png"
+                self._validation_per_image_id_rows.append(
+                    {
+                        "image_index": table_image_index,
+                        "output_key": str(output_key),
+                        "identity": str(ids_list[idx]),
+                        "prompt": str(prompts[idx]),
+                        "seed": int(seed),
+                        "generated_image_count": len(generated_collection[idx]),
+                        "id_sim": id_sim_value,
+                    }
+                )
 
         batch["generated"] = generated_collection if batch_size > 1 else generated_collection[0]
         batch["generated_masks"] = generated_masks_collection if batch_size > 1 else generated_masks_collection[0]

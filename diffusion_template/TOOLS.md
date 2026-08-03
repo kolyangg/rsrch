@@ -9,6 +9,14 @@ commands from `diffusion_template/` unless a linked guide says otherwise.
   history, current conclusions, architectural boundaries, machine caveats,
   immutable Comet IDs, and recommended next work.
 
+## Neb outage — 3 August 2026
+
+Neb is unavailable and must not be accessed or used, including as a Comet
+download proxy. Use local credentials/tools or Serv when appropriate. If a
+user requests Neb, obtain separate explicit confirmation that the machine is
+working again before even testing connectivity. The linked Neb operations
+guide is dormant historical guidance while this notice is in force.
+
 ## Experiment tracking and reports
 
 - [Comet experiment records and retrieval](tools/comet/README.md) —
@@ -32,8 +40,9 @@ architecture flags, launcher/package, machine, gates, and status.
 
 1. Create a unique launcher/run name and its local JSON. Never reuse a
    contaminated saved directory or Comet identity.
-2. For Neb, follow `LOCAL_NEB_SERVER_OPERATIONS.md` and launch the active
-   shell script from the remote `diffusion_template/` checkout.
+2. Do not submit to Neb while the outage notice above is in force. A future
+   Neb request requires separate user confirmation before a read-only
+   connectivity check.
 3. For Serv, build/deploy a package with
    `../local_scripts/serv_run_builder/create_serv_run.py`, then submit its YAML
    through `../local_scripts/serv_job.py submit`. This creates a local
@@ -41,8 +50,8 @@ architecture flags, launcher/package, machine, gates, and status.
 4. During startup, require `saved/<run_name>/comet_experiment.json`, then copy
    the live immutable Comet key and URL into the experiment JSON if the
    launcher did not already preserve the plan in the canonical runtime record.
-5. Inspect jobs through the documented Neb process/GPU checks or
-   `serv_job.py status|inspect`; preserve failed records.
+5. Inspect Serv jobs with `serv_job.py status|inspect`; preserve failed
+   records. Do not attempt Neb job inspection during the outage.
 6. Retrieve metrics and images by immutable key with
    `tools/comet/comet_experiment.py fetch`, then verify requested steps, image
    counts, warnings, hashes, and visual gates.
@@ -55,8 +64,7 @@ python tools/comet/comet_experiment.py show \
   saved/<run_name>/comet_experiment.json
 
 python tools/comet/comet_experiment.py fetch \
-  --host neb \
-  --run-name <run_name> \
+  --record saved/<run_name>/comet_experiment.json \
   --step-number 4000
 
 python3 ../local_scripts/serv_job.py submit <REMOTE_YAML> \
@@ -71,12 +79,25 @@ machine-local `.env` files and must never be printed or copied into JSON.
 
 ## Server operations
 
-- [Neb operations](LOCAL_NEB_SERVER_OPERATIONS.md) — SSH, synchronization,
-  process/GPU checks, and safe job operation on Neb.
+- [Neb operations](LOCAL_NEB_SERVER_OPERATIONS.md) — dormant historical
+  guidance; do not use during the current outage.
 - [Serv/MLS operations](../local_scripts/serv_instructions.MD) — MLS job
   submission, inspection, stopping, and per-job JSON audit records.
 - [Serv run-package builder](../local_scripts/serv_run_builder/README.MD) —
   standardized launcher/YAML packaging for Serv.
+
+### August Large Dataset hard-BA suite
+
+- [Six-arm design](docs/experiments/2026-08-03_large_dataset_hard_ba_six_arm_design.md)
+  — historical evidence, single-delta hypotheses, fixed controls, and decision
+  gates.
+- `tools/validate_aug_large_ds_config.py` — fail-closed composition/spec gate
+  for the six planned configs.
+- `launchers/active/run_E_large_ds_hard_v1_20k_1gpu.sh` — shared
+  one-GPU launcher; generated MLS YAMLs are under `serv_run_packages/`.
+
+These packages are prepared only. Do not deploy or submit them before user
+approval.
 
 ## Common experiment utilities
 

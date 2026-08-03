@@ -1,0 +1,16 @@
+defaults:
+  - large_dataset_rhca_hard_v1_audited_20k
+  - _self_
+
+# E4: the only scientific delta is semantic processor-site selection.
+model:
+  ba_self_attention_groups:
+    - mid_block
+    - up_blocks.0
+    - up_blocks.1
+
+writer:
+  experiment_comment: >-
+    E4 vs audited Large Dataset r4 baseline: restrict unchanged hard rank-32 BA
+    to mid/up0/up1 self-attention sites; test whether all-layer/down-block
+    reference takeover harms pose and face integration.

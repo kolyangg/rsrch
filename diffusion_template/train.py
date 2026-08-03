@@ -61,10 +61,10 @@ def _print_trainable_summary(model, optimizer=None, max_examples: int = 6):
         n = int(p.numel())
         total_numel += n
         if name.startswith("unet."):
-            if "lora_A" in name or "lora_B" in name:
-                key = "unet_lora"
-            elif ".attn1.processor." in name or ".attn2.processor." in name:
+            if ".attn1.processor." in name or ".attn2.processor." in name:
                 key = "unet_processors"
+            elif "lora_A" in name or "lora_B" in name:
+                key = "unet_lora"
             else:
                 key = "unet_other"
         else:
@@ -229,6 +229,7 @@ def main(config):
     loss_target_by_kind = {
         "masked_alternating": "src.loss.diffusion_loss.MaskedDiffusionLoss",
         "blended_masked": "src.loss.diffusion_loss.BlendedMaskedDiffusionLoss",
+        "branched_reference": "src.loss.branched_reference_loss.BranchedReferenceLoss",
     }
     if loss_kind not in loss_target_by_kind:
         raise ValueError(
@@ -243,6 +244,27 @@ def main(config):
     elif "lambda_face" in loss_cfg:
         del loss_cfg["lambda_face"]
     loss_function = instantiate(loss_cfg).to(device)
+    if loss_kind == "branched_reference":
+        model_reference_mode = str(
+            getattr(model, "ba_reference_loss_mode", "detached_diagnostic")
+        ).lower()
+        loss_reference_mode = str(
+            getattr(loss_function, "reference_mode", "detached_diagnostic")
+        ).lower()
+        if model_reference_mode != loss_reference_mode:
+            raise RuntimeError(
+                "BA model/loss reference-mode mismatch: "
+                f"model={model_reference_mode}, loss={loss_reference_mode}"
+            )
+        if (
+            model_reference_mode == "differentiable_rank"
+            and float(getattr(model, "ba_spatial_reference_shuffle_probability", 0.0))
+            <= 0.0
+        ):
+            raise RuntimeError(
+                "differentiable_rank requires a positive spatial-reference "
+                "shuffle probability"
+            )
 
     metrics = []
     for metric_name in config.inference_metrics:
@@ -252,6 +274,17 @@ def main(config):
     # build optimizer, learning rate scheduler
     trainable_params = model.get_trainable_params(config)
     optimizer = instantiate(config.optimizer, params=trainable_params)
+
+    # 1 Aug 2026 - AICODE-NOTE: Inclusion-only processor counts missed 140.3M
+    # unintended adapter parameters. Strict runs compare the optimizer against
+    # the complete BA allowlist on every rank before Accelerate wraps the model.
+    if bool(getattr(model, "strict_trainable_contract", False)):
+        contract = model.assert_trainable_contract(optimizer=optimizer)
+        print(
+            "[BA Trainable Contract] exact match: "
+            f"{contract['tensor_count']} tensors / "
+            f"{contract['parameter_count']} parameters"
+        )
     
     if accelerator.is_main_process:
         for i, group in enumerate(optimizer.param_groups):
@@ -269,7 +302,8 @@ def main(config):
 
     lr_scheduler = instantiate(config.lr_scheduler, optimizer=optimizer) 
 
-    # Quick check: confirm optimizer includes branched-attn processor params
+    # Legacy diagnostic retained for historical log comparability. Strict runs
+    # have already passed the exact inclusion-and-exclusion contract above.
     if accelerator.is_main_process:
         try:
             # Map model params by id for matching against optimizer groups
@@ -320,6 +354,43 @@ def main(config):
         ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
         setattr(pipeline, "disable_branched_sa", disable_sa)
         setattr(pipeline, "disable_branched_ca", disable_ca)
+        try:
+            pipeline_model = accelerator.unwrap_model(model)
+        except Exception:
+            pipeline_model = model
+        for attribute in (
+            "ba_architecture_version",
+            "branched_trainable_dtype",
+            "ba_ref_kv_rank",
+            "ba_output_rank",
+            "ba_branch_q_rank",
+            "ba_face_fusion_mode",
+            "ba_face_branch_scale",
+            "ba_gate_init",
+            "ba_gate_max",
+            "ba_gate_timestep",
+            "ba_gate_face_area",
+            "ba_mix_init",
+            "ba_mix_floor",
+            "ba_mix_max",
+            "ba_mix_timestep",
+            "ba_mix_face_area",
+            "ba_reference_rms_match",
+            "ba_reference_rms_clip_min",
+            "ba_reference_rms_clip_max",
+            "ba_mix_override",
+            "ba_telemetry_enabled",
+            "ba_telemetry_interval",
+            "ba_require_denoise_progress",
+            "ba_self_attention_groups",
+            "ba_reference_loss_mode",
+            "ba_enforce_reference_only_hard_route",
+            "ba_hard_v1_true_reference_key_mask",
+            "ba_hard_v1_branch_output_rank",
+            "ba_hard_v1_reference_roi_warp",
+        ):
+            if hasattr(pipeline_model, attribute):
+                setattr(pipeline, attribute, getattr(pipeline_model, attribute))
         ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
         if val_pretrained:
             # Restore original config value immediately after

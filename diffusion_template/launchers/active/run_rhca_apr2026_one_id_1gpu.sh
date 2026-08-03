@@ -72,36 +72,74 @@ HISTORICAL_RUNTIME_FILES=(
   "src/loss/diffusion_loss.py"
   "src/pipelines/br_pipeline_helpers.py"
   "src/pipelines/photomaker_branched_clean.py"
-  "src/trainer/sdxl_trainers.py"
 )
 declare -A AUDITED_RUNTIME_SHA256=(
   # 28 Jul 2026 - Adds an opt-in rank-serialized model-cache warmup for fresh
   # distributed MLS containers; model construction itself is unchanged.
-  ["train.py"]="0219250219046fa98e8a92d95d986c49ea8580006edee6f88402e9f059d1b46a"
+  # 1 Aug 2026 - Adds an opt-in exact BA allowlist audit before Accelerate;
+  # historical runs leave the strict model toggle disabled.
+  # 2 Aug 2026 - Registers the defaults-off residual-reference loss while the
+  # historical diffusion-loss selection remains unchanged.
+  # 3 Aug 2026 - Adds defaults-off hard-v1 experiment controls plus per-image
+  # validation tables/comments; historical routing remains the default.
+  # 3 Aug 2026 - Propagates defaults-off audited hard-v1 controls to validation.
+  ["train.py"]="261394427216e2917f424c50d73b5258d36120d8eeb874aee9b9525fdd6ff8c0"
   # 27 Jul 2026 - Defaults validation to one image per item and installs the
   # exact 2k/full-96 face-quality contract without changing model routing.
+  # 3 Aug 2026 - Adds per-image ID tables and opt-in Comet experiment comments.
   ["src/configs/one_id_09Feb_testing.yaml"]="5fa548c2da9458d113ee6b8ae4bf1b687d6c224c26ee78b60cdeadeb33e60aae"
-  ["src/configs/trainer/photomaker_lora.yaml"]="395b7f77881eee609dd6a00264c7c26c09ef7e9deb4e8bc21a806e0d5fadb3b8"
-  ["src/logger/cometml.py"]="1987d8ff26f2bb43ffa9ea63b31a0ddcc36b19cc0d87023a47a04c833b53637b"
+  ["src/configs/trainer/photomaker_lora.yaml"]="2fd412ccd5e9b3f3b0e0d72b980a3f72db62fe05620b7f5bf8c1d4cd6170eb74"
+  ["src/logger/cometml.py"]="e1c5ae77fd9bfb36bfa3e1c71cd088a7f6c667a8edf0c494bc2fee0a00e18eeb"
   ["src/metrics/face_quality_validation.py"]="141b21dd9f95be547cf2df4d3d2572d85dae6154dd3ad40867a7cd8135cb8605"
   ["tools/inference/calculate_face_quality_metrics.py"]="8225a0f009c5c5f588afef63ddcd6db3248e4b442940ce8e5bb65f5e32e78c3a"
-  ["src/configs/model/photomaker_branched_lora2.yaml"]="5c894c48a646ad4b7548ca71f0f29809a27c2cd1683a87081e73039772c1e6c5"
+  # 2 Aug 2026 - Adds defaults-off shuffle-conditional reference metrics;
+  # historical/non-reference trainers keep their original logging path.
+  ["src/trainer/sdxl_trainers.py"]="90461c5660d55e612ea60902647c1cbb1ad62c409ee0fb590d140969927e8e0d"
+  ["src/configs/model/photomaker_branched_lora2.yaml"]="62e275596d3ad8b6f076f426a33eccfdfe3de48f3ee576dfbcf6b098f7befe00"
   ["src/datasets/cosmic.py"]="660d069a9f77ac1b7e0cb06fce245a342428159d9f05c49db32140bbd1a2467e"
   # 26 Jul 2026 - Restores the existing pose-adapt config as an opt-in runtime
   # control; the historical zero ratio remains the default.
-  ["src/model/photomaker_branched/attn_processor_cleanest.py"]="e1c9f2bcbf5ebbc5e80ebb2b82fdd4471d0c0b4ea28ab01cb2fb680da969149a"
-  ["src/model/photomaker_branched/branched_runtime.py"]="0589ffc9a4a6628db3a8238994855ef8e4c47457f636130e9884d86fffc21ffc"
+  # 3 Aug 2026 - Adds defaults-off hard-v1 key-mask, branch-output, ROI-warp,
+  # and trainable-precision controls for the audited Large Dataset suite.
+  ["src/model/photomaker_branched/attn_processor_cleanest.py"]="aa1a3364e88eadbe40fa3bf46ad68a6137e85523fdedab0913fb95efe184b941"
+  ["src/model/photomaker_branched/branched_runtime.py"]="572deabd787cf3451e395a598c1dfc2d16fec4fa05622929ddc82c4a3d42ed3a"
   # 26 Jul 2026 - Adds opt-in batched frozen conditioning for unique-reference
   # datasets; historical one-ID configs retain the per-sample/cache path.
-  ["src/model/photomaker_branched/lora2.py"]="f67b5153600ea3cbc0defd2511cc38b15665f95c4c0992c40a128116287abd96"
-  ["src/model/photomaker_branched/lora2_helpers.py"]="404316d06ad5b253bdfc28269aa0c46ce162b90899898e6645db2991798efdd9"
+  # 1 Aug 2026 - Adds defaults-off fail-closed installation and schema-v2
+  # exact-trainable checkpointing; legacy behavior remains the default.
+  # 2 Aug 2026 - Adds the opt-in residual-SA-v2 processor, role-specific
+  # optimizer groups, inference-active timesteps, and detached shuffle audit.
+  ["src/model/photomaker_branched/lora2.py"]="e75482a1256a639b1e1d723565e98f373703b8a2eaf2882fcd0bfb4abe16eefe"
+  ["src/model/photomaker_branched/lora2_helpers.py"]="51bcfccdb7ad43f56519546618962b8f4abb9c5a4c8ca3d1142b9a8037d1948f"
+  # 2 Aug 2026 - Version-lock all three explicit SA architectures and the
+  # reversible reference-causal objective used by controlled BA-v3 arms.
+  ["src/model/photomaker_branched/residual_sa_processor_v2.py"]="e9272e516ab3e770d885ca0df1f3dab5afbd5e06ed47b5ca34c7086aedbf311b"
+  ["src/model/photomaker_branched/anchored_mix_sa_processor_v3.py"]="eb768e6a828d9fde688e63ab9432de4fa3b5e17c4762c4d69f5112e6c3a6794a"
+  # 3 Aug 2026 - Adds the opt-in query-adaptive hard face route. It has no
+  # native/reference face mixer or gate; historical configs remain unchanged.
+  ["src/model/photomaker_branched/query_adaptive_hard_sa_processor_v4.py"]="fe41a3c832fd9b27428b3c7f03524ff0b61770fc07b05cf46651d7f2e2beacd6"
+  ["src/loss/branched_reference_loss.py"]="84820a9052d06d8d6907ca0fe5c5f9ab55358b4541833779db9a07431cf1b9d1"
   # 25 Jul 2026 - Adds an opt-in validation-only branch; default training
   # behavior and the historical model path remain unchanged.
   # 26 Jul 2026 - Adds an opt-in validation-only pose-adapt ratio; null keeps
   # training and validation on the historical shared setting.
   # 26 Jul 2026 - Adds an opt-in multi-checkpoint validation schedule; the
   # historical single-checkpoint path remains the default.
-  ["src/trainer/base_trainer.py"]="fdf91ecff26272313a3ecbc4f2190d4e3beece571b579c83e71eec4ba639155d"
+  # 1 Aug 2026 - Adds an opt-in dataset resume-position assertion; datasets
+  # without the hook retain the historical path unchanged.
+  # 1 Aug 2026 - Adds explicit legacy-full-copy versus validation-native
+  # processor-base modes and strict stateful-processor copy auditing.
+  # 3 Aug 2026 - Adds exact-row, exact-index per-image ID table publication.
+  ["src/trainer/base_trainer.py"]="6b3cf0a9e09ebe246621c360c4ebc3b08c05b7a8d29006d76d1a83a67034bd67"
+)
+# 2 Aug 2026 - Neb's committed f0bf95b snapshot predates the defaults-off
+# suppress_events recovery hook. Fresh online training takes the same logger
+# path in both versions, so pin that exact committed variant as an alternate.
+declare -A AUDITED_RUNTIME_SHA256_ALTERNATE=(
+  ["src/logger/cometml.py"]="179411e747f503d67cc4825a71b41e240cd2d007619944838e94232ed31bd161"
+  ["src/configs/trainer/photomaker_lora.yaml"]="111550888c9ba89cc1bb648e785260c6f7b4607e2202e6838f268edea6607cd8"
+  ["src/trainer/sdxl_trainers.py"]="28019505f685f5506f92433cfa9bb65f466e2e5e277e5db66ac4269fa1912782"
+  ["src/model/photomaker_branched/anchored_mix_sa_processor_v3.py"]="a8e3919c8236e676e32cc54ed5e1ed77af238a5c8b0a85e85c98cce2a8ba3297"
 )
 
 GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
@@ -121,7 +159,10 @@ for relative_path in "${HISTORICAL_RUNTIME_FILES[@]}"; do
 done
 for relative_path in "${!AUDITED_RUNTIME_SHA256[@]}"; do
   actual_sha256="$(sha256sum "${ROOT_DIR}/${relative_path}" | awk '{print $1}')"
-  if [[ "${actual_sha256}" != "${AUDITED_RUNTIME_SHA256[${relative_path}]}" ]]; then
+  expected_sha256="${AUDITED_RUNTIME_SHA256[${relative_path}]}"
+  alternate_sha256="${AUDITED_RUNTIME_SHA256_ALTERNATE[${relative_path}]:-}"
+  if [[ "${actual_sha256}" != "${expected_sha256}" \
+      && "${actual_sha256}" != "${alternate_sha256}" ]]; then
     echo "Audited runtime-patch integrity check failed: ${relative_path}" >&2
     exit 4
   fi

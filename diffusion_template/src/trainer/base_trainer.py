@@ -2,6 +2,7 @@ from abc import abstractmethod
 from pathlib import Path
 
 import gc
+import pandas as pd
 import torch
 from tqdm.auto import tqdm
 
@@ -13,6 +14,53 @@ from hydra.utils import instantiate
 
 import os
 import time
+
+
+def _resolve_validation_processor_base_mode(config) -> str:
+    explicit = getattr(config, "validation_processor_base_mode", None)
+    if explicit is None:
+        return (
+            "legacy_full_copy"
+            if bool(getattr(config, "update_proc_weights_val", False))
+            else "no_processor_update"
+        )
+    mode = str(explicit).lower()
+    allowed = {"legacy_full_copy", "validation_native", "no_processor_update"}
+    if mode not in allowed:
+        raise ValueError(
+            f"Unknown validation_processor_base_mode={mode!r}; "
+            f"expected one of {sorted(allowed)}"
+        )
+    return mode
+
+
+def _copy_full_processor_state(train_unet, val_unet, *, strict: bool) -> int:
+    train_processors = getattr(train_unet, "attn_processors", {})
+    val_processors = getattr(val_unet, "attn_processors", {})
+    copied = 0
+    for name, train_processor in train_processors.items():
+        if not hasattr(train_processor, "state_dict"):
+            continue
+        processor_state = train_processor.state_dict()
+        if not processor_state:
+            continue
+        val_processor = val_processors.get(name)
+        if val_processor is None or not hasattr(val_processor, "load_state_dict"):
+            if strict:
+                raise RuntimeError(
+                    f"Validation U-Net is missing stateful processor {name!r}"
+                )
+            continue
+        try:
+            val_processor.load_state_dict(processor_state, strict=strict)
+        except Exception:
+            if strict:
+                raise
+            continue
+        copied += 1
+    if strict and copied == 0:
+        raise RuntimeError("Strict legacy processor copy found no stateful processors")
+    return copied
 
 
 
@@ -52,6 +100,7 @@ class BaseTrainer:
         validation_pose_adapt_ratio=None,
         validation_interval_steps=2000,
         face_quality=None,
+        log_per_image_id_sim_table=True,
         skip_initial_validation=False,
     ):
         """
@@ -99,6 +148,11 @@ class BaseTrainer:
 
         # define dataloaders
         self.train_dataloader = dataloaders["train"]
+        self._train_dataset_for_resume_validation = getattr(
+            self.train_dataloader,
+            "dataset",
+            None,
+        )
         if epoch_len is None:
             # epoch-based training
             self.epoch_len = len(self.train_dataloader)
@@ -129,6 +183,7 @@ class BaseTrainer:
             else int(validation_interval_steps)
         )
         self.face_quality_config = face_quality
+        self.log_per_image_id_sim_table = bool(log_per_image_id_sim_table)
         self.skip_initial_validation = bool(skip_initial_validation)
         if (
             not bool(getattr(self.config, "validation_only", False))
@@ -164,6 +219,18 @@ class BaseTrainer:
         # resumes from a different epoch, rank-conditional first-epoch logic
         # (initial validation, barriers) can desynchronize collectives.
         self._sync_start_epoch()
+
+        # 1 Aug 2026 - Scheduled datasets encode exact global sample order.
+        # AICODE-NOTE: Validate after checkpoint loading sets start_epoch but
+        # before the lazy inf_loop consumes its first batch.
+        validate_resume_position = getattr(
+            self._train_dataset_for_resume_validation,
+            "validate_resume_position",
+            None,
+        )
+        if validate_resume_position is not None:
+            completed_steps = (self.start_epoch - 1) * self.epoch_len
+            validate_resume_position(completed_steps)
 
 
     def train(self):
@@ -563,6 +630,8 @@ class BaseTrainer:
 
         validation_step = epoch * self.epoch_len
         self.writer.set_step(validation_step, part)
+        self._validation_per_image_id_rows = []
+        self._validation_per_image_id_next_index = 0
         face_quality_enabled = bool(
             self.face_quality_config is not None
             and self.face_quality_config.get("enabled", True)
@@ -618,7 +687,37 @@ class BaseTrainer:
                 prev_model_base = getattr(self.config.model, "pretrained_model_name_or_path", None)
                 try:
                     self.config.model.pretrained_model_name_or_path = val_pretrained
-                    _val_model = instantiate(self.config.model, device=self.device)
+                    validation_ba_kwargs = {}
+                    validation_model_target = str(
+                        getattr(self.config.model, "_target_", "")
+                    )
+                    if (
+                        "src.model.photomaker_branched.lora2.PhotomakerBranchedLora"
+                        in validation_model_target
+                        or "src.model.photomaker_branched.lora3.PhotomakerBranchedLora"
+                        in validation_model_target
+                    ):
+                        # 2 Aug 2026 - AICODE-NOTE: These top-level routing
+                        # controls are constructor invariants. Passing them only
+                        # after construction can reject inference-active v2 and
+                        # can install a validation architecture unlike training.
+                        for attribute, default in (
+                            ("train_ba_only", False),
+                            ("ba_train_top_k", 1.0),
+                            ("ba_patch_top_k", 1.0),
+                            ("non_ba_train", False),
+                            ("train_ba_all_steps", False),
+                            ("ba_weights_split", False),
+                            ("use_attn_v2", False),
+                        ):
+                            validation_ba_kwargs[attribute] = getattr(
+                                self.config, attribute, default
+                            )
+                    _val_model = instantiate(
+                        self.config.model,
+                        device=self.device,
+                        **validation_ba_kwargs,
+                    )
                     # 25 Jul 2026 - The alternate validation model must receive
                     # the architecture toggles before processor installation.
                     # AICODE-NOTE: Setting these after prepare_for_training()
@@ -634,6 +733,24 @@ class BaseTrainer:
                         bool(getattr(self.config, "disable_branched_ca", False)),
                     )
                     setattr(_val_model, "strict_face_routing", bool(getattr(self.config, "strict_face_routing", False)))
+                    # Keep the explicit attributes aligned for historical model
+                    # classes that accept but do not retain every constructor
+                    # argument. New branched models already received these
+                    # values through validation_ba_kwargs above.
+                    for attribute, default in (
+                        ("train_ba_only", False),
+                        ("ba_train_top_k", 1.0),
+                        ("ba_patch_top_k", 1.0),
+                        ("non_ba_train", False),
+                        ("train_ba_all_steps", False),
+                        ("ba_weights_split", False),
+                        ("use_attn_v2", False),
+                    ):
+                        setattr(
+                            _val_model,
+                            attribute,
+                            getattr(self.config, attribute, default),
+                        )
                     # Ensure adapters are initialized before loading LoRA weights
                     if hasattr(_val_model, "prepare_for_training"):
                         _val_model.prepare_for_training()
@@ -641,31 +758,50 @@ class BaseTrainer:
                         state = self.accelerator.unwrap_model(self.model).get_state_dict()
                     except Exception:
                         state = self.model.get_state_dict()
-                    if not bool(getattr(self.config, "update_proc_weights_val", False)) and isinstance(state, dict):
+                    processor_base_mode = _resolve_validation_processor_base_mode(
+                        self.config
+                    )
+                    print(
+                        "[Validation Processor Base] "
+                        f"mode={processor_base_mode}"
+                    )
+                    if processor_base_mode == "no_processor_update" and isinstance(state, dict):
+                        if int(state.get("schema_version", 1)) == 2:
+                            raise RuntimeError(
+                                "no_processor_update is incompatible with schema-v2 "
+                                "trainable-only checkpoints; use validation_native or "
+                                "legacy_full_copy"
+                            )
                         state = dict(state)
                         state.pop("attn_processors", None)
                     if hasattr(_val_model, "load_state_dict_"):
                         _val_model.load_state_dict_(state)
 
-                    # Optionally copy branched-attention processor weights into the
-                    # validation UNet so their effect is visible in validation.
-                    if bool(getattr(self.config, "update_proc_weights_val", False)):
+                    # The historical path copies base buffers as well as learned
+                    # deltas. validation_native deliberately keeps the alternate
+                    # validation U-Net's own processor bases.
+                    if processor_base_mode == "legacy_full_copy":
                         try:
                             train_unet = self.accelerator.unwrap_model(self.model).unet
                         except Exception:
                             train_unet = getattr(self.model, "unet", None)
                         val_unet = getattr(_val_model, "unet", None)
                         if train_unet is not None and val_unet is not None:
-                            t_procs = getattr(train_unet, "attn_processors", {})
-                            v_procs = getattr(val_unet, "attn_processors", {})
-                            for name, t_proc in t_procs.items():
-                                v_proc = v_procs.get(name)
-                                if v_proc is None:
-                                    continue
-                                try:
-                                    v_proc.load_state_dict(t_proc.state_dict(), strict=False)
-                                except Exception:
-                                    continue
+                            copied = _copy_full_processor_state(
+                                train_unet,
+                                val_unet,
+                                strict=bool(
+                                    getattr(
+                                        self.config,
+                                        "strict_validation_processor_copy",
+                                        False,
+                                    )
+                                ),
+                            )
+                            print(
+                                "[Validation Processor Base] legacy full-copy "
+                                f"stateful_processors={copied}"
+                            )
                     # Move the temporary validation model to the active device (GPU)
                     try:
                         _val_model.to(self.device)
@@ -695,6 +831,46 @@ class BaseTrainer:
                         "disable_branched_ca",
                         bool(getattr(self.config, "disable_branched_ca", False)),
                     )
+                    # 2 Aug 2026 - Alternate-base validation must refresh the
+                    # exact versioned processor runtime, not infer v3 through a
+                    # residual-v2 superclass or lose its bounded-mix settings.
+                    for attribute in (
+                        "ba_architecture_version",
+                        "branched_trainable_dtype",
+                        "ba_ref_kv_rank",
+                        "ba_output_rank",
+                        "ba_branch_q_rank",
+                        "ba_face_fusion_mode",
+                        "ba_face_branch_scale",
+                        "ba_gate_init",
+                        "ba_gate_max",
+                        "ba_gate_timestep",
+                        "ba_gate_face_area",
+                        "ba_mix_init",
+                        "ba_mix_floor",
+                        "ba_mix_max",
+                        "ba_mix_timestep",
+                        "ba_mix_face_area",
+                        "ba_reference_rms_match",
+                        "ba_reference_rms_clip_min",
+                        "ba_reference_rms_clip_max",
+                        "ba_mix_override",
+                        "ba_telemetry_enabled",
+                        "ba_telemetry_interval",
+                        "ba_require_denoise_progress",
+                        "ba_self_attention_groups",
+                        "ba_reference_loss_mode",
+                        "ba_enforce_reference_only_hard_route",
+                        "ba_hard_v1_true_reference_key_mask",
+                        "ba_hard_v1_branch_output_rank",
+                        "ba_hard_v1_reference_roi_warp",
+                    ):
+                        if hasattr(_val_model, attribute):
+                            setattr(
+                                self.pipe,
+                                attribute,
+                                getattr(_val_model, attribute),
+                            )
                     # Ensure pipeline modules are on GPU
                     try:
                         self.pipe.to(self.device)
@@ -805,6 +981,15 @@ class BaseTrainer:
                 self._log_batch(
                     batch_idx, batch, part
                 ) 
+            self._log_per_image_id_sim_table(
+                part=part,
+                step=validation_step,
+                expected_rows=(
+                    len(dataloader.dataset)
+                    if hasattr(dataloader, "dataset")
+                    else None
+                ),
+            )
             self._log_scalars(self.evaluation_metrics, part)
 
         if validation_pose_restore is not None and hasattr(self, "pipe"):
@@ -868,6 +1053,68 @@ class BaseTrainer:
             }
         )
         return result
+
+    def _log_per_image_id_sim_table(self, *, part, step, expected_rows):
+        """Persist and publish one exact-row ID-sim table per validation gate."""
+        if not self.log_per_image_id_sim_table:
+            return
+        rows = list(getattr(self, "_validation_per_image_id_rows", ()))
+        if not rows:
+            raise RuntimeError(
+                "Per-image ID table is enabled but validation produced no id_sim rows"
+            )
+        rows.sort(key=lambda row: int(row["image_index"]))
+        indices = [int(row["image_index"]) for row in rows]
+        if len(indices) != len(set(indices)):
+            raise RuntimeError("Per-image ID table contains duplicate image indices")
+        if expected_rows is not None:
+            expected_rows = int(expected_rows)
+            if len(rows) != expected_rows:
+                raise RuntimeError(
+                    "Per-image ID table row mismatch: "
+                    f"expected={expected_rows}, actual={len(rows)}"
+                )
+            expected_indices = list(range(expected_rows))
+            if indices != expected_indices:
+                raise RuntimeError(
+                    "Per-image ID table index mismatch: "
+                    f"expected=0..{expected_rows - 1}, actual={indices[:10]}"
+                )
+        for row in rows:
+            row["validation_step"] = int(step)
+            row["partition"] = str(part)
+
+        columns = [
+            "validation_step",
+            "partition",
+            "image_index",
+            "output_key",
+            "identity",
+            "prompt",
+            "seed",
+            "generated_image_count",
+            "id_sim",
+        ]
+        table = pd.DataFrame(rows, columns=columns)
+        filename = f"id_sim__{part}__step_{int(step):06d}.csv"
+        table_dir = self.checkpoint_dir / "validation_tables"
+        table_dir.mkdir(parents=True, exist_ok=True)
+        table.to_csv(table_dir / filename, index=False)
+
+        exact_table_logger = getattr(self.writer, "add_table_file", None)
+        if exact_table_logger is not None:
+            exact_table_logger(filename, table)
+        else:
+            fallback = getattr(self.writer, "add_table", None)
+            if fallback is not None:
+                fallback(filename.removesuffix(".csv"), table)
+        if self.logger is not None:
+            self.logger.info(
+                "Per-image ID table: %s rows=%s step=%s",
+                table_dir / filename,
+                len(table),
+                step,
+            )
 
 
     def move_batch_to_device(self, batch):

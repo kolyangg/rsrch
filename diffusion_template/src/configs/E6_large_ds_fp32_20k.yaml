@@ -1,0 +1,13 @@
+defaults:
+  - large_dataset_rhca_hard_v1_audited_20k
+  - _self_
+
+# E6: the only scientific delta is BA trainable/optimizer precision.
+model:
+  branched_trainable_dtype: fp32
+
+writer:
+  experiment_comment: >-
+    E6 vs audited Large Dataset r4 baseline: keep the frozen U-Net BF16 but
+    store rank-32 hard-BA trainables and Adam moments in FP32; test whether BF16
+    optimization causes the top-heavy, oscillating ID plateau.

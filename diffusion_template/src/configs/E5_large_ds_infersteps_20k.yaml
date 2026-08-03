@@ -1,0 +1,13 @@
+defaults:
+  - large_dataset_rhca_hard_v1_audited_20k
+  - _self_
+
+# E5: the only scientific delta is training-timestep support.
+model:
+  ba_training_timestep_policy: inference_active
+
+writer:
+  experiment_comment: >-
+    E5 vs audited Large Dataset r4 baseline: sample per-example training noise
+    only from DDIM-50 timesteps where BA is active at validation; test whether
+    train/inference timestep mismatch limits ID learning.

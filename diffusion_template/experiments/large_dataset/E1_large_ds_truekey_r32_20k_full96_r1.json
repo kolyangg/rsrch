@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "run_name": "E1_large_ds_truekey_r32_20k_full96_r1",
+  "plan": {
+    "status": "approved_for_submission",
+    "priority": 1,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Test whether true reference-key normalization raises identity similarity under the historical hard-BA route.",
+    "baseline": "rhca_large_dataset_sameid_40k_full96_r4",
+    "baseline_comet_key": "a99db1fb953d4511827672380e6c1645",
+    "single_scientific_change": "model.ba_hard_v1_true_reference_key_mask=false -> true",
+    "config": "src/configs/E1_large_ds_truekey_20k.yaml",
+    "launcher": "launchers/active/run_E_large_ds_hard_v1_20k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/E1_large_ds_truekey_r32_20k_full96_r1/run_E1_large_ds_truekey_r32_20k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "experiment_comment": "E1 vs audited Large Dataset r4 baseline: exclude non-face reference keys from hard-BA self-attention softmax; test whether zero-key dilution causes the early ID-sim plateau.",
+    "fixed_contract": {
+      "architecture": "hard_replace_v1 noise_and_ref rank32 SA-only",
+      "pose_adapt_ratio": 0.0,
+      "ca_mixing_for_face": false,
+      "optimizer_steps": 20000,
+      "batch_size": 2,
+      "validation": "fixed manual_val 96 at step 0 and every 2000",
+      "checkpoint_interval_steps": 2000,
+      "trainable_ownership": "strict BA-only schema-v2",
+      "validation_processor_base_mode": "legacy_full_copy"
+    }
+  },
+  "comet": {"experiment_key": null, "project_name": "aug-large-ds", "url": null}
+}

@@ -29,6 +29,8 @@ class CometMLWriter:
         run_name=None,
         mode="online",
         tags: Optional[Iterable[str]] = None,
+        experiment_comment: Optional[str] = None,
+        require_online_registration=False,
         suppress_events=False,
         **kwargs,
     ):
@@ -38,6 +40,16 @@ class CometMLWriter:
         self.timer = datetime.now()
         self.run_id = run_id
         self._experiment = None
+        self._require_online_registration = bool(require_online_registration)
+        if self._require_online_registration:
+            if mode != "online":
+                raise ValueError(
+                    "require_online_registration requires Comet mode='online'"
+                )
+            if experiment_comment in (None, ""):
+                raise ValueError(
+                    "require_online_registration requires experiment_comment"
+                )
         # 28 Jul 2026 - AICODE-NOTE: Recovery replay may need the exact Comet
         # initialization path for deterministic data RNG while withholding
         # duplicate metrics and assets from the immutable experiment.
@@ -46,6 +58,10 @@ class CometMLWriter:
         try:
             from comet_ml import Experiment, OfflineExperiment, ExistingExperiment  # type: ignore
         except ImportError:
+            if self._require_online_registration:
+                raise RuntimeError(
+                    "Required online Comet registration cannot import comet_ml"
+                )
             if self.logger is not None:
                 self.logger.warning("For use comet_ml install it via \n\t pip install comet-ml")
             return
@@ -71,12 +87,18 @@ class CometMLWriter:
             self._experiment = ExperimentClass(**experiment_kwargs)
 
         if self._experiment is None:
+            if self._require_online_registration:
+                raise RuntimeError("Required online Comet experiment was not created")
             return
 
         if run_name is not None:
             try:
                 self._experiment.set_name(str(run_name))
             except Exception as error:
+                if self._require_online_registration:
+                    raise RuntimeError(
+                        "Required Comet run name was not set"
+                    ) from error
                 if self.logger is not None:
                     self.logger.warning(f"Failed to set CometML run name: {error}")
 
@@ -86,6 +108,24 @@ class CometMLWriter:
             except Exception as error:
                 if self.logger is not None:
                     self.logger.warning(f"Failed to add CometML tags: {error}")
+
+        if experiment_comment not in (None, ""):
+            try:
+                # 3 Aug 2026 - Keep the scientific delta retrievable through
+                # the immutable experiment API, independently of mutable names.
+                self._experiment.log_other(
+                    "experiment_comment",
+                    str(experiment_comment),
+                )
+            except Exception as error:
+                if self._require_online_registration:
+                    raise RuntimeError(
+                        "Required Comet experiment comment was not logged"
+                    ) from error
+                if self.logger is not None:
+                    self.logger.warning(
+                        f"Failed to log Comet experiment comment: {error}"
+                    )
 
         if project_config:
             try:
@@ -114,8 +154,14 @@ class CometMLWriter:
                     mode=mode,
                 )
             except Exception as error:
+                if self._require_online_registration:
+                    raise RuntimeError(
+                        "Required Comet experiment record was not written"
+                    ) from error
                 if self.logger is not None:
                     self.logger.warning(f"Failed to write Comet experiment record: {error}")
+        elif self._require_online_registration:
+            raise RuntimeError("Required Comet experiment key is empty")
 
     def _write_experiment_record(
         self,
@@ -400,6 +446,24 @@ class CometMLWriter:
             )
         except Exception as error:
             self._log_warning("log_table", error)
+
+    def add_table_file(self, filename: str, table: pd.DataFrame):
+        """Log a table under an exact deterministic API asset filename."""
+        if self._experiment is None or self._suppress_events or table is None:
+            return None
+        try:
+            return self._experiment.log_table(
+                filename=str(filename),
+                tabular_data=table,
+                step=int(self.step),
+            )
+        except Exception as error:
+            if self._require_online_registration:
+                raise RuntimeError(
+                    f"Required Comet table was not logged: {filename}"
+                ) from error
+            self._log_warning("log_table", error)
+            return None
 
     def add_asset(self, asset_name, path, metadata=None, overwrite=False):
         """Log a file as an API asset rather than a report table."""
