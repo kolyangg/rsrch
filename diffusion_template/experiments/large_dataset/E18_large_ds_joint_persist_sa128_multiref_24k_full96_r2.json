@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E18_large_ds_joint_persist_sa128_multiref_24k_full96_r2",
   "plan": {
-    "status": "in_process_gpu_scoring_retry_authorized",
+    "status": "in_process_gpu_retry_rejected_workspace_full_no_retry",
     "priority": 6,
     "machine": "serv",
     "gpus": 1,
@@ -23,10 +23,13 @@
     "comet_experiment_key": null,
     "retry_reauthorized_at": "2026-08-05T17:27:15+01:00",
     "runtime_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E15_E18_gpu_20260805",
-    "required_startup_check": "parent and exact PyIQA 0.1.15 child must both allocate CUDA tensors before Accelerate",
+    "required_startup_check": "canonical PyIQA 0.1.15 four-model scorer must complete on one real face inside the training CUDA process before Accelerate",
     "gpu_retry_gate": "workspace 16/16 A100s; project 4/8 authorized A100s",
     "gpu_retry_attempted_at": "2026-08-05T17:31:18+01:00",
     "gpu_retry_result": "rejected before job creation: WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE",
-    "final_no_retry": true
+    "final_no_retry": true,
+    "in_process_retry_attempted_at": "2026-08-05T18:54:24+01:00",
+    "in_process_retry_gate": "workspace 16/16 A100s; project 4/8 authorized A100s",
+    "in_process_retry_result": "rejected before job creation: WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE"
   }
 }

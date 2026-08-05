@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E16_large_ds_joint_persist_sa128_idloss_24k_full96_r2",
   "plan": {
-    "status": "in_process_gpu_scoring_retry_authorized",
+    "status": "running_startup",
     "priority": 4,
     "machine": "serv",
     "gpus": 1,
@@ -18,15 +18,17 @@
   "execution": {
     "gate_checked_at": "2026-08-05T16:31:55+01:00",
     "attempted_at": "2026-08-05T16:32:00+01:00",
-    "latest_gate": "rejected before job creation: WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE; do not retry per user instruction",
-    "mls_job_name": null,
+    "latest_gate": "accepted and Running; in-process CUDA startup smoke in progress",
+    "mls_job_name": "lm-mpi-job-f195abb1-c656-4d5f-b1fc-fd2f7d78f504",
     "comet_experiment_key": null,
     "retry_reauthorized_at": "2026-08-05T17:27:15+01:00",
     "runtime_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E15_E18_gpu_20260805",
-    "required_startup_check": "parent and exact PyIQA 0.1.15 child must both allocate CUDA tensors before Accelerate",
+    "required_startup_check": "canonical PyIQA 0.1.15 four-model scorer must complete on one real face inside the training CUDA process before Accelerate",
     "gpu_retry_gate": "workspace 16/16 A100s; project 4/8 authorized A100s",
     "gpu_retry_attempted_at": "2026-08-05T17:30:27+01:00",
     "gpu_retry_result": "rejected before job creation: WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE",
-    "final_no_retry": true
+    "final_no_retry": false,
+    "in_process_retry_attempted_at": "2026-08-05T18:53:13+01:00",
+    "in_process_retry_result": "accepted as lm-mpi-job-f195abb1-c656-4d5f-b1fc-fd2f7d78f504; Running"
   }
 }

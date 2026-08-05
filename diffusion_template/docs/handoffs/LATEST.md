@@ -1920,16 +1920,24 @@ Launch state on 5 August 2026:
   `90b31a80d20d4083b8d32873ac170881`) passed its matching ownership gates and
   generated all 96 step-0 images, then failed at the same scorer-child CUDA
   boundary before optimizer step 1.
-- E15-E18 r2 are being updated to use in-process rank-0 CUDA scoring. All four
-  exact Hydra contracts pass locally; the package startup gate now runs the
-  canonical four-model scorer on one image in-process rather than relying on
-  the misleading pre-Accelerate child probe. The intended isolated Serv
-  runtime remains `runtime_worktrees/rsrch_test_E15_E18_gpu_20260805`.
-- Earlier E15-E18 attempts were rejected before job creation with
-  `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE` at 17:30:00, 17:30:27, 17:30:52,
-  and 17:31:18 London time respectively. None received an MLS job or Comet
-  key. The user has now explicitly reauthorized another submission attempt
-  for each after checking E13/E14.
+- E15-E18 r2 use in-process rank-0 CUDA scoring from commit
+  `57257ac68ae2b9503e4899d43a082e92cf4cb1c7`. All four exact Hydra contracts
+  pass locally; the package startup gate now runs the canonical four-model
+  scorer on one real face in-process rather than relying on the misleading
+  pre-Accelerate child probe. The isolated Serv runtime is
+  `runtime_worktrees/rsrch_test_E15_E18_gpu_20260805`.
+- The user explicitly reauthorized another E15-E18 submission attempt after
+  checking E13/E14. E15 was accepted and is Running as
+  `lm-mpi-job-3406b3fc-8369-48c9-9a20-c838417f4e92`, immutable Comet key
+  `f320234a54624aa6a1a100307691b627`; its exact four-model in-process CUDA
+  smoke, config gate, and 64-image dataset gate passed. E16 was accepted and
+  is Running as `lm-mpi-job-f195abb1-c656-4d5f-b1fc-fd2f7d78f504`; its
+  startup smoke was still in progress at this handoff update. Those two jobs
+  brought the workspace to 16/16 A100s and this project to 4/8 authorized
+  A100s. E17 and E18 were each tried once and rejected before job creation
+  with `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE` at 18:54:00 and 18:54:24
+  London time. They have no MLS job or Comet key and must not be retried
+  without another user instruction.
 - E14-E18 r1 are failed/stopped startup attempts and must not be interpreted as
   experiment results. Their immutable keys and failure provenance are kept in
   their JSON records. The root cause was a missing `loss_kind:
