@@ -1,6 +1,6 @@
 # Current project handoff
 
-**Last updated:** 4 August 2026
+**Last updated:** 5 August 2026
 
 **Repository:** `/home/kolyangg/rsrch_apr_test`
 
@@ -8,7 +8,8 @@
 
 **Branch:** `test`
 
-**Current local and Serv commit:** `c04970f342a186d1092f07f9a08d7d8a797383e8`
+**Current branch:** `test`; inspect live worktrees because active jobs are pinned
+to their recorded launch commits.
 
 This is the required starting document for a new agent. It summarizes the
 research question, experiment history, reliable results, current code and
@@ -1865,9 +1866,8 @@ Current observed conclusion:
   adapters or wider BA alone do not reproduce it.
 
 For the requested next-six design, the report recommends prioritizing the new
-joint-mechanism suite over the earlier data-factorial-first ordering. The suite
-is now implemented and named E13-E18, but remains unsubmitted. E13/E14 are
-explicit shadow-co-adaptation mechanism arms; E15-E18 are fully persisted
+joint-mechanism suite over the earlier data-factorial-first ordering. E13/E14
+are explicit shadow-co-adaptation mechanism arms; E15-E18 are fully persisted
 promotion arms covering protected joint training, a predicted-x0
 PhotoMaker-CLIP identity proxy, bounded residual identity-token CA, and
 deterministic decoupled multi-reference training. Every arm keeps
@@ -1879,8 +1879,7 @@ Implementation entry points:
 - configs: `src/configs/E13_*` through `src/configs/E18_*`, all inheriting
   `large_dataset_joint_r128_24k.yaml`;
 - controlled launcher: `launchers/active/run_E13_E18_large_ds_24k_1gpu.sh`;
-- immutable pre-launch records: `experiments/large_dataset/E13_*` through
-  `E18_*`, status `ready_not_submitted`;
+- immutable records: `experiments/large_dataset/E13_*` through `E18_*`;
 - one-A100 MLS YAMLs and startup wrappers:
   `serv_run_packages/E13_*` through `serv_run_packages/E18_*`;
 - E17's residual processor is defaults-off and separate from E12's hard v2;
@@ -1888,7 +1887,42 @@ Implementation entry points:
   identity references to PhotoMaker while preserving `ref_images[0]` as the
   sole spatial latent/KV reference.
 
-No E13-E18 job or Comet experiment has been created. Before simultaneous
-submission, inspect current Serv Running/Pending allocations and keep this
-project at the normal six-A100 ceiling. The existing E11/E12 Serv worktree must
-be updated to the final pushed `test` branch and clean before package startup.
+Launch state on 5 August 2026:
+
+- E13 r1 is Running as
+  `lm-mpi-job-be2c88f8-7008-4828-a41e-abaaa7f47839`, immutable Comet key
+  `ce847065760c47e7bc16530238b39792`, from commit
+  `23d43f7c7c9bec0f1f22c3cc2834fb795f613b0a`. It passed both exact ownership
+  gates at 2,240 tensors / 219,217,920 parameters and entered fixed full-96
+  step-0 validation.
+- E14 r2 is Running as
+  `lm-mpi-job-f1132bd5-d531-4cf0-b7e7-f2179f0b1240`, immutable Comet key
+  `f3ccb0c866b343198ce936cf342e8633`, from commit
+  `92f5a5ffc5547ebe8e493046db3470338cbecbfe`. It passed the same exact
+  ownership and optimizer gates. No metric result exists yet.
+- E15 r2 was not accepted: MLS returned
+  `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE` before assigning a job name or
+  Comet key. Do not retry it unless the user asks again, per the Serv
+  allocation-rejection rule.
+- E16-E18 r2 have not been submitted. Their exact Hydra gates, loss
+  constructors, and packages pass, but they are waiting for workspace
+  capacity. At the rejection snapshot the whole shared workspace was 16/16
+  GPUs, including eight one-GPU jobs from another user's new sweep and one
+  external four-GPU job. Do not stop or modify those jobs.
+- E14-E18 r1 are failed/stopped startup attempts and must not be interpreted as
+  experiment results. Their immutable keys and failure provenance are kept in
+  their JSON records. The root cause was a missing `loss_kind:
+  branched_reference`, which made the training entry point replace the
+  configured protected loss with `MaskedDiffusionLoss` while retaining
+  protected-loss kwargs. The r2 configs fail closed on both selector and
+  target and explicitly instantiate successfully in the Serv environment.
+
+The original E11/E12 worktree was left untouched because it was dirty and E12
+was still Running. E13 uses clean isolated worktree
+`runtime_worktrees/rsrch_test_E13_E18_20260805`; E14-E18 r2 use
+`runtime_worktrees/rsrch_test_E14_E18_r2_20260805`. The canonical fixed full-96
+bbox file was copied without modification to
+`datasets/dataset_full/val_dataset/protocols/cosmic_full96_auto_v1/pm96_bboxes_new.json`
+with SHA-256
+`a39645e22b68027175946a028e185b7c5393a7514f5d68c94cd74e7cc9f5e614` so clean
+runtime clones can use the exact protocol.

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E16_large_ds_joint_persist_sa128_idloss_24k_full96_r2",
   "plan": {
-    "status": "ready_not_submitted",
+    "status": "ready_waiting_workspace_capacity",
     "priority": 4,
     "machine": "serv",
     "gpus": 1,

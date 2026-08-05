@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E17_large_ds_joint_persist_sa128_resididca_24k_full96_r1",
   "plan": {
-    "status": "ready_not_submitted",
+    "status": "failed_startup_superseded_by_r2",
     "priority": 5,
     "machine": "serv",
     "gpus": 1,
@@ -13,5 +13,11 @@
     "serv_yaml": "serv_run_packages/E17_large_ds_joint_persist_sa128_resididca_24k_full96_r1/run_E17_large_ds_joint_persist_sa128_resididca_24k_full96_r1_1gpu.yaml",
     "comet_project": "aug-large-ds",
     "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false"
+  },
+  "execution": {
+    "mls_job_name": "lm-mpi-job-866efb57-2f26-4df1-9b8a-5c52c4d33995",
+    "comet_experiment_key": "6233f3e5494b46ae9ac5083450cdec1a",
+    "failure": "inherited invalid protected-loss selector; no training step ran",
+    "superseded_by": "E17_large_ds_joint_persist_sa128_resididca_24k_full96_r2"
   }
 }

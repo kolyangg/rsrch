@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E14_large_ds_joint_shadow_sa128_protected_24k_full96_r1",
   "plan": {
-    "status": "ready_not_submitted",
+    "status": "failed_startup_superseded_by_r2",
     "priority": 2,
     "machine": "serv",
     "gpus": 1,
@@ -13,5 +13,11 @@
     "serv_yaml": "serv_run_packages/E14_large_ds_joint_shadow_sa128_protected_24k_full96_r1/run_E14_large_ds_joint_shadow_sa128_protected_24k_full96_r1_1gpu.yaml",
     "comet_project": "aug-large-ds",
     "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false"
+  },
+  "execution": {
+    "mls_job_name": "lm-mpi-job-bdefb94e-634a-48be-98ff-c4510d9b18ce",
+    "comet_experiment_key": "9f9f587ce74940bdb52bb08122bb6170",
+    "failure": "loss_kind defaulted to masked_alternating, so face_weight reached MaskedDiffusionLoss; no training step ran",
+    "superseded_by": "E14_large_ds_joint_shadow_sa128_protected_24k_full96_r2"
   }
 }

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E13_large_ds_joint_shadow_sa128_24k_full96_r1",
   "plan": {
-    "status": "ready_not_submitted",
+    "status": "running_startup_verified",
     "priority": 1,
     "machine": "serv",
     "gpus": 1,
@@ -13,5 +13,12 @@
     "serv_yaml": "serv_run_packages/E13_large_ds_joint_shadow_sa128_24k_full96_r1/run_E13_large_ds_joint_shadow_sa128_24k_full96_r1_1gpu.yaml",
     "comet_project": "aug-large-ds",
     "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false"
+  },
+  "execution": {
+    "submitted_at": "2026-08-05T15:15:35+01:00",
+    "mls_job_name": "lm-mpi-job-be2c88f8-7008-4828-a41e-abaaa7f47839",
+    "comet_experiment_key": "ce847065760c47e7bc16530238b39792",
+    "git_commit": "23d43f7c7c9bec0f1f22c3cc2834fb795f613b0a",
+    "startup_contract": "2240 tensors / 219217920 parameters; optimizer membership exact"
   }
 }
