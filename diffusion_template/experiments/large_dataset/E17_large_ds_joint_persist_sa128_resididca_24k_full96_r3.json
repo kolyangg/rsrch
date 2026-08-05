@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E17_large_ds_joint_persist_sa128_resididca_24k_full96_r3",
   "plan": {
-    "status": "running_deferred_face_quality_retry",
+    "status": "failed_validation_pipeline_v3_config_propagation",
     "priority": 5,
     "machine": "serv",
     "gpus": 1,
@@ -21,6 +21,8 @@
     "attempted_at": "2026-08-05T20:45:52+01:00",
     "mls_job_name": "lm-mpi-job-58b43e25-2c54-4c03-be75-9d4b46cd4418",
     "comet_experiment_key": "ed09370a12f8429e8e0556c387afdb1d",
+    "result": "failed before optimizer step 1 during the first step-0 validation denoising call",
+    "error": "validation U-Net contained 36 residual identity-CA v3 processors, but the validation pipeline omitted the v3 enabled/groups/rank/gate attributes and therefore computed expected=[]",
     "runtime_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E17_E18_deferred_20260805",
     "required_startup_checks": {
       "config_contract": "24000 optimizer steps / 224624676 trainable parameters",

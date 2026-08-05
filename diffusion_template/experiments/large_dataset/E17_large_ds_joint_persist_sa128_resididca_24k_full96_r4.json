@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E17_large_ds_joint_persist_sa128_resididca_24k_full96_r4",
   "plan": {
-    "status": "prepared_validation_propagation_fix_retry",
+    "status": "running_validation_propagation_fix_retry",
     "priority": 5,
     "machine": "serv",
     "gpus": 1,
@@ -16,8 +16,12 @@
     "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false; validation propagates the exact residual identity-CA v3 selector/rank/gate contract; exact images staged and canonical face quality scored non-fatally only after training"
   },
   "execution": {
-    "mls_job_name": null,
-    "comet_experiment_key": null,
+    "gate_checked_at": "2026-08-05T21:05:42+01:00",
+    "submission_gate": "workspace 10/16 A100s; project 6/8 authorized A100s",
+    "attempted_at": "2026-08-05T21:05:49+01:00",
+    "mls_job_name": "lm-mpi-job-363a85af-651e-45b1-9e4c-41740fe14cf0",
+    "comet_experiment_key": "2b0581a252ae45ee9e6d24eb6fbad9c4",
+    "verification": "passed exact trainable/optimizer contracts and continued beyond the former validation processor-map failure after completing all 12 locator boxes",
     "runtime_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E17_r4_deferred_20260805",
     "required_startup_checks": {
       "config_contract": "24000 optimizer steps / 224624676 trainable parameters",

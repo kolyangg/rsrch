@@ -1957,9 +1957,17 @@ Launch state on 5 August 2026:
   300 for E15 and step 50 for E16. Earlier E17/E18 r2 attempts were rejected
   before job creation while the workspace was full. Their deferred replacements
   use separate clean runtimes to prevent concurrent bbox-cache writes from
-  tripping another job's clean guard. E17 r3 is Running as
-  `lm-mpi-job-58b43e25-2c54-4c03-be75-9d4b46cd4418`, immutable Comet key
-  `ed09370a12f8429e8e0556c387afdb1d`; E18 r4 is Running as
+  tripping another job's clean guard. E17 r3
+  (`lm-mpi-job-58b43e25-2c54-4c03-be75-9d4b46cd4418`, immutable Comet key
+  `ed09370a12f8429e8e0556c387afdb1d`) failed before optimizer step 1 during
+  the first step-0 validation denoising call: its validation U-Net correctly
+  contained 36 residual identity-CA v3 processors, but the temporary pipeline
+  omitted all v3 selector/rank/gate attributes and computed `expected=[]`.
+  Fix commit `de34683` propagates those five attributes before denoising. E17
+  r4 is Running as `lm-mpi-job-363a85af-651e-45b1-9e4c-41740fe14cf0`,
+  immutable Comet key `2b0581a252ae45ee9e6d24eb6fbad9c4`; it passed the
+  exact 2,348-tensor/224,624,676-parameter trainable and optimizer contracts
+  and continued beyond the former map-check failure. E18 r4 is Running as
   `lm-mpi-job-53666768-76c5-46f4-b488-895d2d7c74ab`, immutable Comet key
   `b9e118da6dc94cd9b3849566e18c67ff`. The unsubmitted shared-runtime E18 r3
   package is superseded and must not be launched.
