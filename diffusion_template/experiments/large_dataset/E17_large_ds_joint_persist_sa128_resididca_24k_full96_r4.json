@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "run_name": "E17_large_ds_joint_persist_sa128_resididca_24k_full96_r4",
+  "plan": {
+    "status": "prepared_validation_propagation_fix_retry",
+    "priority": 5,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Test a bounded residual identity-token CA path that cannot erase native face cross-attention.",
+    "baseline": "E15_large_ds_joint_persist_sa128_protected_24k_full96_r2",
+    "config": "src/configs/E17_large_ds_joint_persist_sa128_resididca_24k.yaml",
+    "launcher": "launchers/active/run_E13_E18_large_ds_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/E17_large_ds_joint_persist_sa128_resididca_24k_full96_r4/run_E17_large_ds_joint_persist_sa128_resididca_24k_full96_r4_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "retry_of": "E17_large_ds_joint_persist_sa128_resididca_24k_full96_r3",
+    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false; validation propagates the exact residual identity-CA v3 selector/rank/gate contract; exact images staged and canonical face quality scored non-fatally only after training"
+  },
+  "execution": {
+    "mls_job_name": null,
+    "comet_experiment_key": null,
+    "runtime_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E17_r4_deferred_20260805",
+    "required_startup_checks": {
+      "config_contract": "24000 optimizer steps / 224624676 trainable parameters",
+      "dataset_preflight": "64/64 decoded",
+      "onnxruntime": "1.20.1 with CUDAExecutionProvider",
+      "face_quality": "PyIQA 0.1.15 metadata check only at startup; no scorer/model execution before or during training",
+      "trainable_and_optimizer_contract": "exact match: 2348 tensors / 224624676 parameters",
+      "validation_contract": "installed residual identity-CA processor names exactly match up_blocks.0/up_blocks.1 selector"
+    }
+  }
+}

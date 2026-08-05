@@ -933,6 +933,15 @@ class BaseTrainer:
                         "ba_identity_ca_v2_enabled",
                         "ba_identity_ca_v2_groups",
                         "ba_identity_ca_v2_rank",
+                        # 05 Aug 2026 - AICODE-NOTE: The validation U-Net may
+                        # already contain v3 processors copied from training,
+                        # so its pipeline must receive the identical selector
+                        # and gate contract before the first denoising patch.
+                        "ba_residual_identity_ca_v3_enabled",
+                        "ba_residual_identity_ca_v3_groups",
+                        "ba_residual_identity_ca_v3_rank",
+                        "ba_residual_identity_ca_v3_gate_init",
+                        "ba_residual_identity_ca_v3_gate_max",
                     ):
                         if hasattr(_val_model, attribute):
                             setattr(
