@@ -1,8 +1,8 @@
-# Large Dataset hard-BA baseline and six-arm experiment design
+# Large Dataset hard-BA E0 baseline and six-arm experiment design
 
 **Date:** 3 August 2026
 
-**Status:** E1/E2 running on Serv; E3-E6 remain prepared only
+**Status:** E1-E6 running on Serv; historical and fixed E0 controls prepared locally and awaiting approval
 
 **Training dataset:** adjusted Large Dataset, 47,500 images / 2,561 identities
 
@@ -10,19 +10,47 @@
 
 **Historical Comet key:** `a99db1fb953d4511827672380e6c1645`
 
-### Live E1/E2 submission record
+The source recovery and the explanation for the weaker historical two-GPU
+Serv result are in
+[`2026-08-04_large_dataset_r4_serv2gpu_recovery_and_e0.md`](2026-08-04_large_dataset_r4_serv2gpu_recovery_and_e0.md).
+That audit also establishes E2 as the controlled test of the useful output
+capacity accidentally present in historical r4.
+
+### Prepared matched E0 controls
+
+Two one-A100, 20k controls are prepared locally, have no MLS or Comet identity,
+and must not be submitted until the user approves and two slots are free:
+
+- `E0_large_ds_base_historical_r4_20k_full96_r1` reproduces r4's observed
+  171.29M fail-open ownership and incomplete legacy checkpoint behavior;
+- `E0_large_ds_base_fixed_baonly_r32_20k_full96_r1` materializes the shared
+  audited parent with exact 31.95M BA-only ownership and complete checkpoints.
+
+The pair directly measures the full historical-ownership effect. E2 remains
+the clean branch-local test of whether output-basis capacity is its useful
+component. E1-E6 are unchanged.
+
+### Live six-arm submission record
 
 | Run | MLS job | Immutable Comet key | Verified startup ownership |
 |---|---|---|---|
 | `E1_large_ds_truekey_r32_20k_full96_r1` | `lm-mpi-job-a686e213-b211-48e2-bc0b-7a26ae06f307` | `ce0c9b918d79449b92fa83ef970285c3` | 840 tensors / 31,948,800 parameters; optimizer 840/840 |
 | `E2_large_ds_branchout_r32_20k_full96_r1` | `lm-mpi-job-555ea214-95e9-41f6-a470-68587451dcd6` | `4c8af4e867b14377b69fa250fae5cde9` | 980 tensors / 37,273,600 parameters; optimizer 980/980 |
+| `E3_large_ds_roiwarp_r32_20k_full96_r1` | `lm-mpi-job-404c8887-7a3f-49c7-aa6c-7c23eebe485b` | `9c5cbe4e49254134b4763ff7a4554c9b` | 840 tensors / 31,948,800 parameters; optimizer 840/840 |
+| `E4_large_ds_midup_r32_20k_full96_r1` | `lm-mpi-job-5160fbfc-be6e-478f-8099-b6dfb161880e` | `2d77f35256844e0399c1834859a45dc7` | 552 tensors / 21,135,360 parameters; optimizer 552/552 |
+| `E5_large_ds_infersteps_r32_20k_full96_r1` | `lm-mpi-job-ce87c84b-cf29-4570-8c52-c6c2cf438bdc` | `4a107cbc30a04a858de3e3b5c411cdca` | 840 tensors / 31,948,800 parameters; optimizer 840/840 |
+| `E6_large_ds_fp32_r32_20k_full96_r1` | `lm-mpi-job-5fbd78a3-fd27-479a-9660-aa81813db9c9` | `9f3e20a75a0a4304b12d724693e13fbf` | 840 tensors / 31,948,800 parameters; optimizer 840/840; FP32 BA state |
 
-Both jobs passed the exact config delta, 64-image decoded dataset preflight,
-CUDA ONNX Runtime, PyIQA, audited runtime hash, online Comet registration, and
-experiment-comment gates. Serv's preserved checkout reported historical HEAD
+All six jobs passed the exact config delta, 64-image decoded dataset preflight,
+CUDA ONNX Runtime, PyIQA, audited runtime hash, online Comet registration,
+experiment-comment, exact ownership, and optimizer-membership gates. Every arm
+entered strict `legacy_full_copy` step-zero validation on the fixed 96-image
+panel. The four later submissions filled the project ceiling exactly: six
+Running/Pending one-A100 requests after E6 was accepted. Serv's preserved
+checkout reported historical HEAD
 `c04970f`, so the 49 launch files were selectively synchronized from pushed
 commit `e860f9e`, backed up first, and SHA-256 verified individually. This
-explicit source-sync record is retained in both experiment JSONs.
+explicit source-sync record is retained in all six experiment JSONs.
 
 ## Decision summary
 
@@ -97,6 +125,12 @@ state, absolute new-run metrics must be compared primarily within this new
 suite and by within-run change. Historical `r4` remains a contextual target,
 not a perfectly matched clean control.
 
+Fixed E0 inherits this parent directly and changes only the required Comet
+comment. Historical E0 inherits an observed-r4 parent that deliberately
+preserves the old ownership/checkpoint bug but adds an exact assertion that it
+is reproduced. E1-E6 inherit the clean parent and each change one declared
+scientific leaf.
+
 ## Six experiments in priority order
 
 | Priority | Run | The only scientific change | Why it is high priority | Binary decision at or before 20k |
@@ -123,6 +157,8 @@ Hydra config to one immutable experiment record and one one-GPU Serv package.
 
 | Experiment | Hydra config | Experiment JSON | Generated Serv entrypoint | MLS YAML |
 |---|---|---|---|---|
+| E0 historical observed | `src/configs/E0_large_ds_base_historical_20k.yaml` | `experiments/large_dataset/E0_large_ds_base_historical_r4_20k_full96_r1.json` | `serv_run_packages/E0_large_ds_base_historical_r4_20k_full96_r1/start_E0_large_ds_base_historical_r4_20k_full96_r1_1gpu.sh` | `serv_run_packages/E0_large_ds_base_historical_r4_20k_full96_r1/run_E0_large_ds_base_historical_r4_20k_full96_r1_1gpu.yaml` |
+| E0 fixed BA-only | `src/configs/E0_large_ds_base_fixed_20k.yaml` | `experiments/large_dataset/E0_large_ds_base_fixed_baonly_r32_20k_full96_r1.json` | `serv_run_packages/E0_large_ds_base_fixed_baonly_r32_20k_full96_r1/start_E0_large_ds_base_fixed_baonly_r32_20k_full96_r1_1gpu.sh` | `serv_run_packages/E0_large_ds_base_fixed_baonly_r32_20k_full96_r1/run_E0_large_ds_base_fixed_baonly_r32_20k_full96_r1_1gpu.yaml` |
 | E1 true-key mask | `src/configs/E1_large_ds_truekey_20k.yaml` | `experiments/large_dataset/E1_large_ds_truekey_r32_20k_full96_r1.json` | `serv_run_packages/E1_large_ds_truekey_r32_20k_full96_r1/start_E1_large_ds_truekey_r32_20k_full96_r1_1gpu.sh` | `serv_run_packages/E1_large_ds_truekey_r32_20k_full96_r1/run_E1_large_ds_truekey_r32_20k_full96_r1_1gpu.yaml` |
 | E2 branch-only output | `src/configs/E2_large_ds_branchout_20k.yaml` | `experiments/large_dataset/E2_large_ds_branchout_r32_20k_full96_r1.json` | `serv_run_packages/E2_large_ds_branchout_r32_20k_full96_r1/start_E2_large_ds_branchout_r32_20k_full96_r1_1gpu.sh` | `serv_run_packages/E2_large_ds_branchout_r32_20k_full96_r1/run_E2_large_ds_branchout_r32_20k_full96_r1_1gpu.yaml` |
 | E3 reference ROI warp | `src/configs/E3_large_ds_roiwarp_20k.yaml` | `experiments/large_dataset/E3_large_ds_roiwarp_r32_20k_full96_r1.json` | `serv_run_packages/E3_large_ds_roiwarp_r32_20k_full96_r1/start_E3_large_ds_roiwarp_r32_20k_full96_r1_1gpu.sh` | `serv_run_packages/E3_large_ds_roiwarp_r32_20k_full96_r1/run_E3_large_ds_roiwarp_r32_20k_full96_r1_1gpu.yaml` |
@@ -133,12 +169,14 @@ Hydra config to one immutable experiment record and one one-GPU Serv package.
 All packages use the shared fail-closed dispatcher
 `launchers/active/run_E_large_ds_hard_v1_20k_1gpu.sh`, generated from
 `serv_run_packages/_sources/start_E_large_ds_hard_v1_20k_1gpu.sh`. The audited
-parent is `src/configs/large_dataset_rhca_hard_v1_audited_20k.yaml`; it is not
-a seventh job.
+parent is `src/configs/large_dataset_rhca_hard_v1_audited_20k.yaml`; E0 is its
+explicit fixed runnable comparator. The historical E0 parent is
+`src/configs/large_dataset_rhca_historical_observed_20k.yaml`.
 
 ## Fixed run contract
 
-Every arm must resolve to all of the following before submission:
+Fixed E0 and every E1-E6 arm must resolve to all of the following before
+submission:
 
 ```text
 machine                         Serv
@@ -158,6 +196,11 @@ PhotoMaker/native face mixer    none
 Comet project                   aug-large-ds
 ```
 
+Historical E0 keeps the same run contract except for its explicit broad
+ownership and legacy checkpoint format. It has its own exact 3,080-tensor /
+171,294,720-parameter startup partition and must not be resumed after an
+interruption.
+
 The Large Dataset manifest/image paths remain Serv machine-local environment
 inputs and are preflighted with 64 decoded distinct same-ID target/reference
 pairs before Comet registration. No credential or machine-local secret is
@@ -165,9 +208,13 @@ stored in a config, experiment JSON, or Serv package.
 
 ## Decision gates
 
-- **Startup:** exact processor list, exact trainable names/count/dtype, zero
+- **Clean startup:** exact processor list, exact trainable names/count/dtype, zero
   trainable CA/default/generic adapter tensors, optimizer membership, schema-v2
   manifest, ONNX CUDA, PyIQA 0.1.15, and immutable Comet record must pass.
+- **Historical-E0 startup:** exact optimizer membership and the complete
+  3,080/171,294,720 partition must pass: BA 840/31,948,800, generic rank-32
+  adapter 1,120/46,448,640, and PhotoMaker-default rank-64 adapter
+  1,120/92,897,280.
 - **Step 0:** 96 images, unchanged prompts/seeds/references/bboxes and complete
   aggregate/per-image ID logging. Arms whose change is zero-initialized must
   match the audited baseline pixels; true-key masking and ROI warping are
@@ -240,11 +287,11 @@ print(comment)
 ## Serv submission plan
 
 Implementation creates one non-secret experiment JSON and one generated
-one-GPU MLS package per arm. Packages are prepared locally only. They must not
-be deployed or submitted until the user approves.
+one-GPU MLS package per run. All six change-arm packages were deployed and
+submitted only after explicit user approval; E0 remains local and unsubmitted.
+The commands below remain the E1-E6 launch audit.
 
-After deployment, these are the exact direct commands printed inside the six
-YAML files (run them on Serv only after the queue/GPU gate below):
+These are the exact direct commands printed inside the six YAML files:
 
 ```bash
 mls job submit --config /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_test/diffusion_template/serv_run_packages/E1_large_ds_truekey_r32_20k_full96_r1/run_E1_large_ds_truekey_r32_20k_full96_r1_1gpu.yaml
@@ -259,7 +306,7 @@ The repository-preferred equivalent is `python3 local_scripts/serv_job.py
 submit <REMOTE_YAML> --comment "<experiment objective>"`; it invokes the MLS
 submission while retaining the local job JSON/comment audit record.
 
-Immediately before approved submission:
+The approved submission followed this sequence:
 
 1. verify Serv's `test` branch/worktree and deploy only to an unused package
    directory;
@@ -268,5 +315,19 @@ Immediately before approved submission:
 4. submit each package once with `local_scripts/serv_job.py submit` and the
    same objective as its Comet comment;
 5. verify `saved/<run_name>/comet_experiment.json`, copy the immutable key into
-   the experiment JSON, and confirm the comment plus step-0 96-row ID table;
+   the experiment JSON, and confirm the comment; the step-0 96-row ID table is
+   verified after the full validation panel finishes;
 6. do not retry an allocation-limit rejection unless the user asks.
+
+After separate approval and only when two project A100 slots are free, submit
+the E0 pair through the same audited helper:
+
+```bash
+python3 local_scripts/serv_job.py submit \
+  /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_test/diffusion_template/serv_run_packages/E0_large_ds_base_historical_r4_20k_full96_r1/run_E0_large_ds_base_historical_r4_20k_full96_r1_1gpu.yaml \
+  --comment "E0 historical r4 replay: exact observed 171.29M ownership versus fixed E0."
+
+python3 local_scripts/serv_job.py submit \
+  /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_test/diffusion_template/serv_run_packages/E0_large_ds_base_fixed_baonly_r32_20k_full96_r1/run_E0_large_ds_base_fixed_baonly_r32_20k_full96_r1_1gpu.yaml \
+  --comment "E0 fixed r4 replay: strict 31.95M BA-only matched comparator."
+```

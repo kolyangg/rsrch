@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "run_name": "d0_clean_ba32_32k_native_shuffle_spatial",
+  "plan": {
+    "status": "running",
+    "machine": "neb",
+    "kind": "fixed_checkpoint_validation",
+    "matrix_spec": "experiments/big_celebs/d0_clean_ba32_32k_validation_matrix.json",
+    "source_run": "rhca_big_celebs_scheduled_v1_clean_ba32_40k_full96_r1",
+    "source_comet_key": "700240d8f90b48cfa2cc16f8ff2886b6",
+    "checkpoint": "weights-epoch16.pth",
+    "checkpoint_step": 32000,
+    "processor_base_mode": "validation_native",
+    "spatial_reference_condition": "different_identity_per_homogeneous_batch",
+    "photomaker_identity_inputs_unchanged": true,
+    "images": 96
+  },
+  "comet": {
+    "experiment_key": "fa42aea6b0954816bbca69cbe200b2c4",
+    "project_name": "jul-comet-large-testing-tr",
+    "mode": "online",
+    "url": "https://www.comet.com/nikolay-2104/jul-comet-large-testing-tr/fa42aea6b0954816bbca69cbe200b2c4"
+  }
+}

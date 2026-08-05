@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_big_celebs_scheduled_v1_anchored_mix_sa_v3_r32_2k_full96_r1",
+  "plan": {
+    "status": "prepared_not_launched",
+    "machine": "neb",
+    "gpus": 1,
+    "experiment_ladder_step": "E3",
+    "objective": "Test whether a nonzero frozen reference output plus bounded native/reference interpolation makes the explicit spatial BA route causally active within 2,000 steps.",
+    "launcher": "launchers/neb/start_rhca_big_celebs_scheduled_anchored_mix_sa_v3_2k.sh",
+    "config": "src/configs/big_celebs_scheduled_rhca_anchored_mix_sa_v3_2k.yaml",
+    "fixed_controls": {
+      "dataset_schedule": "big_celebs_v2_policy_v1/train_40k_bs2.jsonl",
+      "schedule_rows_used": [0, 4000],
+      "optimizer_steps": 2000,
+      "batch_size": 2,
+      "epoch_len": 2000,
+      "validation": "manual_val full96 at step 0 and step 2000",
+      "validation_base": "SG161222/RealVisXL_V4.0",
+      "validation_processor_base_mode": "validation_native",
+      "pose_adapt_ratio": 0.0,
+      "ca_mixing_for_face": false,
+      "branched_cross_attention": false,
+      "reference_kv_rank": 32,
+      "branch_output_rank": 32,
+      "processor_groups": ["mid_block", "up_blocks.0", "up_blocks.1"],
+      "processor_sites": 46,
+      "timestep_policy": "inference_active",
+      "trainable_dtype": "float32"
+    },
+    "changed_architecture": {
+      "version": "anchored_mix_sa_v3",
+      "routing": "frozen target Q to true-key-masked reference K/V",
+      "merge": "native + target_mask * alpha * (rms_matched_reference - native)",
+      "reference_output_base": "frozen native to_out plus zero-initialized rank-32 delta",
+      "mix_init": 0.5,
+      "mix_floor": 0.25,
+      "mix_max": 0.9,
+      "reference_rms_match": true,
+      "reference_rms_clip": [0.5, 2.0]
+    },
+    "objective_control": {
+      "reference_mode": "detached_diagnostic",
+      "reference_weight": 0.0,
+      "shuffle_probability": 0.25,
+      "reason": "E3 isolates the architecture; differentiable ranking is the separate E4 toggle."
+    },
+    "expected_trainable_contract": {
+      "tensor_count": 414,
+      "parameter_count": 10567818,
+      "roles": ["reference_kv", "reference_output", "mix"]
+    },
+    "startup_gates": {
+      "neb_gpu_must_be_idle": true,
+      "strict_install_and_trainable_contract": true,
+      "immutable_comet_record": true,
+      "step0_images": 96,
+      "first_backward_finite_role_gradients": true,
+      "first_training_batches_to_confirm": 3
+    },
+    "decision_gates": {
+      "required_step": 2000,
+      "images_per_validation_step": 96,
+      "positive_wrong_reference_relative_gap": true,
+      "minimum_contribution_native_rms_ratio_engineering_gate": 0.05,
+      "minimum_correct_wrong_prediction_delta_ratio_engineering_gate": 0.005,
+      "visual_gate": "identity-specific change without pasted, displaced, or malformed face structure"
+    },
+    "reversible_controls": {
+      "hard_replace_v1": "launchers/neb/start_rhca_big_celebs_scheduled_clean_ba32_40k.sh",
+      "residual_sa_v2": "launchers/neb/start_rhca_big_celebs_scheduled_residual_sa_v2_40k.sh",
+      "architecture_selector": "model.ba_architecture_version",
+      "diagnostic_mix_override": "model.ba_mix_override"
+    }
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "jul-comet-large-testing-tr",
+    "workspace": "nikolay-2104",
+    "url": null,
+    "mode": "online"
+  }
+}

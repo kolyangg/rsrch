@@ -1,0 +1,33 @@
+defaults:
+  - large_dataset_rhca_hard_v1_audited_20k
+  - _self_
+
+# E12: the only scientific delta is corrected hard face-local identity CA.
+# Legacy branched CA remains disabled by the shared parent.
+model:
+  ba_identity_ca_v2_enabled: true
+  ba_identity_ca_v2_groups: [up_blocks.0, up_blocks.1]
+  ba_identity_ca_v2_rank: 256
+
+expected_trainable_contract:
+  enabled: true
+  total_tensors: 1128
+  total_parameters: 134578176
+  optimizer_tensors: 1128
+  optimizer_parameters: 134578176
+  categories:
+    branched_sa_r32:
+      name_substring: ".attn1.processor."
+      tensors: 840
+      parameters: 31948800
+    corrected_identity_ca_r256:
+      name_substring: ".attn2.processor."
+      tensors: 288
+      parameters: 102629376
+
+writer:
+  experiment_comment: >-
+    E12 vs fixed E0: keep rank-32 spatial BA unchanged and add a corrected hard
+    face-local target-query/active-PhotoMaker-ID-token CA branch, rank 256 in
+    up_blocks.0/1 only; test whether approximately 103M additional BA
+    parameters improve full-96 ID similarity through explicit identity-token CA.

@@ -1,0 +1,26 @@
+defaults:
+  - large_dataset_rhca_hard_v1_audited_20k
+  - _self_
+
+# E11: the only scientific delta is four-times wider existing hard-SA BA.
+model:
+  ba_hard_v1_lora_rank: 128
+
+expected_trainable_contract:
+  enabled: true
+  total_tensors: 840
+  total_parameters: 127795200
+  optimizer_tensors: 840
+  optimizer_parameters: 127795200
+  categories:
+    branched_sa_r128:
+      name_substring: ".attn1.processor."
+      tensors: 840
+      parameters: 127795200
+
+writer:
+  experiment_comment: >-
+    E11 vs fixed E0: raise only the six hard spatial-BA noise/reference Q/K/V
+    LoRA projections from rank 32 to rank 128 at all 70 self-attention sites;
+    test whether substantially larger core BA capacity raises full-96 ID
+    similarity without training any non-BA adapter.

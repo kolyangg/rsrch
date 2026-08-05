@@ -117,6 +117,29 @@ Use the key in `saved/<run_name>/comet_experiment.json`; do not search by the
 display name. The table is also available without Comet from
 `saved/<run_name>/validation_tables/<table_name>` on the training machine.
 
+### Repair saved tables from a local machine
+
+If table upload failed after the CSV was saved, first copy each run's
+`comet_experiment.json` and `validation_tables/` directory to a local root.
+Dry-run the exact-key and existing-asset checks before enabling writes:
+
+```bash
+python tools/comet/backfill_per_image_id_tables.py \
+  --tables-root comet_data/<local-table-copy> \
+  --expected-project <project>
+
+python tools/comet/backfill_per_image_id_tables.py \
+  --tables-root comet_data/<local-table-copy> \
+  --expected-project <project> \
+  --write
+```
+
+The tool validates the fixed panel schema and row count, verifies the live
+project and display name against each immutable record, skips byte-identical
+assets, and refuses duplicates or conflicts. It uses Comet's direct API object
+and therefore does not resume or end an ongoing experiment session. Do not run
+the write command on the training machine.
+
 ## Backfill an older active run
 
 Runs started before automatic records existed need a one-time exact-key

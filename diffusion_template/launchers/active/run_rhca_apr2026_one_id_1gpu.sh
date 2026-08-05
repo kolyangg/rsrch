@@ -83,34 +83,47 @@ declare -A AUDITED_RUNTIME_SHA256=(
   # 3 Aug 2026 - Adds defaults-off hard-v1 experiment controls plus per-image
   # validation tables/comments; historical routing remains the default.
   # 3 Aug 2026 - Propagates defaults-off audited hard-v1 controls to validation.
-  ["train.py"]="261394427216e2917f424c50d73b5258d36120d8eeb874aee9b9525fdd6ff8c0"
+  # 4 Aug 2026 - Adds a defaults-off exact ownership partition for the
+  # deliberately broad historical-E0 control; all other runs skip the gate.
+  ["train.py"]="e0f195e2e29fb38af477c28d0ec19e023323e546f63b0e78227915158a5bbb12"
   # 27 Jul 2026 - Defaults validation to one image per item and installs the
   # exact 2k/full-96 face-quality contract without changing model routing.
   # 3 Aug 2026 - Adds per-image ID tables and opt-in Comet experiment comments.
   ["src/configs/one_id_09Feb_testing.yaml"]="5fa548c2da9458d113ee6b8ae4bf1b687d6c224c26ee78b60cdeadeb33e60aae"
   ["src/configs/trainer/photomaker_lora.yaml"]="2fd412ccd5e9b3f3b0e0d72b980a3f72db62fe05620b7f5bf8c1d4cd6170eb74"
-  ["src/logger/cometml.py"]="e1c5ae77fd9bfb36bfa3e1c71cd088a7f6c667a8edf0c494bc2fee0a00e18eeb"
+  # 4 Aug 2026 - Comet table steps live in deterministic filenames; the SDK
+  # otherwise forwards step= to pandas.to_csv and drops every dataframe.
+  ["src/logger/cometml.py"]="f36da009f9846c968f2b570cdfedf0f5596fa6a3ca57d547db748d4f7050a92a"
   ["src/metrics/face_quality_validation.py"]="141b21dd9f95be547cf2df4d3d2572d85dae6154dd3ad40867a7cd8135cb8605"
   ["tools/inference/calculate_face_quality_metrics.py"]="8225a0f009c5c5f588afef63ddcd6db3248e4b442940ce8e5bb65f5e32e78c3a"
   # 2 Aug 2026 - Adds defaults-off shuffle-conditional reference metrics;
   # historical/non-reference trainers keep their original logging path.
   ["src/trainer/sdxl_trainers.py"]="90461c5660d55e612ea60902647c1cbb1ad62c409ee0fb590d140969927e8e0d"
-  ["src/configs/model/photomaker_branched_lora2.yaml"]="62e275596d3ad8b6f076f426a33eccfdfe3de48f3ee576dfbcf6b098f7befe00"
+  # 4 Aug 2026 - Adds defaults-off explicit generic/default adapter scopes for
+  # E7-E10; all earlier configs resolve both selectors to none.
+  # 4 Aug 2026 - Adds defaults-off E11 hard-SA rank and E12 corrected hard
+  # identity-CA selectors; historical configs preserve their prior values.
+  ["src/configs/model/photomaker_branched_lora2.yaml"]="bacafaa621dab2928f0d5bc7bad6cc498565e82bb775a294991c46f84fdd3914"
   ["src/datasets/cosmic.py"]="660d069a9f77ac1b7e0cb06fce245a342428159d9f05c49db32140bbd1a2467e"
   # 26 Jul 2026 - Restores the existing pose-adapt config as an opt-in runtime
   # control; the historical zero ratio remains the default.
   # 3 Aug 2026 - Adds defaults-off hard-v1 key-mask, branch-output, ROI-warp,
   # and trainable-precision controls for the audited Large Dataset suite.
   ["src/model/photomaker_branched/attn_processor_cleanest.py"]="aa1a3364e88eadbe40fa3bf46ad68a6137e85523fdedab0913fb95efe184b941"
-  ["src/model/photomaker_branched/branched_runtime.py"]="572deabd787cf3451e395a598c1dfc2d16fec4fa05622929ddc82c4a3d42ed3a"
+  ["src/model/photomaker_branched/branched_runtime.py"]="c1da890da1176781d9ac729ed850576a75292168a66dc048c240195b01e079fe"
   # 26 Jul 2026 - Adds opt-in batched frozen conditioning for unique-reference
   # datasets; historical one-ID configs retain the per-sample/cache path.
   # 1 Aug 2026 - Adds defaults-off fail-closed installation and schema-v2
   # exact-trainable checkpointing; legacy behavior remains the default.
   # 2 Aug 2026 - Adds the opt-in residual-SA-v2 processor, role-specific
   # optimizer groups, inference-active timesteps, and detached shuffle audit.
-  ["src/model/photomaker_branched/lora2.py"]="e75482a1256a639b1e1d723565e98f373703b8a2eaf2882fcd0bfb4abe16eefe"
-  ["src/model/photomaker_branched/lora2_helpers.py"]="51bcfccdb7ad43f56519546618962b8f4abb9c5a4c8ca3d1142b9a8037d1948f"
+  # 4 Aug 2026 - Adds fail-closed effective outer-adapter ownership and
+  # schema-v2 persistence for E7-E10; hard BA routing is unchanged.
+  # 4 Aug 2026 - Adds dedicated E11 rank ownership and E12 processor-declared
+  # identity-CA ownership/checkpoint metadata without reopening legacy CA.
+  ["src/model/photomaker_branched/lora2.py"]="0673a6b1118433460f962c73615f9d49063a955fd62f3af172d632850aeac329"
+  ["src/model/photomaker_branched/lora2_helpers.py"]="b27bbeab947a9e5169a055034bd6caaed4c67a21822974f45fc4f81c182e8b58"
+  ["src/model/photomaker_branched/identity_ca_processor_v2.py"]="9ad8344d5b11d255028d7a81bf76c9a43b9b9b5daabbdfc66d06f1e800396c99"
   # 2 Aug 2026 - Version-lock all three explicit SA architectures and the
   # reversible reference-causal objective used by controlled BA-v3 arms.
   ["src/model/photomaker_branched/residual_sa_processor_v2.py"]="e9272e516ab3e770d885ca0df1f3dab5afbd5e06ed47b5ca34c7086aedbf311b"
@@ -130,12 +143,15 @@ declare -A AUDITED_RUNTIME_SHA256=(
   # 1 Aug 2026 - Adds explicit legacy-full-copy versus validation-native
   # processor-base modes and strict stateful-processor copy auditing.
   # 3 Aug 2026 - Adds exact-row, exact-index per-image ID table publication.
-  ["src/trainer/base_trainer.py"]="6b3cf0a9e09ebe246621c360c4ebc3b08c05b7a8d29006d76d1a83a67034bd67"
+  # 4 Aug 2026 - Propagates E11/E12 defaults-off architecture controls into
+  # the alternate validation model before strict processor installation.
+  ["src/trainer/base_trainer.py"]="61b59c675d466d73fe489c8713676b3b390e5b2b0d870f2f8d63c1901d63a391"
 )
 # 2 Aug 2026 - Neb's committed f0bf95b snapshot predates the defaults-off
 # suppress_events recovery hook. Fresh online training takes the same logger
 # path in both versions, so pin that exact committed variant as an alternate.
 declare -A AUDITED_RUNTIME_SHA256_ALTERNATE=(
+  ["train.py"]="261394427216e2917f424c50d73b5258d36120d8eeb874aee9b9525fdd6ff8c0"
   ["src/logger/cometml.py"]="179411e747f503d67cc4825a71b41e240cd2d007619944838e94232ed31bd161"
   ["src/configs/trainer/photomaker_lora.yaml"]="111550888c9ba89cc1bb648e785260c6f7b4607e2202e6838f268edea6607cd8"
   ["src/trainer/sdxl_trainers.py"]="28019505f685f5506f92433cfa9bb65f466e2e5e277e5db66ac4269fa1912782"

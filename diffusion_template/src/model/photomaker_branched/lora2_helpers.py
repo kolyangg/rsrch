@@ -16,6 +16,12 @@ def _branched_trainable_context(model) -> dict:
     train_ca = bool(getattr(model, "train_branched_ca_lora", True))
     ba_train_top_k = float(getattr(model, "ba_train_top_k", 1.0))
     non_ba_train = bool(getattr(model, "non_ba_train", False))
+    generic_adapter_train_scope = str(
+        getattr(model, "generic_adapter_train_scope", "none") or "none"
+    ).lower()
+    photomaker_default_train_scope = str(
+        getattr(model, "photomaker_default_train_scope", "none") or "none"
+    ).lower()
     if mode not in {"shared", "ref_only", "noise_and_ref"}:
         raise ValueError(f"Unknown branched_attn_weight_mode: {mode}")
     if new_weight_kind not in {"full", "lora"}:
@@ -30,7 +36,21 @@ def _branched_trainable_context(model) -> dict:
         top_k=ba_train_top_k,
         param_name="ba_train_top_k",
     )
-    setattr(model, "_ba_trainable_processor_names", tuple(selected_proc_names))
+    identity_ca_proc_names = tuple(
+        name
+        for name in patched_proc_names
+        if bool(
+            getattr(
+                model.unet.attn_processors.get(name),
+                "is_identity_ca_v2",
+                False,
+            )
+        )
+    )
+    all_trainable_processor_names = tuple(
+        dict.fromkeys((*selected_proc_names, *identity_ca_proc_names))
+    )
+    setattr(model, "_ba_trainable_processor_names", all_trainable_processor_names)
     selected_proc_prefixes = tuple(f"{name}." for name in selected_proc_names)
     selected_attn_prefixes = tuple(f"{name.rsplit('.processor', 1)[0]}." for name in selected_proc_names)
     patched_proc_name_set = set(patched_proc_names)
@@ -47,11 +67,47 @@ def _branched_trainable_context(model) -> dict:
         "new_weight_kind": new_weight_kind,
         "train_ca": train_ca,
         "non_ba_train": non_ba_train,
+        "generic_adapter_train_scope": generic_adapter_train_scope,
+        "photomaker_default_train_scope": photomaker_default_train_scope,
         "selected_proc_prefixes": selected_proc_prefixes,
         "selected_attn_prefixes": selected_attn_prefixes,
         "non_ba_attn_prefixes": non_ba_attn_prefixes,
         "selected_proc_names": tuple(selected_proc_names),
+        "identity_ca_proc_names": identity_ca_proc_names,
     }
+
+
+def _is_scoped_outer_adapter_trainable(
+    name: str,
+    *,
+    adapter_marker: str,
+    scope: str,
+) -> bool:
+    if scope == "none":
+        return False
+    if scope not in {
+        "effective_all",
+        "cross_attention",
+        "self_attention_output",
+    }:
+        raise ValueError(f"Unknown outer-adapter train scope: {scope!r}")
+    if adapter_marker not in name or not (
+        "lora_A" in name or "lora_B" in name
+    ):
+        return False
+
+    is_cross_attention = ".attn2." in name
+    is_self_attention_output = (
+        ".attn1." in name and ".to_out.0." in name
+    )
+    # 4 Aug 2026 - AICODE-NOTE: hard-v1 noise_and_ref bypasses outer SA
+    # Q/K/V. Historical E0 confirms their 210 LoRA-B tensors remain zero;
+    # allowlist only ordinary CA and the shared post-merge SA output.
+    if scope == "cross_attention":
+        return is_cross_attention
+    if scope == "self_attention_output":
+        return is_self_attention_output
+    return is_cross_attention or is_self_attention_output
 
 
 def _is_expected_branched_trainable(name: str, context: dict) -> bool:
@@ -122,6 +178,16 @@ def _is_expected_branched_trainable(name: str, context: dict) -> bool:
                         or "lora_B" in name
                     )
                 )
+    expected = expected or _is_scoped_outer_adapter_trainable(
+        name,
+        adapter_marker=".lora_adapter.",
+        scope=context["generic_adapter_train_scope"],
+    )
+    expected = expected or _is_scoped_outer_adapter_trainable(
+        name,
+        adapter_marker=".default.",
+        scope=context["photomaker_default_train_scope"],
+    )
     return bool(expected)
 
 
@@ -173,10 +239,39 @@ def expected_branched_trainable_names(model) -> tuple[str, ...]:
             "Unknown ba_architecture_version="
             f"{context['architecture_version']!r}"
         )
-    return tuple(
+    expected = {
         name for name, _ in model.unet.named_parameters()
         if _is_expected_branched_trainable(name, context)
-    )
+    }
+    if context["identity_ca_proc_names"]:
+        name_by_id = {
+            id(parameter): name
+            for name, parameter in model.unet.named_parameters()
+        }
+        seen_ids = set()
+        for processor_name in context["identity_ca_proc_names"]:
+            processor = model.unet.attn_processors[processor_name]
+            declaration = getattr(processor, "named_ba_trainables", None)
+            if declaration is None:
+                raise RuntimeError(
+                    "Corrected identity-CA processor does not declare trainables: "
+                    f"{processor_name}"
+                )
+            for _, parameter, _ in declaration():
+                parameter_id = id(parameter)
+                if parameter_id in seen_ids:
+                    raise RuntimeError(
+                        f"Duplicate identity-CA trainable in {processor_name}"
+                    )
+                seen_ids.add(parameter_id)
+                global_name = name_by_id.get(parameter_id)
+                if global_name is None:
+                    raise RuntimeError(
+                        "Identity-CA declared an unregistered parameter in "
+                        f"{processor_name}"
+                    )
+                expected.add(global_name)
+    return tuple(sorted(expected))
 
 
 def branched_trainable_role_groups(model) -> dict[str, list[torch.nn.Parameter]]:
@@ -235,15 +330,26 @@ def _ba_semantic_group(processor_name: str) -> str:
 
 def collect_branched_telemetry(model) -> dict[str, torch.Tensor]:
     """Aggregate detached versioned-BA telemetry by semantic U-Net group."""
-    if str(
+    architecture_version = str(
         getattr(model, "ba_architecture_version", "hard_replace_v1")
-    ).lower() not in {
+    ).lower()
+    identity_ca_enabled = bool(
+        getattr(model, "ba_identity_ca_v2_enabled", False)
+    )
+    if architecture_version not in {
         "anchored_mix_sa_v3",
         "query_adaptive_hard_sa_v4",
-    }:
+    } and not (
+        architecture_version == "hard_replace_v1" and identity_ca_enabled
+    ):
         return {}
+    processor_names = (
+        getattr(model, "_ba_identity_ca_processor_names", ())
+        if architecture_version == "hard_replace_v1"
+        else getattr(model, "_ba_patched_processor_names", ())
+    )
     grouped: dict[str, list[dict[str, torch.Tensor]]] = {}
-    for processor_name in getattr(model, "_ba_patched_processor_names", ()):
+    for processor_name in processor_names:
         processor = model.unet.attn_processors.get(processor_name)
         getter = getattr(processor, "latest_ba_telemetry", None)
         if getter is None:

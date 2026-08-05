@@ -61,6 +61,18 @@ Active launchers load that file automatically. Never commit `.env`, API keys,
 tokens, proxy credentials, or machine-specific secrets. Keep
 `diffusion_template/.env.example` free of real credentials.
 
+# Machine availability
+
+As of 3 August 2026, the Neb machine is unavailable. Do not attempt to access
+or use Neb, including SSH/SCP/rsync, job inspection, launches, termination,
+file retrieval, or using Neb as a proxy for Comet downloads. Prefer the local
+machine or Serv when those are within the task's scope. If a user asks to use
+Neb, first obtain separate explicit confirmation that Neb is working again and
+that they want a connection attempt; the request mentioning Neb is not itself
+that confirmation. After confirmation, begin with a read-only connectivity
+check. Treat all other Neb instructions as dormant historical guidance until
+this restriction is explicitly superseded.
+
 # Working practices
 
 - Reply concisely where possible while preserving the details needed to make
@@ -155,13 +167,17 @@ Use `diffusion_template/TOOLS.md` as the entry point for repository tools and
 server-operation helpers.
 
 Before submitting an A100 job on Serv, inspect the running and pending MLS
-jobs. This project may have at most six A100 GPUs requested concurrently,
-counting its own Running and Pending jobs by their actual one- or two-GPU
-request. Other users' jobs do not count toward this six-GPU ceiling. Pending
-means the request was submitted successfully and does not prevent submitting
-more gate-approved jobs while this project's total remains at or below six
-GPUs. If MLS rejects or discards a request because an allocation or request
-limit was exceeded, do not retry that request unless the user later asks.
+jobs. This project's normal ceiling is six A100 GPUs requested concurrently.
+An explicitly authorized exceptional submission may raise the ceiling to
+eight A100 GPUs, but only when the user names the experiment/job scope and
+clearly authorizes the eight-GPU exception. The ceiling returns to six after
+those specified submissions finish or are removed. Count this project's own
+Running and Pending jobs by their actual one- or two-GPU request; other users'
+jobs do not count. Pending means the request was submitted successfully and
+does not prevent submitting more gate-approved jobs while the applicable
+six- or eight-GPU ceiling is respected. If MLS rejects or discards a request
+because an allocation or request limit was exceeded, do not retry that request
+unless the user later asks.
 
 For every new Comet-tracked experiment, verify during startup that
 `saved/<run_name>/comet_experiment.json` exists and contains the experiment

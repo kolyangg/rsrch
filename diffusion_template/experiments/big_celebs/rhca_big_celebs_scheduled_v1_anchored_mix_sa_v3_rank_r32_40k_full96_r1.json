@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_big_celebs_scheduled_v1_anchored_mix_sa_v3_rank_r32_40k_full96_r1",
+  "plan": {
+    "status": "running_step0_validation",
+    "machine": "neb",
+    "gpus": 1,
+    "experiment_ladder_step": "E5-L40",
+    "objective": "Determine whether the causally active anchored-v3 rank model recovers after its 2k identity dip, and preserve the complete trajectory through a 40k ceiling so the best intermediate checkpoint can be selected.",
+    "launcher": "launchers/neb/start_rhca_big_celebs_scheduled_anchored_mix_sa_v3_rank_40k.sh",
+    "config": "src/configs/big_celebs_scheduled_rhca_anchored_mix_sa_v3_rank_40k.yaml",
+    "parent_control": {
+      "run_name": "rhca_big_celebs_scheduled_v1_anchored_mix_sa_v3_rank_r32_2k_full96_r2",
+      "experiment_key": "f72ea55eb0af44828cd6511a15ba5933",
+      "ladder_step": "E4"
+    },
+    "overnight_design": {
+      "execution": "one continuous fresh run",
+      "reason_not_chained": "The same run already saves full optimizer and weights checkpoints and performs fixed-96 validation every 2k. Chaining duplicate initializations would add validation overhead and split a directly comparable trajectory across Comet keys.",
+      "maximum_optimizer_steps": 40000,
+      "first_scientific_decision_step": 8000,
+      "checkpoint_selection": "Select the best validated intermediate checkpoint; do not assume the 40k endpoint is best."
+    },
+    "fixed_controls": {
+      "dataset_schedule": "big_celebs_v2_policy_v1/train_40k_bs2.jsonl",
+      "schedule_rows_used": [0, 80000],
+      "optimizer_steps": 40000,
+      "batch_size": 2,
+      "epoch_len": 2000,
+      "epochs": 20,
+      "validation": "manual_val full96 at step 0 and every 2000 steps through 40000",
+      "validation_base": "SG161222/RealVisXL_V4.0",
+      "validation_processor_base_mode": "validation_native",
+      "pose_adapt_ratio": 0.0,
+      "ca_mixing_for_face": false,
+      "branched_cross_attention": false,
+      "architecture": "anchored_mix_sa_v3",
+      "reference_kv_rank": 32,
+      "branch_output_rank": 32,
+      "processor_groups": ["mid_block", "up_blocks.0", "up_blocks.1"],
+      "processor_sites": 46,
+      "timestep_policy": "inference_active",
+      "trainable_dtype": "float32",
+      "mix_init": 0.5,
+      "mix_floor": 0.25,
+      "mix_max": 0.9,
+      "reference_rms_match": true,
+      "reference_rms_clip": [0.5, 2.0],
+      "reference_mode": "differentiable_rank",
+      "reference_weight": 0.1,
+      "reference_relative_margin": 0.02,
+      "shuffle_probability": 0.5
+    },
+    "expected_trainable_contract": {
+      "tensor_count": 414,
+      "parameter_count": 10567818,
+      "roles": ["reference_kv", "reference_output", "mix"]
+    },
+    "interpretation_gates": {
+      "step_2000": "Reproduce E4 within expected run variance; this is not a terminal quality gate.",
+      "step_8000": "First promotion decision: require recovery from the 2k identity trough, a stable weak-face tail, positive reference causality, and coherent images.",
+      "steps_10000_to_20000": "Likely useful selection window based on historical BA peaks; retain every checkpoint and compare matched fixed-96 metrics and images.",
+      "steps_22000_to_40000": "Plateau/overtraining observation window. Continued training must not change which earlier checkpoint is retained as the candidate model.",
+      "automatic_abort_only": "Runtime failure, non-finite loss, OOM, integrity failure, or missing checkpoint/validation artifacts. Visual and aggregate promotion remains a post-run decision."
+    },
+    "startup_gates": {
+      "neb_gpu_must_be_idle": true,
+      "strict_install_and_trainable_contract": true,
+      "immutable_comet_record": true,
+      "step0_images": 96,
+      "step0_expected_to_match_e4": true,
+      "first_backward_finite_role_gradients": true,
+      "first_training_batches_to_confirm": 3,
+      "profile_peak_cuda_memory": true
+    },
+    "runtime": {
+      "launcher_pid": 3468188,
+      "launcher_pgid": 3468188,
+      "accelerate_pid": 3468397,
+      "training_pid": 3468434,
+      "training_pgid": 3468434,
+      "gpu": 0,
+      "launched_at_utc": "2026-08-02T20:59:39Z",
+      "verified_at_utc": "2026-08-02T21:01:30Z",
+      "log": "/home/niko/rsrch/diffusion_template/logs/rhca_big_celebs_scheduled_v1_anchored_mix_sa_v3_rank_r32_40k_full96_r1.log",
+      "saved_dir": "/home/niko/rsrch/diffusion_template/saved/rhca_big_celebs_scheduled_v1_anchored_mix_sa_v3_rank_r32_40k_full96_r1",
+      "startup_state": "Exact trainable and optimizer contracts passed; fixed-96 step-zero validation started on RealVisXL."
+    },
+    "reversible_controls": {
+      "e4_short_config": "src/configs/big_celebs_scheduled_rhca_anchored_mix_sa_v3_rank_2k.yaml",
+      "e3_detached_config": "src/configs/big_celebs_scheduled_rhca_anchored_mix_sa_v3_2k.yaml",
+      "reference_mode_toggle": "model.ba_reference_loss_mode and loss_function.reference_mode",
+      "architecture_selector": "model.ba_architecture_version",
+      "diagnostic_mix_override": "model.ba_mix_override"
+    }
+  },
+  "comet": {
+    "experiment_key": "f5b5a7054e854137abe53c47f34ebae0",
+    "project_name": "jul-comet-large-testing-tr",
+    "workspace": "nikolay-2104",
+    "url": "https://www.comet.com/nikolay-2104/jul-comet-large-testing-tr/f5b5a7054e854137abe53c47f34ebae0",
+    "mode": "online"
+  }
+}

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E5_large_ds_infersteps_r32_20k_full96_r1",
   "plan": {
-    "status": "awaiting_user_approval",
+    "status": "running",
     "priority": 5,
     "machine": "serv",
     "gpus": 1,
@@ -27,5 +27,26 @@
       "validation_processor_base_mode": "legacy_full_copy"
     }
   },
-  "comet": {"experiment_key": null, "project_name": "aug-large-ds", "url": null}
+  "source_sync": {
+    "pushed_commit": "e860f9ed4d021226575845ae24a9fda1e5a3fa58",
+    "serv_head_at_start": "c04970f342a186d1092f07f9a08d7d8a797383e8",
+    "method": "49 committed files selectively synchronized and SHA-256 verified because the preserved Serv worktree was dirty",
+    "backup": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_backups/aug_large_ds_pre_sync_20260803_222358.tar.gz"
+  },
+  "submission": {
+    "job_name": "lm-mpi-job-ce87c84b-cf29-4570-8c52-c6c2cf438bdc",
+    "submitted_status": "Pending",
+    "live_status": "Running",
+    "submitted_at_unix": 1785793777,
+    "running_at_unix": 1785793799,
+    "audit_record": "../../../local_scripts/serv_job_records/lm-mpi-job-ce87c84b-cf29-4570-8c52-c6c2cf438bdc.json",
+    "startup_contract": "840 tensors / 31,948,800 parameters; processor optimizer membership 840/840"
+  },
+  "comet": {
+    "experiment_key": "4a107cbc30a04a858de3e3b5c411cdca",
+    "project_name": "aug-large-ds",
+    "url": "https://www.comet.com/nikolay-2104/aug-large-ds/4a107cbc30a04a858de3e3b5c411cdca",
+    "mode": "online",
+    "comment_verified": true
+  }
 }

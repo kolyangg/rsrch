@@ -91,13 +91,23 @@ machine-local `.env` files and must never be printed or copied into JSON.
 - [Six-arm design](docs/experiments/2026-08-03_large_dataset_hard_ba_six_arm_design.md)
   — historical evidence, single-delta hypotheses, fixed controls, and decision
   gates.
+- [r4/Serv recovery and E0 pair](docs/experiments/2026-08-04_large_dataset_r4_serv2gpu_recovery_and_e0.md)
+  — recovered historical sources, the two-GPU causal audit, and the separate
+  historical-observed/fixed-BA-only E0 packages.
+- [Historical-E0 adapter analysis and E7-E10](analysis/2026-08-04_e0_historical_global_adapter_id_gain_and_next_experiments.md)
+  — matched 8k identity evidence and four explicit generic/default adapter
+  decompositions, with 20k one-GPU configs and Serv packages.
+- [E11/E12 BA-capacity plan](docs/experiments/2026-08-04_e11_e12_large_ds_ba_capacity_plan.md)
+  — implemented parameter-matched spatial-SA rank-128 and corrected hard
+  identity-CA rank-256 experiments, with exact ownership and live Serv IDs.
 - `tools/validate_aug_large_ds_config.py` — fail-closed composition/spec gate
-  for the six planned configs.
+  for E0 and the six single-delta configs.
 - `launchers/active/run_E_large_ds_hard_v1_20k_1gpu.sh` — shared
   one-GPU launcher; generated MLS YAMLs are under `serv_run_packages/`.
 
-These packages are prepared only. Do not deploy or submit them before user
-approval.
+E0-E12 have been submitted as documented in the linked reports. E11/E12 use a
+named temporary eight-A100 exception and an isolated runtime; do not submit
+duplicates. The ceiling returns to six after E11/E12 finish or are removed.
 
 ## Common experiment utilities
 

@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "run_name": "rhca_big_celebs_scheduled_v1_anchored_mix_sa_v3_rank_r32_2k_full96_r1",
+  "plan": {
+    "status": "failed_prelaunch",
+    "machine": "neb",
+    "gpus": 1,
+    "experiment_ladder_step": "E4",
+    "objective": "Test whether a small differentiable correct-versus-shuffled spatial-reference margin redirects the causally active anchored-v3 route toward identity usefulness without losing PhotoMaker structure.",
+    "failure": "Stopped before model construction, GPU use, or Comet experiment creation because the runtime-integrity gate still classified the intentionally changed trainer as historical. The null-key record is preserved and must not be reused.",
+    "launcher": "launchers/neb/start_rhca_big_celebs_scheduled_anchored_mix_sa_v3_rank_2k.sh",
+    "config": "src/configs/big_celebs_scheduled_rhca_anchored_mix_sa_v3_rank_2k.yaml",
+    "parent_control": {
+      "run_name": "rhca_big_celebs_scheduled_v1_anchored_mix_sa_v3_r32_2k_full96_r2",
+      "experiment_key": "de23193eeac9433fa090bc009f10e752",
+      "ladder_step": "E3"
+    },
+    "fixed_controls": {
+      "dataset_schedule": "big_celebs_v2_policy_v1/train_40k_bs2.jsonl",
+      "schedule_rows_used": [0, 4000],
+      "optimizer_steps": 2000,
+      "batch_size": 2,
+      "epoch_len": 2000,
+      "validation": "manual_val full96 at step 0 and step 2000",
+      "validation_base": "SG161222/RealVisXL_V4.0",
+      "validation_processor_base_mode": "validation_native",
+      "pose_adapt_ratio": 0.0,
+      "ca_mixing_for_face": false,
+      "branched_cross_attention": false,
+      "reference_kv_rank": 32,
+      "branch_output_rank": 32,
+      "processor_groups": ["mid_block", "up_blocks.0", "up_blocks.1"],
+      "processor_sites": 46,
+      "timestep_policy": "inference_active",
+      "trainable_dtype": "float32",
+      "mix_init": 0.5,
+      "mix_floor": 0.25,
+      "mix_max": 0.9,
+      "reference_rms_match": true,
+      "reference_rms_clip": [0.5, 2.0]
+    },
+    "only_changed_objective": {
+      "reference_mode": "differentiable_rank",
+      "reference_weight": 0.1,
+      "reference_relative_margin": 0.02,
+      "shuffle_probability": 0.5
+    },
+    "expected_trainable_contract": {
+      "tensor_count": 414,
+      "parameter_count": 10567818,
+      "roles": ["reference_kv", "reference_output", "mix"]
+    },
+    "startup_gates": {
+      "neb_gpu_must_be_idle": true,
+      "strict_install_and_trainable_contract": true,
+      "immutable_comet_record": true,
+      "step0_images": 96,
+      "step0_expected_to_match_e3": true,
+      "first_backward_finite_role_gradients": true,
+      "first_training_batches_to_confirm": 3,
+      "profile_peak_cuda_memory": true
+    },
+    "decision_gates": {
+      "required_step": 2000,
+      "images_per_validation_step": 96,
+      "identity_not_below_own_step0": true,
+      "last500_conditional_relative_gap_minimum": 0.00877,
+      "last500_conditional_relative_gap_target": 0.015,
+      "topiq_face_p10_maximum_drop": 0.01,
+      "contribution_native_rms_ratio_range": [0.1, 0.65],
+      "visual_gate": "identity-specific change without pasted, displaced, doubled, malformed, or detached face structure"
+    },
+    "reversible_controls": {
+      "e3_detached_config": "src/configs/big_celebs_scheduled_rhca_anchored_mix_sa_v3_2k.yaml",
+      "reference_mode_toggle": "model.ba_reference_loss_mode and loss_function.reference_mode",
+      "architecture_selector": "model.ba_architecture_version",
+      "diagnostic_mix_override": "model.ba_mix_override"
+    }
+  },
+  "comet": {
+    "experiment_key": null,
+    "project_name": "jul-comet-large-testing-tr",
+    "workspace": "nikolay-2104",
+    "url": null,
+    "mode": "online"
+  }
+}

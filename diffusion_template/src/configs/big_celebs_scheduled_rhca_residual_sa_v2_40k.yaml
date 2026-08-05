@@ -1,0 +1,83 @@
+defaults:
+  - big_celebs_scheduled_rhca_clean_ba32_40k
+  - _self_
+
+# First versioned residual-reference architecture arm. Dataset rows, fixed-96
+# inputs, PhotoMaker/RealVis models, scheduler, CFG, and inference steps remain
+# pinned by the inherited clean run. Historical hard replacement remains the
+# default everywhere outside this opt-in config.
+branched_attn_weight_mode: ref_only
+train_branched_ca_lora: false
+disable_branched_sa: false
+disable_branched_ca: true
+ba_patch_top_k: 1.0
+ba_train_top_k: 1.0
+non_ba_train: false
+train_ba_all_steps: true
+
+model:
+  ba_architecture_version: residual_sa_v2
+  branched_trainable_dtype: fp32
+  ba_ref_kv_rank: 32
+  ba_output_rank: 32
+  ba_gate_init: 0.10
+  ba_gate_max: 1.0
+  ba_gate_timestep: true
+  ba_gate_face_area: true
+  ba_require_denoise_progress: true
+  ba_self_attention_groups:
+    - mid_block
+    - up_blocks.0
+    - up_blocks.1
+  ba_training_timestep_policy: inference_active
+  # Diagnostic only in v1: the wrong-reference forward is detached and the
+  # causal loss weight below is zero. This measures reference dependence
+  # without changing the optimization objective through the negative branch.
+  ba_spatial_reference_shuffle_probability: 0.25
+  # Stage the U-Net on its assigned GPU before effective PEFT K/V cloning.
+  # False restores the historical CPU-side installation path.
+  ba_install_on_device: true
+  branched_attn_weight_mode: ref_only
+  train_branched_ca_lora: false
+  strict_branched_install: true
+  strict_trainable_contract: true
+  branched_state_dict_mode: trainable_v2
+
+# Processor-declared optimizer roles. They can be collapsed back to one LR by
+# setting all three values to lr_for_lora.
+ba_ref_kv_lr: 5.0e-5
+ba_ref_output_lr: 1.0e-4
+ba_gate_lr: 2.0e-4
+
+loss_kind: branched_reference
+loss_function:
+  _target_: src.loss.branched_reference_loss.BranchedReferenceLoss
+  full_weight: 1.0
+  face_weight: 1.0
+  boundary_weight: 0.1
+  boundary_ring_width: 2
+  reference_weight: 0.0
+  reference_margin: 0.0
+
+writer:
+  loss_names:
+    - loss
+    - loss_full
+    - loss_face
+    - loss_boundary
+    - loss_reference_causal
+    - reference_error_gap
+    - reference_shuffle_applied
+
+trainer:
+  max_grad_norm: 1.0
+
+# New architectures use their native validation-base processors. The old
+# legacy_full_copy behavior remains available in the inherited clean config.
+validation_processor_base_mode: validation_native
+strict_validation_processor_copy: true
+update_proc_weights_val: true
+
+pipeline:
+  pose_adapt_ratio: 0.0
+  ca_mixing_for_face: false

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "run_name": "E9_large_ds_shared_saout_r32_20k_full96_r1",
+  "plan": {
+    "status": "submitted_running",
+    "priority": 3,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Test whether a shared post-merge self-attention output basis helps the hard BA face accommodate the surrounding representation.",
+    "baseline": "E0_large_ds_base_fixed_baonly_r32_20k_full96_r1",
+    "baseline_comet_key": "5b5cbd1584184ce1a9032dd6fafb91c5",
+    "single_scientific_change": "model.generic_adapter_train_scope=none -> self_attention_output",
+    "config": "src/configs/E9_large_ds_shared_saout_20k.yaml",
+    "launcher": "launchers/active/run_E_large_ds_hard_v1_20k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/E9_large_ds_shared_saout_r32_20k_full96_r1/run_E9_large_ds_shared_saout_r32_20k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "experiment_comment": "E9 vs fixed E0: train hard BA plus generic rank-32 shared SA to_out only; test whether a common post-merge output basis helps the hard face branch accommodate the surrounding native representation and raises ID similarity.",
+    "fixed_contract": {
+      "architecture": "hard_replace_v1 target-Q/reference-KV rank32 SA-only",
+      "pose_adapt_ratio": 0.0,
+      "ca_mixing_for_face": false,
+      "optimizer_steps": 20000,
+      "batch_size": 2,
+      "validation": "fixed manual_val 96 at step 0 and every 2000",
+      "checkpoint_interval_steps": 2000,
+      "trainable_ownership": "strict BA plus shared SA output r32, 980 tensors / 37273600 parameters, schema-v2",
+      "validation_processor_base_mode": "legacy_full_copy"
+    }
+  },
+  "submission": {
+    "status": "running",
+    "submitted_at": "2026-08-04T19:50:07+01:00",
+    "mls_job_name": "lm-mpi-job-c2cf07ab-eaf5-4176-8283-929682dc3ec8",
+    "runtime_root": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E7_E10_20260804",
+    "comet_experiment_key": "deb40502cfc849a0aecc8e48b4eec005",
+    "comet_url": "https://www.comet.com/nikolay-2104/aug-large-ds/deb40502cfc849a0aecc8e48b4eec005"
+  }
+}

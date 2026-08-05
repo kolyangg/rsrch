@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "run_name": "E11_large_ds_ba_sa_r128_20k_full96_r1",
+  "plan": {
+    "status": "submitted_running",
+    "priority": 1,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Test whether the clean hard spatial branched-attention route is limited by its rank-32 capacity.",
+    "baseline": "E0_large_ds_base_fixed_baonly_r32_20k_full96_r1",
+    "baseline_comet_key": "5b5cbd1584184ce1a9032dd6fafb91c5",
+    "single_scientific_change": "model.ba_hard_v1_lora_rank=null -> 128",
+    "config": "src/configs/E11_large_ds_ba_sa_r128_20k.yaml",
+    "launcher": "launchers/active/run_E_large_ds_hard_v1_20k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/E11_large_ds_ba_sa_r128_20k_full96_r1/run_E11_large_ds_ba_sa_r128_20k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "experiment_comment": "E11 vs fixed E0: raise only the six hard spatial-BA noise/reference Q/K/V LoRA projections from rank 32 to rank 128 at all 70 self-attention sites; test whether substantially larger core BA capacity raises full-96 ID similarity without training any non-BA adapter.",
+    "fixed_contract": {
+      "architecture": "hard_replace_v1 target-Q/reference-KV SA-only with dedicated BA rank128",
+      "pose_adapt_ratio": 0.0,
+      "ca_mixing_for_face": false,
+      "legacy_branched_ca": false,
+      "optimizer_steps": 20000,
+      "batch_size": 2,
+      "validation": "fixed manual_val 96 at step 0 and every 2000",
+      "checkpoint_interval_steps": 2000,
+      "trainable_ownership": "strict BA-only, 840 tensors / 127795200 parameters, schema-v2",
+      "validation_processor_base_mode": "legacy_full_copy"
+    }
+  },
+  "submission": {
+    "status": "running",
+    "submitted_at": "2026-08-04T21:59:09+01:00",
+    "mls_job_name": "lm-mpi-job-f0ba530e-5398-4e45-982b-3e130ae0fca3",
+    "runtime_root": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E11_E12_20260804",
+    "authorized_project_gpu_ceiling": 8,
+    "comet_experiment_key": "e748a5e136b3441688aaf968294612a1",
+    "comet_url": "https://www.comet.com/nikolay-2104/aug-large-ds/e748a5e136b3441688aaf968294612a1",
+    "startup_contract_verified": "840 tensors / 127795200 parameters",
+    "superseded_pre_comet_job": {
+      "job_name": "lm-mpi-job-4c25106f-3253-4635-930a-9a6f79fcb3dd",
+      "status": "failed",
+      "cause": "isolated-worktree full96 metadata copied one directory too deep; failed the package bbox existence gate before Python or Comet startup"
+    }
+  }
+}

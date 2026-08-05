@@ -439,10 +439,13 @@ class CometMLWriter:
         if self._experiment is None or self._suppress_events or table is None:
             return
         try:
+            # 4 Aug 2026 - AICODE-NOTE: log_table forwards extra keywords to
+            # pandas serialization. Validation step belongs in the deterministic
+            # filename; passing step= here makes DataFrame.to_csv fail.
             self._experiment.log_table(
                 filename=f"{self.mode}_{table_name}.csv",
                 tabular_data=table,
-                step=int(self.step),
+                index=False,
             )
         except Exception as error:
             self._log_warning("log_table", error)
@@ -452,11 +455,14 @@ class CometMLWriter:
         if self._experiment is None or self._suppress_events or table is None:
             return None
         try:
-            return self._experiment.log_table(
+            result = self._experiment.log_table(
                 filename=str(filename),
                 tabular_data=table,
-                step=int(self.step),
+                index=False,
             )
+            if result is None and self._require_online_registration:
+                raise RuntimeError(f"Comet returned no table asset for {filename}")
+            return result
         except Exception as error:
             if self._require_online_registration:
                 raise RuntimeError(

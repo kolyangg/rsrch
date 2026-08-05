@@ -1,0 +1,29 @@
+defaults:
+  - large_dataset_rhca_hard_v1_audited_20k
+  - _self_
+
+# E9: the only scientific delta is the shared post-merge SA output projection.
+model:
+  generic_adapter_train_scope: self_attention_output
+
+expected_trainable_contract:
+  enabled: true
+  total_tensors: 980
+  total_parameters: 37273600
+  optimizer_tensors: 980
+  optimizer_parameters: 37273600
+  categories:
+    branched_processors:
+      name_substring: ".processor."
+      tensors: 840
+      parameters: 31948800
+    generic_shared_sa_output_adapter:
+      name_substring: ".lora_adapter."
+      tensors: 140
+      parameters: 5324800
+
+writer:
+  experiment_comment: >-
+    E9 vs fixed E0: train hard BA plus generic rank-32 shared SA to_out only;
+    test whether a common post-merge output basis helps the hard face branch
+    accommodate the surrounding native representation and raises ID similarity.

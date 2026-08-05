@@ -12,6 +12,12 @@ RUN_ID="@@RUN_ID@@"
 RUN_NAME="${RUN_ID}"
 
 case "${RUN_ID}" in
+  E0_large_ds_base_historical_r4_20k_full96_r1)
+    CONFIG_NAME="E0_large_ds_base_historical_20k"
+    ;;
+  E0_large_ds_base_fixed_baonly_r32_20k_full96_r1)
+    CONFIG_NAME="E0_large_ds_base_fixed_20k"
+    ;;
   E1_large_ds_truekey_r32_20k_full96_r1)
     CONFIG_NAME="E1_large_ds_truekey_20k"
     ;;
@@ -29,6 +35,24 @@ case "${RUN_ID}" in
     ;;
   E6_large_ds_fp32_r32_20k_full96_r1)
     CONFIG_NAME="E6_large_ds_fp32_20k"
+    ;;
+  E7_large_ds_generic_effective_r32_20k_full96_r1)
+    CONFIG_NAME="E7_large_ds_generic_effective_20k"
+    ;;
+  E8_large_ds_generic_ca_r32_20k_full96_r1)
+    CONFIG_NAME="E8_large_ds_generic_ca_20k"
+    ;;
+  E9_large_ds_shared_saout_r32_20k_full96_r1)
+    CONFIG_NAME="E9_large_ds_shared_saout_20k"
+    ;;
+  E10_large_ds_pmdefault_effective_r64_20k_full96_r1)
+    CONFIG_NAME="E10_large_ds_pmdefault_effective_20k"
+    ;;
+  E11_large_ds_ba_sa_r128_20k_full96_r1)
+    CONFIG_NAME="E11_large_ds_ba_sa_r128_20k"
+    ;;
+  E12_large_ds_ba_idca_up_r256_20k_full96_r1)
+    CONFIG_NAME="E12_large_ds_ba_idca_up_r256_20k"
     ;;
   *)
     echo "Unknown August Large Dataset package ID: ${RUN_ID}" >&2

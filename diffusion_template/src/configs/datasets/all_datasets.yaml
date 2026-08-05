@@ -69,6 +69,27 @@ train:
         random_horizontal_flip: true
         instance_transforms: ${transforms.instance_transforms.train}
 
+    # Opt-in deterministic target/reference schedule. The historical
+    # `big_celebs` entry above remains the exact uniform-sampling control.
+    big_celebs_scheduled:
+        _target_: src.datasets.big_celebs_scheduled.BigCelebsScheduledTrain
+        manifest_path: ${oc.env:BIG_CELEBS_MANIFEST,/nonexistent/big_celebs_manifest.json}
+        images_path: ${oc.env:BIG_CELEBS_IMAGES,/nonexistent/big_celebs_images}
+        sampling_plan_path: ${oc.env:BIG_CELEBS_SAMPLING_PLAN,/nonexistent/big_celebs_sampling_plan.jsonl}
+        sampling_plan_manifest_path: ${oc.env:BIG_CELEBS_SAMPLING_PLAN_MANIFEST,/nonexistent/big_celebs_sampling_plan_manifest.json}
+        expected_sampling_plan_sha256: ${oc.env:BIG_CELEBS_EXPECTED_SAMPLING_PLAN_SHA256,0000000000000000000000000000000000000000000000000000000000000000}
+        schedule_start_row: ${oc.env:BIG_CELEBS_SCHEDULE_START_ROW,0}
+        num_refs: 1
+        min_face_res: ${oc.env:BIG_CELEBS_MIN_FACE_RES,192}
+        trigger_word: img
+        strict_manifest_fields: true
+        random_horizontal_flip: false
+        reference_crop_margin: null
+        reference_content_size: null
+        reference_canvas_size: null
+        reference_canvas_fill: 127
+        instance_transforms: ${transforms.instance_transforms.train}
+
     cosmic_large_one_id:
         _target_: src.datasets.cosmic_large_one_id.CosmicLargeOneID
         data_json_path: ../dataset_full/cosmic_large_one_id/train.json

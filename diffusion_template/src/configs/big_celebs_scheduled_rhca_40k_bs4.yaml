@@ -1,0 +1,17 @@
+defaults:
+  - big_celebs_scheduled_rhca_40k
+  - _self_
+
+# Batch-4 variant uses a separately sealed 160k-row schedule. Model,
+# optimizer, curriculum, and fixed full-96 validation remain unchanged.
+dataloaders:
+  train:
+    batch_size: 4
+
+trainer:
+  epoch_len: 2000
+  n_epochs: 20
+  validation_interval_steps: 2000
+  save_period: 1
+
+weights_only_save_period: 1

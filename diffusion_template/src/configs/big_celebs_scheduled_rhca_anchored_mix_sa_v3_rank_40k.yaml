@@ -1,0 +1,20 @@
+defaults:
+  - big_celebs_scheduled_rhca_anchored_mix_sa_v3_rank_2k
+  - _self_
+
+# E5-L40 is the exact long-horizon E4 control. The 2k checkpoint was too early
+# to distinguish a failed objective from the early identity dip seen in both
+# historical BA trajectories. Keep architecture, loss, data order, and
+# validation unchanged; only expose the full pinned 40k horizon.
+trainer:
+  epoch_len: 2000
+  n_epochs: 20
+  validation_interval_steps: 2000
+  save_period: 1
+
+weights_only_save_period: 1
+
+# These are project invariants for eligible reference-conditioned BA runs.
+pipeline:
+  pose_adapt_ratio: 0.0
+  ca_mixing_for_face: false

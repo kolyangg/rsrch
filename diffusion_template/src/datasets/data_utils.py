@@ -83,12 +83,34 @@ def get_dataloaders(config, device, logger):
         f"The train batch size ({config.dataloaders['train'].batch_size}) cannot "
         f"be larger than the train dataset length ({len(train_dataset)})"
     )
+    # 1 Aug 2026 - AICODE-NOTE: Scheduled datasets encode curriculum and
+    # recovery order in their indices; DataLoader shuffling would silently
+    # invalidate both while historical datasets must remain shuffled.
+    requires_sequential_sampling = bool(
+        getattr(train_dataset, "requires_sequential_sampling", False)
+    )
+    configured_train_shuffle = getattr(
+        config,
+        "train_dataloader_shuffle",
+        None,
+    )
+    train_shuffle = (
+        not requires_sequential_sampling
+        if configured_train_shuffle is None
+        else bool(configured_train_shuffle)
+    )
+    if requires_sequential_sampling and train_shuffle:
+        raise ValueError(
+            f"{type(train_dataset).__name__} requires "
+            "train_dataloader_shuffle=false"
+        )
+
     dataloaders["train"] = instantiate(
         config.dataloaders["train"],
         dataset=train_dataset,
         collate_fn=collate_fn,
         drop_last=True,
-        shuffle=True,
+        shuffle=train_shuffle,
         worker_init_fn=set_worker_seed,
     )
 

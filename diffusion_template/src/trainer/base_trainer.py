@@ -864,6 +864,10 @@ class BaseTrainer:
                         "ba_hard_v1_true_reference_key_mask",
                         "ba_hard_v1_branch_output_rank",
                         "ba_hard_v1_reference_roi_warp",
+                        "ba_hard_v1_lora_rank",
+                        "ba_identity_ca_v2_enabled",
+                        "ba_identity_ca_v2_groups",
+                        "ba_identity_ca_v2_rank",
                     ):
                         if hasattr(_val_model, attribute):
                             setattr(

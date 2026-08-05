@@ -1,0 +1,8 @@
+defaults:
+  - big_celebs_rhca_40k
+  - _self_
+
+# Opt-in policy-v1 schedule. The inherited model, optimizer, trainer, BA flags,
+# and fixed full-96 validation remain identical to the BigCelebs control.
+train_dataset_name: big_celebs_scheduled
+train_dataloader_shuffle: false

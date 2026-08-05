@@ -19,12 +19,20 @@ if [[ "$#" -ne 0 ]]; then
 fi
 
 case "${CONFIG_NAME}" in
+  E0_large_ds_base_historical_20k|\
+  E0_large_ds_base_fixed_20k|\
   E1_large_ds_truekey_20k|\
   E2_large_ds_branchout_20k|\
   E3_large_ds_roiwarp_20k|\
   E4_large_ds_midup_20k|\
   E5_large_ds_infersteps_20k|\
-  E6_large_ds_fp32_20k)
+  E6_large_ds_fp32_20k|\
+  E7_large_ds_generic_effective_20k|\
+  E8_large_ds_generic_ca_20k|\
+  E9_large_ds_shared_saout_20k|\
+  E10_large_ds_pmdefault_effective_20k|\
+  E11_large_ds_ba_sa_r128_20k|\
+  E12_large_ds_ba_idca_up_r256_20k)
     ;;
   *)
     echo "Unapproved CONFIG_NAME for August Large Dataset suite: ${CONFIG_NAME}" >&2
@@ -58,8 +66,14 @@ export WRITER="cometml"
 export COMET_PROJECT="aug-large-ds"
 export ACCELERATE_NUM_PROCESSES="1"
 
+model_overrides=(
+  "pipeline.pose_adapt_ratio=0.0"
+  "pipeline.ca_mixing_for_face=false"
+  "disable_branched_ca=true"
+)
+if [[ "${CONFIG_NAME}" != "E0_large_ds_base_historical_20k" ]]; then
+  model_overrides+=("model.ba_enforce_reference_only_hard_route=true")
+fi
+
 exec bash "${SCRIPT_DIR}/run_rhca_apr2026_one_id_1gpu.sh" \
-  "pipeline.pose_adapt_ratio=0.0" \
-  "pipeline.ca_mixing_for_face=false" \
-  "disable_branched_ca=true" \
-  "model.ba_enforce_reference_only_hard_route=true"
+  "${model_overrides[@]}"

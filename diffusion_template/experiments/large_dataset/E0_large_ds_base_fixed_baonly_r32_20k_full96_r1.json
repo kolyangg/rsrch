@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "run_name": "E0_large_ds_base_fixed_baonly_r32_20k_full96_r1",
+  "plan": {
+    "status": "running",
+    "priority": 0,
+    "variant": "fixed_ba_only",
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Establish the strict BA-only repair of r4 as the matched 20k comparator for historical E0 and E1-E6.",
+    "baseline": "rhca_large_dataset_sameid_40k_full96_r4",
+    "baseline_comet_key": "a99db1fb953d4511827672380e6c1645",
+    "comparison_pair": "E0_large_ds_base_historical_r4_20k_full96_r1",
+    "single_scientific_change": "repair r4's fail-open ownership and incomplete checkpoint behavior while preserving its intended hard-BA route",
+    "config": "src/configs/E0_large_ds_base_fixed_20k.yaml",
+    "launcher": "launchers/active/run_E_large_ds_hard_v1_20k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/E0_large_ds_base_fixed_baonly_r32_20k_full96_r1/run_E0_large_ds_base_fixed_baonly_r32_20k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "experiment_comment": "E0 fixed r4 replay: enforce exact 31.95M hard rank-32 BA-only ownership and complete schema-v2 checkpoints; establish the matched clean comparator for the historical E0 control and E1-E6.",
+    "fixed_contract": {
+      "architecture": "hard_replace_v1 noise_and_ref rank32 SA-only",
+      "pose_adapt_ratio": 0.0,
+      "ca_mixing_for_face": false,
+      "optimizer_steps": 20000,
+      "batch_size": 2,
+      "validation": "fixed manual_val 96 at step 0 and every 2000",
+      "checkpoint_interval_steps": 2000,
+      "trainable_ownership": "strict BA-only 840 tensors / 31948800 parameters",
+      "checkpoint_semantics": "complete trainable schema-v2",
+      "validation_processor_base_mode": "legacy_full_copy"
+    }
+  },
+  "comet": {
+    "experiment_key": "5b5cbd1584184ce1a9032dd6fafb91c5",
+    "project_name": "aug-large-ds",
+    "url": "https://www.comet.com/nikolay-2104/aug-large-ds/5b5cbd1584184ce1a9032dd6fafb91c5",
+    "mode": "online"
+  },
+  "submission": {
+    "status": "running",
+    "approval_required": false,
+    "submitted_at": "2026-08-04T11:21:51+01:00",
+    "job_name": "lm-mpi-job-a0e91e1b-3e43-49c1-b65e-9f4992f33bc4",
+    "authorized_project_gpu_ceiling": 8,
+    "startup_contract_verified": "840 tensors / 31948800 parameters; BA processor optimizer membership 840/840"
+  }
+}

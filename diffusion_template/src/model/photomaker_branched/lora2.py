@@ -119,6 +119,12 @@ class PhotomakerBranchedLora(SDXL):
         ba_hard_v1_true_reference_key_mask: bool = False,
         ba_hard_v1_branch_output_rank: Optional[int] = None,
         ba_hard_v1_reference_roi_warp: bool = False,
+        generic_adapter_train_scope: str = "none",
+        photomaker_default_train_scope: str = "none",
+        ba_hard_v1_lora_rank: Optional[int] = None,
+        ba_identity_ca_v2_enabled: bool = False,
+        ba_identity_ca_v2_groups: Optional[Sequence[str]] = None,
+        ba_identity_ca_v2_rank: int = 16,
         ##### BRANCHED ATTENTION - NEW PARAMS 1 #####
     ):
         """NEW PARAMS 1: define BA training controls (strategy, processor variant, ID mixing, and BA-only toggles)."""
@@ -232,6 +238,31 @@ class PhotomakerBranchedLora(SDXL):
                 "branched_state_dict_mode must be 'legacy' or 'trainable_v2', "
                 f"got {self.branched_state_dict_mode!r}"
             )
+        self.generic_adapter_train_scope = (
+            generic_adapter_train_scope or "none"
+        ).lower()
+        if self.generic_adapter_train_scope not in {
+            "none",
+            "effective_all",
+            "cross_attention",
+            "self_attention_output",
+        }:
+            raise ValueError(
+                "generic_adapter_train_scope must be 'none', 'effective_all', "
+                "'cross_attention', or 'self_attention_output'; got "
+                f"{self.generic_adapter_train_scope!r}"
+            )
+        self.photomaker_default_train_scope = (
+            photomaker_default_train_scope or "none"
+        ).lower()
+        if self.photomaker_default_train_scope not in {
+            "none",
+            "effective_all",
+        }:
+            raise ValueError(
+                "photomaker_default_train_scope must be 'none' or "
+                f"'effective_all'; got {self.photomaker_default_train_scope!r}"
+            )
         self.ba_architecture_version = (
             ba_architecture_version or "hard_replace_v1"
         ).lower()
@@ -246,6 +277,28 @@ class PhotomakerBranchedLora(SDXL):
                 "'residual_sa_v2', 'anchored_mix_sa_v3', or "
                 "'query_adaptive_hard_sa_v4'; got "
                 f"{self.ba_architecture_version!r}"
+            )
+        adapter_scope_enabled = any(
+            scope != "none"
+            for scope in (
+                self.generic_adapter_train_scope,
+                self.photomaker_default_train_scope,
+            )
+        )
+        if adapter_scope_enabled and not all(
+            (
+                self.train_ba_only,
+                self.strict_trainable_contract,
+                self.branched_state_dict_mode == "trainable_v2",
+                self.ba_architecture_version == "hard_replace_v1",
+                self.branched_attn_weight_mode == "noise_and_ref",
+                not self.train_branched_ca_lora,
+            )
+        ):
+            raise ValueError(
+                "Audited outer-adapter scopes require train_ba_only=true, "
+                "strict_trainable_contract=true, trainable-v2 checkpoints, "
+                "hard_replace_v1 noise_and_ref, and branched CA disabled"
             )
         self.branched_trainable_dtype = (
             branched_trainable_dtype or "inherit"
@@ -392,12 +445,61 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_hard_v1_reference_roi_warp = bool(
             ba_hard_v1_reference_roi_warp
         )
+        self.ba_hard_v1_lora_rank = (
+            None
+            if ba_hard_v1_lora_rank is None
+            else int(ba_hard_v1_lora_rank)
+        )
+        if (
+            self.ba_hard_v1_lora_rank is not None
+            and self.ba_hard_v1_lora_rank <= 0
+        ):
+            raise ValueError("ba_hard_v1_lora_rank must be positive when enabled")
+        if (
+            self.ba_hard_v1_lora_rank is not None
+            and self.branched_attn_new_weight_kind != "lora"
+        ):
+            raise ValueError(
+                "ba_hard_v1_lora_rank requires branched_attn_new_weight_kind=lora"
+            )
+        self.ba_identity_ca_v2_enabled = bool(ba_identity_ca_v2_enabled)
+        self.ba_identity_ca_v2_groups = (
+            None
+            if ba_identity_ca_v2_groups is None
+            else tuple(str(group) for group in ba_identity_ca_v2_groups)
+        )
+        self.ba_identity_ca_v2_rank = int(ba_identity_ca_v2_rank)
+        if self.ba_identity_ca_v2_rank <= 0:
+            raise ValueError("ba_identity_ca_v2_rank must be positive")
+        if self.ba_identity_ca_v2_enabled and not self.ba_identity_ca_v2_groups:
+            raise ValueError(
+                "ba_identity_ca_v2_enabled requires non-empty block groups"
+            )
+        if self.ba_identity_ca_v2_enabled and not all(
+            (
+                self.train_ba_only,
+                self.strict_trainable_contract,
+                self.branched_state_dict_mode == "trainable_v2",
+                self.ba_architecture_version == "hard_replace_v1",
+                self.branched_attn_weight_mode == "noise_and_ref",
+                not self.train_branched_ca_lora,
+                self.pose_adapt_ratio == 0.0,
+                not self.ca_mixing_for_face,
+            )
+        ):
+            raise ValueError(
+                "Corrected identity CA requires strict trainable-v2 hard-v1 "
+                "BA-only noise_and_ref, legacy branched CA off, "
+                "pose_adapt_ratio=0, and ca_mixing_for_face=false"
+            )
         if self.ba_architecture_version != "hard_replace_v1" and any(
             (
                 self.ba_enforce_reference_only_hard_route,
                 self.ba_hard_v1_true_reference_key_mask,
                 self.ba_hard_v1_branch_output_rank is not None,
                 self.ba_hard_v1_reference_roi_warp,
+                self.ba_hard_v1_lora_rank is not None,
+                self.ba_identity_ca_v2_enabled,
             )
         ):
             raise ValueError("Hard-v1 controls require ba_architecture_version=hard_replace_v1")
@@ -583,10 +685,16 @@ class PhotomakerBranchedLora(SDXL):
                 self.ba_hard_v1_true_reference_key_mask
                 or self.ba_hard_v1_branch_output_rank is not None
                 or self.ba_hard_v1_reference_roi_warp
+                or self.ba_hard_v1_lora_rank is not None
+                or self.ba_identity_ca_v2_enabled
             )
         )
         processor_code_version = {
-            "hard_replace_v1": 2 if hard_v1_extended else 1,
+            "hard_replace_v1": (
+                3
+                if self.ba_identity_ca_v2_enabled
+                else (2 if hard_v1_extended else 1)
+            ),
             "residual_sa_v2": 2,
             "anchored_mix_sa_v3": 3,
             "query_adaptive_hard_sa_v4": 4,
@@ -683,8 +791,21 @@ class PhotomakerBranchedLora(SDXL):
                 for name in trainable_names
             },
         }
+        if (
+            self.generic_adapter_train_scope != "none"
+            or self.photomaker_default_train_scope != "none"
+        ):
+            # 4 Aug 2026 - AICODE-NOTE: Only new explicit adapter-scope runs
+            # extend the manifest. Defaults-off manifests stay byte-compatible
+            # with existing E0-E6 schema-v2 checkpoints.
+            manifest["generic_adapter_train_scope"] = (
+                self.generic_adapter_train_scope
+            )
+            manifest["photomaker_default_train_scope"] = (
+                self.photomaker_default_train_scope
+            )
         if hard_v1_extended:
-            manifest["hard_v1_extensions"] = {
+            hard_v1_extensions = {
                 "true_reference_key_mask": bool(
                     self.ba_hard_v1_true_reference_key_mask
                 ),
@@ -694,6 +815,24 @@ class PhotomakerBranchedLora(SDXL):
                 ),
                 "face_fusion_mode": "hard_reference_replace",
             }
+            if self.ba_hard_v1_lora_rank is not None:
+                hard_v1_extensions["lora_rank"] = int(
+                    self.ba_hard_v1_lora_rank
+                )
+            if self.ba_identity_ca_v2_enabled:
+                identity_names = list(
+                    getattr(self, "_ba_identity_ca_processor_names", ())
+                )
+                hard_v1_extensions["identity_ca_v2"] = {
+                    "enabled": True,
+                    "groups": list(self.ba_identity_ca_v2_groups or ()),
+                    "rank": int(self.ba_identity_ca_v2_rank),
+                    "processor_names": identity_names,
+                    "routing": "target_q_active_photomaker_id_kv",
+                    "merge": "native_outside_face_id_only_inside_face",
+                    "legacy_branched_ca": False,
+                }
+            manifest["hard_v1_extensions"] = hard_v1_extensions
         if self.ba_architecture_version == "anchored_mix_sa_v3":
             manifest.update(
                 {

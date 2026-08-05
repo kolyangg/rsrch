@@ -72,6 +72,11 @@ def patch_unet_attention_processors(
         QueryAdaptiveHardBranchedSelfAttnProcessorV4,
     )
     from .residual_sa_processor_v2 import ResidualBranchedSelfAttnProcessorV2
+    from .identity_ca_processor_v2 import HardIdentityCrossAttnProcessorV2
+
+    identity_ca_v2_enabled = bool(
+        getattr(pipeline, "ba_identity_ca_v2_enabled", False)
+    )
 
     if configured_architecture_version is None:
         # Validation pipelines reuse the already-installed training U-Net but
@@ -120,6 +125,12 @@ def patch_unet_attention_processors(
             raise RuntimeError(
                 "The audited Large Dataset suite forbids native/reference face mixing"
             )
+        if identity_ca_v2_enabled and bool(
+            getattr(pipeline, "train_branched_ca_lora", False)
+        ):
+            raise RuntimeError(
+                "Corrected identity CA cannot enable the legacy branched CA trainables"
+            )
 
     if architecture_version == "hard_replace_v1":
         BranchedAttnProcessor = HardReplaceBranchedAttnProcessor
@@ -166,6 +177,7 @@ def patch_unet_attention_processors(
         AnchoredMixBranchedSelfAttnProcessorV3,
         QueryAdaptiveHardBranchedSelfAttnProcessorV4,
         BranchedCrossAttnProcessor,
+        HardIdentityCrossAttnProcessorV2,
     )
 
     # print(f'[TEMP DEBUG] mask in patch_unet_attention_processors: {mask}')
@@ -293,6 +305,65 @@ def patch_unet_attention_processors(
             )
     patchable_sa_name_set = set(patchable_sa_names)
     setattr(pipeline, "_ba_semantic_processor_names", tuple(patchable_sa_names))
+
+    identity_ca_names: list[str] = []
+    if identity_ca_v2_enabled:
+        if architecture_version != "hard_replace_v1":
+            raise RuntimeError("Corrected identity CA requires hard_replace_v1")
+        if not disable_ca:
+            raise RuntimeError(
+                "Corrected identity CA requires the legacy branched CA path disabled"
+            )
+        if float(getattr(pipeline, "pose_adapt_ratio", 0.0)) != 0.0:
+            raise RuntimeError("Corrected identity CA requires pose_adapt_ratio=0")
+        if bool(getattr(pipeline, "ca_mixing_for_face", False)):
+            raise RuntimeError(
+                "Corrected identity CA forbids PhotoMaker/native face-output mixing"
+            )
+        identity_groups = tuple(
+            str(group)
+            for group in (
+                getattr(pipeline, "ba_identity_ca_v2_groups", None) or ()
+            )
+        )
+        invalid_identity_groups = [
+            group
+            for group in identity_groups
+            if not (
+                group == "mid_block"
+                or group.startswith("down_blocks.")
+                or group.startswith("up_blocks.")
+            )
+        ]
+        if invalid_identity_groups or not identity_groups:
+            raise ValueError(
+                "Invalid ba_identity_ca_v2_groups="
+                f"{invalid_identity_groups or identity_groups!r}"
+            )
+        identity_ca_names = [
+            name
+            for name in pipeline.unet.attn_processors.keys()
+            if name.endswith("attn2.processor")
+            and any(name.startswith(f"{group}.") for group in identity_groups)
+        ]
+        if not identity_ca_names:
+            raise RuntimeError(
+                "ba_identity_ca_v2_groups selected zero cross-attention processors"
+            )
+    identity_ca_name_set = set(identity_ca_names)
+    setattr(pipeline, "_ba_identity_ca_processor_names", tuple(identity_ca_names))
+
+    installed_identity_ca_names = {
+        name
+        for name, processor in current_procs.items()
+        if isinstance(processor, HardIdentityCrossAttnProcessorV2)
+    }
+    if has_branched and installed_identity_ca_names != identity_ca_name_set:
+        raise RuntimeError(
+            "Installed corrected identity-CA map does not match configuration: "
+            f"installed={sorted(installed_identity_ca_names)}, "
+            f"expected={sorted(identity_ca_name_set)}"
+        )
 
     if not has_branched:
         # Create new processors
@@ -498,7 +569,12 @@ def patch_unet_attention_processors(
                             branched_attn_weight_mode=getattr(pipeline, "branched_attn_weight_mode", "shared"),
                             branched_attn_new_weight_kind=getattr(pipeline, "branched_attn_new_weight_kind", "full"),
                             branched_attn_lora_rank=int(
-                                getattr(pipeline, "branched_attn_lora_rank", getattr(pipeline, "lora_rank", 16))
+                                getattr(pipeline, "ba_hard_v1_lora_rank", None)
+                                or getattr(
+                                    pipeline,
+                                    "branched_attn_lora_rank",
+                                    getattr(pipeline, "lora_rank", 16),
+                                )
                             ),
                             trainable_dtype=hard_trainable_dtype,
                             true_reference_key_mask=bool(
@@ -545,7 +621,36 @@ def patch_unet_attention_processors(
                     patched_proc_names.append(name)
                 
             elif name.endswith("attn2.processor"):
-                if disable_ca:
+                if name in identity_ca_name_set:
+                    trainable_dtype_name = str(
+                        getattr(pipeline, "branched_trainable_dtype", "inherit")
+                    ).lower()
+                    identity_trainable_dtype = (
+                        torch.float32
+                        if trainable_dtype_name in {"fp32", "float32"}
+                        else None
+                    )
+                    proc = HardIdentityCrossAttnProcessorV2(
+                        hidden_size=hidden_size,
+                        cross_attention_dim=int(cross_attention_dim),
+                        rank=int(getattr(pipeline, "ba_identity_ca_v2_rank", 16)),
+                        trainable_dtype=identity_trainable_dtype,
+                    )
+                    proc.init_from_attention(
+                        _resolve_attn_module(pipeline.unet, name)
+                    )
+                    if identity_trainable_dtype is not None:
+                        proc = proc.to(pipeline.device)
+                    else:
+                        proc = proc.to(
+                            pipeline.device,
+                            dtype=pipeline.unet.dtype,
+                        )
+                    proc.set_masks(_mask, _mref)
+                    proc.set_class_tokens_mask(class_tokens_mask)
+                    new_procs[name] = proc
+                    patched_proc_names.append(name)
+                elif disable_ca:
                     # Keep original cross-attn processor; no branched CA.
                     new_procs[name] = pipeline._original_attn_processors[name]
                 else:
@@ -588,7 +693,14 @@ def patch_unet_attention_processors(
         patched_proc_names: list[str] = []
         # Update masks on existing processors
         for name, proc in pipeline.unet.attn_processors.items():
-            if isinstance(proc, (BranchedAttnProcessor, BranchedCrossAttnProcessor)):
+            if isinstance(
+                proc,
+                (
+                    BranchedAttnProcessor,
+                    BranchedCrossAttnProcessor,
+                    HardIdentityCrossAttnProcessorV2,
+                ),
+            ):
                 patched_proc_names.append(name)
                 # proc.set_masks(mask, mask_ref)
                 proc.set_masks(_mask, _mref)
@@ -597,6 +709,10 @@ def patch_unet_attention_processors(
                 # (Re)apply id_embeds (zeros if missing); actual usage is gated by use_id_embeds
                 if hasattr(proc, "id_embeds"):
                     proc.id_embeds = _idem
+                if isinstance(proc, HardIdentityCrossAttnProcessorV2):
+                    # 4 Aug 2026 - ID-token membership changes with the current
+                    # prompt/CFG batch and must be refreshed on every forward.
+                    proc.set_class_tokens_mask(class_tokens_mask)
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
 
     pose_adapt_ratio = float(getattr(pipeline, "pose_adapt_ratio", 0.0))
