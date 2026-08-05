@@ -157,12 +157,17 @@ class ResidualIdentityCrossAttnProcessorV3(HardIdentityCrossAttnProcessorV2):
             heads=int(attn.heads),
         )
         identity_delta = self.id_delta_out(identity_hidden)
-        delta_rms = identity_delta.float().square().mean(
-            dim=-1, keepdim=True
-        ).sqrt()
-        normalized_delta = identity_delta / delta_rms.clamp_min(
-            self.rms_epsilon
-        ).to(identity_delta.dtype)
+        # 5 Aug 2026 - AICODE-NOTE: Clamp the mean square before sqrt. The
+        # zero-init output otherwise has a finite forward value but NaN
+        # gradients from sqrt'(0), corrupting E17 on its first optimizer step.
+        delta_rms = (
+            identity_delta.float()
+            .square()
+            .mean(dim=-1, keepdim=True)
+            .clamp_min(self.rms_epsilon**2)
+            .sqrt()
+        )
+        normalized_delta = identity_delta / delta_rms.to(identity_delta.dtype)
         gate = torch.sigmoid(self.gate_logit) * self.gate_max
         target_mask = self._prepare_spatial_mask(
             target_len=target_hidden.shape[1],

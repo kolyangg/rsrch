@@ -19,7 +19,7 @@ case "${RUN_ID}" in
     CONFIG_NAME="E15_large_ds_joint_persist_sa128_protected_24k" ;;
   E16_large_ds_joint_persist_sa128_idloss_24k_full96_r2)
     CONFIG_NAME="E16_large_ds_joint_persist_sa128_idloss_24k" ;;
-  E17_large_ds_joint_persist_sa128_resididca_24k_full96_r4)
+  E17_large_ds_joint_persist_sa128_resididca_24k_full96_r5)
     CONFIG_NAME="E17_large_ds_joint_persist_sa128_resididca_24k" ;;
   E18_large_ds_joint_persist_sa128_multiref_24k_full96_r4)
     CONFIG_NAME="E18_large_ds_joint_persist_sa128_multiref_24k" ;;
