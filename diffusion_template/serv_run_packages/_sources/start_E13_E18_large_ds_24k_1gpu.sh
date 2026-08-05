@@ -19,9 +19,9 @@ case "${RUN_ID}" in
     CONFIG_NAME="E15_large_ds_joint_persist_sa128_protected_24k" ;;
   E16_large_ds_joint_persist_sa128_idloss_24k_full96_r2)
     CONFIG_NAME="E16_large_ds_joint_persist_sa128_idloss_24k" ;;
-  E17_large_ds_joint_persist_sa128_resididca_24k_full96_r2)
+  E17_large_ds_joint_persist_sa128_resididca_24k_full96_r3)
     CONFIG_NAME="E17_large_ds_joint_persist_sa128_resididca_24k" ;;
-  E18_large_ds_joint_persist_sa128_multiref_24k_full96_r2)
+  E18_large_ds_joint_persist_sa128_multiref_24k_full96_r3)
     CONFIG_NAME="E18_large_ds_joint_persist_sa128_multiref_24k" ;;
   *) echo "Unknown E13-E18 RUN_ID: ${RUN_ID}" >&2; exit 69 ;;
 esac
