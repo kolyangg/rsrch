@@ -67,7 +67,8 @@ export LIBSTDCXX_PATH="${LIBSTDCXX_PATH:-${OWNER_ROOT}/conda_env/nasilaev/lib/li
 export LARGE_DATASET_MANIFEST="${OWNER_ROOT}/datasets/dataset_full/filtered_ids3_adj.json"
 export LARGE_DATASET_IMAGES="${OWNER_ROOT}/datasets/dataset_full/large_dataset_adj/large_dataset"
 export LARGE_DATASET_SCHEDULE_START_ROW="${LARGE_DATASET_SCHEDULE_START_ROW:-0}"
-export FULL96_BBOX_MANUAL="${PROJECT_ROOT}/../dataset_full/val_dataset/protocols/cosmic_full96_auto_v1/pm96_bboxes_new.json"
+# 05 Aug 2026 - Keep the fixed full-96 protocol outside clean runtime clones.
+export FULL96_BBOX_MANUAL="${OWNER_ROOT}/datasets/dataset_full/val_dataset/protocols/cosmic_full96_auto_v1/pm96_bboxes_new.json"
 export CUDA_VISIBLE_DEVICES=0
 export ACCELERATE_NUM_PROCESSES=1
 export TORCH_DISABLE_ADDR2LINE=1
