@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E14_large_ds_joint_shadow_sa128_protected_24k_full96_r3",
   "plan": {
-    "status": "ready_not_submitted",
+    "status": "running_step0_validation",
     "priority": 2,
     "machine": "serv",
     "gpus": 1,
@@ -14,5 +14,19 @@
     "comet_project": "aug-large-ds",
     "retry_of": "E14_large_ds_joint_shadow_sa128_protected_24k_full96_r2",
     "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false; auxiliary face-quality scoring on CPU"
+  },
+  "execution": {
+    "submitted_at": "2026-08-05T16:27:14+01:00",
+    "mls_job_name": "lm-mpi-job-3c9b21e1-6101-4d86-8d81-d51d4bc8174d",
+    "comet_experiment_key": "230ad9dedc674d54884fcb150ac8446b",
+    "git_commit": "fc60628220728fa53182d0b4575af2afd9db5ba5",
+    "runtime_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E14_E18_cpu_20260805",
+    "startup_checks": {
+      "config_contract": "24000 optimizer steps / 219217920 trainable parameters",
+      "dataset_preflight": "64/64 decoded",
+      "onnxruntime": "1.20.1 with CUDAExecutionProvider",
+      "trainable_and_optimizer_contract": "exact match: 2240 tensors / 219217920 parameters; processor params 840/840 in optimizer",
+      "face_quality_device": "cpu; suite-wide fail-closed composition guard"
+    }
   }
 }

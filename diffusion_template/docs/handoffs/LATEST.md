@@ -1904,17 +1904,31 @@ Launch state on 5 August 2026:
 - E14 r2 (`lm-mpi-job-f1132bd5-d531-4cf0-b7e7-f2179f0b1240`, immutable Comet
   key `f3ccb0c866b343198ce936cf342e8633`) failed at the same post-step-0
   face-quality CUDA boundary after generating all 96 images; no optimizer
-  step ran. It was inspected read-only and was not retried because the user
-  authorized only E13 in the follow-up request.
-- E15 r2 was not accepted: MLS returned
+  step ran.
+- Face-quality device selection is now a suite-wide fail-closed invariant:
+  all E13-E18 configs must resolve `trainer.face_quality.device=cpu`. The
+  canonical four-metric PyIQA 0.1.15 one-image CPU smoke passed before E13 r2,
+  and E14-E18 each passed their exact Hydra gate with the same setting.
+- E14 r3 is Running as
+  `lm-mpi-job-3c9b21e1-6101-4d86-8d81-d51d4bc8174d`, immutable Comet key
+  `230ad9dedc674d54884fcb150ac8446b`, from commit
+  `fc60628220728fa53182d0b4575af2afd9db5ba5`. Runtime, config, Comet-record,
+  and 64-image dataset gates passed. Both ownership gates match exactly at
+  2,240 tensors / 219,217,920 parameters, all 840 processor tensors are in the
+  optimizer, and fixed full-96 step-0 validation has started.
+- E15 r2's first submission was not accepted: MLS returned
   `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE` before assigning a job name or
-  Comet key. Do not retry it unless the user asks again, per the Serv
-  allocation-rejection rule.
-- E16-E18 r2 have not been submitted. Their exact Hydra gates, loss
-  constructors, and packages pass, but they are waiting for workspace
-  capacity. At the rejection snapshot the whole shared workspace was 16/16
-  GPUs, including eight one-GPU jobs from another user's new sweep and one
-  external four-GPU job. Do not stop or modify those jobs.
+  Comet key. The user authorized one new attempt after E14 r3 was accepted;
+  that attempt was also rejected before job creation with the same error.
+- E16-E18 r2 each received the user-requested single submission attempt after
+  a fresh allocation check. All four E15-E18 requests were rejected before job
+  creation with `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE`; none has an MLS job
+  or Comet key, and none may be retried without a later user instruction.
+  Their exact Hydra gates, loss constructors, CPU face-quality invariant, and
+  package checks passed. The 16/16 snapshot included eight one-GPU jobs from
+  another user's sweep and one external four-GPU job; do not stop or modify
+  those jobs. The temporary suite ceiling was not the blocker: only four
+  project GPUs were Running/Pending.
 - E14-E18 r1 are failed/stopped startup attempts and must not be interpreted as
   experiment results. Their immutable keys and failure provenance are kept in
   their JSON records. The root cause was a missing `loss_kind:
@@ -1926,8 +1940,10 @@ Launch state on 5 August 2026:
 The original E11/E12 worktree was left untouched because it was dirty and E12
 was still Running. E13 r2 uses clean isolated worktree
 `runtime_worktrees/rsrch_test_E13_r2_20260805`; its failed r1 remains in
-`runtime_worktrees/rsrch_test_E13_E18_20260805`. E14-E18 r2 use
-`runtime_worktrees/rsrch_test_E14_E18_r2_20260805`. The canonical fixed full-96
+`runtime_worktrees/rsrch_test_E13_E18_20260805`. E14 r3 and launch-ready
+E15-E18 use clean worktree
+`runtime_worktrees/rsrch_test_E14_E18_cpu_20260805`; the prior E14 r2 artifacts
+remain in `runtime_worktrees/rsrch_test_E14_E18_r2_20260805`. The canonical fixed full-96
 bbox file was copied without modification to
 `datasets/dataset_full/val_dataset/protocols/cosmic_full96_auto_v1/pm96_bboxes_new.json`
 with SHA-256

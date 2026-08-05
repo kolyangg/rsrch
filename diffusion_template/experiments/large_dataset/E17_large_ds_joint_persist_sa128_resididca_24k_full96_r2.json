@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E17_large_ds_joint_persist_sa128_resididca_24k_full96_r2",
   "plan": {
-    "status": "ready_waiting_workspace_capacity",
+    "status": "submission_rejected_workspace_gpu_limit_no_retry",
     "priority": 5,
     "machine": "serv",
     "gpus": 1,
@@ -13,6 +13,14 @@
     "serv_yaml": "serv_run_packages/E17_large_ds_joint_persist_sa128_resididca_24k_full96_r2/run_E17_large_ds_joint_persist_sa128_resididca_24k_full96_r2_1gpu.yaml",
     "comet_project": "aug-large-ds",
     "retry_of": "E17_large_ds_joint_persist_sa128_resididca_24k_full96_r1",
-    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false"
+    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false; auxiliary face-quality scoring on CPU"
+  },
+  "execution": {
+    "gate_checked_at": "2026-08-05T16:32:15+01:00",
+    "attempted_at": "2026-08-05T16:32:20+01:00",
+    "latest_gate": "rejected before job creation: WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE; do not retry per user instruction",
+    "mls_job_name": null,
+    "comet_experiment_key": null,
+    "final_no_retry": true
   }
 }
