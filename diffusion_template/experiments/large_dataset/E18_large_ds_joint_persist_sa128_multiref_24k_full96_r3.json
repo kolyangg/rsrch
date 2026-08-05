@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E18_large_ds_joint_persist_sa128_multiref_24k_full96_r3",
   "plan": {
-    "status": "prepared_deferred_face_quality_retry",
+    "status": "superseded_unsubmitted_shared_runtime_package",
     "priority": 6,
     "machine": "serv",
     "gpus": 1,

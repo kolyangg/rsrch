@@ -1923,12 +1923,10 @@ Launch state on 5 August 2026:
   `90b31a80d20d4083b8d32873ac170881`) passed its matching ownership gates and
   generated all 96 step-0 images, then failed at the same scorer-child CUDA
   boundary before optimizer step 1.
-- E13 r4 and E14 r5 are the immutable deferred-face-quality retries. Their
-  isolated Serv runtime is
-  `runtime_worktrees/rsrch_test_E13_E14_deferred_20260805`; both retain the
-  exact 24k/full-96 training contracts and do not construct PyIQA models at
-  startup or during training. Both exact local/Serv config gates pass. Their
-  original 19:20/19:21 attempts were rejected while the workspace was full.
+- E13 r4 and the E14 deferred retries retain the exact 24k/full-96 training
+  contracts and do not construct PyIQA models at startup or during training.
+  Both exact local/Serv config gates pass. Their original 19:20/19:21 attempts
+  were rejected while the workspace was full.
   After explicit user reauthorization, E13 was accepted once as
   `lm-mpi-job-62127e33-1dec-4daa-a9ed-02e30b9b0f8f` but failed before Comet or
   training because an interrupted fast-forward left the exact `ebf1ac8` tree
@@ -1936,10 +1934,13 @@ Launch state on 5 August 2026:
   update completed without changing files. Corrected E13 is Running as
   `lm-mpi-job-57f10bf3-5010-4c97-aac6-26164c84defb` from clean commit
   `ebf1ac8`, immutable Comet key `1cc0a02371094b24a6a02a4cc649f10c`.
-  E14's reauthorized 19:45:13 attempt was rejected before job creation with
-  `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE` after E13 consumed the one free
-  slot; E14 still has no MLS job or Comet key and must not be retried without
-  another user instruction.
+  E14 r5 was later accepted as
+  `lm-mpi-job-57f41a1b-d3d6-49ee-88a7-a7b84b6fb4ca`, but failed before Comet
+  or training because E13's live validation created untracked bbox-cache files
+  in their shared checkout and the clean guard correctly rejected it. E14 r6
+  uses its own clean runtime and is Running as
+  `lm-mpi-job-e813fc81-beb6-4421-8e30-d175392e82a6`, immutable Comet key
+  `f53c2a2f130247a1b817c820ba7615ae`.
 - E15-E18 r2 were packaged earlier with in-process rank-0 CUDA scoring from
   commit `57257ac68ae2b9503e4899d43a082e92cf4cb1c7`. Their isolated runtime is
   `runtime_worktrees/rsrch_test_E15_E18_gpu_20260805`. Already-running E15/E16
@@ -1953,11 +1954,15 @@ Launch state on 5 August 2026:
   Comet key `4561fb0de8c64b3da8663e3f4c37589c`. Both completed the full-96 step-0
   panel and four-model in-process CUDA face-quality scoring (95 detected
   faces), then entered training; latest observed progress was at least step
-  300 for E15 and step 50 for E16. E17 and E18 were each tried once and
-  rejected before job creation
-  with `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE` at 18:54:00 and 18:54:24
-  London time. They have no MLS job or Comet key and must not be retried
-  without another user instruction.
+  300 for E15 and step 50 for E16. Earlier E17/E18 r2 attempts were rejected
+  before job creation while the workspace was full. Their deferred replacements
+  use separate clean runtimes to prevent concurrent bbox-cache writes from
+  tripping another job's clean guard. E17 r3 is Running as
+  `lm-mpi-job-58b43e25-2c54-4c03-be75-9d4b46cd4418`, immutable Comet key
+  `ed09370a12f8429e8e0556c387afdb1d`; E18 r4 is Running as
+  `lm-mpi-job-53666768-76c5-46f4-b488-895d2d7c74ab`, immutable Comet key
+  `b9e118da6dc94cd9b3849566e18c67ff`. The unsubmitted shared-runtime E18 r3
+  package is superseded and must not be launched.
 - E14-E18 r1 are failed/stopped startup attempts and must not be interpreted as
   experiment results. Their immutable keys and failure provenance are kept in
   their JSON records. The root cause was a missing `loss_kind:

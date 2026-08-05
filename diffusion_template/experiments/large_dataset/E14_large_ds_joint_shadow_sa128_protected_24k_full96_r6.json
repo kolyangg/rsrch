@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E14_large_ds_joint_shadow_sa128_protected_24k_full96_r6",
   "plan": {
-    "status": "prepared_isolated_deferred_face_quality_retry",
+    "status": "running_isolated_deferred_face_quality_retry",
     "priority": 2,
     "machine": "serv",
     "gpus": 1,
@@ -16,8 +16,11 @@
     "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false; independent runtime; exact validation images staged locally and canonical face quality scored non-fatally only after training"
   },
   "execution": {
-    "mls_job_name": null,
-    "comet_experiment_key": null,
+    "gate_checked_at": "2026-08-05T20:48:55+01:00",
+    "submission_gate": "workspace 9/16 A100s; project 5/8 authorized A100s",
+    "attempted_at": "2026-08-05T20:49:02+01:00",
+    "mls_job_name": "lm-mpi-job-e813fc81-beb6-4421-8e30-d175392e82a6",
+    "comet_experiment_key": "f53c2a2f130247a1b817c820ba7615ae",
     "runtime_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E14_r6_deferred_20260805",
     "required_startup_checks": {
       "config_contract": "24000 optimizer steps / 219217920 trainable parameters",

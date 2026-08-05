@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E14_large_ds_joint_shadow_sa128_protected_24k_full96_r5",
   "plan": {
-    "status": "deferred_face_quality_retry_rejected_workspace_full_no_retry",
+    "status": "failed_shared_runtime_clean_guard_no_comet",
     "priority": 2,
     "machine": "serv",
     "gpus": 1,
@@ -24,8 +24,11 @@
     "reauthorized_gate": "workspace 16/16 A100s; project 4/8 authorized A100s after E13 was accepted Pending",
     "reauthorized_attempted_at": "2026-08-05T19:45:13+01:00",
     "reauthorized_result": "rejected before job creation: WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE",
+    "capacity_reopened_attempted_at": "2026-08-05T20:42:10+01:00",
+    "capacity_reopened_mls_job_name": "lm-mpi-job-57f41a1b-d3d6-49ee-88a7-a7b84b6fb4ca",
+    "capacity_reopened_result": "failed before Comet creation or training: E13 generated untracked bbox cache files in the shared runtime and the clean-checkout guard rejected E14",
     "final_no_retry": true,
-    "mls_job_name": null,
+    "mls_job_name": "lm-mpi-job-57f41a1b-d3d6-49ee-88a7-a7b84b6fb4ca",
     "comet_experiment_key": null,
     "runtime_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E13_E14_deferred_20260805",
     "required_startup_checks": {

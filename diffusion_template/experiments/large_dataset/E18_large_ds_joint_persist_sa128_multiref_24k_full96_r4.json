@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E18_large_ds_joint_persist_sa128_multiref_24k_full96_r4",
   "plan": {
-    "status": "prepared_isolated_deferred_face_quality_retry",
+    "status": "running_isolated_deferred_face_quality_retry",
     "priority": 6,
     "machine": "serv",
     "gpus": 1,
@@ -17,8 +17,11 @@
     "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false; deterministic 48000-row balanced multi-reference schedule; independent runtime; exact validation images staged locally and canonical face quality scored non-fatally only after training"
   },
   "execution": {
-    "mls_job_name": null,
-    "comet_experiment_key": null,
+    "gate_checked_at": "2026-08-05T20:49:18+01:00",
+    "submission_gate": "workspace 10/16 A100s; project 6/8 authorized A100s",
+    "attempted_at": "2026-08-05T20:49:25+01:00",
+    "mls_job_name": "lm-mpi-job-53666768-76c5-46f4-b488-895d2d7c74ab",
+    "comet_experiment_key": "b9e118da6dc94cd9b3849566e18c67ff",
     "runtime_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E18_r4_deferred_20260805",
     "required_startup_checks": {
       "config_contract": "24000 optimizer steps / 219217920 trainable parameters",
