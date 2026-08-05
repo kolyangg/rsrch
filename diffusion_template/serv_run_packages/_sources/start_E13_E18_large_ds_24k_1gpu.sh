@@ -11,7 +11,7 @@ NVIDIA_LIB_ROOT="${CONDA_ENV}/lib/python3.10/site-packages/nvidia"
 : "${RUN_ID:?Package wrapper must set RUN_ID}"
 
 case "${RUN_ID}" in
-  E13_large_ds_joint_shadow_sa128_24k_full96_r1)
+  E13_large_ds_joint_shadow_sa128_24k_full96_r2)
     CONFIG_NAME="E13_large_ds_joint_shadow_sa128_24k" ;;
   E14_large_ds_joint_shadow_sa128_protected_24k_full96_r2)
     CONFIG_NAME="E14_large_ds_joint_shadow_sa128_protected_24k" ;;

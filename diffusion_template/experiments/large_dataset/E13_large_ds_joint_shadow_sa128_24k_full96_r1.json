@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E13_large_ds_joint_shadow_sa128_24k_full96_r1",
   "plan": {
-    "status": "running_startup_verified",
+    "status": "failed_step0_face_quality_superseded_by_r2",
     "priority": 1,
     "machine": "serv",
     "gpus": 1,
@@ -19,6 +19,8 @@
     "mls_job_name": "lm-mpi-job-be2c88f8-7008-4828-a41e-abaaa7f47839",
     "comet_experiment_key": "ce847065760c47e7bc16530238b39792",
     "git_commit": "23d43f7c7c9bec0f1f22c3cc2834fb795f613b0a",
-    "startup_contract": "2240 tensors / 219217920 parameters; optimizer membership exact"
+    "startup_contract": "2240 tensors / 219217920 parameters; optimizer membership exact",
+    "failure": "Completed the deterministic 96-image step-0 panel and ID table, then the auxiliary PyIQA subprocess could not initialize CUDA; no optimizer step ran",
+    "superseded_by": "E13_large_ds_joint_shadow_sa128_24k_full96_r2"
   }
 }

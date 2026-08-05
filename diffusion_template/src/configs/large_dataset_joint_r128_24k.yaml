@@ -18,6 +18,9 @@ trainer:
   masked_loss_step: 1
   face_quality:
     expected_images: 96
+    # 05 Aug 2026 - Serv's rank-0 scorer subprocess cannot initialize CUDA;
+    # CPU preserves the metric definitions and prevents validation aborts.
+    device: cpu
 
 weights_only_save_period: 1
 lr_for_lora: 1e-4
