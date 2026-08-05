@@ -1927,7 +1927,12 @@ Launch state on 5 August 2026:
   isolated Serv runtime is
   `runtime_worktrees/rsrch_test_E13_E14_deferred_20260805`; both retain the
   exact 24k/full-96 training contracts and do not construct PyIQA models at
-  startup or during training.
+  startup or during training. The runtime is clean at commit `84fb6e9` and
+  both exact local/Serv config gates pass. Their single submission attempts at
+  19:20:56 and 19:21:20 London time were rejected before job creation with
+  `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE` while the workspace was 16/16 and
+  this project was 4/8 authorized A100s. Neither retry has an MLS job or Comet
+  key; do not retry without another user instruction.
 - E15-E18 r2 were packaged earlier with in-process rank-0 CUDA scoring from
   commit `57257ac68ae2b9503e4899d43a082e92cf4cb1c7`. Their isolated runtime is
   `runtime_worktrees/rsrch_test_E15_E18_gpu_20260805`. Already-running E15/E16
