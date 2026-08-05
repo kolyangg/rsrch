@@ -1896,43 +1896,40 @@ Launch state on 5 August 2026:
   rank-0 PyIQA subprocess requested unavailable CUDA.
 - E13 r2 (`lm-mpi-job-7f4b3b5b-77d7-496d-990d-8f7d5a36b9f4`, immutable
   Comet key `251d7696031846a0a89f6dcaabf47d47`) was stopped during its slow
-  step-0 CPU face-quality pass at the user's request. E13 r3 is Running as
-  `lm-mpi-job-c5cc58ca-aaab-4e7f-b8ed-bd2706859f79`, immutable Comet key
-  `2397182200d64c56bf70b85398144cb9`, from commit
-  `aaa908c4e94381aca02691b9ebdb5b1fb75122e4` with E12-compatible CUDA
-  face-quality scoring. Both exact ownership gates pass at 2,240 tensors /
-  219,217,920 parameters, including 840/840 processor tensors in the optimizer.
+  step-0 CPU face-quality pass at the user's request. E13 r3
+  (`lm-mpi-job-c5cc58ca-aaab-4e7f-b8ed-bd2706859f79`, immutable Comet key
+  `2397182200d64c56bf70b85398144cb9`) passed both exact ownership gates and
+  generated all 96 step-0 images, then failed before optimizer step 1 because
+  its scorer child reported CUDA unavailable.
 - E14 r2 (`lm-mpi-job-f1132bd5-d531-4cf0-b7e7-f2179f0b1240`, immutable Comet
   key `f3ccb0c866b343198ce936cf342e8633`) failed at the same post-step-0
   face-quality CUDA boundary after generating all 96 images; no optimizer
   step ran.
-- E12 proves that the same four-metric PyIQA 0.1.15 scorer works on CUDA in
-  this Serv environment. E13/E14 had bypassed E12's production-launcher step
-  that preloads the GLIBCXX-compatible C++ runtime before Accelerate. The
-  suite now restores `trainer.face_quality.device=cuda`, preloads that exact
-  runtime, and fails before model download if a parent CUDA process and the
-  exact scorer child cannot both allocate a CUDA tensor. This nested gate
-  passed on both E13 r3 and E14 r4 with torch 2.6.0+cu124 on their allocated
-  A100s.
+- E12 proves that the same four-metric PyIQA 0.1.15 scorer repeatedly works on
+  CUDA in this Serv environment. The launcher-level parent/child CUDA probe
+  also passed on E13 r3 and E14 r4, but it ran before Accelerate and the large
+  joint validation model were initialized and therefore did not reproduce the
+  failure boundary. E13-E18 now keep the exact scorer and CUDA metrics but run
+  it inside rank 0's existing CUDA process. NumPy, torch CPU, and torch CUDA
+  RNG states are restored after every scoring call, and lingering temporary
+  validation-model references are released before PyIQA loads.
 - E14 r3 (`lm-mpi-job-3c9b21e1-6101-4d86-8d81-d51d4bc8174d`, immutable
   Comet key `230ad9dedc674d54884fcb150ac8446b`) was stopped during its slow
-  step-0 CPU face-quality pass at the user's request. E14 r4 is Running as
-  `lm-mpi-job-bfbdc73f-fb12-4ce5-862c-d1be4d37ff64`, immutable Comet key
-  `90b31a80d20d4083b8d32873ac170881`, from the same exact commit and clean
-  runtime as E13 r3. Its matching ownership and optimizer gates also pass.
-- E15-E18 r2 were updated at commit
-  `a6ae6158e09ad1b2e541db116f4e1d9e22e22b86` to use the same verified GPU
-  face-quality runtime as E13/E14, including the GLIBCXX preload and nested
-  parent/scorer-child CUDA allocation gate. All four exact Hydra contracts and
-  packages pass locally and in the isolated clean Serv runtime
-  `runtime_worktrees/rsrch_test_E15_E18_gpu_20260805`.
-- The user reauthorized one E15-E18 submission attempt each. Allocation was
-  checked before every request: the project was at four of its authorized
-  eight A100s, but the overall workspace remained 16/16. E15, E16, E17, and
-  E18 were consequently rejected before job creation with
+  step-0 CPU face-quality pass at the user's request. E14 r4
+  (`lm-mpi-job-bfbdc73f-fb12-4ce5-862c-d1be4d37ff64`, immutable Comet key
+  `90b31a80d20d4083b8d32873ac170881`) passed its matching ownership gates and
+  generated all 96 step-0 images, then failed at the same scorer-child CUDA
+  boundary before optimizer step 1.
+- E15-E18 r2 are being updated to use in-process rank-0 CUDA scoring. All four
+  exact Hydra contracts pass locally; the package startup gate now runs the
+  canonical four-model scorer on one image in-process rather than relying on
+  the misleading pre-Accelerate child probe. The intended isolated Serv
+  runtime remains `runtime_worktrees/rsrch_test_E15_E18_gpu_20260805`.
+- Earlier E15-E18 attempts were rejected before job creation with
   `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE` at 17:30:00, 17:30:27, 17:30:52,
-  and 17:31:18 London time respectively. None has an MLS job or Comet key;
-  do not retry without another later user request.
+  and 17:31:18 London time respectively. None received an MLS job or Comet
+  key. The user has now explicitly reauthorized another submission attempt
+  for each after checking E13/E14.
 - E14-E18 r1 are failed/stopped startup attempts and must not be interpreted as
   experiment results. Their immutable keys and failure provenance are kept in
   their JSON records. The root cause was a missing `loss_kind:

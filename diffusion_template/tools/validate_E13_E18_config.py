@@ -69,6 +69,7 @@ def main() -> None:
         "trainer.save_period": 1,
         "trainer.face_quality.expected_images": 96,
         "trainer.face_quality.device": "cuda",
+        "trainer.face_quality.execution_mode": "in_process",
         "weights_only_save_period": 1,
         "lr_scheduler.warmup_steps": 20,
         "lr_scheduler.hold_steps": 14000,

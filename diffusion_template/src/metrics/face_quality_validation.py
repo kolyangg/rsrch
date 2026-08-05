@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -90,6 +91,36 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
         encoding="utf-8",
     )
     temporary.replace(path)
+
+
+def _run_scorer_in_process(
+    scorer_script: Path,
+    scorer_arguments: list[str],
+) -> None:
+    """Run the canonical scorer without creating a second CUDA context."""
+    import numpy as np
+    import torch
+
+    numpy_rng_state = np.random.get_state()
+    torch_rng_state = torch.random.get_rng_state()
+    cuda_rng_states = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else []
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "_training_face_quality_scorer",
+            scorer_script,
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Cannot load face-quality scorer: {scorer_script}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        result = module.main(scorer_arguments)
+        if result not in (None, 0):
+            raise RuntimeError(f"Face-quality scorer returned status {result}")
+    finally:
+        np.random.set_state(numpy_rng_state)
+        torch.random.set_rng_state(torch_rng_state)
+        if cuda_rng_states:
+            torch.cuda.set_rng_state_all(cuda_rng_states)
 
 
 class FaceQualityValidationSession:
@@ -267,7 +298,22 @@ class FaceQualityValidationSession:
         # 27 Jul 2026 - AICODE-NOTE: The training pipeline calls the same
         # standalone scorer used by historical backfills. This keeps crop,
         # detector, model, and aggregate definitions exactly comparable.
-        subprocess.run(command, cwd=self.project_root, check=True)
+        execution_mode = str(
+            _config_get(self.config, "execution_mode", "subprocess")
+        ).lower()
+        if execution_mode == "subprocess":
+            subprocess.run(command, cwd=self.project_root, check=True)
+        elif execution_mode == "in_process":
+            # 5 Aug 2026 - AICODE-NOTE: Large joint E13-E18 models can leave
+            # too little GPU state for a second CUDA process after validation.
+            # Reuse rank 0's live context and restore RNG states so scoring
+            # cannot perturb the controlled training trajectory.
+            _run_scorer_in_process(scorer_script, command[2:])
+        else:
+            raise ValueError(
+                "trainer.face_quality.execution_mode must be subprocess or "
+                f"in_process, got {execution_mode!r}"
+            )
 
         result = json.loads(results_json.read_text(encoding="utf-8"))
         if result.get("metric_backend", {}).get("metrics") != metrics:

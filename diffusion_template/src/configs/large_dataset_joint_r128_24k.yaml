@@ -18,9 +18,11 @@ trainer:
   masked_loss_step: 1
   face_quality:
     expected_images: 96
-    # 05 Aug 2026 - Match E12's GPU scorer path. The Serv launcher preloads
-    # the compatible C++ runtime and verifies nested child-process CUDA first.
+    # 05 Aug 2026 - Keep E12's canonical GPU metrics while reusing rank 0's
+    # CUDA context; the larger joint model can prevent a second context from
+    # initializing after validation even though startup probes pass.
     device: cuda
+    execution_mode: in_process
 
 weights_only_save_period: 1
 lr_for_lora: 1e-4

@@ -19,6 +19,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean, median, pstdev
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -42,7 +43,7 @@ DEFAULT_METRICS = (
 SCORE_DIRECTION = {name: "higher_is_better" for name in DEFAULT_METRICS}
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Calculate face-crop IQA metrics for an exact Comet image manifest."
     )
@@ -59,7 +60,7 @@ def parse_args() -> argparse.Namespace:
         help="Padding on each side as a fraction of the largest detected-face side.",
     )
     parser.add_argument("--crop-size", type=int, default=512)
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def metric_slug(name: str) -> str:
@@ -301,8 +302,8 @@ def write_csv(path: Path, rows: list[dict[str, Any]], metric_slugs: list[str]) -
         writer.writerows(rows)
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
     metrics = parse_metrics(args.metrics)
     if args.batch_size < 1:
         raise ValueError("--batch-size must be positive")

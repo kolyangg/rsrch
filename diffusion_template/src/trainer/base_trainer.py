@@ -687,6 +687,10 @@ class BaseTrainer:
             val_pretrained = getattr(self.config, "pretrained_model_for_validation_name_or_path", None)
             _orig_pipe = getattr(self, "pipe", None)
             _val_model = None
+            state = None
+            default_snapshot = None
+            train_unet = None
+            val_unet = None
             _created_val = False
             _offloaded_train_model = False
             if val_pretrained:
@@ -1074,6 +1078,13 @@ class BaseTrainer:
                 self.pipe = _orig_pipe
             # Ensure temporary validation model is dereferenced before IQA.
             _val_model = None
+            state = None
+            default_snapshot = None
+            train_unet = None
+            val_unet = None
+            batch = None
+            gc.collect()
+            torch.cuda.empty_cache()
 
         for metric in self.metrics:
             metric.to_cpu()
