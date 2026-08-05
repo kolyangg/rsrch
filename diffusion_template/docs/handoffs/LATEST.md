@@ -1927,12 +1927,19 @@ Launch state on 5 August 2026:
   isolated Serv runtime is
   `runtime_worktrees/rsrch_test_E13_E14_deferred_20260805`; both retain the
   exact 24k/full-96 training contracts and do not construct PyIQA models at
-  startup or during training. The runtime is clean at commit `84fb6e9` and
-  both exact local/Serv config gates pass. Their single submission attempts at
-  19:20:56 and 19:21:20 London time were rejected before job creation with
-  `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE` while the workspace was 16/16 and
-  this project was 4/8 authorized A100s. Neither retry has an MLS job or Comet
-  key; do not retry without another user instruction.
+  startup or during training. Both exact local/Serv config gates pass. Their
+  original 19:20/19:21 attempts were rejected while the workspace was full.
+  After explicit user reauthorization, E13 was accepted once as
+  `lm-mpi-job-62127e33-1dec-4daa-a9ed-02e30b9b0f8f` but failed before Comet or
+  training because an interrupted fast-forward left the exact `ebf1ac8` tree
+  staged over an `84fb6e9` HEAD. The tree equality was verified and the ref
+  update completed without changing files. Corrected E13 is Running as
+  `lm-mpi-job-57f10bf3-5010-4c97-aac6-26164c84defb` from clean commit
+  `ebf1ac8`, immutable Comet key `1cc0a02371094b24a6a02a4cc649f10c`.
+  E14's reauthorized 19:45:13 attempt was rejected before job creation with
+  `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE` after E13 consumed the one free
+  slot; E14 still has no MLS job or Comet key and must not be retried without
+  another user instruction.
 - E15-E18 r2 were packaged earlier with in-process rank-0 CUDA scoring from
   commit `57257ac68ae2b9503e4899d43a082e92cf4cb1c7`. Their isolated runtime is
   `runtime_worktrees/rsrch_test_E15_E18_gpu_20260805`. Already-running E15/E16
@@ -1942,10 +1949,12 @@ Launch state on 5 August 2026:
   `lm-mpi-job-3406b3fc-8369-48c9-9a20-c838417f4e92`, immutable Comet key
   `f320234a54624aa6a1a100307691b627`; its exact four-model in-process CUDA
   smoke, config gate, and 64-image dataset gate passed. E16 was accepted and
-  is Running as `lm-mpi-job-f195abb1-c656-4d5f-b1fc-fd2f7d78f504`; its
-  startup smoke was still in progress at this handoff update. Those two jobs
-  brought the workspace to 16/16 A100s and this project to 4/8 authorized
-  A100s. E17 and E18 were each tried once and rejected before job creation
+  is Running as `lm-mpi-job-f195abb1-c656-4d5f-b1fc-fd2f7d78f504`, immutable
+  Comet key `4561fb0de8c64b3da8663e3f4c37589c`. Both completed the full-96 step-0
+  panel and four-model in-process CUDA face-quality scoring (95 detected
+  faces), then entered training; latest observed progress was at least step
+  300 for E15 and step 50 for E16. E17 and E18 were each tried once and
+  rejected before job creation
   with `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE` at 18:54:00 and 18:54:24
   London time. They have no MLS job or Comet key and must not be retried
   without another user instruction.
