@@ -21,7 +21,7 @@
     "attempted_at": "2026-08-05T21:05:49+01:00",
     "mls_job_name": "lm-mpi-job-363a85af-651e-45b1-9e4c-41740fe14cf0",
     "comet_experiment_key": "2b0581a252ae45ee9e6d24eb6fbad9c4",
-    "verification": "passed exact trainable/optimizer contracts and continued beyond the former validation processor-map failure after completing all 12 locator boxes",
+    "verification": "passed exact trainable/optimizer contracts, completed all 12 locator boxes, and completed the first 12-image main validation batch beyond the former processor-map failure",
     "runtime_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E17_r4_deferred_20260805",
     "required_startup_checks": {
       "config_contract": "24000 optimizer steps / 224624676 trainable parameters",

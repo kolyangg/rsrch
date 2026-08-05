@@ -1967,7 +1967,8 @@ Launch state on 5 August 2026:
   r4 is Running as `lm-mpi-job-363a85af-651e-45b1-9e4c-41740fe14cf0`,
   immutable Comet key `2b0581a252ae45ee9e6d24eb6fbad9c4`; it passed the
   exact 2,348-tensor/224,624,676-parameter trainable and optimizer contracts
-  and continued beyond the former map-check failure. E18 r4 is Running as
+  and completed the first 12-image main validation batch beyond the former
+  map-check failure. E18 r4 is Running as
   `lm-mpi-job-53666768-76c5-46f4-b488-895d2d7c74ab`, immutable Comet key
   `b9e118da6dc94cd9b3849566e18c67ff`. The unsubmitted shared-runtime E18 r3
   package is superseded and must not be launched.
