@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E17_large_ds_joint_persist_sa128_resididca_24k_full96_r2",
   "plan": {
-    "status": "submission_rejected_workspace_gpu_limit_no_retry",
+    "status": "gpu_retry_reauthorized_prepared",
     "priority": 5,
     "machine": "serv",
     "gpus": 1,
@@ -13,7 +13,7 @@
     "serv_yaml": "serv_run_packages/E17_large_ds_joint_persist_sa128_resididca_24k_full96_r2/run_E17_large_ds_joint_persist_sa128_resididca_24k_full96_r2_1gpu.yaml",
     "comet_project": "aug-large-ds",
     "retry_of": "E17_large_ds_joint_persist_sa128_resididca_24k_full96_r1",
-    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false; auxiliary face-quality scoring on CPU"
+    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false; E12-compatible CUDA face-quality scoring"
   },
   "execution": {
     "gate_checked_at": "2026-08-05T16:32:15+01:00",
@@ -21,6 +21,9 @@
     "latest_gate": "rejected before job creation: WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE; do not retry per user instruction",
     "mls_job_name": null,
     "comet_experiment_key": null,
-    "final_no_retry": true
+    "final_no_retry": false,
+    "retry_reauthorized_at": "2026-08-05T17:27:15+01:00",
+    "runtime_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E15_E18_gpu_20260805",
+    "required_startup_check": "parent and exact PyIQA 0.1.15 child must both allocate CUDA tensors before Accelerate"
   }
 }
