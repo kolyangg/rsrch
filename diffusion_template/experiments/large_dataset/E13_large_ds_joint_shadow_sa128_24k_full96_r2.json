@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E13_large_ds_joint_shadow_sa128_24k_full96_r2",
   "plan": {
-    "status": "ready_not_submitted",
+    "status": "running_step0_validation",
     "priority": 1,
     "machine": "serv",
     "gpus": 1,
@@ -14,5 +14,19 @@
     "comet_project": "aug-large-ds",
     "retry_of": "E13_large_ds_joint_shadow_sa128_24k_full96_r1",
     "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false; auxiliary face-quality scoring on CPU"
+  },
+  "execution": {
+    "submitted_at": "2026-08-05T16:11:21+01:00",
+    "mls_job_name": "lm-mpi-job-7f4b3b5b-77d7-496d-990d-8f7d5a36b9f4",
+    "comet_experiment_key": "251d7696031846a0a89f6dcaabf47d47",
+    "git_commit": "bd6de6e31180d533e75889319a0a6d9a9e48109a",
+    "runtime_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E13_r2_20260805",
+    "startup_checks": {
+      "config_contract": "24000 optimizer steps / 219217920 trainable parameters",
+      "dataset_preflight": "64/64 decoded",
+      "onnxruntime": "1.20.1 with CUDAExecutionProvider",
+      "trainable_and_optimizer_contract": "exact match: 2240 tensors / 219217920 parameters; processor params 840/840 in optimizer",
+      "face_quality_cpu_smoke": "canonical four metrics, PyIQA 0.1.15, one image/one detected face"
+    }
   }
 }

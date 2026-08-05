@@ -1889,17 +1889,23 @@ Implementation entry points:
 
 Launch state on 5 August 2026:
 
-- E13 r1 is Running as
-  `lm-mpi-job-be2c88f8-7008-4828-a41e-abaaa7f47839`, immutable Comet key
-  `ce847065760c47e7bc16530238b39792`, from commit
-  `23d43f7c7c9bec0f1f22c3cc2834fb795f613b0a`. It passed both exact ownership
-  gates at 2,240 tensors / 219,217,920 parameters and entered fixed full-96
-  step-0 validation.
-- E14 r2 is Running as
-  `lm-mpi-job-f1132bd5-d531-4cf0-b7e7-f2179f0b1240`, immutable Comet key
-  `f3ccb0c866b343198ce936cf342e8633`, from commit
-  `92f5a5ffc5547ebe8e493046db3470338cbecbfe`. It passed the same exact
-  ownership and optimizer gates. No metric result exists yet.
+- E13 r1 (`lm-mpi-job-be2c88f8-7008-4828-a41e-abaaa7f47839`, immutable Comet
+  key `ce847065760c47e7bc16530238b39792`) passed both exact ownership gates at
+  2,240 tensors / 219,217,920 parameters and generated the deterministic
+  96-image step-0 panel, but then failed before optimizer step 1 because its
+  rank-0 PyIQA subprocess requested unavailable CUDA.
+- E13 r2 is Running as
+  `lm-mpi-job-7f4b3b5b-77d7-496d-990d-8f7d5a36b9f4`, immutable Comet key
+  `251d7696031846a0a89f6dcaabf47d47`, from commit
+  `bd6de6e31180d533e75889319a0a6d9a9e48109a`. It preserves generation and
+  ID-similarity behavior and moves only auxiliary face-quality scoring to
+  CPU. Before submission the canonical four-metric PyIQA 0.1.15 scorer passed
+  a one-image CPU smoke; runtime, config, and 64-image dataset gates passed.
+- E14 r2 (`lm-mpi-job-f1132bd5-d531-4cf0-b7e7-f2179f0b1240`, immutable Comet
+  key `f3ccb0c866b343198ce936cf342e8633`) failed at the same post-step-0
+  face-quality CUDA boundary after generating all 96 images; no optimizer
+  step ran. It was inspected read-only and was not retried because the user
+  authorized only E13 in the follow-up request.
 - E15 r2 was not accepted: MLS returned
   `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE` before assigning a job name or
   Comet key. Do not retry it unless the user asks again, per the Serv
@@ -1918,8 +1924,9 @@ Launch state on 5 August 2026:
   target and explicitly instantiate successfully in the Serv environment.
 
 The original E11/E12 worktree was left untouched because it was dirty and E12
-was still Running. E13 uses clean isolated worktree
-`runtime_worktrees/rsrch_test_E13_E18_20260805`; E14-E18 r2 use
+was still Running. E13 r2 uses clean isolated worktree
+`runtime_worktrees/rsrch_test_E13_r2_20260805`; its failed r1 remains in
+`runtime_worktrees/rsrch_test_E13_E18_20260805`. E14-E18 r2 use
 `runtime_worktrees/rsrch_test_E14_E18_r2_20260805`. The canonical fixed full-96
 bbox file was copied without modification to
 `datasets/dataset_full/val_dataset/protocols/cosmic_full96_auto_v1/pm96_bboxes_new.json`
