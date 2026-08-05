@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E17_large_ds_joint_persist_sa128_resididca_24k_full96_r5",
   "plan": {
-    "status": "ready_to_submit_rms_gradient_fix",
+    "status": "running_rms_gradient_fix",
     "priority": 5,
     "machine": "serv",
     "gpus": 1,
@@ -16,6 +16,12 @@
     "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false; residual identity-CA RMS floor is applied to mean-square before sqrt so zero initialization has finite gradients; exact images staged and canonical face quality scored non-fatally only after training"
   },
   "execution": {
+    "gate_checked_at": "2026-08-05T21:54:35+01:00",
+    "submission_gate": "six project A100s running; r5 raises the authorized E13-E18 allocation to seven of eight",
+    "attempted_at": "2026-08-05T21:54:48+01:00",
+    "mls_job_name": "lm-mpi-job-46422bb5-61e0-45e1-a188-002ba7d0edf3",
+    "comet_experiment_key": "08ecedf8e058461abe952077f9623ab8",
+    "verification": "accepted on first submission; exact Serv config gate, 64-image dataset preflight, and immutable Comet record passed; production validation/training startup is in progress",
     "runtime_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E17_r5_rmsfix_20260805",
     "required_startup_checks": {
       "config_contract": "24000 optimizer steps / 224624676 trainable parameters",

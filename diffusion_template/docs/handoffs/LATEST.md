@@ -1964,11 +1964,18 @@ Launch state on 5 August 2026:
   contained 36 residual identity-CA v3 processors, but the temporary pipeline
   omitted all v3 selector/rank/gate attributes and computed `expected=[]`.
   Fix commit `de34683` propagates those five attributes before denoising. E17
-  r4 is Running as `lm-mpi-job-363a85af-651e-45b1-9e4c-41740fe14cf0`,
-  immutable Comet key `2b0581a252ae45ee9e6d24eb6fbad9c4`; it passed the
-  exact 2,348-tensor/224,624,676-parameter trainable and optimizer contracts
-  and completed the first 12-image main validation batch beyond the former
-  map-check failure. E18 r4 is Running as
+  r4 (`lm-mpi-job-363a85af-651e-45b1-9e4c-41740fe14cf0`, immutable Comet key
+  `2b0581a252ae45ee9e6d24eb6fbad9c4`) passed the exact
+  2,348-tensor/224,624,676-parameter contracts and full-96 step-0 validation,
+  then failed on training batch 2 after batch 1 reported finite loss 0.067981.
+  Its zero-initialized residual output used `sqrt(mean(delta^2))` before an RMS
+  clamp: forward was finite, but `sqrt'(0)` produced NaN gradients on the first
+  backward pass. Commit `1a88f6a` clamps mean-square before `sqrt`, preserving
+  the 1e-6 RMS floor while making zero-init gradients finite; an actual
+  processor forward/backward smoke passed on Serv in FP32. E17 r5 is Running
+  as `lm-mpi-job-46422bb5-61e0-45e1-a188-002ba7d0edf3`, immutable Comet key
+  `08ecedf8e058461abe952077f9623ab8`, from isolated runtime
+  `runtime_worktrees/rsrch_test_E17_r5_rmsfix_20260805`. E18 r4 is Running as
   `lm-mpi-job-53666768-76c5-46f4-b488-895d2d7c74ab`, immutable Comet key
   `b9e118da6dc94cd9b3849566e18c67ff`. The unsubmitted shared-runtime E18 r3
   package is superseded and must not be launched.
