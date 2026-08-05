@@ -2,7 +2,7 @@
 set -euo pipefail
 
 OWNER_ROOT="/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev"
-REMOTE_REPO="${SERV_REPO_ROOT:-${OWNER_ROOT}/runtime_worktrees/rsrch_test_E14_E18_r2_20260805}"
+REMOTE_REPO="${SERV_REPO_ROOT:-${OWNER_ROOT}/runtime_worktrees/rsrch_test_E14_E18_cpu_20260805}"
 PROJECT_ROOT="${REMOTE_REPO}/diffusion_template"
 CONDA_ENV="${OWNER_ROOT}/conda_env/photomaker_NS"
 ORT_OVERLAY="${OWNER_ROOT}/runtime_overlays/onnxruntime_gpu_1_20_1"
