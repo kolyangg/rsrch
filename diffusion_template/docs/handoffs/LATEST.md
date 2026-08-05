@@ -1909,10 +1909,13 @@ Launch state on 5 August 2026:
   CUDA in this Serv environment. The launcher-level parent/child CUDA probe
   also passed on E13 r3 and E14 r4, but it ran before Accelerate and the large
   joint validation model were initialized and therefore did not reproduce the
-  failure boundary. E13-E18 now keep the exact scorer and CUDA metrics but run
-  it inside rank 0's existing CUDA process. NumPy, torch CPU, and torch CUDA
-  RNG states are restored after every scoring call, and lingering temporary
-  validation-model references are released before PyIQA loads.
+  failure boundary. The replacement contract stages the exact 96 validation
+  PNGs plus checksummed manifests at every validation event without importing
+  or running PyIQA. Only after Accelerate exits successfully does a standalone
+  CUDA scorer combine all 13 steps, compute the unchanged canonical metrics,
+  and backfill the seven Comet curves. Its `--nonfatal` wrapper writes
+  `post_training_face_quality/status.json` and returns success on a scorer or
+  Comet error, so it cannot invalidate completed training or checkpoints.
 - E14 r3 (`lm-mpi-job-3c9b21e1-6101-4d86-8d81-d51d4bc8174d`, immutable
   Comet key `230ad9dedc674d54884fcb150ac8446b`) was stopped during its slow
   step-0 CPU face-quality pass at the user's request. E14 r4
@@ -1920,12 +1923,15 @@ Launch state on 5 August 2026:
   `90b31a80d20d4083b8d32873ac170881`) passed its matching ownership gates and
   generated all 96 step-0 images, then failed at the same scorer-child CUDA
   boundary before optimizer step 1.
-- E15-E18 r2 use in-process rank-0 CUDA scoring from commit
-  `57257ac68ae2b9503e4899d43a082e92cf4cb1c7`. All four exact Hydra contracts
-  pass locally; the package startup gate now runs the canonical four-model
-  scorer on one real face in-process rather than relying on the misleading
-  pre-Accelerate child probe. The isolated Serv runtime is
-  `runtime_worktrees/rsrch_test_E15_E18_gpu_20260805`.
+- E13 r4 and E14 r5 are the immutable deferred-face-quality retries. Their
+  isolated Serv runtime is
+  `runtime_worktrees/rsrch_test_E13_E14_deferred_20260805`; both retain the
+  exact 24k/full-96 training contracts and do not construct PyIQA models at
+  startup or during training.
+- E15-E18 r2 were packaged earlier with in-process rank-0 CUDA scoring from
+  commit `57257ac68ae2b9503e4899d43a082e92cf4cb1c7`. Their isolated runtime is
+  `runtime_worktrees/rsrch_test_E15_E18_gpu_20260805`. Already-running E15/E16
+  processes cannot inherit the later deferred implementation.
 - The user explicitly reauthorized another E15-E18 submission attempt after
   checking E13/E14. E15 was accepted and is Running as
   `lm-mpi-job-3406b3fc-8369-48c9-9a20-c838417f4e92`, immutable Comet key

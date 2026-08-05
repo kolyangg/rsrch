@@ -160,6 +160,12 @@ class FaceQualityValidationSession:
     def requested_device(self) -> str:
         return str(_config_get(self.config, "device", "auto")).lower()
 
+    @property
+    def execution_mode(self) -> str:
+        return str(
+            _config_get(self.config, "execution_mode", "subprocess")
+        ).lower()
+
     def resolve_device(self, num_processes: int) -> str:
         requested = self.requested_device
         if requested == "auto":
@@ -240,6 +246,21 @@ class FaceQualityValidationSession:
         }
         _atomic_json(manifest_path, manifest)
 
+        if self.execution_mode == "deferred":
+            # 5 Aug 2026 - AICODE-NOTE: Deferred validation owns these input
+            # files until the post-training scorer completes. No PyIQA import,
+            # model load, or CUDA context is allowed on the training path.
+            if self.logger is not None:
+                self.logger.info(
+                    "Face-quality validation staged: part=%s step=%s images=%s "
+                    "manifest=%s",
+                    self.part,
+                    self.step,
+                    len(self.records),
+                    manifest_path,
+                )
+            return {}
+
         results_json = self.output_dir / "face_quality_metrics.json"
         results_csv = self.output_dir / "face_quality_per_image.csv"
         scorer_script = Path(
@@ -298,9 +319,7 @@ class FaceQualityValidationSession:
         # 27 Jul 2026 - AICODE-NOTE: The training pipeline calls the same
         # standalone scorer used by historical backfills. This keeps crop,
         # detector, model, and aggregate definitions exactly comparable.
-        execution_mode = str(
-            _config_get(self.config, "execution_mode", "subprocess")
-        ).lower()
+        execution_mode = self.execution_mode
         if execution_mode == "subprocess":
             subprocess.run(command, cwd=self.project_root, check=True)
         elif execution_mode == "in_process":

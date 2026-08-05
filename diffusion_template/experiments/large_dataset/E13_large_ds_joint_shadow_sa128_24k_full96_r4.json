@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "run_name": "E13_large_ds_joint_shadow_sa128_24k_full96_r4",
+  "plan": {
+    "status": "prepared_deferred_face_quality_retry",
+    "priority": 1,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Reconstruct the historical shadow-coadapter mechanism with wider spatial BA and complete checkpoints.",
+    "baseline": "E0_large_ds_base_historical_r4_20k_full96_r1",
+    "config": "src/configs/E13_large_ds_joint_shadow_sa128_24k.yaml",
+    "launcher": "launchers/active/run_E13_E18_large_ds_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/E13_large_ds_joint_shadow_sa128_24k_full96_r4/run_E13_large_ds_joint_shadow_sa128_24k_full96_r4_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "retry_of": "E13_large_ds_joint_shadow_sa128_24k_full96_r3",
+    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false; exact validation images staged locally and canonical face quality scored non-fatally only after training"
+  },
+  "execution": {
+    "mls_job_name": null,
+    "comet_experiment_key": null,
+    "runtime_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E13_E14_deferred_20260805",
+    "required_startup_checks": {
+      "config_contract": "24000 optimizer steps / 219217920 trainable parameters",
+      "dataset_preflight": "64/64 decoded",
+      "onnxruntime": "1.20.1 with CUDAExecutionProvider",
+      "face_quality": "PyIQA 0.1.15 import only at startup; no scorer/model execution before or during training",
+      "trainable_and_optimizer_contract": "exact match: 2240 tensors / 219217920 parameters; processor params 840/840 in optimizer"
+    }
+  }
+}

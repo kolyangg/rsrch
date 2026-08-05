@@ -1096,7 +1096,10 @@ class BaseTrainer:
             if face_quality_session is not None:
                 num_procs = int(getattr(self.accelerator, "num_processes", 1))
                 face_quality_device = face_quality_session.resolve_device(num_procs)
-                if face_quality_device.startswith("cuda"):
+                if (
+                    face_quality_session.execution_mode != "deferred"
+                    and face_quality_device.startswith("cuda")
+                ):
                     if _offloaded_train_model:
                         pass
                     elif hasattr(self, "pipe") and hasattr(self.pipe, "to"):

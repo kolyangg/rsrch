@@ -11,9 +11,9 @@ NVIDIA_LIB_ROOT="${CONDA_ENV}/lib/python3.10/site-packages/nvidia"
 : "${RUN_ID:?Package wrapper must set RUN_ID}"
 
 case "${RUN_ID}" in
-  E13_large_ds_joint_shadow_sa128_24k_full96_r3)
+  E13_large_ds_joint_shadow_sa128_24k_full96_r4)
     CONFIG_NAME="E13_large_ds_joint_shadow_sa128_24k" ;;
-  E14_large_ds_joint_shadow_sa128_protected_24k_full96_r4)
+  E14_large_ds_joint_shadow_sa128_protected_24k_full96_r5)
     CONFIG_NAME="E14_large_ds_joint_shadow_sa128_protected_24k" ;;
   E15_large_ds_joint_persist_sa128_protected_24k_full96_r2)
     CONFIG_NAME="E15_large_ds_joint_persist_sa128_protected_24k" ;;
@@ -76,7 +76,6 @@ export PYTHONPATH="${PYIQA_OVERLAY}:${ORT_OVERLAY}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_HOME="${OWNER_ROOT}/metric_cache/torch"
 export LD_LIBRARY_PATH="${NVIDIA_LIB_ROOT}/cublas/lib:${NVIDIA_LIB_ROOT}/cuda_cupti/lib:${NVIDIA_LIB_ROOT}/cuda_nvrtc/lib:${NVIDIA_LIB_ROOT}/cuda_runtime/lib:${NVIDIA_LIB_ROOT}/cudnn/lib:${NVIDIA_LIB_ROOT}/cufft/lib:${NVIDIA_LIB_ROOT}/curand/lib:${NVIDIA_LIB_ROOT}/cusolver/lib:${NVIDIA_LIB_ROOT}/cusparse/lib:${NVIDIA_LIB_ROOT}/nccl/lib:${NVIDIA_LIB_ROOT}/nvjitlink/lib:${NVIDIA_LIB_ROOT}/nvtx/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 export FACE_QUALITY_SCORER_PYTHON="${CONDA_ENV}/bin/python"
-export FACE_QUALITY_SMOKE_IMAGE="${PROJECT_ROOT}/../dataset_full/val_dataset/references/keanu.jpg"
 export RUN_NAME="${RUN_ID}"
 export CONFIG_NAME
 export EXPERIMENT_SPEC_PATH="${PROJECT_ROOT}/experiments/large_dataset/${RUN_ID}.json"
@@ -90,11 +89,10 @@ test -s "${EXPERIMENT_SPEC_PATH}"
 test -f "${PROJECT_ROOT}/src/configs/${CONFIG_NAME}.yaml"
 test -f "${NVIDIA_LIB_ROOT}/cudnn/lib/libcudnn_adv.so.9"
 test -f "${LIBSTDCXX_PATH}"
-test -s "${FACE_QUALITY_SMOKE_IMAGE}"
 
 # 05 Aug 2026 - E12's working GPU scorer entered through the historical
 # launcher, which preloaded this GLIBCXX-compatible runtime before Accelerate.
-# Preserve that process-linkage invariant for both training and scorer child.
+# Preserve that process-linkage invariant for the post-training scorer.
 if ! grep -aFq "GLIBCXX_3.4.32" "${LIBSTDCXX_PATH}"; then
   echo "LIBSTDCXX_PATH does not expose GLIBCXX_3.4.32: ${LIBSTDCXX_PATH}" >&2
   exit 73
@@ -117,74 +115,6 @@ if "CUDAExecutionProvider" not in ort.get_available_providers():
 if importlib.metadata.version("pyiqa") != "0.1.15":
     raise RuntimeError("PyIQA 0.1.15 is required")
 print("Serv runtime verified:", ort.__version__, ort.get_available_providers())
-PY
-
-# Fail before model download/full-96 generation unless the exact canonical
-# four-metric scorer completes inside the same CUDA process used by training.
-python - <<'PY'
-import gc
-import json
-import os
-import tempfile
-from pathlib import Path
-
-import torch
-
-from src.metrics.face_quality_validation import _run_scorer_in_process
-
-if not torch.cuda.is_available():
-    raise RuntimeError("Training interpreter cannot initialize CUDA")
-parent_probe = torch.ones(1, device="cuda")
-with tempfile.TemporaryDirectory(prefix="e13_e18_face_quality_smoke_") as temp:
-    output_dir = Path(temp)
-    image_path = Path(os.environ["FACE_QUALITY_SMOKE_IMAGE"]).resolve()
-    manifest_path = output_dir / "manifest.json"
-    output_json = output_dir / "metrics.json"
-    output_csv = output_dir / "metrics.csv"
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "kind": "serv_startup_smoke",
-                "experiment_key": None,
-                "project_name": None,
-                "steps": {
-                    "0": [
-                        {
-                            "asset_id": "serv-startup-smoke",
-                            "file_name": image_path.name,
-                            "local_path": str(image_path),
-                        }
-                    ]
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    _run_scorer_in_process(
-        Path("tools/inference/calculate_face_quality_metrics.py").resolve(),
-        [
-            "--manifest", str(manifest_path),
-            "--output-json", str(output_json),
-            "--output-csv", str(output_csv),
-            "--metrics", "topiq_nr-face,topiq_nr,musiq,maniqa-pipal",
-            "--device", "cuda",
-            "--batch-size", "1",
-            "--crop-padding", "0.25",
-            "--crop-size", "512",
-        ],
-    )
-    result = json.loads(output_json.read_text(encoding="utf-8"))
-    if result["steps"]["0"]["image_count"] != 1:
-        raise RuntimeError("In-process face-quality smoke returned an incomplete result")
-del parent_probe
-gc.collect()
-torch.cuda.empty_cache()
-print(
-    "In-process scorer CUDA verified:",
-    torch.__version__,
-    torch.cuda.get_device_name(0),
-)
 PY
 
 exec bash launchers/active/run_E13_E18_large_ds_24k_1gpu.sh

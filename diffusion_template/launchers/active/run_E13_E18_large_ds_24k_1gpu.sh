@@ -13,6 +13,7 @@ source "${ROOT_DIR}/launchers/lib/prepare_comet_record.sh"
 : "${LARGE_DATASET_MANIFEST:?Set the adjusted identity manifest path}"
 : "${LARGE_DATASET_IMAGES:?Set the adjusted image root}"
 : "${COMET_API_KEY:?Load COMET_API_KEY from diffusion_template/.env}"
+: "${FACE_QUALITY_SCORER_PYTHON:?Set the PyIQA scorer interpreter}"
 
 if [[ "$#" -ne 0 ]]; then
   echo "E13-E18 launchers do not accept ad-hoc Hydra overrides." >&2
@@ -60,7 +61,8 @@ if [[ -n "${PM_PATH:-}" ]]; then
   MODEL_OVERRIDES+=("model.photomaker_path=${PM_PATH}")
 fi
 
-exec accelerate launch \
+set +e
+accelerate launch \
   --config_file=src/configs/ddp/accelerate.yaml \
   --num_processes=1 \
   train.py \
@@ -69,3 +71,26 @@ exec accelerate launch \
   "writer.run_name=${RUN_NAME}" \
   writer.project_name=aug-large-ds \
   "${MODEL_OVERRIDES[@]}"
+TRAIN_STATUS=$?
+set -e
+
+if [[ "${TRAIN_STATUS}" -ne 0 ]]; then
+  echo "Training failed with status ${TRAIN_STATUS}; deferred face quality will not run." >&2
+  exit "${TRAIN_STATUS}"
+fi
+
+# 05 Aug 2026 - Training and checkpoints are already complete here. The tool's
+# nonfatal contract records any scoring/backfill error without failing the job.
+"${FACE_QUALITY_SCORER_PYTHON}" \
+  tools/comet/finalize_deferred_face_quality.py \
+  --run-dir "${ROOT_DIR}/saved/${RUN_NAME}" \
+  --expected-project aug-large-ds \
+  --expected-steps 0,2000,4000,6000,8000,10000,12000,14000,16000,18000,20000,22000,24000 \
+  --images-per-step 96 \
+  --partition manual_val \
+  --scorer-python "${FACE_QUALITY_SCORER_PYTHON}" \
+  --device cuda \
+  --batch-size 8 \
+  --write \
+  --upload-per-image-asset \
+  --nonfatal

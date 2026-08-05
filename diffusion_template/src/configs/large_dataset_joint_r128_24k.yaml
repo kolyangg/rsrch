@@ -17,12 +17,13 @@ trainer:
   save_period: 1
   masked_loss_step: 1
   face_quality:
+    enabled: true
     expected_images: 96
-    # 05 Aug 2026 - Keep E12's canonical GPU metrics while reusing rank 0's
-    # CUDA context; the larger joint model can prevent a second context from
-    # initializing after validation even though startup probes pass.
+    # 05 Aug 2026 - Stage exact validation images during training and run the
+    # canonical scorer only after Accelerate exits successfully. PyIQA can
+    # therefore never abort or delay an optimizer trajectory.
     device: cuda
-    execution_mode: in_process
+    execution_mode: deferred
 
 weights_only_save_period: 1
 lr_for_lora: 1e-4
