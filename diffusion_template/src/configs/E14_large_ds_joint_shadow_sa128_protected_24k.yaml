@@ -3,6 +3,7 @@ defaults:
   - _self_
 
 validation_shadow_photomaker_default: true
+loss_kind: branched_reference
 
 loss_function:
   _target_: src.loss.branched_reference_loss.BranchedReferenceLoss

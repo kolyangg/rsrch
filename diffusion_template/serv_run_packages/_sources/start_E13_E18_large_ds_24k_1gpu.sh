@@ -2,7 +2,7 @@
 set -euo pipefail
 
 OWNER_ROOT="/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev"
-REMOTE_REPO="${SERV_REPO_ROOT:-${OWNER_ROOT}/runtime_worktrees/rsrch_test_E13_E18_20260805}"
+REMOTE_REPO="${SERV_REPO_ROOT:-${OWNER_ROOT}/runtime_worktrees/rsrch_test_E14_E18_r2_20260805}"
 PROJECT_ROOT="${REMOTE_REPO}/diffusion_template"
 CONDA_ENV="${OWNER_ROOT}/conda_env/photomaker_NS"
 ORT_OVERLAY="${OWNER_ROOT}/runtime_overlays/onnxruntime_gpu_1_20_1"
@@ -13,15 +13,15 @@ NVIDIA_LIB_ROOT="${CONDA_ENV}/lib/python3.10/site-packages/nvidia"
 case "${RUN_ID}" in
   E13_large_ds_joint_shadow_sa128_24k_full96_r1)
     CONFIG_NAME="E13_large_ds_joint_shadow_sa128_24k" ;;
-  E14_large_ds_joint_shadow_sa128_protected_24k_full96_r1)
+  E14_large_ds_joint_shadow_sa128_protected_24k_full96_r2)
     CONFIG_NAME="E14_large_ds_joint_shadow_sa128_protected_24k" ;;
-  E15_large_ds_joint_persist_sa128_protected_24k_full96_r1)
+  E15_large_ds_joint_persist_sa128_protected_24k_full96_r2)
     CONFIG_NAME="E15_large_ds_joint_persist_sa128_protected_24k" ;;
-  E16_large_ds_joint_persist_sa128_idloss_24k_full96_r1)
+  E16_large_ds_joint_persist_sa128_idloss_24k_full96_r2)
     CONFIG_NAME="E16_large_ds_joint_persist_sa128_idloss_24k" ;;
-  E17_large_ds_joint_persist_sa128_resididca_24k_full96_r1)
+  E17_large_ds_joint_persist_sa128_resididca_24k_full96_r2)
     CONFIG_NAME="E17_large_ds_joint_persist_sa128_resididca_24k" ;;
-  E18_large_ds_joint_persist_sa128_multiref_24k_full96_r1)
+  E18_large_ds_joint_persist_sa128_multiref_24k_full96_r2)
     CONFIG_NAME="E18_large_ds_joint_persist_sa128_multiref_24k" ;;
   *) echo "Unknown E13-E18 RUN_ID: ${RUN_ID}" >&2; exit 69 ;;
 esac
