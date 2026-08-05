@@ -1,0 +1,57 @@
+defaults:
+  - large_dataset_rhca_hard_v1_audited_20k
+  - _self_
+
+# Shared E13-E18 substrate: restore the three historically effective paths,
+# widen spatial BA, and keep every comparison on the same 24k/full-96 contract.
+model:
+  rank: 32
+  ba_hard_v1_lora_rank: 128
+  generic_adapter_train_scope: effective_all
+  photomaker_default_train_scope: effective_all
+
+trainer:
+  epoch_len: 2000
+  n_epochs: 12
+  validation_interval_steps: 2000
+  save_period: 1
+  masked_loss_step: 1
+  face_quality:
+    expected_images: 96
+
+weights_only_save_period: 1
+lr_for_lora: 1e-4
+ba_lr: 1e-4
+generic_adapter_lr: 1e-4
+photomaker_default_lr: 1e-4
+
+lr_scheduler:
+  _target_: src.lr_schedulers.lr_schedulers.WarmupHoldCosineLR
+  warmup_steps: 20
+  hold_steps: 14000
+  total_steps: 24000
+  min_factor: 0.1
+
+expected_trainable_contract:
+  enabled: true
+  total_tensors: 2240
+  total_parameters: 219217920
+  optimizer_tensors: 2240
+  optimizer_parameters: 219217920
+  categories:
+    branched_sa_r128:
+      name_substring: ".attn1.processor."
+      tensors: 840
+      parameters: 127795200
+    generic_effective_adapter_r32:
+      name_substring: ".lora_adapter."
+      tensors: 700
+      parameters: 30474240
+    photomaker_default_effective_adapter_r64:
+      name_substring: ".default."
+      tensors: 700
+      parameters: 60948480
+
+pipeline:
+  pose_adapt_ratio: 0.0
+  ca_mixing_for_face: false

@@ -1865,12 +1865,30 @@ Current observed conclusion:
   adapters or wider BA alone do not reproduce it.
 
 For the requested next-six design, the report recommends prioritizing the new
-joint-mechanism suite over the earlier data-factorial-first ordering. This is a
-proposal awaiting implementation/launch authorization, not a launched or
-accepted project decision. It specifies two explicit shadow-co-adaptation
-mechanism arms and four fully persisted promotion arms: protected joint
-training, predicted-x0 identity supervision, bounded residual identity-token
-CA, and deterministic decoupled multi-reference training. Every proposed arm
-keeps target-query/same-ID-reference-KV spatial BA,
-`pose_adapt_ratio=0`, and `ca_mixing_for_face=false`. No job has been launched
-from this analysis.
+joint-mechanism suite over the earlier data-factorial-first ordering. The suite
+is now implemented and named E13-E18, but remains unsubmitted. E13/E14 are
+explicit shadow-co-adaptation mechanism arms; E15-E18 are fully persisted
+promotion arms covering protected joint training, a predicted-x0
+PhotoMaker-CLIP identity proxy, bounded residual identity-token CA, and
+deterministic decoupled multi-reference training. Every arm keeps
+target-query/same-ID-reference-KV spatial BA, `pose_adapt_ratio=0`, and
+`ca_mixing_for_face=false`.
+
+Implementation entry points:
+
+- configs: `src/configs/E13_*` through `src/configs/E18_*`, all inheriting
+  `large_dataset_joint_r128_24k.yaml`;
+- controlled launcher: `launchers/active/run_E13_E18_large_ds_24k_1gpu.sh`;
+- immutable pre-launch records: `experiments/large_dataset/E13_*` through
+  `E18_*`, status `ready_not_submitted`;
+- one-A100 MLS YAMLs and startup wrappers:
+  `serv_run_packages/E13_*` through `serv_run_packages/E18_*`;
+- E17's residual processor is defaults-off and separate from E12's hard v2;
+- E18 uses an exact 48,000-row deterministic sequential dataset and passes all
+  identity references to PhotoMaker while preserving `ref_images[0]` as the
+  sole spatial latent/KV reference.
+
+No E13-E18 job or Comet experiment has been created. Before simultaneous
+submission, inspect current Serv Running/Pending allocations and keep this
+project at the normal six-A100 ceiling. The existing E11/E12 Serv worktree must
+be updated to the final pushed `test` branch and clean before package startup.

@@ -1,0 +1,41 @@
+defaults:
+  - E15_large_ds_joint_persist_sa128_protected_24k
+  - _self_
+
+model:
+  ba_residual_identity_ca_v3_enabled: true
+  ba_residual_identity_ca_v3_groups: [up_blocks.0, up_blocks.1]
+  ba_residual_identity_ca_v3_rank: 64
+  ba_residual_identity_ca_v3_gate_init: 0.02
+  ba_residual_identity_ca_v3_gate_max: 0.20
+
+expected_trainable_contract:
+  enabled: true
+  total_tensors: 2348
+  total_parameters: 224624676
+  optimizer_tensors: 2348
+  optimizer_parameters: 224624676
+  categories:
+    branched_sa_r128:
+      name_substring: ".attn1.processor."
+      tensors: 840
+      parameters: 127795200
+    residual_identity_ca_r64:
+      name_substring: ".attn2.processor."
+      tensors: 108
+      parameters: 5406756
+    generic_effective_adapter_r32:
+      name_substring: ".lora_adapter."
+      tensors: 700
+      parameters: 30474240
+    photomaker_default_effective_adapter_r64:
+      name_substring: ".default."
+      tensors: 700
+      parameters: 60948480
+
+writer:
+  experiment_comment: >-
+    E17 vs E15 keeps native PhotoMaker/text CA intact and adds only a rank64,
+    zero-initialized, RMS-normalized ID-token delta inside the target face in
+    up_blocks.0/1. Its sigmoid gate starts at 0.02 and is bounded by 0.20;
+    E12's hard face replacement remains unchanged and disabled.

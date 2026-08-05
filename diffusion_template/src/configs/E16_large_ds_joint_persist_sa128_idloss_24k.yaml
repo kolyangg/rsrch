@@ -1,0 +1,27 @@
+defaults:
+  - E15_large_ds_joint_persist_sa128_protected_24k
+  - _self_
+
+model:
+  identity_aux_enabled: true
+  identity_aux_cadence: 4
+  identity_aux_max_timestep: 400
+  identity_aux_ramp_start_step: 2000
+  identity_aux_ramp_end_step: 6000
+  identity_aux_max_weight: 0.05
+  identity_aux_crop_padding: 0.25
+
+writer:
+  loss_names:
+    - loss
+    - loss_face
+    - loss_full
+    - loss_boundary
+    - loss_identity_aux
+    - identity_aux_weight
+    - identity_aux_applied
+  experiment_comment: >-
+    E16 vs E15 adds differentiable predicted-x0 face identity supervision from
+    the already-loaded frozen PhotoMaker CLIP vision tower: one eligible sample
+    every four steps, t<=400, weight zero through 2k then ramped to 0.05 at 6k.
+    This is an explicit proxy, not the ONNX InsightFace validation metric.
