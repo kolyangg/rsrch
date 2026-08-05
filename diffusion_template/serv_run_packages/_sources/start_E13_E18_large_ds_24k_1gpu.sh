@@ -2,7 +2,7 @@
 set -euo pipefail
 
 OWNER_ROOT="/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev"
-REMOTE_REPO="${SERV_REPO_ROOT:-${OWNER_ROOT}/runtime_worktrees/rsrch_test_E14_E18_cpu_20260805}"
+REMOTE_REPO="${SERV_REPO_ROOT:-${OWNER_ROOT}/runtime_worktrees/rsrch_test_E13_E14_gpu_20260805}"
 PROJECT_ROOT="${REMOTE_REPO}/diffusion_template"
 CONDA_ENV="${OWNER_ROOT}/conda_env/photomaker_NS"
 ORT_OVERLAY="${OWNER_ROOT}/runtime_overlays/onnxruntime_gpu_1_20_1"
@@ -11,9 +11,9 @@ NVIDIA_LIB_ROOT="${CONDA_ENV}/lib/python3.10/site-packages/nvidia"
 : "${RUN_ID:?Package wrapper must set RUN_ID}"
 
 case "${RUN_ID}" in
-  E13_large_ds_joint_shadow_sa128_24k_full96_r2)
+  E13_large_ds_joint_shadow_sa128_24k_full96_r3)
     CONFIG_NAME="E13_large_ds_joint_shadow_sa128_24k" ;;
-  E14_large_ds_joint_shadow_sa128_protected_24k_full96_r3)
+  E14_large_ds_joint_shadow_sa128_protected_24k_full96_r4)
     CONFIG_NAME="E14_large_ds_joint_shadow_sa128_protected_24k" ;;
   E15_large_ds_joint_persist_sa128_protected_24k_full96_r2)
     CONFIG_NAME="E15_large_ds_joint_persist_sa128_protected_24k" ;;
@@ -88,6 +88,18 @@ test -s "${FULL96_BBOX_MANUAL}"
 test -s "${EXPERIMENT_SPEC_PATH}"
 test -f "${PROJECT_ROOT}/src/configs/${CONFIG_NAME}.yaml"
 test -f "${NVIDIA_LIB_ROOT}/cudnn/lib/libcudnn_adv.so.9"
+test -f "${LIBSTDCXX_PATH}"
+
+# 05 Aug 2026 - E12's working GPU scorer entered through the historical
+# launcher, which preloaded this GLIBCXX-compatible runtime before Accelerate.
+# Preserve that process-linkage invariant for both training and scorer child.
+if ! grep -aFq "GLIBCXX_3.4.32" "${LIBSTDCXX_PATH}"; then
+  echo "LIBSTDCXX_PATH does not expose GLIBCXX_3.4.32: ${LIBSTDCXX_PATH}" >&2
+  exit 73
+fi
+export LD_LIBRARY_PATH="$(dirname "${LIBSTDCXX_PATH}"):${LD_LIBRARY_PATH}"
+export LD_PRELOAD="${LIBSTDCXX_PATH}${LD_PRELOAD:+:${LD_PRELOAD}}"
+echo "Using E12-compatible C++ runtime: ${LIBSTDCXX_PATH}"
 
 python - <<'PY'
 import ctypes
@@ -103,6 +115,33 @@ if "CUDAExecutionProvider" not in ort.get_available_providers():
 if importlib.metadata.version("pyiqa") != "0.1.15":
     raise RuntimeError("PyIQA 0.1.15 is required")
 print("Serv runtime verified:", ort.__version__, ort.get_available_providers())
+PY
+
+# Fail before model download/full-96 generation if the exact scorer interpreter
+# cannot create a second CUDA context while the parent process holds one.
+python - <<'PY'
+import os
+import subprocess
+
+import torch
+
+if not torch.cuda.is_available():
+    raise RuntimeError("Training interpreter cannot initialize CUDA")
+parent_probe = torch.ones(1, device="cuda")
+child_code = """
+import importlib.metadata
+import torch
+assert importlib.metadata.version('pyiqa') == '0.1.15'
+assert torch.cuda.is_available(), 'scorer child cannot initialize CUDA'
+probe = torch.ones(1, device='cuda')
+print('Nested scorer CUDA verified:', torch.__version__, torch.cuda.get_device_name(0), probe.item())
+"""
+subprocess.run(
+    [os.environ["FACE_QUALITY_SCORER_PYTHON"], "-c", child_code],
+    check=True,
+    env=os.environ.copy(),
+)
+print("Parent CUDA verified:", torch.__version__, torch.cuda.get_device_name(0), parent_probe.item())
 PY
 
 exec bash launchers/active/run_E13_E18_large_ds_24k_1gpu.sh

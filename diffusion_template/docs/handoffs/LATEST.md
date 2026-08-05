@@ -1894,28 +1894,24 @@ Launch state on 5 August 2026:
   2,240 tensors / 219,217,920 parameters and generated the deterministic
   96-image step-0 panel, but then failed before optimizer step 1 because its
   rank-0 PyIQA subprocess requested unavailable CUDA.
-- E13 r2 is Running as
-  `lm-mpi-job-7f4b3b5b-77d7-496d-990d-8f7d5a36b9f4`, immutable Comet key
-  `251d7696031846a0a89f6dcaabf47d47`, from commit
-  `bd6de6e31180d533e75889319a0a6d9a9e48109a`. It preserves generation and
-  ID-similarity behavior and moves only auxiliary face-quality scoring to
-  CPU. Before submission the canonical four-metric PyIQA 0.1.15 scorer passed
-  a one-image CPU smoke; runtime, config, and 64-image dataset gates passed.
+- E13 r2 (`lm-mpi-job-7f4b3b5b-77d7-496d-990d-8f7d5a36b9f4`, immutable
+  Comet key `251d7696031846a0a89f6dcaabf47d47`) was stopped during its slow
+  step-0 CPU face-quality pass at the user's request. E13 r3 is the prepared
+  replacement and restores E12-compatible CUDA face-quality scoring.
 - E14 r2 (`lm-mpi-job-f1132bd5-d531-4cf0-b7e7-f2179f0b1240`, immutable Comet
   key `f3ccb0c866b343198ce936cf342e8633`) failed at the same post-step-0
   face-quality CUDA boundary after generating all 96 images; no optimizer
   step ran.
-- Face-quality device selection is now a suite-wide fail-closed invariant:
-  all E13-E18 configs must resolve `trainer.face_quality.device=cpu`. The
-  canonical four-metric PyIQA 0.1.15 one-image CPU smoke passed before E13 r2,
-  and E14-E18 each passed their exact Hydra gate with the same setting.
-- E14 r3 is Running as
-  `lm-mpi-job-3c9b21e1-6101-4d86-8d81-d51d4bc8174d`, immutable Comet key
-  `230ad9dedc674d54884fcb150ac8446b`, from commit
-  `fc60628220728fa53182d0b4575af2afd9db5ba5`. Runtime, config, Comet-record,
-  and 64-image dataset gates passed. Both ownership gates match exactly at
-  2,240 tensors / 219,217,920 parameters, all 840 processor tensors are in the
-  optimizer, and fixed full-96 step-0 validation has started.
+- E12 proves that the same four-metric PyIQA 0.1.15 scorer works on CUDA in
+  this Serv environment. E13/E14 had bypassed E12's production-launcher step
+  that preloads the GLIBCXX-compatible C++ runtime before Accelerate. The
+  suite now restores `trainer.face_quality.device=cuda`, preloads that exact
+  runtime, and fails before model download if a parent CUDA process and the
+  exact scorer child cannot both allocate a CUDA tensor.
+- E14 r3 (`lm-mpi-job-3c9b21e1-6101-4d86-8d81-d51d4bc8174d`, immutable
+  Comet key `230ad9dedc674d54884fcb150ac8446b`) was stopped during its slow
+  step-0 CPU face-quality pass at the user's request. E14 r4 is the prepared
+  E12-compatible CUDA replacement.
 - E15 r2's first submission was not accepted: MLS returned
   `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE` before assigning a job name or
   Comet key. The user authorized one new attempt after E14 r3 was accepted;
@@ -1938,11 +1934,12 @@ Launch state on 5 August 2026:
   target and explicitly instantiate successfully in the Serv environment.
 
 The original E11/E12 worktree was left untouched because it was dirty and E12
-was still Running. E13 r2 uses clean isolated worktree
+was still Running. E13 r2 used clean isolated worktree
 `runtime_worktrees/rsrch_test_E13_r2_20260805`; its failed r1 remains in
 `runtime_worktrees/rsrch_test_E13_E18_20260805`. E14 r3 and launch-ready
-E15-E18 use clean worktree
-`runtime_worktrees/rsrch_test_E14_E18_cpu_20260805`; the prior E14 r2 artifacts
+E15-E18 used clean worktree
+`runtime_worktrees/rsrch_test_E14_E18_cpu_20260805`; E13 r3 and E14 r4 are
+prepared for `runtime_worktrees/rsrch_test_E13_E14_gpu_20260805`. The prior E14 r2 artifacts
 remain in `runtime_worktrees/rsrch_test_E14_E18_r2_20260805`. The canonical fixed full-96
 bbox file was copied without modification to
 `datasets/dataset_full/val_dataset/protocols/cosmic_full96_auto_v1/pm96_bboxes_new.json`

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "E14_large_ds_joint_shadow_sa128_protected_24k_full96_r3",
   "plan": {
-    "status": "running_step0_validation",
+    "status": "stopped_slow_cpu_scoring_superseded_by_r4",
     "priority": 2,
     "machine": "serv",
     "gpus": 1,
@@ -27,6 +27,9 @@
       "onnxruntime": "1.20.1 with CUDAExecutionProvider",
       "trainable_and_optimizer_contract": "exact match: 2240 tensors / 219217920 parameters; processor params 840/840 in optimizer",
       "face_quality_device": "cpu; suite-wide fail-closed composition guard"
-    }
+    },
+    "stopped_at": "2026-08-05T17:12:16+01:00",
+    "stop_reason": "User requested removal of the unnecessary slow CPU face-quality workaround after comparison with E12's working CUDA scorer.",
+    "superseded_by": "E14_large_ds_joint_shadow_sa128_protected_24k_full96_r4"
   }
 }

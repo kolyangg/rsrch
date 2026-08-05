@@ -12,8 +12,8 @@ from omegaconf import OmegaConf
 
 
 RUNS = {
-    "E13_large_ds_joint_shadow_sa128_24k": "E13_large_ds_joint_shadow_sa128_24k_full96_r2",
-    "E14_large_ds_joint_shadow_sa128_protected_24k": "E14_large_ds_joint_shadow_sa128_protected_24k_full96_r3",
+    "E13_large_ds_joint_shadow_sa128_24k": "E13_large_ds_joint_shadow_sa128_24k_full96_r3",
+    "E14_large_ds_joint_shadow_sa128_protected_24k": "E14_large_ds_joint_shadow_sa128_protected_24k_full96_r4",
     "E15_large_ds_joint_persist_sa128_protected_24k": "E15_large_ds_joint_persist_sa128_protected_24k_full96_r2",
     "E16_large_ds_joint_persist_sa128_idloss_24k": "E16_large_ds_joint_persist_sa128_idloss_24k_full96_r2",
     "E17_large_ds_joint_persist_sa128_resididca_24k": "E17_large_ds_joint_persist_sa128_resididca_24k_full96_r2",
@@ -68,7 +68,7 @@ def main() -> None:
         "trainer.validation_interval_steps": 2000,
         "trainer.save_period": 1,
         "trainer.face_quality.expected_images": 96,
-        "trainer.face_quality.device": "cpu",
+        "trainer.face_quality.device": "cuda",
         "weights_only_save_period": 1,
         "lr_scheduler.warmup_steps": 20,
         "lr_scheduler.hold_steps": 14000,

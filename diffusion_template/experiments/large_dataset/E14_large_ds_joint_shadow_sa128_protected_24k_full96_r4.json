@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "run_name": "E14_large_ds_joint_shadow_sa128_protected_24k_full96_r4",
+  "plan": {
+    "status": "prepared_for_gpu_resubmit",
+    "priority": 2,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Test whether full-image and face-boundary protection preserves alignment while retaining the shadow-coadapter ID gain.",
+    "baseline": "E13_large_ds_joint_shadow_sa128_24k_full96_r3",
+    "config": "src/configs/E14_large_ds_joint_shadow_sa128_protected_24k.yaml",
+    "launcher": "launchers/active/run_E13_E18_large_ds_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/E14_large_ds_joint_shadow_sa128_protected_24k_full96_r4/run_E14_large_ds_joint_shadow_sa128_protected_24k_full96_r4_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "retry_of": "E14_large_ds_joint_shadow_sa128_protected_24k_full96_r3",
+    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false; E12-compatible CUDA face-quality scoring"
+  },
+  "execution": {
+    "runtime_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E13_E14_gpu_20260805",
+    "required_startup_checks": {
+      "config_contract": "24000 optimizer steps / 219217920 trainable parameters",
+      "dataset_preflight": "64/64 decoded",
+      "onnxruntime": "1.20.1 with CUDAExecutionProvider",
+      "nested_scorer_cuda": "parent and exact PyIQA 0.1.15 child both allocate CUDA tensors before Accelerate",
+      "trainable_and_optimizer_contract": "2240 tensors / 219217920 parameters; processor params 840/840 in optimizer"
+    }
+  }
+}
