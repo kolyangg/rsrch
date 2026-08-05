@@ -14,7 +14,8 @@ datasets:
   train:
     large_dataset_balanced_multiref:
       schedule_rows: 48000
-      schedule_start_row: ${oc.env:LARGE_DATASET_SCHEDULE_START_ROW,0}
+      # 05 Aug 2026 - Decode env text so the sealed schedule offset stays integer-typed.
+      schedule_start_row: ${oc.decode:${oc.env:LARGE_DATASET_SCHEDULE_START_ROW,0}}
       schedule_seed: 130018
       num_identity_refs: 3
 
