@@ -75,6 +75,23 @@ ba_identity_ca_v2_enabled: false
 ba_identity_ca_v2_groups: null
 ba_identity_ca_v2_rank: 16
 
+# Bounded additive identity-token CA. Unlike E12, native CA is never replaced.
+ba_residual_identity_ca_v3_enabled: false
+ba_residual_identity_ca_v3_groups: null
+ba_residual_identity_ca_v3_rank: 64
+ba_residual_identity_ca_v3_gate_init: 0.02
+ba_residual_identity_ca_v3_gate_max: 0.20
+
+# Differentiable predicted-x0 identity proxy using the already-loaded frozen
+# PhotoMaker CLIP vision tower. Defaults off for historical runs.
+identity_aux_enabled: false
+identity_aux_cadence: 4
+identity_aux_max_timestep: 400
+identity_aux_ramp_start_step: 2000
+identity_aux_ramp_end_step: 6000
+identity_aux_max_weight: 0.05
+identity_aux_crop_padding: 0.25
+
 # Defaults-off audited ownership extensions. Hard-v1 experiments may opt in to
 # historically effective outer adapter sites without reopening generic SA Q/K/V.
 generic_adapter_train_scope: none

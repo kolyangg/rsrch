@@ -1,0 +1,5 @@
+_target_: src.lr_schedulers.lr_schedulers.WarmupHoldCosineLR
+warmup_steps: 20
+hold_steps: 14000
+total_steps: 24000
+min_factor: 0.1

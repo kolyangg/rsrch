@@ -45,6 +45,11 @@ def _branched_trainable_context(model) -> dict:
                 "is_identity_ca_v2",
                 False,
             )
+            or getattr(
+                model.unet.attn_processors.get(name),
+                "is_residual_identity_ca_v3",
+                False,
+            )
         )
     )
     all_trainable_processor_names = tuple(
@@ -335,6 +340,7 @@ def collect_branched_telemetry(model) -> dict[str, torch.Tensor]:
     ).lower()
     identity_ca_enabled = bool(
         getattr(model, "ba_identity_ca_v2_enabled", False)
+        or getattr(model, "ba_residual_identity_ca_v3_enabled", False)
     )
     if architecture_version not in {
         "anchored_mix_sa_v3",

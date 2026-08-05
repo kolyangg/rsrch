@@ -125,6 +125,18 @@ class PhotomakerBranchedLora(SDXL):
         ba_identity_ca_v2_enabled: bool = False,
         ba_identity_ca_v2_groups: Optional[Sequence[str]] = None,
         ba_identity_ca_v2_rank: int = 16,
+        ba_residual_identity_ca_v3_enabled: bool = False,
+        ba_residual_identity_ca_v3_groups: Optional[Sequence[str]] = None,
+        ba_residual_identity_ca_v3_rank: int = 64,
+        ba_residual_identity_ca_v3_gate_init: float = 0.02,
+        ba_residual_identity_ca_v3_gate_max: float = 0.20,
+        identity_aux_enabled: bool = False,
+        identity_aux_cadence: int = 4,
+        identity_aux_max_timestep: int = 400,
+        identity_aux_ramp_start_step: int = 2000,
+        identity_aux_ramp_end_step: int = 6000,
+        identity_aux_max_weight: float = 0.05,
+        identity_aux_crop_padding: float = 0.25,
         ##### BRANCHED ATTENTION - NEW PARAMS 1 #####
     ):
         """NEW PARAMS 1: define BA training controls (strategy, processor variant, ID mixing, and BA-only toggles)."""
@@ -492,6 +504,66 @@ class PhotomakerBranchedLora(SDXL):
                 "BA-only noise_and_ref, legacy branched CA off, "
                 "pose_adapt_ratio=0, and ca_mixing_for_face=false"
             )
+        self.ba_residual_identity_ca_v3_enabled = bool(
+            ba_residual_identity_ca_v3_enabled
+        )
+        self.ba_residual_identity_ca_v3_groups = (
+            None
+            if ba_residual_identity_ca_v3_groups is None
+            else tuple(str(group) for group in ba_residual_identity_ca_v3_groups)
+        )
+        self.ba_residual_identity_ca_v3_rank = int(
+            ba_residual_identity_ca_v3_rank
+        )
+        self.ba_residual_identity_ca_v3_gate_init = float(
+            ba_residual_identity_ca_v3_gate_init
+        )
+        self.ba_residual_identity_ca_v3_gate_max = float(
+            ba_residual_identity_ca_v3_gate_max
+        )
+        if self.ba_identity_ca_v2_enabled and self.ba_residual_identity_ca_v3_enabled:
+            raise ValueError("Hard and residual identity CA are mutually exclusive")
+        if self.ba_residual_identity_ca_v3_enabled and not all(
+            (
+                self.ba_residual_identity_ca_v3_groups,
+                self.ba_residual_identity_ca_v3_rank > 0,
+                0.0
+                < self.ba_residual_identity_ca_v3_gate_init
+                < self.ba_residual_identity_ca_v3_gate_max
+                <= 1.0,
+                self.train_ba_only,
+                self.strict_trainable_contract,
+                self.branched_state_dict_mode == "trainable_v2",
+                self.ba_architecture_version == "hard_replace_v1",
+                self.branched_attn_weight_mode == "noise_and_ref",
+                not self.train_branched_ca_lora,
+                self.pose_adapt_ratio == 0.0,
+                not self.ca_mixing_for_face,
+            )
+        ):
+            raise ValueError(
+                "Residual identity CA requires groups, valid rank/gate bounds, "
+                "strict trainable-v2 hard-v1 BA-only noise_and_ref, legacy "
+                "branched CA off, pose_adapt_ratio=0, and ca_mixing_for_face=false"
+            )
+        self.identity_aux_enabled = bool(identity_aux_enabled)
+        self.identity_aux_cadence = int(identity_aux_cadence)
+        self.identity_aux_max_timestep = int(identity_aux_max_timestep)
+        self.identity_aux_ramp_start_step = int(identity_aux_ramp_start_step)
+        self.identity_aux_ramp_end_step = int(identity_aux_ramp_end_step)
+        self.identity_aux_max_weight = float(identity_aux_max_weight)
+        self.identity_aux_crop_padding = float(identity_aux_crop_padding)
+        if self.identity_aux_enabled and not all(
+            (
+                self.identity_aux_cadence > 0,
+                self.identity_aux_max_timestep >= 0,
+                0 <= self.identity_aux_ramp_start_step
+                < self.identity_aux_ramp_end_step,
+                self.identity_aux_max_weight > 0.0,
+                self.identity_aux_crop_padding >= 0.0,
+            )
+        ):
+            raise ValueError("Invalid predicted-x0 identity auxiliary configuration")
         if self.ba_architecture_version != "hard_replace_v1" and any(
             (
                 self.ba_enforce_reference_only_hard_route,
@@ -500,6 +572,7 @@ class PhotomakerBranchedLora(SDXL):
                 self.ba_hard_v1_reference_roi_warp,
                 self.ba_hard_v1_lora_rank is not None,
                 self.ba_identity_ca_v2_enabled,
+                self.ba_residual_identity_ca_v3_enabled,
             )
         ):
             raise ValueError("Hard-v1 controls require ba_architecture_version=hard_replace_v1")
@@ -615,6 +688,58 @@ class PhotomakerBranchedLora(SDXL):
         # ### TRAIN_BA_ONLY - CHECK ###
         ##### BRANCHED ATTENTION - NEW BLOCK 2 #####
 
+        if (
+            self.ba_architecture_version == "hard_replace_v1"
+            and self.train_ba_only
+            and (
+                self.generic_adapter_train_scope != "none"
+                or self.photomaker_default_train_scope != "none"
+            )
+        ):
+            # 5 Aug 2026 - AICODE-NOTE: E13+ jointly trains three explicitly
+            # owned paths. Separate groups make the persistent PhotoMaker
+            # default LR independently controllable without changing ownership.
+            role_parameters = {
+                "ba": [],
+                "generic_adapter": [],
+                "photomaker_default": [],
+            }
+            for name, parameter in self.unet.named_parameters():
+                if not parameter.requires_grad:
+                    continue
+                if ".lora_adapter." in name:
+                    role = "generic_adapter"
+                elif ".default." in name:
+                    role = "photomaker_default"
+                elif ".attn1.processor." in name or ".attn2.processor." in name:
+                    role = "ba"
+                else:
+                    raise RuntimeError(
+                        f"Joint hard-v1 optimizer cannot classify {name!r}"
+                    )
+                role_parameters[role].append(parameter)
+            lr_by_role = {
+                "ba": float(getattr(config, "ba_lr", config.lr_for_lora)),
+                "generic_adapter": float(
+                    getattr(config, "generic_adapter_lr", config.lr_for_lora)
+                ),
+                "photomaker_default": float(
+                    getattr(config, "photomaker_default_lr", config.lr_for_lora)
+                ),
+            }
+            groups = [
+                {
+                    "params": role_parameters[role],
+                    "lr": lr_by_role[role],
+                    "name": role,
+                }
+                for role in ("ba", "generic_adapter", "photomaker_default")
+                if role_parameters[role]
+            ]
+            if not groups:
+                raise RuntimeError("Joint hard-v1 optimizer resolved no parameters")
+            return groups
+
         if self.ba_architecture_version in {
             "residual_sa_v2",
             "anchored_mix_sa_v3",
@@ -687,13 +812,18 @@ class PhotomakerBranchedLora(SDXL):
                 or self.ba_hard_v1_reference_roi_warp
                 or self.ba_hard_v1_lora_rank is not None
                 or self.ba_identity_ca_v2_enabled
+                or self.ba_residual_identity_ca_v3_enabled
             )
         )
         processor_code_version = {
             "hard_replace_v1": (
-                3
-                if self.ba_identity_ca_v2_enabled
-                else (2 if hard_v1_extended else 1)
+                4
+                if self.ba_residual_identity_ca_v3_enabled
+                else (
+                    3
+                    if self.ba_identity_ca_v2_enabled
+                    else (2 if hard_v1_extended else 1)
+                )
             ),
             "residual_sa_v2": 2,
             "anchored_mix_sa_v3": 3,
@@ -832,7 +962,41 @@ class PhotomakerBranchedLora(SDXL):
                     "merge": "native_outside_face_id_only_inside_face",
                     "legacy_branched_ca": False,
                 }
+            if self.ba_residual_identity_ca_v3_enabled:
+                identity_names = list(
+                    getattr(self, "_ba_identity_ca_processor_names", ())
+                )
+                hard_v1_extensions["residual_identity_ca_v3"] = {
+                    "enabled": True,
+                    "groups": list(
+                        self.ba_residual_identity_ca_v3_groups or ()
+                    ),
+                    "rank": int(self.ba_residual_identity_ca_v3_rank),
+                    "gate_init": float(
+                        self.ba_residual_identity_ca_v3_gate_init
+                    ),
+                    "gate_max": float(
+                        self.ba_residual_identity_ca_v3_gate_max
+                    ),
+                    "processor_names": identity_names,
+                    "routing": "target_q_active_photomaker_id_kv",
+                    "merge": "native_plus_face_mask_times_bounded_gate_times_rms_id_delta",
+                    "delta_output_zero_init": True,
+                    "legacy_branched_ca": False,
+                }
             manifest["hard_v1_extensions"] = hard_v1_extensions
+        if self.identity_aux_enabled:
+            manifest["identity_auxiliary"] = {
+                "kind": "predicted_x0_photomaker_clip_cosine",
+                "cadence": self.identity_aux_cadence,
+                "max_timestep": self.identity_aux_max_timestep,
+                "ramp_steps": [
+                    self.identity_aux_ramp_start_step,
+                    self.identity_aux_ramp_end_step,
+                ],
+                "max_weight": self.identity_aux_max_weight,
+                "crop_padding": self.identity_aux_crop_padding,
+            }
         if self.ba_architecture_version == "anchored_mix_sa_v3":
             manifest.update(
                 {
@@ -1059,6 +1223,124 @@ class PhotomakerBranchedLora(SDXL):
             / correct_energy.clamp_min(1.0e-12).sqrt()
         ).mean()
 
+    def _identity_aux_weight(self, global_step: int) -> float:
+        if global_step < self.identity_aux_ramp_start_step:
+            return 0.0
+        progress = min(
+            1.0,
+            (global_step - self.identity_aux_ramp_start_step)
+            / (
+                self.identity_aux_ramp_end_step
+                - self.identity_aux_ramp_start_step
+            ),
+        )
+        return self.identity_aux_max_weight * progress
+
+    def _face_crop_for_identity_proxy(
+        self,
+        image: torch.Tensor,
+        bbox: Sequence[float],
+    ) -> torch.Tensor:
+        height, width = image.shape[-2:]
+        x0, y0, x1, y1 = [float(value) for value in bbox]
+        pad_x = (x1 - x0) * self.identity_aux_crop_padding
+        pad_y = (y1 - y0) * self.identity_aux_crop_padding
+        x0 = max(0, min(width - 1, int(np.floor(x0 - pad_x))))
+        y0 = max(0, min(height - 1, int(np.floor(y0 - pad_y))))
+        x1 = max(x0 + 1, min(width, int(np.ceil(x1 + pad_x))))
+        y1 = max(y0 + 1, min(height, int(np.ceil(y1 + pad_y))))
+        crop = image[..., y0:y1, x0:x1]
+        return F.interpolate(
+            crop,
+            size=(224, 224),
+            mode="bilinear",
+            align_corners=False,
+            antialias=True,
+        )
+
+    def _predicted_x0_identity_auxiliary(
+        self,
+        *,
+        noisy_latents: torch.Tensor,
+        noise_pred: torch.Tensor,
+        timesteps: torch.Tensor,
+        pixel_values: torch.Tensor,
+        face_bbox: Sequence[Sequence[float]],
+        global_step: int,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        zero = noise_pred.float().new_tensor(0.0)
+        weight = self._identity_aux_weight(global_step)
+        if (
+            not self.identity_aux_enabled
+            or weight <= 0.0
+            or global_step % self.identity_aux_cadence != 0
+        ):
+            return zero, zero, zero
+        eligible = torch.nonzero(
+            timesteps <= self.identity_aux_max_timestep,
+            as_tuple=False,
+        ).flatten()
+        if eligible.numel() == 0:
+            return zero, zero, zero
+        index = int(eligible[0].item())
+        timestep = int(timesteps[index].item())
+        alpha = self.noise_scheduler.alphas_cumprod[timestep].to(
+            device=noise_pred.device,
+            dtype=torch.float32,
+        )
+        predicted_x0 = (
+            noisy_latents[index : index + 1].float()
+            - (1.0 - alpha).sqrt() * noise_pred[index : index + 1].float()
+        ) / alpha.sqrt().clamp_min(1.0e-6)
+        decoded = self.vae.decode(
+            (
+                predicted_x0
+                / float(self.vae.config.scaling_factor)
+            ).to(dtype=self.vae.dtype),
+            return_dict=False,
+        )[0]
+        predicted_face = self._face_crop_for_identity_proxy(
+            decoded,
+            face_bbox[index],
+        )
+        target_face = self._face_crop_for_identity_proxy(
+            pixel_values[index : index + 1],
+            face_bbox[index],
+        )
+
+        mean = torch.tensor(
+            self.id_image_processor.image_mean,
+            device=predicted_face.device,
+            dtype=torch.float32,
+        ).view(1, 3, 1, 1)
+        std = torch.tensor(
+            self.id_image_processor.image_std,
+            device=predicted_face.device,
+            dtype=torch.float32,
+        ).view(1, 3, 1, 1)
+
+        def normalize(image: torch.Tensor) -> torch.Tensor:
+            image = (image.float().clamp(-1.0, 1.0) + 1.0) * 0.5
+            return ((image - mean) / std).to(self.id_encoder.dtype)
+
+        predicted_embedding = self.id_encoder.vision_model(
+            normalize(predicted_face)
+        )[1].float()
+        with torch.no_grad():
+            target_embedding = self.id_encoder.vision_model(
+                normalize(target_face)
+            )[1].float()
+        identity_loss = 1.0 - F.cosine_similarity(
+            predicted_embedding,
+            target_embedding,
+            dim=-1,
+        ).mean()
+        return (
+            identity_loss,
+            zero.new_tensor(weight),
+            zero.new_tensor(1.0),
+        )
+
     def forward(
         self,
         pixel_values: torch.Tensor,
@@ -1070,6 +1352,7 @@ class PhotomakerBranchedLora(SDXL):
         face_bbox_ref: Sequence[Sequence[float]] | None = None,
         reference_cache_key: Sequence[str] | None = None,
         identity_id: Sequence[str] | None = None,
+        global_step: int = 0,
         do_cfg: bool = False,
         *args,
         **kwargs,
@@ -1330,6 +1613,17 @@ class PhotomakerBranchedLora(SDXL):
                 )
                 reference_shuffle_applied = noise_pred.new_tensor(1.0)
 
+        identity_aux_loss, identity_aux_weight, identity_aux_applied = (
+            self._predicted_x0_identity_auxiliary(
+                noisy_latents=noisy_latents,
+                noise_pred=noise_pred,
+                timesteps=timesteps,
+                pixel_values=pixel_values,
+                face_bbox=face_bbox,
+                global_step=int(global_step),
+            )
+        )
+
         return {
             'model_pred': noise_pred,
             'target': noise,
@@ -1337,6 +1631,9 @@ class PhotomakerBranchedLora(SDXL):
             'reference_shuffle_applied': reference_shuffle_applied,
             'reference_prediction_delta_ratio': reference_prediction_delta_ratio,
             'ba_telemetry': ba_telemetry,
+            'identity_aux_loss': identity_aux_loss,
+            'identity_aux_weight': identity_aux_weight,
+            'identity_aux_applied': identity_aux_applied,
         }
 
     def encode_prompt_with_trigger_word(

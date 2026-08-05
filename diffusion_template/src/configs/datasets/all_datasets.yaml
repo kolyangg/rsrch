@@ -56,6 +56,21 @@ train:
         random_horizontal_flip: true
         instance_transforms: ${transforms.instance_transforms.train}
 
+    large_dataset_balanced_multiref:
+        _target_: src.datasets.large_dataset_balanced_multiref.LargeDatasetBalancedMultiRefTrain
+        data_json_pth: ${oc.env:LARGE_DATASET_MANIFEST,../dataset_full/filtered_ids3_adj.json}
+        images_path: ${oc.env:LARGE_DATASET_IMAGES,../dataset_full/large_dataset_adj/large_dataset}
+        num_refs: 1
+        train_on_separate_image: true
+        singleton_reference_policy: error
+        same_id_ref_map_json_pth: null
+        random_horizontal_flip: false
+        schedule_rows: 48000
+        schedule_start_row: ${oc.env:LARGE_DATASET_SCHEDULE_START_ROW,0}
+        schedule_seed: 130018
+        num_identity_refs: 3
+        instance_transforms: ${transforms.instance_transforms.train}
+
     # Versioned clean celebrity release. Unlike the historical Large Dataset,
     # this entry fails closed on singletons, small faces, and malformed prompts.
     big_celebs:

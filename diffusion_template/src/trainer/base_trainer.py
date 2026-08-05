@@ -63,6 +63,39 @@ def _copy_full_processor_state(train_unet, val_unet, *, strict: bool) -> int:
     return copied
 
 
+def _snapshot_adapter_parameters(unet, adapter_marker: str) -> dict[str, torch.Tensor]:
+    return {
+        name: parameter.detach().clone()
+        for name, parameter in unet.named_parameters()
+        if adapter_marker in name and parameter.requires_grad
+    }
+
+
+def _restore_adapter_parameters(
+    unet,
+    snapshot: dict[str, torch.Tensor],
+    *,
+    adapter_marker: str,
+) -> int:
+    named_parameters = dict(unet.named_parameters())
+    current_names = {
+        name
+        for name, parameter in named_parameters.items()
+        if adapter_marker in name and parameter.requires_grad
+    }
+    if current_names != set(snapshot):
+        raise RuntimeError(
+            "Validation shadow-adapter parameter map changed: "
+            f"missing={sorted(set(snapshot) - current_names)[:3]}, "
+            f"unexpected={sorted(current_names - set(snapshot))[:3]}"
+        )
+    with torch.no_grad():
+        for name, value in snapshot.items():
+            parameter = named_parameters[name]
+            parameter.copy_(value.to(parameter.device, parameter.dtype))
+    return len(snapshot)
+
+
 
 class BaseTrainer:
     """
@@ -489,6 +522,7 @@ class BaseTrainer:
         ):
 
             batch["batch_idx"] = batch_idx
+            batch["global_step"] = (epoch - 1) * self.epoch_len + batch_idx
             batch = self.process_batch(
                 batch,
                 train_metrics=self.train_metrics,
@@ -774,8 +808,35 @@ class BaseTrainer:
                             )
                         state = dict(state)
                         state.pop("attn_processors", None)
+                    shadow_default = bool(
+                        getattr(
+                            self.config,
+                            "validation_shadow_photomaker_default",
+                            False,
+                        )
+                    )
+                    default_snapshot = (
+                        _snapshot_adapter_parameters(_val_model.unet, ".default.")
+                        if shadow_default
+                        else None
+                    )
+                    if shadow_default and not default_snapshot:
+                        raise RuntimeError(
+                            "Requested PhotoMaker-default shadow validation but "
+                            "the alternate validation model has no default adapter"
+                        )
                     if hasattr(_val_model, "load_state_dict_"):
                         _val_model.load_state_dict_(state)
+                    if default_snapshot is not None:
+                        restored = _restore_adapter_parameters(
+                            _val_model.unet,
+                            default_snapshot,
+                            adapter_marker=".default.",
+                        )
+                        print(
+                            "[Validation Adapter Policy] restored pretrained "
+                            f"PhotoMaker default tensors={restored}"
+                        )
 
                     # The historical path copies base buffers as well as learned
                     # deltas. validation_native deliberately keeps the alternate

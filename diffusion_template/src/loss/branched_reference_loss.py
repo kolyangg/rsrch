@@ -104,6 +104,9 @@ class BranchedReferenceLoss(nn.Module):
         reference_shuffle_applied=None,
         reference_prediction_delta_ratio=None,
         ba_telemetry=None,
+        identity_aux_loss=None,
+        identity_aux_weight=None,
+        identity_aux_applied=None,
         **batch,
     ):
         del batch
@@ -120,6 +123,13 @@ class BranchedReferenceLoss(nn.Module):
             + self.face_weight * face
             + self.boundary_weight * boundary
         )
+        if identity_aux_loss is None:
+            identity_aux_loss = model_pred.float().new_tensor(0.0)
+        if identity_aux_weight is None:
+            identity_aux_weight = model_pred.float().new_tensor(0.0)
+        if identity_aux_applied is None:
+            identity_aux_applied = model_pred.float().new_tensor(0.0)
+        loss = loss + identity_aux_weight * identity_aux_loss
 
         if reference_shuffle_applied is None:
             shuffle_applied = model_pred.float().new_tensor(0.0)
@@ -187,6 +197,9 @@ class BranchedReferenceLoss(nn.Module):
             "loss_wrong_reference_face": wrong_face.detach(),
             "reference_prediction_delta_ratio": reference_prediction_delta_ratio,
             "reference_shuffle_applied": shuffle_applied,
+            "loss_identity_aux": identity_aux_loss.detach(),
+            "identity_aux_weight": identity_aux_weight.detach(),
+            "identity_aux_applied": identity_aux_applied.detach(),
         }
         if ba_telemetry:
             for name, value in ba_telemetry.items():

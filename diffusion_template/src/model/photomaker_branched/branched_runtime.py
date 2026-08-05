@@ -73,10 +73,18 @@ def patch_unet_attention_processors(
     )
     from .residual_sa_processor_v2 import ResidualBranchedSelfAttnProcessorV2
     from .identity_ca_processor_v2 import HardIdentityCrossAttnProcessorV2
+    from .residual_identity_ca_processor_v3 import (
+        ResidualIdentityCrossAttnProcessorV3,
+    )
 
     identity_ca_v2_enabled = bool(
         getattr(pipeline, "ba_identity_ca_v2_enabled", False)
     )
+    residual_identity_ca_v3_enabled = bool(
+        getattr(pipeline, "ba_residual_identity_ca_v3_enabled", False)
+    )
+    if identity_ca_v2_enabled and residual_identity_ca_v3_enabled:
+        raise RuntimeError("Hard and residual identity CA cannot both be enabled")
 
     if configured_architecture_version is None:
         # Validation pipelines reuse the already-installed training U-Net but
@@ -125,7 +133,7 @@ def patch_unet_attention_processors(
             raise RuntimeError(
                 "The audited Large Dataset suite forbids native/reference face mixing"
             )
-        if identity_ca_v2_enabled and bool(
+        if (identity_ca_v2_enabled or residual_identity_ca_v3_enabled) and bool(
             getattr(pipeline, "train_branched_ca_lora", False)
         ):
             raise RuntimeError(
@@ -178,6 +186,7 @@ def patch_unet_attention_processors(
         QueryAdaptiveHardBranchedSelfAttnProcessorV4,
         BranchedCrossAttnProcessor,
         HardIdentityCrossAttnProcessorV2,
+        ResidualIdentityCrossAttnProcessorV3,
     )
 
     # print(f'[TEMP DEBUG] mask in patch_unet_attention_processors: {mask}')
@@ -307,7 +316,8 @@ def patch_unet_attention_processors(
     setattr(pipeline, "_ba_semantic_processor_names", tuple(patchable_sa_names))
 
     identity_ca_names: list[str] = []
-    if identity_ca_v2_enabled:
+    identity_ca_enabled = identity_ca_v2_enabled or residual_identity_ca_v3_enabled
+    if identity_ca_enabled:
         if architecture_version != "hard_replace_v1":
             raise RuntimeError("Corrected identity CA requires hard_replace_v1")
         if not disable_ca:
@@ -320,10 +330,15 @@ def patch_unet_attention_processors(
             raise RuntimeError(
                 "Corrected identity CA forbids PhotoMaker/native face-output mixing"
             )
+        group_attribute = (
+            "ba_identity_ca_v2_groups"
+            if identity_ca_v2_enabled
+            else "ba_residual_identity_ca_v3_groups"
+        )
         identity_groups = tuple(
             str(group)
             for group in (
-                getattr(pipeline, "ba_identity_ca_v2_groups", None) or ()
+                getattr(pipeline, group_attribute, None) or ()
             )
         )
         invalid_identity_groups = [
@@ -337,7 +352,7 @@ def patch_unet_attention_processors(
         ]
         if invalid_identity_groups or not identity_groups:
             raise ValueError(
-                "Invalid ba_identity_ca_v2_groups="
+                f"Invalid {group_attribute}="
                 f"{invalid_identity_groups or identity_groups!r}"
             )
         identity_ca_names = [
@@ -348,7 +363,7 @@ def patch_unet_attention_processors(
         ]
         if not identity_ca_names:
             raise RuntimeError(
-                "ba_identity_ca_v2_groups selected zero cross-attention processors"
+                f"{group_attribute} selected zero cross-attention processors"
             )
     identity_ca_name_set = set(identity_ca_names)
     setattr(pipeline, "_ba_identity_ca_processor_names", tuple(identity_ca_names))
@@ -356,7 +371,10 @@ def patch_unet_attention_processors(
     installed_identity_ca_names = {
         name
         for name, processor in current_procs.items()
-        if isinstance(processor, HardIdentityCrossAttnProcessorV2)
+        if isinstance(
+            processor,
+            (HardIdentityCrossAttnProcessorV2, ResidualIdentityCrossAttnProcessorV3),
+        )
     }
     if has_branched and installed_identity_ca_names != identity_ca_name_set:
         raise RuntimeError(
@@ -627,15 +645,50 @@ def patch_unet_attention_processors(
                     ).lower()
                     identity_trainable_dtype = (
                         torch.float32
-                        if trainable_dtype_name in {"fp32", "float32"}
+                        if (
+                            residual_identity_ca_v3_enabled
+                            or trainable_dtype_name in {"fp32", "float32"}
+                        )
                         else None
                     )
-                    proc = HardIdentityCrossAttnProcessorV2(
-                        hidden_size=hidden_size,
-                        cross_attention_dim=int(cross_attention_dim),
-                        rank=int(getattr(pipeline, "ba_identity_ca_v2_rank", 16)),
-                        trainable_dtype=identity_trainable_dtype,
-                    )
+                    if identity_ca_v2_enabled:
+                        proc = HardIdentityCrossAttnProcessorV2(
+                            hidden_size=hidden_size,
+                            cross_attention_dim=int(cross_attention_dim),
+                            rank=int(
+                                getattr(pipeline, "ba_identity_ca_v2_rank", 16)
+                            ),
+                            trainable_dtype=identity_trainable_dtype,
+                        )
+                    else:
+                        proc = ResidualIdentityCrossAttnProcessorV3(
+                            hidden_size=hidden_size,
+                            cross_attention_dim=int(cross_attention_dim),
+                            rank=int(
+                                getattr(
+                                    pipeline,
+                                    "ba_residual_identity_ca_v3_rank",
+                                    64,
+                                )
+                            ),
+                            gate_init=float(
+                                getattr(
+                                    pipeline,
+                                    "ba_residual_identity_ca_v3_gate_init",
+                                    0.02,
+                                )
+                            ),
+                            gate_max=float(
+                                getattr(
+                                    pipeline,
+                                    "ba_residual_identity_ca_v3_gate_max",
+                                    0.20,
+                                )
+                            ),
+                            trainable_dtype=(
+                                identity_trainable_dtype or torch.float32
+                            ),
+                        )
                     proc.init_from_attention(
                         _resolve_attn_module(pipeline.unet, name)
                     )
@@ -699,6 +752,7 @@ def patch_unet_attention_processors(
                     BranchedAttnProcessor,
                     BranchedCrossAttnProcessor,
                     HardIdentityCrossAttnProcessorV2,
+                    ResidualIdentityCrossAttnProcessorV3,
                 ),
             ):
                 patched_proc_names.append(name)
@@ -709,7 +763,13 @@ def patch_unet_attention_processors(
                 # (Re)apply id_embeds (zeros if missing); actual usage is gated by use_id_embeds
                 if hasattr(proc, "id_embeds"):
                     proc.id_embeds = _idem
-                if isinstance(proc, HardIdentityCrossAttnProcessorV2):
+                if isinstance(
+                    proc,
+                    (
+                        HardIdentityCrossAttnProcessorV2,
+                        ResidualIdentityCrossAttnProcessorV3,
+                    ),
+                ):
                     # 4 Aug 2026 - ID-token membership changes with the current
                     # prompt/CFG batch and must be refreshed on every forward.
                     proc.set_class_tokens_mask(class_tokens_mask)
