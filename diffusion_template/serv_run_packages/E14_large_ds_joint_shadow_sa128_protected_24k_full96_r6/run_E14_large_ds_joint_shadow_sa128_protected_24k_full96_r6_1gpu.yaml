@@ -1,0 +1,10 @@
+job:
+  description: "E14 r6 isolated joint shadow protected with deferred nonfatal face quality, 24k/full96 #nasilaev"
+  environment:
+    image: cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36
+  resource:
+    instance_type: a100.1gpu.8C.243G
+    processes: 1
+    workers: 1
+  script: "mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/E14_large_ds_joint_shadow_sa128_protected_24k_full96_r6 && bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E14_r6_deferred_20260805/diffusion_template/serv_run_packages/E14_large_ds_joint_shadow_sa128_protected_24k_full96_r6/start_E14_large_ds_joint_shadow_sa128_protected_24k_full96_r6_1gpu.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/E14_large_ds_joint_shadow_sa128_protected_24k_full96_r6/stdout_1gpu.log 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/E14_large_ds_joint_shadow_sa128_protected_24k_full96_r6/stderr_1gpu.log"
+  type: binary

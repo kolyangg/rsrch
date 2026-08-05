@@ -13,11 +13,11 @@ from omegaconf import OmegaConf
 
 RUNS = {
     "E13_large_ds_joint_shadow_sa128_24k": "E13_large_ds_joint_shadow_sa128_24k_full96_r4",
-    "E14_large_ds_joint_shadow_sa128_protected_24k": "E14_large_ds_joint_shadow_sa128_protected_24k_full96_r5",
+    "E14_large_ds_joint_shadow_sa128_protected_24k": "E14_large_ds_joint_shadow_sa128_protected_24k_full96_r6",
     "E15_large_ds_joint_persist_sa128_protected_24k": "E15_large_ds_joint_persist_sa128_protected_24k_full96_r2",
     "E16_large_ds_joint_persist_sa128_idloss_24k": "E16_large_ds_joint_persist_sa128_idloss_24k_full96_r2",
     "E17_large_ds_joint_persist_sa128_resididca_24k": "E17_large_ds_joint_persist_sa128_resididca_24k_full96_r3",
-    "E18_large_ds_joint_persist_sa128_multiref_24k": "E18_large_ds_joint_persist_sa128_multiref_24k_full96_r3",
+    "E18_large_ds_joint_persist_sa128_multiref_24k": "E18_large_ds_joint_persist_sa128_multiref_24k_full96_r4",
 }
 
 
