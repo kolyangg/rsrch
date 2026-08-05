@@ -1920,19 +1920,19 @@ Launch state on 5 August 2026:
   `lm-mpi-job-bfbdc73f-fb12-4ce5-862c-d1be4d37ff64`, immutable Comet key
   `90b31a80d20d4083b8d32873ac170881`, from the same exact commit and clean
   runtime as E13 r3. Its matching ownership and optimizer gates also pass.
-- E15 r2's first submission was not accepted: MLS returned
-  `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE` before assigning a job name or
-  Comet key. The user authorized one new attempt after E14 r3 was accepted;
-  that attempt was also rejected before job creation with the same error.
-- E16-E18 r2 each received the user-requested single submission attempt after
-  a fresh allocation check. All four E15-E18 requests were rejected before job
-  creation with `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE`; none has an MLS job
-  or Comet key, and none may be retried without a later user instruction.
-  Their exact Hydra gates, loss constructors, CPU face-quality invariant, and
-  package checks passed. The 16/16 snapshot included eight one-GPU jobs from
-  another user's sweep and one external four-GPU job; do not stop or modify
-  those jobs. The temporary suite ceiling was not the blocker: only four
-  project GPUs were Running/Pending.
+- E15-E18 r2 were updated at commit
+  `a6ae6158e09ad1b2e541db116f4e1d9e22e22b86` to use the same verified GPU
+  face-quality runtime as E13/E14, including the GLIBCXX preload and nested
+  parent/scorer-child CUDA allocation gate. All four exact Hydra contracts and
+  packages pass locally and in the isolated clean Serv runtime
+  `runtime_worktrees/rsrch_test_E15_E18_gpu_20260805`.
+- The user reauthorized one E15-E18 submission attempt each. Allocation was
+  checked before every request: the project was at four of its authorized
+  eight A100s, but the overall workspace remained 16/16. E15, E16, E17, and
+  E18 were consequently rejected before job creation with
+  `WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE` at 17:30:00, 17:30:27, 17:30:52,
+  and 17:31:18 London time respectively. None has an MLS job or Comet key;
+  do not retry without another later user request.
 - E14-E18 r1 are failed/stopped startup attempts and must not be interpreted as
   experiment results. Their immutable keys and failure provenance are kept in
   their JSON records. The root cause was a missing `loss_kind:
