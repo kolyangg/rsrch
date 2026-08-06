@@ -78,3 +78,77 @@ class BlendedMaskedDiffusionLoss(nn.Module):
         loss = (1.0 - self.lambda_face) * full_loss + self.lambda_face * masked_loss
 
         return {'loss': loss}
+
+
+class MetricAlignedMaskedDiffusionLoss(nn.Module):
+    """Face diffusion loss plus a defaults-off differentiable ID objective."""
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(
+        self,
+        model_pred,
+        target,
+        is_masked_loss,
+        face_bbox,
+        identity_aux_loss=None,
+        identity_aux_weight=None,
+        identity_aux_applied=None,
+        identity_aux_cosine=None,
+        identity_aux_timestep=None,
+        identity_aux_pred_norm=None,
+        identity_aux_target_norm=None,
+        **batch,
+    ):
+        del batch
+        if not is_masked_loss:
+            raise RuntimeError(
+                "MetricAlignedMaskedDiffusionLoss requires face masking every step"
+            )
+        diffusion = _masked_face_mse(model_pred, target, face_bbox)
+        zero = diffusion.new_tensor(0.0)
+        identity_aux_loss = zero if identity_aux_loss is None else identity_aux_loss
+        identity_aux_weight = zero if identity_aux_weight is None else identity_aux_weight
+        identity_aux_applied = zero if identity_aux_applied is None else identity_aux_applied
+        identity_weighted = identity_aux_weight * identity_aux_loss
+
+        def detached(value):
+            return zero if value is None else value.detach()
+
+        # 6 Aug 2026 - AICODE-NOTE: The two private graph values let the
+        # trainer calibrate the frozen ArcFace gradient without changing any
+        # historical loss class or optimizer ownership.
+        return {
+            "loss": diffusion + identity_weighted,
+            "loss_face": diffusion.detach(),
+            "loss_identity_aux": identity_aux_loss.detach(),
+            "identity_aux_weight": identity_aux_weight.detach(),
+            "identity_aux_weighted": identity_weighted.detach(),
+            "identity_aux_applied": identity_aux_applied.detach(),
+            "identity_aux_cosine": detached(identity_aux_cosine),
+            "identity_aux_timestep": detached(identity_aux_timestep),
+            "identity_aux_pred_norm": detached(identity_aux_pred_norm),
+            "identity_aux_target_norm": detached(identity_aux_target_norm),
+            "_loss_diffusion_graph": diffusion,
+            "_loss_identity_raw_graph": identity_aux_loss,
+        }
+
+
+class AuditedAlternatingDiffusionLoss(nn.Module):
+    """Alternate face-only and full-latent MSE while logging both components."""
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(self, model_pred, target, is_masked_loss, face_bbox, **batch):
+        del batch
+        face = _masked_face_mse(model_pred, target, face_bbox)
+        full = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+        loss = face if is_masked_loss else full
+        return {
+            "loss": loss,
+            "loss_face": face.detach(),
+            "loss_full": full.detach(),
+            "loss_mode_face": loss.new_tensor(float(bool(is_masked_loss))),
+        }

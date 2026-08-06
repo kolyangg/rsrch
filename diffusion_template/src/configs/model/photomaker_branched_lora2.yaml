@@ -82,8 +82,9 @@ ba_residual_identity_ca_v3_rank: 64
 ba_residual_identity_ca_v3_gate_init: 0.02
 ba_residual_identity_ca_v3_gate_max: 0.20
 
-# Differentiable predicted-x0 identity proxy using the already-loaded frozen
-# PhotoMaker CLIP vision tower. Defaults off for historical runs.
+# Differentiable predicted-x0 identity supervision. Historical E16 keeps the
+# PhotoMaker CLIP backend; new runs may explicitly select a hash-pinned frozen
+# ArcFace graph. Every extension remains defaults-off.
 identity_aux_enabled: false
 identity_aux_cadence: 4
 identity_aux_max_timestep: 400
@@ -91,6 +92,12 @@ identity_aux_ramp_start_step: 2000
 identity_aux_ramp_end_step: 6000
 identity_aux_max_weight: 0.05
 identity_aux_crop_padding: 0.25
+identity_aux_backend: photomaker_clip_v1
+identity_aux_model_path: null
+identity_aux_model_sha256: null
+identity_aux_dynamic_weight: false
+identity_aux_grad_target_ratio: 0.075
+identity_aux_grad_norm_interval: 200
 
 # Defaults-off audited ownership extensions. Hard-v1 experiments may opt in to
 # historically effective outer adapter sites without reopening generic SA Q/K/V.

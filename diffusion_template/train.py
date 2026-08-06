@@ -320,6 +320,12 @@ def main(config):
     lambda_face = float(getattr(config, "lambda_face", 0.1))
     loss_target_by_kind = {
         "masked_alternating": "src.loss.diffusion_loss.MaskedDiffusionLoss",
+        "masked_alternating_audited": (
+            "src.loss.diffusion_loss.AuditedAlternatingDiffusionLoss"
+        ),
+        "masked_identity_aux": (
+            "src.loss.diffusion_loss.MetricAlignedMaskedDiffusionLoss"
+        ),
         "blended_masked": "src.loss.diffusion_loss.BlendedMaskedDiffusionLoss",
         "branched_reference": "src.loss.branched_reference_loss.BranchedReferenceLoss",
     }

@@ -239,6 +239,161 @@ class PhotomakerLoraTrainer(SDXLTrainer):
     def __init__(self, masked_loss_step, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.masked_loss_step = masked_loss_step
+        self._identity_aux_calibrated_max_weight = None
+
+    @staticmethod
+    def _gradient_norm(grads):
+        total = None
+        for grad in grads:
+            if grad is None:
+                continue
+            value = grad.detach().float().square().sum()
+            total = value if total is None else total + value
+        if total is None:
+            return None
+        return total.clamp_min(0.0).sqrt()
+
+    def _calibrate_identity_auxiliary(self, batch):
+        reference = batch["loss"].detach()
+        zero = reference.new_tensor(0.0)
+        metric_names = (
+            "identity_aux_grad_calibrated",
+            "identity_aux_calibrated_max_weight",
+            "identity_aux_grad_ratio_all",
+            "identity_aux_grad_ratio_ba",
+            "identity_aux_grad_ratio_generic_adapter",
+            "identity_aux_grad_ratio_photomaker_default",
+        )
+        for name in metric_names:
+            batch[name] = zero
+        diffusion = batch.get("_loss_diffusion_graph")
+        identity_raw = batch.get("_loss_identity_raw_graph")
+        if diffusion is None or identity_raw is None:
+            return
+
+        try:
+            model = self.accelerator.unwrap_model(self.model)
+        except Exception:
+            model = self.model
+        if not bool(getattr(model, "identity_aux_dynamic_weight", False)):
+            return
+        applied = float(batch["identity_aux_applied"].detach().item()) > 0.5
+        if not applied:
+            return
+
+        max_weight = float(model.identity_aux_max_weight)
+        requested_weight = float(batch["identity_aux_weight"].detach().item())
+        ramp_fraction = min(1.0, max(0.0, requested_weight / max_weight))
+        interval = int(model.identity_aux_grad_norm_interval)
+        global_step = int(batch.get("global_step", 0))
+        recalibrate = (
+            self._identity_aux_calibrated_max_weight is None
+            or global_step % interval == 0
+        )
+
+        role_groups = [
+            (str(group.get("name", "unnamed")), list(group.get("params", ())))
+            for group in self.optimizer.param_groups
+        ]
+        flat_parameters = [parameter for _, params in role_groups for parameter in params]
+        role_sizes = [len(params) for _, params in role_groups]
+        role_norms = {}
+        if recalibrate:
+            diffusion_grads = torch.autograd.grad(
+                diffusion,
+                flat_parameters,
+                retain_graph=True,
+                allow_unused=True,
+            )
+            identity_grads = torch.autograd.grad(
+                identity_raw,
+                flat_parameters,
+                retain_graph=True,
+                allow_unused=True,
+            )
+            offset = 0
+            for (role, _), size in zip(role_groups, role_sizes):
+                role_norms[role] = (
+                    self._gradient_norm(diffusion_grads[offset : offset + size]),
+                    self._gradient_norm(identity_grads[offset : offset + size]),
+                )
+                offset += size
+            diffusion_norm = self._gradient_norm(diffusion_grads)
+            identity_norm = self._gradient_norm(identity_grads)
+            if (
+                diffusion_norm is None
+                or identity_norm is None
+                or not torch.isfinite(diffusion_norm)
+                or not torch.isfinite(identity_norm)
+                or float(identity_norm.item()) <= 0.0
+            ):
+                raise RuntimeError("ArcFace auxiliary gradient calibration is invalid")
+            proposed = (
+                float(model.identity_aux_grad_target_ratio)
+                * float(diffusion_norm.item())
+                / float(identity_norm.item())
+            )
+            proposed = min(max_weight, max(0.0, proposed))
+            if self._identity_aux_calibrated_max_weight is None:
+                calibrated = proposed
+            else:
+                calibrated = (
+                    0.9 * float(self._identity_aux_calibrated_max_weight)
+                    + 0.1 * proposed
+                )
+            self._identity_aux_calibrated_max_weight = calibrated
+            batch["identity_aux_grad_calibrated"] = zero.new_tensor(1.0)
+
+            for role, (base_norm, raw_norm) in role_norms.items():
+                if base_norm is None or raw_norm is None:
+                    continue
+                ratio = calibrated * float(raw_norm.item()) / max(
+                    float(base_norm.item()), 1.0e-12
+                )
+                key = {
+                    "ba": "identity_aux_grad_ratio_ba",
+                    "generic_adapter": "identity_aux_grad_ratio_generic_adapter",
+                    "photomaker_default": (
+                        "identity_aux_grad_ratio_photomaker_default"
+                    ),
+                }.get(role)
+                if key is not None:
+                    batch[key] = zero.new_tensor(ratio)
+            total_ratio = calibrated * float(identity_norm.item()) / max(
+                float(diffusion_norm.item()), 1.0e-12
+            )
+            batch["identity_aux_grad_ratio_all"] = zero.new_tensor(total_ratio)
+
+        calibrated_max = float(self._identity_aux_calibrated_max_weight)
+        effective_weight = ramp_fraction * calibrated_max
+        batch["identity_aux_calibrated_max_weight"] = zero.new_tensor(
+            calibrated_max
+        )
+        batch["identity_aux_weight"] = zero.new_tensor(effective_weight)
+        batch["identity_aux_weighted"] = (
+            zero.new_tensor(effective_weight) * identity_raw.detach()
+        )
+        batch["loss"] = diffusion + effective_weight * identity_raw
+
+    def _record_active_gradient_norms(self, batch):
+        reference = batch["loss"].detach()
+        zero = reference.new_tensor(0.0)
+        role_to_metric = {
+            "ba": "active_grad_norm_ba",
+            "generic_adapter": "active_grad_norm_generic_adapter",
+            "photomaker_default": "active_grad_norm_photomaker_default",
+        }
+        for metric in role_to_metric.values():
+            batch[metric] = zero
+        for group in self.optimizer.param_groups:
+            metric = role_to_metric.get(str(group.get("name", "")))
+            if metric is None:
+                continue
+            norm = self._gradient_norm(
+                [parameter.grad for parameter in group.get("params", ())]
+            )
+            if norm is not None:
+                batch[metric] = norm.detach().to(device=zero.device)
         
     def process_batch(self, batch, train_metrics: MetricTracker):
         self.optimizer.zero_grad()
@@ -253,14 +408,19 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         )
         all_losses = self.criterion(**batch)
         batch.update(all_losses)
+        self._calibrate_identity_auxiliary(batch)
         
         if self.is_train:
             assert torch.isfinite(batch["loss"]) # sum of all losses is always called loss
             self.accelerator.backward(batch["loss"]) 
+            self._record_active_gradient_norms(batch)
             self._clip_grad_norm()
             self.optimizer.step()
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
+
+        batch.pop("_loss_diffusion_graph", None)
+        batch.pop("_loss_identity_raw_graph", None)
 
         # 2 Aug 2026 - AICODE-NOTE: reference counterfactuals are sampled, so
         # unconditional Comet curves contain zeros on inactive ranks/batches.

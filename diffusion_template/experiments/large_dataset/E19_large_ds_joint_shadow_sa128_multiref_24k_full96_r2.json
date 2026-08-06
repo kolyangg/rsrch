@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "run_name": "E19_large_ds_joint_shadow_sa128_multiref_24k_full96_r2",
+  "plan": {
+    "status": "running_startup_verified",
+    "priority": 1,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Transfer E18 identity-balanced multi-reference conditioning to the E13 shadow route.",
+    "baseline": "E13_large_ds_joint_shadow_sa128_24k_full96_r4",
+    "single_scientific_change": "use E18 deterministic balanced schedule and additional PhotoMaker ID references; keep reference zero as sole spatial KV lane",
+    "config": "src/configs/E19_large_ds_joint_shadow_sa128_multiref_24k.yaml",
+    "launcher": "launchers/active/run_E19_E24_large_ds_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/E19_large_ds_joint_shadow_sa128_multiref_24k_full96_r2/run_E19_large_ds_joint_shadow_sa128_multiref_24k_full96_r2_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "retry_of": "E19_large_ds_joint_shadow_sa128_multiref_24k_full96_r1",
+    "retry_reason": "r1 failed before model construction because the isolated runtime linked the training-only dataset mirror instead of the canonical fixed-96 validation tree",
+    "serv_job": "lm-mpi-job-8ad95723-ea0a-4bfb-a920-6904d91eb993",
+    "comet_experiment_key": "3280232a45ef4ea2ae68c8deff3b81c1",
+    "runtime_root": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_sources_e19_e24_v3/E19_large_ds_joint_shadow_sa128_multiref_24k_full96_r2",
+    "allocation_exception": "User-authorized E19-E24 eight-A100 exception; this one-GPU arm may bring project total above six but never above eight.",
+    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 step0/every2k, shadow pretrained-default validation, pose_adapt_ratio=0, ca_mixing_for_face=false"
+  }
+}

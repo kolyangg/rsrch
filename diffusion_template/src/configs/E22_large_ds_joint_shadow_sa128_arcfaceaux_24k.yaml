@@ -1,0 +1,49 @@
+defaults:
+  - E13_large_ds_joint_shadow_sa128_24k
+  - _self_
+
+loss_kind: masked_identity_aux
+
+model:
+  identity_aux_enabled: true
+  identity_aux_backend: arcface_torch_v2
+  identity_aux_model_path: ${oc.env:ARCFACE_ONNX_PATH,/home/jovyan/.insightface/models/buffalo_l/w600k_r50.onnx}
+  identity_aux_model_sha256: 4c06341c33c2ca1f86781dab0e829f88ad5b64be9fba56e56bc9ebdefc619e43
+  identity_aux_cadence: 2
+  identity_aux_max_timestep: 300
+  identity_aux_ramp_start_step: 4000
+  identity_aux_ramp_end_step: 6000
+  identity_aux_max_weight: 0.05
+  identity_aux_crop_padding: 0.25
+  identity_aux_dynamic_weight: true
+  identity_aux_grad_target_ratio: 0.075
+  identity_aux_grad_norm_interval: 200
+
+writer:
+  loss_names:
+    - loss
+    - loss_face
+    - loss_identity_aux
+    - identity_aux_weight
+    - identity_aux_weighted
+    - identity_aux_applied
+    - identity_aux_cosine
+    - identity_aux_timestep
+    - identity_aux_pred_norm
+    - identity_aux_target_norm
+    - identity_aux_grad_calibrated
+    - identity_aux_calibrated_max_weight
+    - identity_aux_grad_ratio_all
+    - identity_aux_grad_ratio_ba
+    - identity_aux_grad_ratio_generic_adapter
+    - identity_aux_grad_ratio_photomaker_default
+    - active_grad_norm_ba
+    - active_grad_norm_generic_adapter
+    - active_grad_norm_photomaker_default
+  experiment_comment: >-
+    E22 vs E13 adds a hash-pinned differentiable execution of the exact
+    buffalo_l w600k_r50 ArcFace recognition graph on intended-box predicted-x0
+    crops. A target-plus-distinct-reference centroid supplies the detached
+    target; online raw-gradient calibration caps the identity contribution at
+    a 7.5 percent diffusion-gradient ratio without changing IDSimBest.
+

@@ -137,6 +137,12 @@ class PhotomakerBranchedLora(SDXL):
         identity_aux_ramp_end_step: int = 6000,
         identity_aux_max_weight: float = 0.05,
         identity_aux_crop_padding: float = 0.25,
+        identity_aux_backend: str = "photomaker_clip_v1",
+        identity_aux_model_path: Optional[str] = None,
+        identity_aux_model_sha256: Optional[str] = None,
+        identity_aux_dynamic_weight: bool = False,
+        identity_aux_grad_target_ratio: float = 0.075,
+        identity_aux_grad_norm_interval: int = 200,
         ##### BRANCHED ATTENTION - NEW PARAMS 1 #####
     ):
         """NEW PARAMS 1: define BA training controls (strategy, processor variant, ID mixing, and BA-only toggles)."""
@@ -553,6 +559,28 @@ class PhotomakerBranchedLora(SDXL):
         self.identity_aux_ramp_end_step = int(identity_aux_ramp_end_step)
         self.identity_aux_max_weight = float(identity_aux_max_weight)
         self.identity_aux_crop_padding = float(identity_aux_crop_padding)
+        self.identity_aux_backend = str(identity_aux_backend).lower()
+        self.identity_aux_model_path = identity_aux_model_path
+        self.identity_aux_model_sha256 = (
+            None
+            if identity_aux_model_sha256 is None
+            else str(identity_aux_model_sha256).lower()
+        )
+        self.identity_aux_dynamic_weight = bool(identity_aux_dynamic_weight)
+        self.identity_aux_grad_target_ratio = float(
+            identity_aux_grad_target_ratio
+        )
+        self.identity_aux_grad_norm_interval = int(
+            identity_aux_grad_norm_interval
+        )
+        if self.identity_aux_backend not in {
+            "photomaker_clip_v1",
+            "arcface_torch_v2",
+        }:
+            raise ValueError(
+                "identity_aux_backend must be photomaker_clip_v1 or "
+                f"arcface_torch_v2, got {self.identity_aux_backend!r}"
+            )
         if self.identity_aux_enabled and not all(
             (
                 self.identity_aux_cadence > 0,
@@ -561,9 +589,34 @@ class PhotomakerBranchedLora(SDXL):
                 < self.identity_aux_ramp_end_step,
                 self.identity_aux_max_weight > 0.0,
                 self.identity_aux_crop_padding >= 0.0,
+                self.identity_aux_grad_target_ratio > 0.0,
+                self.identity_aux_grad_norm_interval > 0,
             )
         ):
             raise ValueError("Invalid predicted-x0 identity auxiliary configuration")
+        if self.identity_aux_backend == "arcface_torch_v2" and not all(
+            (
+                self.identity_aux_enabled,
+                self.identity_aux_model_path,
+                self.identity_aux_model_sha256,
+                self.identity_aux_dynamic_weight,
+            )
+        ):
+            raise ValueError(
+                "arcface_torch_v2 requires enabled auxiliary, model path/hash, "
+                "and dynamic gradient calibration"
+            )
+        self.identity_aux_recognizer = None
+        if self.identity_aux_enabled and self.identity_aux_backend == "arcface_torch_v2":
+            from .arcface_identity_aux import FrozenOnnxArcFace
+
+            # 6 Aug 2026 - Load the exact frozen buffalo_l recognition graph
+            # through differentiable PyTorch ops. It contributes buffers only;
+            # BA/generic/default optimizer ownership remains unchanged.
+            self.identity_aux_recognizer = FrozenOnnxArcFace(
+                self.identity_aux_model_path,
+                expected_sha256=self.identity_aux_model_sha256,
+            )
         if self.ba_architecture_version != "hard_replace_v1" and any(
             (
                 self.ba_enforce_reference_only_hard_route,
@@ -618,6 +671,10 @@ class PhotomakerBranchedLora(SDXL):
         self.unet.requires_grad_(False)
         self.id_encoder.to(dtype=self.weight_dtype)
         self.id_encoder.requires_grad_(False)
+        if self.identity_aux_recognizer is not None:
+            self.identity_aux_recognizer.to(device=self.device, dtype=torch.float32)
+            self.identity_aux_recognizer.requires_grad_(False)
+            self.identity_aux_recognizer.eval()
 
         adapter_lora_config = LoraConfig(
             r=self.lora_rank,
@@ -986,17 +1043,38 @@ class PhotomakerBranchedLora(SDXL):
                 }
             manifest["hard_v1_extensions"] = hard_v1_extensions
         if self.identity_aux_enabled:
-            manifest["identity_auxiliary"] = {
-                "kind": "predicted_x0_photomaker_clip_cosine",
-                "cadence": self.identity_aux_cadence,
-                "max_timestep": self.identity_aux_max_timestep,
-                "ramp_steps": [
-                    self.identity_aux_ramp_start_step,
-                    self.identity_aux_ramp_end_step,
-                ],
-                "max_weight": self.identity_aux_max_weight,
-                "crop_padding": self.identity_aux_crop_padding,
-            }
+            if self.identity_aux_backend == "photomaker_clip_v1":
+                # Preserve E16's schema-v2 manifest byte-for-byte.
+                manifest["identity_auxiliary"] = {
+                    "kind": "predicted_x0_photomaker_clip_cosine",
+                    "cadence": self.identity_aux_cadence,
+                    "max_timestep": self.identity_aux_max_timestep,
+                    "ramp_steps": [
+                        self.identity_aux_ramp_start_step,
+                        self.identity_aux_ramp_end_step,
+                    ],
+                    "max_weight": self.identity_aux_max_weight,
+                    "crop_padding": self.identity_aux_crop_padding,
+                }
+            else:
+                manifest["identity_auxiliary"] = {
+                    "kind": "predicted_x0_arcface_buffalo_l_cosine_v2",
+                    "backend": self.identity_aux_backend,
+                    "model_sha256": self.identity_aux_model_sha256,
+                    "preprocessing": "rgb_minus_127.5_over_127.5_roi112",
+                    "target": "normalized_target_plus_distinct_ref_centroid",
+                    "cadence": self.identity_aux_cadence,
+                    "max_timestep": self.identity_aux_max_timestep,
+                    "ramp_steps": [
+                        self.identity_aux_ramp_start_step,
+                        self.identity_aux_ramp_end_step,
+                    ],
+                    "max_weight": self.identity_aux_max_weight,
+                    "crop_padding": self.identity_aux_crop_padding,
+                    "dynamic_weight": self.identity_aux_dynamic_weight,
+                    "grad_target_ratio": self.identity_aux_grad_target_ratio,
+                    "grad_norm_interval": self.identity_aux_grad_norm_interval,
+                }
         if self.ba_architecture_version == "anchored_mix_sa_v3":
             manifest.update(
                 {
@@ -1258,7 +1336,7 @@ class PhotomakerBranchedLora(SDXL):
             antialias=True,
         )
 
-    def _predicted_x0_identity_auxiliary(
+    def _predicted_x0_photomaker_clip_auxiliary(
         self,
         *,
         noisy_latents: torch.Tensor,
@@ -1340,6 +1418,220 @@ class PhotomakerBranchedLora(SDXL):
             zero.new_tensor(weight),
             zero.new_tensor(1.0),
         )
+
+    def _predicted_clean_latents(
+        self,
+        *,
+        noisy_latents: torch.Tensor,
+        model_prediction: torch.Tensor,
+        timestep: int,
+    ) -> torch.Tensor:
+        alpha = self.noise_scheduler.alphas_cumprod[timestep].to(
+            device=model_prediction.device,
+            dtype=torch.float32,
+        )
+        beta = 1.0 - alpha
+        prediction_type = str(
+            getattr(self.noise_scheduler.config, "prediction_type", "epsilon")
+        ).lower()
+        noisy = noisy_latents.float()
+        prediction = model_prediction.float()
+        if prediction_type == "epsilon":
+            return (noisy - beta.sqrt() * prediction) / alpha.sqrt().clamp_min(
+                1.0e-6
+            )
+        if prediction_type == "v_prediction":
+            return alpha.sqrt() * noisy - beta.sqrt() * prediction
+        if prediction_type == "sample":
+            return prediction
+        raise RuntimeError(
+            f"Unsupported scheduler prediction_type for identity loss: {prediction_type}"
+        )
+
+    def _arcface_roi_crop(
+        self,
+        image: torch.Tensor,
+        bbox: Sequence[float],
+    ) -> torch.Tensor:
+        from torchvision.ops import roi_align
+
+        if image.shape[0] != 1:
+            raise ValueError("ArcFace ROI helper expects a single image")
+        height, width = image.shape[-2:]
+        x0, y0, x1, y1 = [float(value) for value in bbox]
+        pad_x = (x1 - x0) * self.identity_aux_crop_padding
+        pad_y = (y1 - y0) * self.identity_aux_crop_padding
+        x0 = max(0.0, min(float(width - 1), x0 - pad_x))
+        y0 = max(0.0, min(float(height - 1), y0 - pad_y))
+        x1 = max(x0 + 1.0, min(float(width), x1 + pad_x))
+        y1 = max(y0 + 1.0, min(float(height), y1 + pad_y))
+        boxes = image.new_tensor([[0.0, x0, y0, x1, y1]], dtype=torch.float32)
+        return roi_align(
+            image.float(),
+            boxes,
+            output_size=(112, 112),
+            spatial_scale=1.0,
+            sampling_ratio=2,
+            aligned=True,
+        )
+
+    @staticmethod
+    def _pil_to_normalized_rgb(
+        image: Image.Image,
+        *,
+        device: torch.device,
+    ) -> torch.Tensor:
+        array = np.asarray(image.convert("RGB"), dtype=np.float32).copy()
+        tensor = torch.from_numpy(array).permute(2, 0, 1).unsqueeze(0)
+        # InsightFace's buffalo_l ArcFace path uses (RGB - 127.5) / 127.5.
+        return (tensor.to(device=device, dtype=torch.float32) - 127.5) / 127.5
+
+    def _predicted_x0_arcface_auxiliary(
+        self,
+        *,
+        noisy_latents: torch.Tensor,
+        noise_pred: torch.Tensor,
+        timesteps: torch.Tensor,
+        pixel_values: torch.Tensor,
+        face_bbox: Sequence[Sequence[float]],
+        ref_images: Sequence[Sequence[Image.Image]],
+        face_bbox_ref: Sequence[Sequence[float]] | None,
+        global_step: int,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
+        zero = noise_pred.float().new_tensor(0.0)
+        telemetry = {
+            "identity_aux_cosine": zero,
+            "identity_aux_timestep": zero,
+            "identity_aux_pred_norm": zero,
+            "identity_aux_target_norm": zero,
+        }
+        weight = self._identity_aux_weight(global_step)
+        if (
+            not self.identity_aux_enabled
+            or weight <= 0.0
+            or global_step % self.identity_aux_cadence != 0
+        ):
+            return zero, zero, zero, telemetry
+        eligible = torch.nonzero(
+            timesteps <= self.identity_aux_max_timestep,
+            as_tuple=False,
+        ).flatten()
+        if eligible.numel() == 0:
+            return zero, zero, zero, telemetry
+        if self.identity_aux_recognizer is None:
+            raise RuntimeError("ArcFace auxiliary recognizer was not initialized")
+        if face_bbox_ref is None:
+            raise RuntimeError("ArcFace identity auxiliary requires reference boxes")
+
+        index = int(eligible[0].item())
+        timestep = int(timesteps[index].item())
+        predicted_x0 = self._predicted_clean_latents(
+            noisy_latents=noisy_latents[index : index + 1],
+            model_prediction=noise_pred[index : index + 1],
+            timestep=timestep,
+        )
+        decoded = self.vae.decode(
+            (
+                predicted_x0 / float(self.vae.config.scaling_factor)
+            ).to(dtype=self.vae.dtype),
+            return_dict=False,
+        )[0]
+        predicted_face = self._arcface_roi_crop(decoded, face_bbox[index])
+
+        refs = ref_images[index]
+        if not isinstance(refs, (list, tuple)):
+            refs = [refs]
+        if not refs:
+            raise RuntimeError("ArcFace identity auxiliary received no reference image")
+        reference_rgb = self._pil_to_normalized_rgb(
+            refs[0],
+            device=decoded.device,
+        )
+        reference_face = self._arcface_roi_crop(
+            reference_rgb,
+            face_bbox_ref[index],
+        )
+        target_face = self._arcface_roi_crop(
+            pixel_values[index : index + 1].float(),
+            face_bbox[index],
+        )
+
+        predicted_raw = self.identity_aux_recognizer(
+            predicted_face.float().clamp(-1.0, 1.0)
+        )
+        with torch.no_grad():
+            target_raw = self.identity_aux_recognizer(
+                torch.cat(
+                    [
+                        target_face.float().clamp(-1.0, 1.0),
+                        reference_face.float().clamp(-1.0, 1.0),
+                    ],
+                    dim=0,
+                )
+            )
+            target_embedding = F.normalize(target_raw.float(), dim=-1).mean(
+                dim=0,
+                keepdim=True,
+            )
+            target_embedding = F.normalize(target_embedding, dim=-1)
+        predicted_embedding = F.normalize(predicted_raw.float(), dim=-1)
+        cosine = F.cosine_similarity(
+            predicted_embedding,
+            target_embedding,
+            dim=-1,
+        ).mean()
+        identity_loss = 1.0 - cosine
+        telemetry = {
+            "identity_aux_cosine": cosine.detach(),
+            "identity_aux_timestep": zero.new_tensor(float(timestep)),
+            "identity_aux_pred_norm": predicted_raw.detach().float().norm(dim=-1).mean(),
+            "identity_aux_target_norm": target_raw.detach().float().norm(dim=-1).mean(),
+        }
+        return (
+            identity_loss,
+            zero.new_tensor(weight),
+            zero.new_tensor(1.0),
+            telemetry,
+        )
+
+    def _predicted_x0_identity_auxiliary(
+        self,
+        *,
+        noisy_latents: torch.Tensor,
+        noise_pred: torch.Tensor,
+        timesteps: torch.Tensor,
+        pixel_values: torch.Tensor,
+        face_bbox: Sequence[Sequence[float]],
+        ref_images: Sequence[Sequence[Image.Image]],
+        face_bbox_ref: Sequence[Sequence[float]] | None,
+        global_step: int,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
+        zero = noise_pred.float().new_tensor(0.0)
+        if self.identity_aux_backend == "arcface_torch_v2":
+            return self._predicted_x0_arcface_auxiliary(
+                noisy_latents=noisy_latents,
+                noise_pred=noise_pred,
+                timesteps=timesteps,
+                pixel_values=pixel_values,
+                face_bbox=face_bbox,
+                ref_images=ref_images,
+                face_bbox_ref=face_bbox_ref,
+                global_step=global_step,
+            )
+        loss, weight, applied = self._predicted_x0_photomaker_clip_auxiliary(
+            noisy_latents=noisy_latents,
+            noise_pred=noise_pred,
+            timesteps=timesteps,
+            pixel_values=pixel_values,
+            face_bbox=face_bbox,
+            global_step=global_step,
+        )
+        return loss, weight, applied, {
+            "identity_aux_cosine": zero,
+            "identity_aux_timestep": zero,
+            "identity_aux_pred_norm": zero,
+            "identity_aux_target_norm": zero,
+        }
 
     def forward(
         self,
@@ -1613,13 +1905,20 @@ class PhotomakerBranchedLora(SDXL):
                 )
                 reference_shuffle_applied = noise_pred.new_tensor(1.0)
 
-        identity_aux_loss, identity_aux_weight, identity_aux_applied = (
+        (
+            identity_aux_loss,
+            identity_aux_weight,
+            identity_aux_applied,
+            identity_aux_telemetry,
+        ) = (
             self._predicted_x0_identity_auxiliary(
                 noisy_latents=noisy_latents,
                 noise_pred=noise_pred,
                 timesteps=timesteps,
                 pixel_values=pixel_values,
                 face_bbox=face_bbox,
+                ref_images=ref_images,
+                face_bbox_ref=face_bbox_ref,
                 global_step=int(global_step),
             )
         )
@@ -1634,6 +1933,7 @@ class PhotomakerBranchedLora(SDXL):
             'identity_aux_loss': identity_aux_loss,
             'identity_aux_weight': identity_aux_weight,
             'identity_aux_applied': identity_aux_applied,
+            **identity_aux_telemetry,
         }
 
     def encode_prompt_with_trigger_word(

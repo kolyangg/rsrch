@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "run_name": "E23_large_ds_joint_shadow_sa128_earlydecay_24k_full96_r1",
+  "plan": {
+    "status": "failed_startup_superseded_by_r2",
+    "priority": 5,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Test whether beginning cosine decay at 8k improves or stabilizes E13's plateau.",
+    "baseline": "E13_large_ds_joint_shadow_sa128_24k_full96_r4",
+    "single_scientific_change": "lr_scheduler.hold_steps=14000 -> 8000",
+    "config": "src/configs/E23_large_ds_joint_shadow_sa128_earlydecay_24k.yaml",
+    "launcher": "launchers/active/run_E19_E24_large_ds_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/E23_large_ds_joint_shadow_sa128_earlydecay_24k_full96_r1/run_E23_large_ds_joint_shadow_sa128_earlydecay_24k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "serv_job": "lm-mpi-job-c856c6f4-b5af-4e66-8cac-6269744d64a5",
+    "comet_experiment_key": "8413e621414d466e849058c8d1c237ea",
+    "failure": "Validation images missing from incorrectly linked training-only dataset mirror; no training step ran. An accidental duplicate submission was stopped immediately.",
+    "allocation_exception": "User-authorized E19-E24 eight-A100 exception; this one-GPU arm may bring project total above six but never above eight.",
+    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 step0/every2k, shadow pretrained-default validation, pose_adapt_ratio=0, ca_mixing_for_face=false"
+  }
+}

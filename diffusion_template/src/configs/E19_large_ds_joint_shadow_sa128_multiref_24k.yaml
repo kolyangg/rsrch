@@ -1,0 +1,28 @@
+defaults:
+  - E13_large_ds_joint_shadow_sa128_24k
+  - _self_
+
+train_dataset_name: large_dataset_balanced_multiref
+train_dataloader_shuffle: false
+
+model:
+  batched_conditioning_preparation: false
+  conditioning_cache_enabled: false
+  cache_prepared_masks: false
+
+datasets:
+  train:
+    large_dataset_balanced_multiref:
+      schedule_rows: 48000
+      schedule_start_row: ${oc.decode:${oc.env:LARGE_DATASET_SCHEDULE_START_ROW,0}}
+      schedule_seed: 130018
+      num_identity_refs: 3
+
+writer:
+  experiment_comment: >-
+    E19 vs E13 transfers E18's deterministic 48,000-row identity-balanced
+    schedule and up to three additional same-ID PhotoMaker references onto the
+    winning shadow-coadaptation route. Reference zero remains the sole spatial
+    latent/KV lane; face-only loss and pretrained-default validation are
+    unchanged.
+

@@ -1,6 +1,6 @@
 # Current project handoff
 
-**Last updated:** 5 August 2026
+**Last updated:** 6 August 2026
 
 **Repository:** `/home/kolyangg/rsrch_apr_test`
 
@@ -2000,3 +2000,94 @@ bbox file was copied without modification to
 with SHA-256
 `a39645e22b68027175946a028e185b7c5393a7514f5d68c94cd74e7cc9f5e614` so clean
 runtime clones can use the exact protocol.
+
+### E13-E18 completion update — 6 August 2026
+
+Live MLS and log inspection found no crash in any selected final revision.
+E13 r4, E15 r2, and E16 r2 completed their 24k jobs with `error_code=0`; E13
+also completed deferred face-quality finalization. E14 r6 completed 24k
+training and remained in deferred face-quality finalization. E17 r5 remained
+healthy beyond 16k, and E18 r4 remained healthy beyond 21k. The immutable
+Comet IDs, experiment records, scientific-description report, and exact
+startup scripts/YAMLs are indexed in
+[`analysis/2026-08-06_e13_e18_successful_run_index.md`](../../analysis/2026-08-06_e13_e18_successful_run_index.md).
+
+### E13-E18 metric/visual result and next-suite recommendation — 6 August 2026
+
+This result supersedes the earlier E0-E12 section's statement that historical
+E0 is the current fixed-panel leader. On the unchanged 96-image `manual_val`
+panel:
+
+- E13 shadow co-adaptation reaches **`.39980 @24k`**. Against historical
+  E0's `.37083 @14k`, the matched best-checkpoint delta is `+.02897`, with
+  67/96 wins and a paired panel-bootstrap interval of `+.01756` to `+.04029`.
+- E14 shadow co-adaptation plus protected reconstruction reaches
+  **`.39185 @20k`**. Its E0 delta is `+.02102`, with 65/96 wins and interval
+  `+.00856` to `+.03306`.
+- Both results also beat E0 at the common 8k and 20k checkpoints. The new tier
+  is therefore not an artifact of selecting different peak steps.
+- Persisting the trained PhotoMaker-default path is the main failure: E15's
+  best `.31787` is `-.07398` versus E14. Visuals keep body position but show
+  strong unprompted open-mouth/expression drift.
+- E16's predicted-x0 PhotoMaker-CLIP proxy and E17's bounded residual ID-CA do
+  not improve E15 on mean `ID_sim`. E17 also lacks its intended gate/residual
+  Comet telemetry because the writer metric list was not extended.
+- E18's identity-balanced multi-reference package is the only strong
+  persistent-route positive: `.35522 @12k`, `+.03735` versus E15, 65/96 wins,
+  and improvements for 7/8 identities and 11/12 prompts. The bundle should be
+  transferred onto E13's shadow route; E18 itself remains below E13 because
+  it persists the damaging trained default path.
+- E13/E14 faces remain attached to the intended bodies without E10-like
+  relocation or E12-like face plates in the reviewed best panels. The main
+  recurring visual failure is skiing eyewear/goggle duplication; crying
+  hand-eye fusion and small jumping faces also remain hard.
+
+Comet data were refreshed through 16:42 UTC. E17's latest complete validation
+was 16k (`.30773`), and E18's was 22k (`.35401`); neither changes its earlier
+best checkpoint.
+
+The full aggregate, identity, prompt, and identity-by-prompt tables; visual
+contact sheets; reproducible analysis assets; and implementation-ready E19-E24
+parallel one-GPU plan are in
+[`analysis/2026-08-06_e13_e18_results_and_next_experiments.md`](../../analysis/2026-08-06_e13_e18_results_and_next_experiments.md).
+The priority order is: (1) E13 plus E18 balanced multi-reference conditioning,
+(2) E13 plus branch-local output rank32, (3) their 2x2 combination, (4) a
+verified ArcFace-like predicted-x0 loss rather than E16's CLIP proxy, (5)
+earlier LR decay beginning at 8k, and (6) exact every-other-step masked/full
+loss.
+
+### E19-E24 implementation and launch update — 6 August 2026
+
+The recommended suite is implemented and its corrected `r2` jobs are Running
+on Serv. All six use separate hash-verified source trees under
+`runtime_sources_e19_e24_v3`, the fixed full-96 protocol, one A100 each, and
+immutable Comet records. The user explicitly authorized the suite-specific
+eight-A100 exception; with E17/E18 still Running, the six new jobs bring the
+project total to exactly eight.
+
+- E19 r2: job `lm-mpi-job-8ad95723-ea0a-4bfb-a920-6904d91eb993`, Comet
+  `3280232a45ef4ea2ae68c8deff3b81c1`.
+- E20 r2: job `lm-mpi-job-51cd67d6-c28c-4185-9595-b37a273e71c1`, Comet
+  `4084c35600ae4ad3904446e5f4d2de92`.
+- E21 r2: job `lm-mpi-job-e11a4015-6493-4313-8e82-4c6525e02fec`, Comet
+  `3ef78907f60a4f5cbd7727fc5be7143e`.
+- E22 r2: job `lm-mpi-job-69206471-725e-4a97-b33f-a088e8fb6576`, Comet
+  `5a91be0df76f4966be5c77eee26cfc29`.
+- E23 r2: job `lm-mpi-job-48c7efd6-517d-400d-9eac-d77cba398853`, Comet
+  `9b6942c0ee6740c7aa4d3fe74effee93`.
+- E24 r2: job `lm-mpi-job-6f9ec18e-2c47-4b1e-ad97-4a29f16a31b5`, Comet
+  `5b64f84f134441b791e7c3ffbd6fe4f7`.
+
+All six passed Hydra/spec composition and exact optimizer ownership. E20/E21
+resolved the proposed branch-output contract at 2,380 tensors / 224,542,720
+parameters; the other arms match E13 at 2,240 / 219,217,920. E22 additionally
+passed exact Buffalo-L ONNX/PyTorch parity (`cosine=1.0`, max absolute error
+`3.73e-6`) and nonzero input-gradient verification.
+
+The `r1` jobs are failed startup records, not experiment results: their
+isolated runtime linked a training-only dataset mirror and therefore lacked
+the fixed-96 reference images. No optimizer step ran. The failure, two
+immediately deleted duplicate E23/E24 submissions caused by MLS visibility
+lag, implementation details, YAMLs, and complete job/key mapping are recorded
+in
+[`analysis/2026-08-06_e19_e24_implementation_and_launch.md`](../../analysis/2026-08-06_e19_e24_implementation_and_launch.md).

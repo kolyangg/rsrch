@@ -1,0 +1,23 @@
+defaults:
+  - E13_large_ds_joint_shadow_sa128_24k
+  - _self_
+
+loss_kind: masked_alternating_audited
+
+trainer:
+  masked_loss_step: 2
+
+writer:
+  loss_names:
+    - loss
+    - loss_face
+    - loss_full
+    - loss_mode_face
+    - active_grad_norm_ba
+    - active_grad_norm_generic_adapter
+    - active_grad_norm_photomaker_default
+  experiment_comment: >-
+    E24 vs E13 alternates face-only and full-latent MSE on exact even/odd
+    optimizer batches. It logs both components, realized face-mode fraction,
+    and active gradient norms; no simultaneous boundary/protected term is used.
+

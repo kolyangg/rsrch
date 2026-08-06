@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "run_name": "E19_large_ds_joint_shadow_sa128_multiref_24k_full96_r1",
+  "plan": {
+    "status": "failed_startup_superseded_by_r2",
+    "priority": 1,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Transfer E18 identity-balanced multi-reference conditioning to the E13 shadow route.",
+    "baseline": "E13_large_ds_joint_shadow_sa128_24k_full96_r4",
+    "single_scientific_change": "use E18 deterministic balanced schedule and additional PhotoMaker ID references; keep reference zero as sole spatial KV lane",
+    "config": "src/configs/E19_large_ds_joint_shadow_sa128_multiref_24k.yaml",
+    "launcher": "launchers/active/run_E19_E24_large_ds_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/E19_large_ds_joint_shadow_sa128_multiref_24k_full96_r1/run_E19_large_ds_joint_shadow_sa128_multiref_24k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "serv_job": "lm-mpi-job-c10b7f6d-2c4f-437d-bf70-ee7d3bbc21af",
+    "comet_experiment_key": "a3630a23fded4a1aa55ff0dd5dba7d59",
+    "failure": "Validation images missing from incorrectly linked training-only dataset mirror; no training step ran.",
+    "allocation_exception": "User-authorized E19-E24 eight-A100 exception; this one-GPU arm may bring project total above six but never above eight.",
+    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 step0/every2k, shadow pretrained-default validation, pose_adapt_ratio=0, ca_mixing_for_face=false"
+  }
+}

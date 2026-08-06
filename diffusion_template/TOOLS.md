@@ -111,6 +111,17 @@ duplicates. The ceiling returns to six after E11/E12 finish or are removed.
 
 ## Common experiment utilities
 
+- [Dropbox uploader](tools/dropbox/upload_to_dropbox.py) — uploads one or more
+  local files to `/rsrch/YYYY-MM-DD/<filename>`, verifies Dropbox's content
+  hash, and requires a temporary direct-download link for every uploaded file.
+  The caller must include each printed link in the user-facing reply and note
+  its approximately four-hour expiry. Credentials are read from the gitignored
+  `diffusion_template/.env`. Run from `diffusion_template/`:
+
+  ```bash
+  python tools/dropbox/upload_to_dropbox.py /path/to/file
+  ```
+
 - [Default validation protocol](docs/validation_protocol.md) — full-96,
   2,000-step cadence, default face-quality scoring, toggles, and Comet layout.
 - `tools/inference/evaluate_rhca_checkpoint.py` — deterministic fixed-checkpoint

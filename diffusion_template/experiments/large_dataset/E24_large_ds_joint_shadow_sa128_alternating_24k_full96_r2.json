@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "run_name": "E24_large_ds_joint_shadow_sa128_alternating_24k_full96_r2",
+  "plan": {
+    "status": "running_startup_verified",
+    "priority": 6,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Test exact every-other-step face-only versus full-latent diffusion loss.",
+    "baseline": "E13_large_ds_joint_shadow_sa128_24k_full96_r4",
+    "single_scientific_change": "trainer.masked_loss_step=1 -> 2 with audited alternating loss telemetry",
+    "config": "src/configs/E24_large_ds_joint_shadow_sa128_alternating_24k.yaml",
+    "launcher": "launchers/active/run_E19_E24_large_ds_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/E24_large_ds_joint_shadow_sa128_alternating_24k_full96_r2/run_E24_large_ds_joint_shadow_sa128_alternating_24k_full96_r2_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "retry_of": "E24_large_ds_joint_shadow_sa128_alternating_24k_full96_r1",
+    "retry_reason": "r1 failed before model construction because the isolated runtime linked the training-only dataset mirror instead of the canonical fixed-96 validation tree",
+    "serv_job": "lm-mpi-job-6f9ec18e-2c47-4b1e-ad97-4a29f16a31b5",
+    "comet_experiment_key": "5b64f84f134441b791e7c3ffbd6fe4f7",
+    "runtime_root": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_sources_e19_e24_v3/E24_large_ds_joint_shadow_sa128_alternating_24k_full96_r2",
+    "allocation_exception": "User-authorized E19-E24 eight-A100 exception; this one-GPU arm may bring project total above six but never above eight.",
+    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 step0/every2k, shadow pretrained-default validation, pose_adapt_ratio=0, ca_mixing_for_face=false"
+  }
+}

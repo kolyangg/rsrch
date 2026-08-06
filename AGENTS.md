@@ -166,6 +166,18 @@ instruction.
 Use `diffusion_template/TOOLS.md` as the entry point for repository tools and
 server-operation helpers.
 
+When the user asks to upload a local artifact to Dropbox, run
+`diffusion_template/tools/dropbox/upload_to_dropbox.py`. It enforces the
+project destination `/rsrch/YYYY-MM-DD/<filename>`, verifies the uploaded
+content hash, and uses credentials from the gitignored
+`diffusion_template/.env`. A Dropbox upload is not complete unless the tool
+returns a temporary direct-download link. After every successful upload, the
+final user-facing reply must include the exact temporary link printed by the
+tool and note that it expires in approximately four hours. For multiple files,
+include the filename-to-link mapping for every file. Do not report upload
+success if a temporary link is absent. Do not expose credentials in commands,
+logs, or responses.
+
 Before submitting an A100 job on Serv, inspect the running and pending MLS
 jobs. This project's normal ceiling is six A100 GPUs requested concurrently.
 An explicitly authorized exceptional submission may raise the ceiling to
