@@ -47,12 +47,27 @@ def patch_unet_attention_processors(
     scale: float = 1.0,
     id_embeds: Optional[torch.Tensor] = None,
     class_tokens_mask: Optional[torch.Tensor] = None,
+    ba_denoise_progress: Optional[torch.Tensor] = None,
 )-> None:
     """
     Patch UNet with branched attention processors for both self and cross attention.
     """
+    del ba_denoise_progress  # hard_replace_v1 has no timestep gate
     disable_sa = bool(getattr(pipeline, "disable_branched_sa", False))
     disable_ca = bool(getattr(pipeline, "disable_branched_ca", False))
+    if bool(getattr(pipeline, "e13_family_contract", False)):
+        # 10 Aug 2026 - E13C-CORE-01: Fail closed on the architectural
+        # invariants shared by E13, BC_E13 and CL14.
+        required = {
+            "branched_sa": not disable_sa,
+            "native_ca": disable_ca,
+            "reference_only_kv": float(getattr(pipeline, "pose_adapt_ratio", 0.0)) == 0.0,
+            "no_face_ca_mix": not bool(getattr(pipeline, "ca_mixing_for_face", False)),
+            "all_sa_blocks": float(getattr(pipeline, "ba_patch_top_k", 1.0)) == 1.0,
+        }
+        failed = [name for name, valid in required.items() if not valid]
+        if failed:
+            raise RuntimeError(f"Invalid clean E13 processor route: {failed}")
 
     # Default to legacy (v1) when flag is not provided.
     use_attn_v2 = bool(getattr(pipeline, "use_attn_v2", False))
@@ -61,7 +76,7 @@ def patch_unet_attention_processors(
     # else:
     #     # from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
     #     # from .attn_processor_clean import BranchedAttnProcessor, BranchedCrossAttnProcessor
-    
+
     from .attn_processor_cleanest import BranchedAttnProcessor, BranchedCrossAttnProcessor # New ver 25 Feb
 
     # print(f'[TEMP DEBUG] mask in patch_unet_attention_processors: {mask}')
@@ -100,6 +115,9 @@ def patch_unet_attention_processors(
             setattr(proc, "ba_weights_split", getattr(pipe, "ba_weights_split"))
         if hasattr(pipe, "force_binary_masks"):
             setattr(proc, "force_binary_masks", bool(getattr(pipe, "force_binary_masks")))
+        # 10 Aug 2026 - E13C-PERF-02: Processor-local mask caching removes
+        # repeated interpolation only; it does not alter the mask tensor.
+        setattr(proc, "cache_prepared_masks", bool(getattr(pipe, "cache_prepared_masks", False)))
             
         
 
@@ -159,7 +177,11 @@ def patch_unet_attention_processors(
                         branched_attn_weight_mode=getattr(pipeline, "branched_attn_weight_mode", "shared"),
                         branched_attn_new_weight_kind=getattr(pipeline, "branched_attn_new_weight_kind", "full"),
                         branched_attn_lora_rank=int(
-                            getattr(pipeline, "branched_attn_lora_rank", getattr(pipeline, "lora_rank", 16))
+                            getattr(
+                                pipeline,
+                                "ba_hard_v1_lora_rank",
+                                getattr(pipeline, "branched_attn_lora_rank", getattr(pipeline, "lora_rank", 16)),
+                            )
                         ),
                     )
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
@@ -273,6 +295,7 @@ def encode_face_prompt(
     return None
 
 
+# 10 Aug 2026 - E13C-PIPE-02: This denoising/reference-noise path is copied from the sealed CL14 source so fixed seeds preserve the historical generation trajectory.
 def two_branch_predict(
     pipeline,
     latent_model_input: torch.Tensor,
@@ -282,6 +305,7 @@ def two_branch_predict(
     mask4: torch.Tensor,
     mask4_ref: torch.Tensor,
     reference_latents: torch.Tensor,
+    reference_noise: Optional[torch.Tensor] = None,
     face_prompt_embeds: Optional[torch.Tensor] = None,
     class_tokens_mask: Optional[torch.Tensor] = None,
     face_embed_strategy: str = "face",
@@ -320,52 +344,10 @@ def two_branch_predict(
     device = latent_model_input.device
     dtype = latent_model_input.dtype
     batch_size = latent_model_input.shape[0]
-
-    def _repeat_batch(tensor: torch.Tensor, repeats: int) -> torch.Tensor:
-        return tensor.repeat((int(repeats),) + (1,) * (tensor.ndim - 1))
-
-    def _match_generation_batch(
-        tensor: Optional[torch.Tensor],
-        target_batch: int,
-        name: str,
-    ) -> Optional[torch.Tensor]:
-        if tensor is None:
-            return None
-        cur_batch = int(tensor.shape[0])
-        if cur_batch == target_batch:
-            return tensor
-        if cur_batch <= 0 or target_batch % cur_batch != 0:
-            raise RuntimeError(
-                f"{name} batch={cur_batch} is incompatible with generation batch={target_batch}"
-            )
-        return _repeat_batch(tensor, target_batch // cur_batch)
-
-    def _match_reference_batch(
-        tensor: Optional[torch.Tensor],
-        target_batch: int,
-        name: str,
-    ) -> Optional[torch.Tensor]:
-        if tensor is None:
-            return None
-        cur_batch = int(tensor.shape[0])
-        if cur_batch == target_batch:
-            return tensor
-        if cur_batch > 0 and target_batch % cur_batch == 0:
-            return _repeat_batch(tensor, target_batch // cur_batch)
-        raise RuntimeError(
-            f"{name} batch={cur_batch} is incompatible with reference batch={target_batch}"
-        )
-
-    # CFG doubles latent_model_input ([uncond, cond]) while masks are prepared
-    # once per output image. Keep masks aligned with the actual UNet batch
-    # without changing CFG order: [uncond batch, cond batch].
-    mask4 = _match_generation_batch(mask4, batch_size, "mask4")
-    reference_latents = _match_reference_batch(reference_latents, batch_size, "reference_latents")
-    mask4_ref = _match_reference_batch(mask4_ref, batch_size, "mask4_ref")
     
     
     REF_NOISE_ONCE = True  # keep same ref noise across steps within one generation
-    if not hasattr(pipeline, "_ref_noise") or tuple(pipeline._ref_noise.shape) != tuple(reference_latents.shape):
+    if reference_noise is None and not hasattr(pipeline, "_ref_noise"):
         gen = getattr(pipeline, "generator", None)
         if isinstance(gen, (list, tuple)):
             gen = gen[0] if gen else None
@@ -392,17 +374,30 @@ def two_branch_predict(
 
 
     
-    t_gen = t if torch.is_tensor(t) else torch.tensor([t], device=device, dtype=torch.long)
-    if t_gen.ndim == 0:
-        t_gen = t_gen.unsqueeze(0)
-    if t_gen.shape[0] != batch_size:
-        reps = (batch_size + t_gen.shape[0] - 1) // t_gen.shape[0]
-        t_gen = t_gen.repeat(reps)[:batch_size]
-    t_ref = t_gen
+    t_ref = t if torch.is_tensor(t) else torch.tensor([t], device=device, dtype=torch.long)
+    if t_ref.ndim == 0:
+        t_ref = t_ref.unsqueeze(0)
+    expected_ref = reference_latents.shape[0]
+    current_ref = t_ref.shape[0]
+    if current_ref != expected_ref:
+        reps = (expected_ref + current_ref - 1) // current_ref
+        t_ref = t_ref.repeat(reps)[:expected_ref]
     
+    if reference_noise is None:
+        reference_noise = pipeline._ref_noise
+    if reference_noise.shape != reference_latents.shape:
+        raise RuntimeError(
+            "Reference-noise shape mismatch: "
+            f"noise={tuple(reference_noise.shape)}, "
+            f"latents={tuple(reference_latents.shape)}"
+        )
+    reference_noise = reference_noise.to(
+        device=reference_latents.device,
+        dtype=reference_latents.dtype,
+    )
     ref_noised = pipeline.scheduler.add_noise(
         reference_latents,
-        pipeline._ref_noise[:reference_latents.shape[0]],
+        reference_noise,
         t_ref
     )
 
@@ -413,15 +408,34 @@ def two_branch_predict(
         if step_idx in (0, 1) or step_idx % 10 == 0:
             print(f"[2BP]   ref_noised:  {stat(ref_noised)}  Δ(noise,ref)σ={(latent_model_input.std()-ref_noised.std()).item():.4f}")
 
+
+    # Ensure same batch size
+    if ref_noised.shape[0] < batch_size:
+        ref_noised = ref_noised.expand(batch_size, -1, -1, -1)
     
-    # Create branched batch: [generation B, reference B].
+    # Create doubled batch: [noise, reference]
     batched_latents = torch.cat([latent_model_input, ref_noised], dim=0)
     
-    # Patch processors with masks
+    timestep_for_progress = t if torch.is_tensor(t) else torch.tensor([t], device=device)
+    if timestep_for_progress.ndim == 0:
+        timestep_for_progress = timestep_for_progress.unsqueeze(0)
+    num_train_timesteps = int(pipeline.scheduler.config.num_train_timesteps)
+    if num_train_timesteps <= 1:
+        raise RuntimeError(
+            f"Invalid scheduler num_train_timesteps={num_train_timesteps}"
+        )
+    ba_denoise_progress = 1.0 - (
+        timestep_for_progress.to(device=device, dtype=torch.float32)
+        / float(num_train_timesteps - 1)
+    )
+
+    # Patch processors with masks and the real scheduler timestep. Training
+    # historically passes step_idx=0, so architecture gates must not use it.
     patch_unet_attention_processors(
         pipeline, mask4, mask4_ref, scale,
         id_embeds=id_embeds if face_embed_strategy == "id_embeds" else None,
         class_tokens_mask=class_tokens_mask,
+        ba_denoise_progress=ba_denoise_progress,
     )
 
     # --- quick patch check
@@ -436,7 +450,14 @@ def two_branch_predict(
 
         
     # Prepare timesteps for doubled batch
-    t_batched = torch.cat([t_gen, t_ref], dim=0)
+    t_batched = t if torch.is_tensor(t) else torch.tensor([t], device=device)
+    if t_batched.ndim == 0:
+        t_batched = t_batched.unsqueeze(0)
+    expected = batched_latents.shape[0]
+    current = t_batched.shape[0]
+    if current != expected:
+        reps = (expected + current - 1) // current
+        t_batched = t_batched.repeat(reps)[:expected]
     
     # Prepare face prompt if not provided
     if face_prompt_embeds is None:
@@ -519,6 +540,9 @@ def two_branch_predict(
         
     face_prompt_embeds = face_prompt_embeds.to(prompt_embeds.device, prompt_embeds.dtype)
 
+    # Double-stack encoder states for branched CA:
+    #   first half → generation prompt
+    #   second half → face prompt
     encoder_hidden_states = torch.cat([prompt_embeds, face_prompt_embeds], dim=0)
 
     if full_debug:
@@ -528,13 +552,12 @@ def two_branch_predict(
             print(f"[2BP]   encoder_hidden_states Δ(gen,face)μ={diff_mu:.4f}")
 
 
+    # Double added_cond_kwargs
     doubled_kwargs = {}
     for k, v in added_cond_kwargs.items():
         if torch.is_tensor(v):
-            if v.shape[0] == batch_size:
-                doubled_kwargs[k] = torch.cat([v, v], dim=0)
-            else:
-                doubled_kwargs[k] = v
+            # Double the tensor
+            doubled_kwargs[k] = torch.cat([v, v], dim=0)
         else:
             doubled_kwargs[k] = v
     
@@ -572,7 +595,7 @@ def two_branch_predict(
 
     # --- quick check of cosine sim between halves
     # Split UNet output into halves (noise/merged vs face-pure)
-    B2 = batch_size
+    B2 = noise_pred.shape[0] // 2
     first, second = noise_pred[:B2].float(), noise_pred[B2:].float()
 
     if full_debug:
@@ -585,9 +608,8 @@ def two_branch_predict(
         else:
             print(f"[2BP]   out halves: first σ={first.std().item():.4f}  second σ={second.std().item():.4f}")
 
-        # Mean cosine sim between branches → should NOT be ~1.0
-        second_for_debug = second[: first.shape[0]]
-        cos = torch.nn.functional.cosine_similarity(first.flatten(1), second_for_debug.flatten(1), dim=1).mean().item()
+        # Mean cosine sim between halves → should NOT be ~1.0
+        cos = torch.nn.functional.cosine_similarity(first.flatten(1), second.flatten(1), dim=1).mean().item()
         print(f"[2BP]   cos(first,second)={cos:.3f}")
     # --- end of quick check
 
@@ -596,6 +618,11 @@ def two_branch_predict(
     
     # Extract merged result (first half)
     noise_pred_merged = noise_pred[:batch_size]
+
+    # Training consumes only the merged prediction. Keep the historical
+    # branch tensors available by default for validation/debug callers.
+    if not bool(getattr(pipeline, "compute_branch_debug_outputs", True)):
+        return noise_pred_merged, None, None
     
     USE_SOFT_BLENDING = True
     

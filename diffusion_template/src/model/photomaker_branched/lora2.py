@@ -29,6 +29,13 @@ from .lora2_helpers import (
     ensure_branched_after_eval as ensure_branched_after_eval_helper,
 )
 from .model_v2_NS import PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken
+from .e13_contract import (
+    assert_trainable_contract as assert_e13_trainable_contract,
+    get_state_dict as get_e13_state_dict,
+    initialise_e13_contract,
+    load_state_dict as load_e13_state_dict,
+    optimizer_groups as e13_optimizer_groups,
+)
 ##### BRANCHED ATTENTION - ADDITIONAL IMPORTS #####
 
 ### PhotomakerLora upgraged for BA ###
@@ -73,6 +80,21 @@ class PhotomakerBranchedLora(SDXL):
         merge_start_step: int = 10,
         branched_attn_start_step: int = 15,
         num_inference_steps: int = 50,
+        # 10 Aug 2026 - E13C-CORE-01: One explicit switch activates the clean,
+        # fail-closed E13 contract; June configurations retain their defaults.
+        e13_family_contract: bool = False,
+        ba_hard_v1_lora_rank: int = 128,
+        generic_adapter_train_scope: str = "effective_all",
+        photomaker_default_train_scope: str = "effective_all",
+        strict_branched_install: bool = True,
+        strict_trainable_contract: bool = True,
+        branched_state_dict_mode: str = "trainable_unet_v2",
+        ba_training_mask_feather: int = 0,
+        conditioning_cache_enabled: bool = False,
+        skip_unused_text_conditioning: bool = False,
+        batched_conditioning_preparation: bool = True,
+        cache_prepared_masks: bool = True,
+        compute_branch_debug_outputs: bool = False,
         ##### BRANCHED ATTENTION - NEW PARAMS 1 #####
     ):
         """NEW PARAMS 1: define BA training controls (strategy, processor variant, ID mixing, and BA-only toggles)."""
@@ -108,7 +130,12 @@ class PhotomakerBranchedLora(SDXL):
         ### FIX FOR OOM ERROR ###
         # Pin ONNXRuntime CUDA provider to the per-rank GPU; otherwise multiple ranks may load on GPU:0 and OOM.
         _device_id = int(os.environ.get("LOCAL_RANK", "0")) if torch.cuda.is_available() else 0
-        FACEANALYSIS_CPU = os.environ.get("FACEANALYSIS_CPU", "1").lower() not in {"0", "false", "no"}
+        faceanalysis_default = "0" if e13_family_contract else "1"
+        FACEANALYSIS_CPU = os.environ.get(
+            "FACEANALYSIS_CPU", faceanalysis_default
+        ).lower() not in {"0", "false", "no"}
+        if e13_family_contract and FACEANALYSIS_CPU:
+            raise RuntimeError("E13C-PERF-03 requires FACEANALYSIS_CPU=0")
         
         # Instantiate FaceAnalysis once for extracting 512-D identity embeddings.
         if FACEANALYSIS_CPU:
@@ -131,6 +158,31 @@ class PhotomakerBranchedLora(SDXL):
                 fallback_ctx_id=-1,
                 quiet=True,
             )
+        if e13_family_contract:
+            # 10 Aug 2026 - E13C-PERF-03: Cosmic conditioning regressed from
+            # ~2 s/step to 5-7 s/step when ORT fell back to CPU. Check every
+            # loaded InsightFace session and fail before training.
+            import onnxruntime as ort
+
+            if ort.__version__ != "1.20.1":
+                raise RuntimeError(
+                    "Clean E13 runs require onnxruntime-gpu==1.20.1; "
+                    f"found {ort.__version__}"
+                )
+            sessions = [
+                getattr(component, "session", None)
+                for component in getattr(self.face_analyzer, "models", {}).values()
+            ]
+            providers = [
+                session.get_providers() for session in sessions if session is not None
+            ]
+            if not providers or any(
+                "CUDAExecutionProvider" not in active for active in providers
+            ):
+                raise RuntimeError(
+                    "InsightFace ONNX sessions did not activate CUDAExecutionProvider: "
+                    f"{providers}"
+                )
         ### FIX FOR OOM ERROR ###
          
         ####  PhotoMaker v2 integration END: upgraded ID encoder & face embeddings ---
@@ -174,6 +226,35 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_patch_top_k = float(ba_patch_top_k)
         self.non_ba_train = bool(non_ba_train)
         self.train_ba_all_steps = bool(train_ba_all_steps)
+        self.e13_family_contract = bool(e13_family_contract)
+        if self.e13_family_contract:
+            required = {
+                "train_ba_only": self.train_ba_only,
+                "noise_and_ref": self.branched_attn_weight_mode == "noise_and_ref",
+                "lora_weights": self.branched_attn_new_weight_kind == "lora",
+                "self_attention_only": not self.train_branched_ca_lora,
+                "all_steps": self.train_ba_all_steps,
+                "pose_reference_only": self.pose_adapt_ratio == 0.0,
+                "no_face_ca_mix": not self.ca_mixing_for_face,
+            }
+            failed = [name for name, valid in required.items() if not valid]
+            if failed:
+                raise ValueError(f"Invalid clean E13 contract settings: {failed}")
+            initialise_e13_contract(
+                self,
+                ba_hard_v1_lora_rank=ba_hard_v1_lora_rank,
+                generic_adapter_train_scope=generic_adapter_train_scope,
+                photomaker_default_train_scope=photomaker_default_train_scope,
+                strict_branched_install=strict_branched_install,
+                strict_trainable_contract=strict_trainable_contract,
+                branched_state_dict_mode=branched_state_dict_mode,
+                ba_training_mask_feather=ba_training_mask_feather,
+                conditioning_cache_enabled=conditioning_cache_enabled,
+                skip_unused_text_conditioning=skip_unused_text_conditioning,
+                batched_conditioning_preparation=batched_conditioning_preparation,
+                cache_prepared_masks=cache_prepared_masks,
+                compute_branch_debug_outputs=compute_branch_debug_outputs,
+            )
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 
         photomaker_lora_config = LoraConfig(
@@ -227,6 +308,11 @@ class PhotomakerBranchedLora(SDXL):
 
     def get_trainable_params(self, config):
 
+        if self.e13_family_contract:
+            # 10 Aug 2026 - E13C-CORE-03: Return named, disjoint optimizer
+            # groups so the audited ownership split is visible in logs.
+            return e13_optimizer_groups(self, config)
+
         ##### BRANCHED ATTENTION - NEW BLOCK 2 #####
         """NEW BLOCK 2: optional custom optimizer grouping for branched processor parameters and BA-related LoRA params."""
         # ### TRAIN_BA_ONLY - CHECK ###
@@ -263,6 +349,8 @@ class PhotomakerBranchedLora(SDXL):
         return trainable_params
 
     def get_state_dict(self):
+        if self.e13_family_contract:
+            return get_e13_state_dict(self)
         lora_weights = convert_state_dict_to_diffusers(get_peft_model_state_dict(self.unet, adapter_name="lora_adapter"))
         state = {
             'lora_weights': lora_weights,
@@ -290,6 +378,9 @@ class PhotomakerBranchedLora(SDXL):
         return state
 
     def load_state_dict_(self, state_dict):
+        if self.e13_family_contract and int(state_dict.get("schema_version", 1)) == 2:
+            load_e13_state_dict(self, state_dict)
+            return
         lora_state_dict = state_dict["lora_weights"]
         unet_state_dict = {k.replace("unet.", ""): v for k, v in lora_state_dict.items()}
         unet_state_dict = convert_unet_state_dict_to_peft(unet_state_dict)
@@ -336,10 +427,6 @@ class PhotomakerBranchedLora(SDXL):
             device=latents.device,
         ).long()
         timesteps = t_scalar.repeat(batch_size)
-        denoise_progress = 1.0 - (
-            float(t_scalar.item()) / float(self.noise_scheduler.config.num_train_timesteps - 1)
-        )
-
         # Add noise to the model input according to the noise magnitude at each timestep
         # (this is the forward diffusion process)
 
@@ -384,26 +471,43 @@ class PhotomakerBranchedLora(SDXL):
             "time_ids": add_time_ids.to(device=self.device, dtype=self.unet.dtype),
         }
 
-        num_inference_steps = max(1, self.num_inference_steps)
-        photomaker_start_ratio = float(self.photomaker_start_step) / float(num_inference_steps)
-        branched_start_ratio = float(self.branched_attn_start_step) / float(num_inference_steps)
-
-        text_only_prompts = []
-        trigger_word_pattern = re.compile(rf"\b{re.escape(self.trigger_word)}\b", flags=re.IGNORECASE)
-        for prompt in prompts:
-            text_only_prompt = trigger_word_pattern.sub(" ", prompt)
-            text_only_prompt = " ".join(text_only_prompt.split())
-            text_only_prompts.append(text_only_prompt)
-
-        prompt_embeds_text_only, pooled_prompt_embeds_text_only = self.encode_prompt(
-            prompt=text_only_prompts,
-            do_cfg=False,
+        # 10 Aug 2026 - E13C-PERF-02: E13 routes every sampled timestep through
+        # BA, so text-only embeddings and the scalar GPU-to-host timestep sync
+        # are unreachable work. June mode keeps the original path unchanged.
+        skip_text_only = self.train_ba_all_steps and bool(
+            getattr(self, "skip_unused_text_conditioning", False)
         )
+        if not skip_text_only:
+            num_inference_steps = max(1, self.num_inference_steps)
+            photomaker_start_ratio = float(self.photomaker_start_step) / float(
+                num_inference_steps
+            )
+            branched_start_ratio = float(self.branched_attn_start_step) / float(
+                num_inference_steps
+            )
+            denoise_progress = 1.0 - (
+                float(t_scalar.item())
+                / float(self.noise_scheduler.config.num_train_timesteps - 1)
+            )
 
-        prompt_embeds_text_only = prompt_embeds_text_only.to(device=self.device, dtype=self.unet.dtype)
-        pooled_prompt_embeds_text_only = pooled_prompt_embeds_text_only.to(
-            device=self.device, dtype=self.unet.dtype
-        )
+            text_only_prompts = []
+            trigger_word_pattern = re.compile(
+                rf"\b{re.escape(self.trigger_word)}\b", flags=re.IGNORECASE
+            )
+            for prompt in prompts:
+                text_only_prompt = trigger_word_pattern.sub(" ", prompt)
+                text_only_prompts.append(" ".join(text_only_prompt.split()))
+
+            (
+                prompt_embeds_text_only,
+                pooled_prompt_embeds_text_only,
+            ) = self.encode_prompt(prompt=text_only_prompts, do_cfg=False)
+            prompt_embeds_text_only = prompt_embeds_text_only.to(
+                device=self.device, dtype=self.unet.dtype
+            )
+            pooled_prompt_embeds_text_only = pooled_prompt_embeds_text_only.to(
+                device=self.device, dtype=self.unet.dtype
+            )
 
         ### MEMO: INITIAL LORA UNet pass ###
         # model_pred = self.unet(
@@ -572,6 +676,102 @@ class PhotomakerBranchedLora(SDXL):
 
     ##### BRANCHED ATTENTION - HELPER UTILS #####
     """HELPER UTILS: utilities for bbox-to-latent masks, reference-latent encoding, and branched re-patching after eval."""
+    # 10 Aug 2026 - E13C-PERF-01: Encode the frozen prompt batch in one pass;
+    # token cleanup and trigger masks are identical to the scalar path.
+    def encode_prompts_with_trigger_word(
+        self,
+        prompts: Sequence[str],
+        *,
+        num_id_images: int = 1,
+    ):
+        """Encode a one-trigger PhotoMaker prompt batch in one encoder pass."""
+        prompts = list(prompts)
+        if not prompts:
+            raise ValueError("prompts must not be empty")
+
+        image_token_id = self.tokenizer_2.convert_tokens_to_ids(self.trigger_word)
+        tokenizers = (
+            [self.tokenizer, self.tokenizer_2]
+            if self.tokenizer is not None
+            else [self.tokenizer_2]
+        )
+        text_encoders = (
+            [self.text_encoder, self.text_encoder_2]
+            if self.text_encoder is not None
+            else [self.text_encoder_2]
+        )
+
+        prompt_embeds_list = []
+        class_tokens_mask = None
+        pooled_prompt_embeds = None
+        for tokenizer, text_encoder in zip(tokenizers, text_encoders):
+            text_inputs = tokenizer(
+                prompts,
+                padding="max_length",
+                max_length=tokenizer.model_max_length,
+                truncation=True,
+                return_tensors="pt",
+            )
+
+            cleaned_rows = []
+            mask_rows = []
+            for prompt, token_ids in zip(prompts, text_inputs.input_ids.tolist()):
+                clean_input_ids = []
+                class_token_indices = []
+                for token_id in token_ids:
+                    if token_id == image_token_id:
+                        class_token_indices.append(len(clean_input_ids) - 1)
+                    else:
+                        clean_input_ids.append(token_id)
+
+                if len(class_token_indices) != 1:
+                    raise ValueError(
+                        "PhotoMaker currently requires exactly one trigger word "
+                        f"per prompt. Trigger word: {self.trigger_word}, "
+                        f"Prompt: {prompt}."
+                    )
+                class_token_index = class_token_indices[0]
+                class_token = clean_input_ids[class_token_index]
+                clean_input_ids = (
+                    clean_input_ids[:class_token_index]
+                    + [class_token] * num_id_images * self.num_tokens
+                    + clean_input_ids[class_token_index + 1 :]
+                )
+
+                max_len = tokenizer.model_max_length
+                clean_input_ids = clean_input_ids[:max_len]
+                clean_input_ids += [tokenizer.pad_token_id] * (
+                    max_len - len(clean_input_ids)
+                )
+                cleaned_rows.append(clean_input_ids)
+                mask_rows.append(
+                    [
+                        class_token_index
+                        <= index
+                        < class_token_index + (num_id_images * self.num_tokens)
+                        for index in range(max_len)
+                    ]
+                )
+
+            text_input_ids = torch.tensor(
+                cleaned_rows, dtype=torch.long, device=self.device
+            )
+            class_tokens_mask = torch.tensor(
+                mask_rows, dtype=torch.bool, device=self.device
+            )
+            prompt_embeds_curr = text_encoder(
+                text_input_ids, output_hidden_states=True
+            )
+            pooled_prompt_embeds = prompt_embeds_curr[0]
+            prompt_embeds_list.append(prompt_embeds_curr.hidden_states[-2])
+
+        prompt_embeds = torch.cat(prompt_embeds_list, dim=-1).to(self.device)
+        pooled_prompt_embeds = pooled_prompt_embeds.view(len(prompts), -1)
+        return prompt_embeds, pooled_prompt_embeds, class_tokens_mask
+
+    ##### BRANCHED ATTENTION - HELPER UTILS #####
+    """HELPER UTILS: utilities for bbox-to-latent masks, reference-latent encoding, and branched re-patching after eval."""
+
     def _bbox_to_ref_mask(
         self,
         bbox: Optional[Sequence[float]],
@@ -642,6 +842,21 @@ class PhotomakerBranchedLora(SDXL):
             return mask
 
         mask[:, :, y_start:y_end, x_start:x_end] = 1.0
+        feather = int(getattr(self, "ba_training_mask_feather", 0))
+        if feather > 0:
+            # 10 Aug 2026 - E13C-CORE-06: CL14 feathers only the target mask
+            # used by training. Reference masks and inference masks remain
+            # unchanged, preserving the historical CL14 generation path.
+            for step in range(1, feather + 1):
+                weight = step / float(feather + 1)
+                ys, ye = y_start + step - 1, y_end - step + 1
+                xs, xe = x_start + step - 1, x_end - step + 1
+                if ye <= ys or xe <= xs:
+                    break
+                mask[:, :, ys, xs:xe] = weight
+                mask[:, :, ye - 1, xs:xe] = weight
+                mask[:, :, ys:ye, xs] = weight
+                mask[:, :, ys:ye, xe - 1] = weight
         return mask
 
     def _encode_reference_latent(
@@ -683,6 +898,56 @@ class PhotomakerBranchedLora(SDXL):
 
         return latents
 
+    # 10 Aug 2026 - E13C-PERF-01: Encode equal-sized references in one frozen
+    # VAE pass; image resize, padding, dtype and latent scaling remain unchanged.
+    def _encode_reference_latents(
+        self,
+        ref_images: Sequence[Image.Image],
+        target_shape: tuple[int, int],
+    ) -> torch.Tensor:
+        """Encode an equal-sized reference batch with the frozen VAE."""
+        ref_tensors = []
+        for ref_image in ref_images:
+            if not isinstance(ref_image, Image.Image):
+                raise TypeError(
+                    "Batched conditioning currently requires PIL references, "
+                    f"got {type(ref_image)}"
+                )
+            ow, oh = ref_image.size
+            scale = min(self.target_size / ow, self.target_size / oh)
+            rw = max(8, int(round(ow * scale)) // 8 * 8)
+            rh = max(8, int(round(oh * scale)) // 8 * 8)
+            pl = (self.target_size - rw) // 2
+            pr = self.target_size - rw - pl
+            pt = (self.target_size - rh) // 2
+            pb = self.target_size - rh - pt
+            ref_resized = ref_image.resize((rw, rh), Image.BILINEAR)
+            ref_np = np.array(ref_resized).astype(np.float32) / 255.0
+            ref_tensor = torch.from_numpy(ref_np).permute(2, 0, 1)
+            ref_tensor = (ref_tensor - 0.5) / 0.5
+            ref_tensors.append(F.pad(ref_tensor, (pl, pr, pt, pb), value=0.0))
+
+        ref_batch = torch.stack(ref_tensors).to(
+            device=self.device, dtype=self.vae.dtype
+        )
+        with torch.no_grad():
+            latents = self.vae.encode(ref_batch).latent_dist.mode()
+        latents = latents * self.vae.config.scaling_factor
+        if latents.shape[-2:] != target_shape:
+            latents = F.interpolate(
+                latents,
+                size=target_shape,
+                mode="bilinear",
+                align_corners=False,
+            )
+        return latents
+
+
     def ensure_branched_after_eval(self):
         ensure_branched_after_eval_helper(self)
+
+    def assert_trainable_contract(self, optimizer=None):
+        if not self.e13_family_contract:
+            return {}
+        return assert_e13_trainable_contract(self, optimizer=optimizer)
     ##### BRANCHED ATTENTION - HELPER UTILS #####

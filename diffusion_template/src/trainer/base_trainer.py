@@ -8,11 +8,57 @@ from tqdm.auto import tqdm
 
 from src.datasets.data_utils import inf_loop
 from src.metrics.tracker import MetricTracker
+from src.metrics.face_quality_validation import FaceQualityValidationSession
 from src.utils.io_utils import ROOT_PATH
 from hydra.utils import instantiate
 
 import os
 import time
+
+
+def _copy_full_processor_state(train_unet, val_unet, *, strict: bool) -> int:
+    """Copy every stateful processor tensor by exact processor name."""
+    train_processors = getattr(train_unet, "attn_processors", {})
+    val_processors = getattr(val_unet, "attn_processors", {})
+    copied = 0
+    failures = []
+    for name, train_processor in train_processors.items():
+        state = train_processor.state_dict()
+        if not state:
+            continue
+        val_processor = val_processors.get(name)
+        if val_processor is None:
+            failures.append(f"missing:{name}")
+            continue
+        try:
+            val_processor.load_state_dict(state, strict=True)
+            copied += 1
+        except Exception as exc:
+            failures.append(f"{name}:{exc}")
+    if strict and (failures or copied == 0):
+        raise RuntimeError(
+            "Strict E13 validation processor copy failed: "
+            f"copied={copied}, failures={failures[:5]}"
+        )
+    return copied
+
+
+def _photomaker_default_snapshot(model) -> dict[str, torch.Tensor]:
+    return {
+        name: parameter.detach().cpu().clone()
+        for name, parameter in model.unet.named_parameters()
+        if ".default." in name and ("lora_A" in name or "lora_B" in name)
+    }
+
+
+def _restore_photomaker_default(model, snapshot: dict[str, torch.Tensor]) -> None:
+    named = dict(model.unet.named_parameters())
+    missing = sorted(set(snapshot) - set(named))
+    if missing:
+        raise RuntimeError(f"Validation model is missing PhotoMaker tensors: {missing[:5]}")
+    with torch.no_grad():
+        for name, value in snapshot.items():
+            named[name].copy_(value.to(named[name].device, named[name].dtype))
 
 
 
@@ -46,7 +92,13 @@ class BaseTrainer:
         from_pretrained,
         save_period,
         save_dir,
-        seed
+        seed,
+        # 10 Aug 2026 - E13C-PERF-02: Defaults preserve the June trainer;
+        # E13-family YAML explicitly disables the zero-valued touch and limits
+        # telemetry reductions to logging steps.
+        post_backward_parameter_touch=True,
+        grad_norm_log_only=False,
+        face_quality=None,
     ):
         """
         Args:
@@ -140,6 +192,12 @@ class BaseTrainer:
         self.max_grad_norm = max_grad_norm
         self.device_tensors = device_tensors
         self.cfg_step = cfg_step
+        # 10 Aug 2026 - E13C-PERF-02: E13 exercises every owned processor on
+        # each all-step forward, so zero-valued parameter touches are needless;
+        # gradient norms are computed only when they are actually logged.
+        self.post_backward_parameter_touch = bool(post_backward_parameter_touch)
+        self.grad_norm_log_only = bool(grad_norm_log_only)
+        self.face_quality_config = face_quality
         
 
         # define metrics
@@ -360,26 +418,30 @@ class BaseTrainer:
             # except Exception:
             #     pass
             
-            # Version-agnostic: touch the actual registered params by name
-            try:
-                unwrapped = self.accelerator.unwrap_model(self.model)
-            except Exception:
-                unwrapped = self.model
-            extra = None
-            for pname, p in unwrapped.named_parameters():
-                if p.requires_grad and (".attn1.processor." in pname or ".attn2.processor." in pname):
-                    term = p.reshape(-1)[:1].sum().to(torch.float32) * 0.0
-                    extra = term if extra is None else (extra + term)
-            if extra is not None:
-                batch["loss"] = batch["loss"] + extra.to(batch["loss"].dtype)
+            if self.post_backward_parameter_touch:
+                # Retained for old configs that did not exercise every
+                # processor on every rank.
+                try:
+                    unwrapped = self.accelerator.unwrap_model(self.model)
+                except Exception:
+                    unwrapped = self.model
+                extra = None
+                for pname, p in unwrapped.named_parameters():
+                    if p.requires_grad and (".attn1.processor." in pname or ".attn2.processor." in pname):
+                        term = p.reshape(-1)[:1].sum().to(torch.float32) * 0.0
+                        extra = term if extra is None else (extra + term)
+                if extra is not None:
+                    batch["loss"] = batch["loss"] + extra.to(batch["loss"].dtype)
             
             
             # --- end DDP safety ---
             ### Modified to fix accelerate error after adding training of attn processors ###
 
-            grad_norms = self._get_grad_norms()
-            for part_name, part_norm in grad_norms.items():
-                self.train_metrics.update(f"grad_norm/{part_name}", part_norm)
+            should_log = batch_idx % self.log_step == 0
+            if not self.grad_norm_log_only or should_log:
+                grad_norms = self._get_grad_norms()
+                for part_name, part_norm in grad_norms.items():
+                    self.train_metrics.update(f"grad_norm/{part_name}", part_norm)
             
             # log current results
             if batch_idx % self.log_step == 0:
@@ -493,10 +555,34 @@ class BaseTrainer:
                 try:
                     self.config.model.pretrained_model_name_or_path = val_pretrained
                     _val_model = instantiate(self.config.model, device=self.device)
+                    # 10 Aug 2026 - E13C-CORE-05: Install the same SA-only map
+                    # before loading/copying validation state; setting this
+                    # after prepare_for_training would create branched CA.
+                    setattr(
+                        _val_model,
+                        "disable_branched_sa",
+                        bool(getattr(self.config, "disable_branched_sa", False)),
+                    )
+                    setattr(
+                        _val_model,
+                        "disable_branched_ca",
+                        bool(getattr(self.config, "disable_branched_ca", False)),
+                    )
                     setattr(_val_model, "strict_face_routing", bool(getattr(self.config, "strict_face_routing", False)))
                     # Ensure adapters are initialized before loading LoRA weights
                     if hasattr(_val_model, "prepare_for_training"):
                         _val_model.prepare_for_training()
+                    shadow_default = None
+                    if bool(getattr(self.config, "validation_shadow_photomaker_default", False)):
+                        # 10 Aug 2026 - E13C-CORE-05: E13 validation measures
+                        # BA + generic adapters over the pretrained PhotoMaker
+                        # default, not over the jointly trained default adapter.
+                        shadow_default = _photomaker_default_snapshot(_val_model)
+                        if len(shadow_default) != 700:
+                            raise RuntimeError(
+                                "E13 validation shadow expected 700 PhotoMaker tensors, "
+                                f"got {len(shadow_default)}"
+                            )
                     try:
                         state = self.accelerator.unwrap_model(self.model).get_state_dict()
                     except Exception:
@@ -506,6 +592,8 @@ class BaseTrainer:
                         state.pop("attn_processors", None)
                     if hasattr(_val_model, "load_state_dict_"):
                         _val_model.load_state_dict_(state)
+                    if shadow_default is not None:
+                        _restore_photomaker_default(_val_model, shadow_default)
 
                     # Optionally copy branched-attention processor weights into the
                     # validation UNet so their effect is visible in validation.
@@ -518,14 +606,24 @@ class BaseTrainer:
                         if train_unet is not None and val_unet is not None:
                             t_procs = getattr(train_unet, "attn_processors", {})
                             v_procs = getattr(val_unet, "attn_processors", {})
-                            for name, t_proc in t_procs.items():
-                                v_proc = v_procs.get(name)
-                                if v_proc is None:
-                                    continue
-                                try:
-                                    v_proc.load_state_dict(t_proc.state_dict(), strict=False)
-                                except Exception:
-                                    continue
+                            if bool(getattr(self.config, "strict_validation_processor_copy", False)):
+                                copied = _copy_full_processor_state(
+                                    train_unet, val_unet, strict=True
+                                )
+                                if copied != 70:
+                                    raise RuntimeError(
+                                        "E13 validation expected 70 stateful processors, "
+                                        f"copied {copied}"
+                                    )
+                            else:
+                                for name, t_proc in t_procs.items():
+                                    v_proc = v_procs.get(name)
+                                    if v_proc is None:
+                                        continue
+                                    try:
+                                        v_proc.load_state_dict(t_proc.state_dict(), strict=False)
+                                    except Exception:
+                                        continue
                     # Move the temporary validation model to the active device (GPU)
                     try:
                         _val_model.to(self.device)
@@ -545,6 +643,20 @@ class BaseTrainer:
                         model=_val_model,
                         accelerator=self.accelerator,
                     )
+                    # 10 Aug 2026 - E13C-PIPE-02: Keep validation runtime flags
+                    # aligned with the model whose processors/checkpoint were
+                    # just loaded; this is required for deterministic replay.
+                    for attr, default in (
+                        ("disable_branched_sa", False),
+                        ("disable_branched_ca", False),
+                        ("cache_prepared_masks", False),
+                        ("compute_branch_debug_outputs", True),
+                    ):
+                        setattr(
+                            self.pipe,
+                            attr,
+                            getattr(_val_model, attr, getattr(self.config, attr, default)),
+                        )
                     # Ensure pipeline modules are on GPU
                     try:
                         self.pipe.to(self.device)
@@ -572,6 +684,23 @@ class BaseTrainer:
                 for attr in ("disable_branched_sa", "disable_branched_ca"):
                     if hasattr(self.model, attr):
                         setattr(self.pipe, attr, getattr(self.model, attr))
+
+            face_quality_session = None
+            if (
+                self.face_quality_config is not None
+                and bool(self.face_quality_config.get("enabled", True))
+            ):
+                # 10 Aug 2026 - E13C-PERF-04: Validation only stages exact
+                # images/metadata; the expensive scorer runs after training.
+                face_quality_session = FaceQualityValidationSession(
+                    config=self.face_quality_config,
+                    checkpoint_dir=self.checkpoint_dir,
+                    writer=self.writer,
+                    logger=self.logger,
+                    part=part,
+                    step=epoch * self.epoch_len,
+                    partition_count=len(self.evaluation_dataloaders),
+                )
 
             total_images = len(dataloader.dataset) if hasattr(dataloader, "dataset") else len(dataloader)
             if hasattr(self, 'pipe'):
@@ -604,6 +733,8 @@ class BaseTrainer:
                     batch,
                     eval_metrics=self.evaluation_metrics,
                 )
+                if face_quality_session is not None:
+                    face_quality_session.add_batch(batch, batch_idx)
                 process_time = time.time() - process_start
                 prev_time = time.time()
 
@@ -663,6 +794,13 @@ class BaseTrainer:
                             gathered_batch,
                             part,
                         )
+
+            if face_quality_session is not None:
+                face_quality_result = face_quality_session.finalize(
+                    num_processes=int(getattr(self.accelerator, "num_processes", 1))
+                )
+                for name, value in face_quality_result.items():
+                    self.evaluation_metrics.update(f"face_quality/{name}", value)
 
             metric_result = self.evaluation_metrics.result()
             if int(getattr(self.accelerator, "num_processes", 1)) > 1:
