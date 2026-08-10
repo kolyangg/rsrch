@@ -1,3 +1,4 @@
+# 10 Aug 2026 - E13C-PIPE-01/02: Sealed CL14 inference path; one spatial reference is prepared once and reused deterministically across each prompt batch.
 from __future__ import annotations
 
 import os
@@ -146,9 +147,9 @@ def ensure_face_analyzer(pipeline) -> None:
     if hasattr(pipeline, "_face_analyzer"):
         return
     pipeline._face_analyzer = create_face_analyzer(
-        providers=["CPUExecutionProvider"],
+        providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
         allowed_modules=["detection", "recognition"],
-        ctx_id=-1,
+        ctx_id=0,
         det_size=(640, 640),
         fallback_ctx_id=-1,
         quiet=True,
@@ -496,89 +497,28 @@ def run_branched_setup(
     id_embeds: Optional[torch.Tensor],
     class_tokens_mask: torch.LongTensor,
 ) -> None:
-    # ### 05 APR - FIX VALIDATION REF BATCHING ISSUE ###
-    def _clone_generator_for_device(cand: Any) -> Optional[torch.Generator]:
-        if not isinstance(cand, torch.Generator):
-            return None
-        if hasattr(cand, "device") and cand.device.type == device.type:
-            return cand
-        try:
-            gen = torch.Generator(device=device)
-            gen.set_state(cand.get_state())
-            return gen
-        except Exception:
-            return None
-
     if use_branched_attention and input_id_images:
-        per_prompt_refs = (
-            batch_size > 1
-            and isinstance(input_id_images, (list, tuple))
-            and len(input_id_images) == batch_size
+        pil = input_id_images[0] if isinstance(input_id_images, (list, tuple)) else input_id_images
+        pipeline._ref_latents_all = prepare_ref_latents(
+            pipeline,
+            pil=pil,
+            height=height,
+            width=width,
+            latents_dtype=latents.dtype,
         )
-        if per_prompt_refs:
-            per_prompt_boxes = (
-                isinstance(face_bbox_ref, (list, tuple))
-                and len(face_bbox_ref) == batch_size
-                and all(box is None or isinstance(box, (list, tuple)) for box in face_bbox_ref)
-            )
-            ref_boxes = list(face_bbox_ref) if per_prompt_boxes else [face_bbox_ref] * batch_size
-            ref_latents = []
-            ref_masks = []
-            for ref_idx, pil in enumerate(input_id_images):
-                ref_latents.append(
-                    prepare_ref_latents(
-                        pipeline,
-                        pil=pil,
-                        height=height,
-                        width=width,
-                        latents_dtype=latents.dtype,
-                    )
-                )
-                for mask_attr in ("_face_mask_ref", "_face_mask_t_ref"):
-                    if hasattr(pipeline, mask_attr):
-                        delattr(pipeline, mask_attr)
-                prepare_ref_mask(
-                    pipeline,
-                    pil=pil,
-                    auto_mask_ref=auto_mask_ref,
-                    use_bbox_mask_ref=use_bbox_mask_ref,
-                    face_bbox_ref=ref_boxes[ref_idx],
-                    mask_expansion_ratio=mask_expansion_ratio,
-                    mask_softness=mask_softness,
-                    import_mask_ref=import_mask_ref,
-                    debug_dir=debug_dir,
-                    height=height,
-                    width=width,
-                )
-                if hasattr(pipeline, "_face_mask_ref"):
-                    ref_masks.append(np.array(pipeline._face_mask_ref, copy=True))
-            pipeline._ref_latents_all = torch.cat(ref_latents, dim=0)
-            if len(ref_masks) == batch_size:
-                stacked_masks = np.stack(ref_masks, axis=0)
-                pipeline._face_mask_ref = stacked_masks
-                pipeline._face_mask_t_ref = torch.from_numpy(stacked_masks.astype(np.float32))[:, None]
-        else:
-            pil = input_id_images[0] if isinstance(input_id_images, (list, tuple)) else input_id_images
-            pipeline._ref_latents_all = prepare_ref_latents(
-                pipeline,
-                pil=pil,
-                height=height,
-                width=width,
-                latents_dtype=latents.dtype,
-            )
-            prepare_ref_mask(
-                pipeline,
-                pil=pil,
-                auto_mask_ref=auto_mask_ref,
-                use_bbox_mask_ref=use_bbox_mask_ref,
-                face_bbox_ref=face_bbox_ref,
-                mask_expansion_ratio=mask_expansion_ratio,
-                mask_softness=mask_softness,
-                import_mask_ref=import_mask_ref,
-                debug_dir=debug_dir,
-                height=height,
-                width=width,
-            )
+        prepare_ref_mask(
+            pipeline,
+            pil=pil,
+            auto_mask_ref=auto_mask_ref,
+            use_bbox_mask_ref=use_bbox_mask_ref,
+            face_bbox_ref=face_bbox_ref,
+            mask_expansion_ratio=mask_expansion_ratio,
+            mask_softness=mask_softness,
+            import_mask_ref=import_mask_ref,
+            debug_dir=debug_dir,
+            height=height,
+            width=width,
+        )
 
     prepare_gen_mask(
         pipeline,
@@ -598,30 +538,24 @@ def run_branched_setup(
     pipeline._ref_img = id_pixel_values[0] if id_pixel_values.dim() == 5 else id_pixel_values
 
     if use_branched_attention and hasattr(pipeline, "_ref_latents_all") and not hasattr(pipeline, "_ref_noise"):
-        if isinstance(generator, (list, tuple)) and len(generator) == pipeline._ref_latents_all.shape[0]:
-            pipeline._ref_noise = torch.cat(
-                [
-                    torch.randn(
-                        ref_lat.shape,
-                        generator=_clone_generator_for_device(cand),
-                        device=device,
-                        dtype=ref_lat.dtype,
-                    )[None]
-                    for ref_lat, cand in zip(pipeline._ref_latents_all, generator)
-                ],
-                dim=0,
-            )
-        else:
-            gen = None
-            if generator is not None:
-                cand = generator[0] if isinstance(generator, (list, tuple)) and len(generator) > 0 else generator
-                gen = _clone_generator_for_device(cand)
-            pipeline._ref_noise = torch.randn(
-                pipeline._ref_latents_all.shape,
-                generator=gen,
-                device=device,
-                dtype=pipeline._ref_latents_all.dtype,
-            )
+        gen = None
+        if generator is not None:
+            cand = generator[0] if isinstance(generator, (list, tuple)) and len(generator) > 0 else generator
+            if isinstance(cand, torch.Generator):
+                if hasattr(cand, "device") and cand.device.type == device.type:
+                    gen = cand
+                else:
+                    try:
+                        gen = torch.Generator(device=device)
+                        gen.set_state(cand.get_state())
+                    except Exception:
+                        gen = None
+        pipeline._ref_noise = torch.randn(
+            pipeline._ref_latents_all.shape,
+            generator=gen,
+            device=device,
+            dtype=pipeline._ref_latents_all.dtype,
+        )
 
     fes = (face_embed_strategy or "face").lower()
     if fes in {"faceanalysis"}:
@@ -673,7 +607,6 @@ def select_mode_and_prompts(
     i: int,
     photomaker_start_step: int,
     branched_attn_start_step: int,
-    branched_attn_end_step: Optional[int],
     prompt_embeds_text_only: torch.Tensor,
     pooled_prompt_embeds_text_only: torch.Tensor,
     prompt_embeds: torch.Tensor,
@@ -702,28 +635,17 @@ def select_mode_and_prompts(
             )
             pose_relaxed_logged = True
 
+    sm = photomaker_start_step
+    bs = branched_attn_start_step
+    a = min(sm, bs)
+    b = max(sm, bs)
     bsm = getattr(pipeline, "branched_start_mode", "both").lower()
-    if branched_attn_end_step is None:
-        sm = photomaker_start_step
-        bs = branched_attn_start_step
-        a = min(sm, bs)
-        b = max(sm, bs)
-        if i < a:
-            mode = "NO_ID"
-        elif sm < bs:
-            mode = "PHOTOMAKER" if i < b else ("BOTH" if bsm == "both" else "BRANCHED")
-        else:
-            mode = ("BOTH" if bsm == "both" else "BRANCHED") if i < b else "PHOTOMAKER"
+    if i < a:
+        mode = "NO_ID"
+    elif sm < bs:
+        mode = "PHOTOMAKER" if i < b else ("BOTH" if bsm == "both" else "BRANCHED")
     else:
-        branched_mode = "BOTH" if bsm == "both" else "BRANCHED"
-        if i < photomaker_start_step:
-            mode = "NO_ID"
-        elif i < branched_attn_start_step:
-            mode = "PHOTOMAKER"
-        elif i < branched_attn_end_step:
-            mode = branched_mode
-        else:
-            mode = "PHOTOMAKER"
+        mode = ("BOTH" if bsm == "both" else "BRANCHED") if i < b else "PHOTOMAKER"
 
     if mode in ("PHOTOMAKER", "BOTH"):
         base_prompt = prompt_embeds
@@ -929,7 +851,6 @@ def run_denoising_step(
     prev_mode: Optional[str],
     photomaker_start_step: int,
     branched_attn_start_step: int,
-    branched_attn_end_step: Optional[int],
     prompt_embeds_text_only: torch.Tensor,
     pooled_prompt_embeds_text_only: torch.Tensor,
     prompt_embeds: torch.Tensor,
@@ -959,7 +880,6 @@ def run_denoising_step(
         i=i,
         photomaker_start_step=photomaker_start_step,
         branched_attn_start_step=branched_attn_start_step,
-        branched_attn_end_step=branched_attn_end_step,
         prompt_embeds_text_only=prompt_embeds_text_only,
         pooled_prompt_embeds_text_only=pooled_prompt_embeds_text_only,
         prompt_embeds=prompt_embeds,
@@ -970,16 +890,10 @@ def run_denoising_step(
     )
 
     if mode != prev_mode:
-        end_part = (
-            f", branched_attn_end_step={int(branched_attn_end_step)}"
-            if branched_attn_end_step is not None
-            else ""
-        )
         print(
             f"[Switch] step {int(i)} → {mode}  "
             f"(photomaker_start_step={int(photomaker_start_step)}, "
-            f"branched_attn_start_step={int(branched_attn_start_step)}"
-            f"{end_part})"
+            f"branched_attn_start_step={int(branched_attn_start_step)})"
         )
         prev_mode = mode
 
