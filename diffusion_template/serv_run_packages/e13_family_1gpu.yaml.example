@@ -1,0 +1,24 @@
+# 10 Aug 2026 - E13C-CFG-02/PERF-03: This one-A100 MLS template keeps machine
+# paths and run identity explicit. Copy it, replace every REPLACE_* value, and
+# inspect Running/Pending jobs before `mls job submit --config <yaml>`.
+# Do not submit this template directly.
+job:
+  description: "REPLACE_RUN_NAME clean E13-family 24k/full96 #nasilaev"
+  environment:
+    image: cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36
+  resource:
+    instance_type: a100.1gpu.8C.243G
+    processes: 1
+    workers: 1
+  script: >-
+    mkdir -p REPLACE_LOG_DIR &&
+    PROJECT_ROOT=REPLACE_PROJECT_ROOT
+    CONDA_ENV_PATH=REPLACE_PHOTOMAKER_NS_PATH
+    RUN_NAME=REPLACE_RUN_NAME
+    CONFIG_NAME=REPLACE_CONFIG_NAME
+    TORCH_SHOW_CPP_STACKTRACES=1
+    NCCL_ASYNC_ERROR_HANDLING=1
+    bash REPLACE_PROJECT_ROOT/launchers/serv/start_e13_family_1gpu.sh
+    >> REPLACE_LOG_DIR/stdout_1gpu.log
+    2>> REPLACE_LOG_DIR/stderr_1gpu.log
+  type: binary

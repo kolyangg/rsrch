@@ -1,0 +1,15 @@
+defaults:
+  - e13_family_24k
+  - _self_
+
+# 10 Aug 2026 - E13C-CFG-02/DATA-01: Original E13 recipe; no architecture
+# delta from the shared family contract.
+train_dataset_name: large_dataset
+
+# 10 Aug 2026 - E13C-PIPE-03: Pin the successful E13/BC_E13 fixed-96
+# generation-mask protocol. With automatic_bboxes_every_val=false, the trainer
+# loads the sealed sibling *_auto.json cache rather than rerunning detection.
+datasets:
+  val:
+    manual_val:
+      bbox_mask_gen: ../dataset_full/val_dataset/protocols/e13_bc_e13/pm96_bboxes_new.json

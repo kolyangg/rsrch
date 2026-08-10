@@ -1,0 +1,6 @@
+defaults:
+  - E13_large_ds_joint_shadow_sa128_24k
+  - _self_
+
+# 10 Aug 2026 - E13C-CFG-02/DATA-02: Dataset-only E13 transfer.
+train_dataset_name: big_celebs

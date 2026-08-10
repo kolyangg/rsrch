@@ -1,0 +1,17 @@
+defaults:
+  - E13_large_ds_joint_shadow_sa128_24k
+  - _self_
+
+# 10 Aug 2026 - E13C-CFG-02/DATA-03/CORE-06: CL14 changes the training
+# dataset policy and feathers the target training mask by two latent cells.
+# Its validation/inference pipeline is otherwise exactly the sealed CL14 path.
+train_dataset_name: cosmic_large_adapted
+model:
+  ba_training_mask_feather: 2
+
+# 10 Aug 2026 - E13C-PIPE-03: CL14 used the later CL10-CL14 fixed-96
+# generation-mask cache. Keep it distinct from E13/BC_E13 for pixel parity.
+datasets:
+  val:
+    manual_val:
+      bbox_mask_gen: ../dataset_full/val_dataset/protocols/cl14/pm96_bboxes_new.json
