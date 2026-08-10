@@ -37,12 +37,60 @@ train:
         instance_transforms: ${transforms.instance_transforms.train}
 
     large_dataset:
-        _target_: src.datasets.cosmic.LargeDatasetTrain
-        data_json_pth: ../dataset_full/filtered_ids3_adj.json
-        images_path: ../dataset_full/large_dataset_adj/large_dataset
+        # 10 Aug 2026 - E13C-DATA-01: Use the identity-aware loader and
+        # environment-overridable Serv paths; it enforces a distinct same-ID
+        # reference instead of relying on the older Cosmic compatibility path.
+        _target_: src.datasets.large_dataset.LargeDatasetTrain
+        data_json_pth: ${oc.env:LARGE_DATASET_MANIFEST,../dataset_full/filtered_ids3_adj.json}
+        images_path: ${oc.env:LARGE_DATASET_IMAGES,../dataset_full/large_dataset_adj/large_dataset}
         num_refs: 1
         train_on_separate_image: ${train_on_separate_image}
+        singleton_reference_policy: error
         same_id_ref_map_json_pth: null
+        random_horizontal_flip: true
+        instance_transforms: ${transforms.instance_transforms.train}
+
+    # 10 Aug 2026 - E13C-DATA-02: BC_E13 is a dataset-only transfer. The
+    # sealed loader rejects small faces, malformed prompts and singleton IDs
+    # before model startup so the architecture remains exactly E13.
+    big_celebs:
+        _target_: src.datasets.big_celebs.BigCelebsTrain
+        manifest_path: ${oc.env:BIG_CELEBS_MANIFEST,/nonexistent/big_celebs_manifest.json}
+        images_path: ${oc.env:BIG_CELEBS_IMAGES,/nonexistent/big_celebs_images}
+        num_refs: 1
+        min_face_res: ${oc.env:BIG_CELEBS_MIN_FACE_RES,192}
+        trigger_word: img
+        strict_manifest_fields: true
+        random_horizontal_flip: true
+        instance_transforms: ${transforms.instance_transforms.train}
+
+    # 10 Aug 2026 - E13C-DATA-03/04: CL14 uses the corrected Cosmic path only;
+    # target/reference transforms are independent and target-frame scale jitter
+    # is explicit rather than hidden in generic augmentation code.
+    cosmic_large_adapted:
+        _target_: src.datasets.cosmic_large_adapted.CosmicLargeAdaptedTrain
+        manifest_path: ${oc.env:COSMIC_LARGE_MANIFEST,/nonexistent/cosmic_large_manifest.json}
+        dataset_root: ${oc.env:COSMIC_LARGE_ROOT,/nonexistent/cosmic_large_root}
+        num_refs: 1
+        min_face_res: 192
+        min_reference_score: null
+        reference_crop_margin: null
+        reference_content_size: null
+        reference_canvas_size: null
+        reference_canvas_fill: 127
+        random_horizontal_flip: true
+        random_reference_flip: false
+        prompt_mode: pose_first
+        prompt_max_words: 50
+        reference_frame_mode: target_face_frame
+        reference_frame_fill: edge
+        reference_accept_list_path: ${oc.env:COSMIC_REFERENCE_ACCEPT_LIST,null}
+        num_identity_refs: 1
+        target_scale_balance: false
+        target_scale_bins: null
+        target_scale_balance_mode: reorder
+        reference_scale_jitter: [0.06, 0.30]
+        reference_position_jitter: 0.15
         instance_transforms: ${transforms.instance_transforms.train}
   
     large_dataset_serv:

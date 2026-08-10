@@ -25,6 +25,10 @@ diffusion_template-main.zip
 
 diffusion_template/hm_debug/
 
+# E13C-DATA-01/02/03/04: run-specific dataset preflight evidence is generated
+# beside saved runs on each machine and must not dirty or enter source commits.
+diffusion_template/preflight_records/
+
 dataset_full/val_dataset/pm_generated20/
 
 dataset_full/val_dataset/pm20_bboxes_check/
