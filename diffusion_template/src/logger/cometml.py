@@ -1,4 +1,10 @@
-from datetime import datetime
+# 10 Aug 2026 - E13C-DOC-01/PERF-04: Fail-closed Comet registration writes the immutable experiment key before training and supports deferred metric backfill.
+import json
+import os
+import socket
+import subprocess
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -24,6 +30,9 @@ class CometMLWriter:
         run_name=None,
         mode="online",
         tags: Optional[Iterable[str]] = None,
+        experiment_comment: Optional[str] = None,
+        require_online_registration=False,
+        suppress_events=False,
         **kwargs,
     ):
         self.logger = logger
@@ -32,10 +41,28 @@ class CometMLWriter:
         self.timer = datetime.now()
         self.run_id = run_id
         self._experiment = None
+        self._require_online_registration = bool(require_online_registration)
+        if self._require_online_registration:
+            if mode != "online":
+                raise ValueError(
+                    "require_online_registration requires Comet mode='online'"
+                )
+            if experiment_comment in (None, ""):
+                raise ValueError(
+                    "require_online_registration requires experiment_comment"
+                )
+        # 28 Jul 2026 - AICODE-NOTE: Recovery replay may need the exact Comet
+        # initialization path for deterministic data RNG while withholding
+        # duplicate metrics and assets from the immutable experiment.
+        self._suppress_events = bool(suppress_events)
 
         try:
             from comet_ml import Experiment, OfflineExperiment, ExistingExperiment  # type: ignore
         except ImportError:
+            if self._require_online_registration:
+                raise RuntimeError(
+                    "Required online Comet registration cannot import comet_ml"
+                )
             if self.logger is not None:
                 self.logger.warning("For use comet_ml install it via \n\t pip install comet-ml")
             return
@@ -61,12 +88,18 @@ class CometMLWriter:
             self._experiment = ExperimentClass(**experiment_kwargs)
 
         if self._experiment is None:
+            if self._require_online_registration:
+                raise RuntimeError("Required online Comet experiment was not created")
             return
 
         if run_name is not None:
             try:
                 self._experiment.set_name(str(run_name))
             except Exception as error:
+                if self._require_online_registration:
+                    raise RuntimeError(
+                        "Required Comet run name was not set"
+                    ) from error
                 if self.logger is not None:
                     self.logger.warning(f"Failed to set CometML run name: {error}")
 
@@ -76,6 +109,24 @@ class CometMLWriter:
             except Exception as error:
                 if self.logger is not None:
                     self.logger.warning(f"Failed to add CometML tags: {error}")
+
+        if experiment_comment not in (None, ""):
+            try:
+                # 3 Aug 2026 - Keep the scientific delta retrievable through
+                # the immutable experiment API, independently of mutable names.
+                self._experiment.log_other(
+                    "experiment_comment",
+                    str(experiment_comment),
+                )
+            except Exception as error:
+                if self._require_online_registration:
+                    raise RuntimeError(
+                        "Required Comet experiment comment was not logged"
+                    ) from error
+                if self.logger is not None:
+                    self.logger.warning(
+                        f"Failed to log Comet experiment comment: {error}"
+                    )
 
         if project_config:
             try:
@@ -93,6 +144,187 @@ class CometMLWriter:
                 self.run_id = self._experiment.get_key()
             except Exception:
                 pass
+
+        if self.run_id:
+            try:
+                self._write_experiment_record(
+                    project_config=project_config,
+                    project_name=project_name,
+                    workspace=workspace,
+                    run_name=run_name,
+                    mode=mode,
+                )
+            except Exception as error:
+                if self._require_online_registration:
+                    raise RuntimeError(
+                        "Required Comet experiment record was not written"
+                    ) from error
+                if self.logger is not None:
+                    self.logger.warning(f"Failed to write Comet experiment record: {error}")
+        elif self._require_online_registration:
+            raise RuntimeError("Required Comet experiment key is empty")
+
+    def _write_experiment_record(
+        self,
+        *,
+        project_config: Any,
+        project_name: str,
+        workspace: Optional[str],
+        run_name: Optional[str],
+        mode: str,
+    ) -> None:
+        """
+        Persist the Comet experiment key beside the run checkpoints.
+
+        The record is intentionally small and contains no API key. Retrieval
+        tools can use this stable key instead of searching Comet by a mutable
+        or reused experiment name.
+        """
+        record_path = self._experiment_record_path(project_config, run_name)
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+
+        existing: dict[str, Any] = {}
+        if record_path.is_file():
+            try:
+                value = json.loads(record_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                value = {}
+            if isinstance(value, dict):
+                existing = value
+
+        resolved_workspace = workspace or self._experiment_attribute(
+            "workspace", "_workspace"
+        )
+        experiment_url = self._experiment_attribute("url", "_url")
+        if not experiment_url and resolved_workspace:
+            experiment_url = (
+                f"https://www.comet.com/{resolved_workspace}/"
+                f"{project_name}/{self.run_id}"
+            )
+
+        now = datetime.now(timezone.utc).isoformat()
+        project_root = Path(__file__).resolve().parents[2]
+        record = dict(existing)
+        record.update(
+            {
+                "schema_version": 1,
+                "run_name": str(run_name or ""),
+                "created_at_utc": existing.get("created_at_utc", now),
+                "updated_at_utc": now,
+                "source": "CometMLWriter",
+                "runtime": {
+                    "hostname": socket.gethostname(),
+                    "pid": os.getpid(),
+                    "project_root": str(project_root),
+                    "save_dir": str(record_path.parent),
+                },
+                "git": self._git_metadata(project_root),
+                "comet": {
+                    "experiment_key": str(self.run_id),
+                    "project_name": str(project_name),
+                    "workspace": (
+                        None
+                        if resolved_workspace in (None, "")
+                        else str(resolved_workspace)
+                    ),
+                    "url": (
+                        None if experiment_url in (None, "") else str(experiment_url)
+                    ),
+                    "mode": str(mode),
+                },
+            }
+        )
+
+        # 25 Jul 2026 - AICODE-NOTE: write atomically so monitoring/export
+        # never observes a partial experiment key while training starts.
+        temp_name: Optional[str] = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=record_path.parent,
+                prefix=".comet-experiment-",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temp_name = handle.name
+                os.fchmod(handle.fileno(), 0o600)
+                json.dump(record, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            os.replace(temp_name, record_path)
+        finally:
+            if temp_name and os.path.exists(temp_name):
+                os.unlink(temp_name)
+
+        if self.logger is not None:
+            self.logger.info(
+                "Comet experiment record: %s (key=%s)",
+                record_path,
+                self.run_id,
+            )
+
+    @staticmethod
+    def _experiment_record_path(
+        project_config: Any,
+        run_name: Optional[str],
+    ) -> Path:
+        project_root = Path(__file__).resolve().parents[2]
+        trainer_config = (
+            project_config.get("trainer", {})
+            if hasattr(project_config, "get")
+            else {}
+        )
+        save_dir_value = (
+            trainer_config.get("save_dir", "saved")
+            if hasattr(trainer_config, "get")
+            else "saved"
+        )
+        save_dir = Path(str(save_dir_value)).expanduser()
+        if not save_dir.is_absolute():
+            save_dir = project_root / save_dir
+
+        final_run_name = str(run_name or "unnamed_run")
+        override = os.getenv("COMET_EXPERIMENT_RECORD_PATH")
+        if override:
+            override_path = Path(override).expanduser()
+            return (
+                override_path
+                if override_path.is_absolute()
+                else project_root / override_path
+            )
+        return save_dir / final_run_name / "comet_experiment.json"
+
+    @staticmethod
+    def _git_metadata(project_root: Path) -> dict[str, Optional[str]]:
+        def read_git_value(*arguments: str) -> Optional[str]:
+            try:
+                result = subprocess.run(
+                    ["git", *arguments],
+                    cwd=project_root,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=5,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                return None
+            value = result.stdout.strip()
+            return value if result.returncode == 0 and value else None
+
+        return {
+            "branch": read_git_value("branch", "--show-current"),
+            "commit": read_git_value("rev-parse", "HEAD"),
+        }
+
+    def _experiment_attribute(self, *names: str) -> Any:
+        for name in names:
+            try:
+                value = getattr(self._experiment, name, None)
+            except Exception:
+                continue
+            if value not in (None, "") and not callable(value):
+                return value
+        return None
 
     def set_step(self, step, mode="train"):
         """
@@ -113,7 +345,7 @@ class CometMLWriter:
         """
         Log a scalar metric to CometML.
         """
-        if self._experiment is None:
+        if self._experiment is None or self._suppress_events:
             return
         value = self._to_number(scalar)
         try:
@@ -129,7 +361,7 @@ class CometMLWriter:
         """
         Log multiple scalar metrics in a single call.
         """
-        if self._experiment is None:
+        if self._experiment is None or self._suppress_events:
             return
         for name, value in scalars.items():
             self.add_scalar(name, value)
@@ -138,7 +370,7 @@ class CometMLWriter:
         """
         Log an image to CometML.
         """
-        if self._experiment is None:
+        if self._experiment is None or self._suppress_events:
             return
         prepared = self._prepare_image(image)
         if prepared is None:
@@ -156,7 +388,7 @@ class CometMLWriter:
         """
         Log audio to CometML (expects numpy array or path).
         """
-        if self._experiment is None or audio is None:
+        if self._experiment is None or self._suppress_events or audio is None:
             return
         audio_np = self._to_numpy(audio)
         try:
@@ -173,7 +405,7 @@ class CometMLWriter:
         """
         Log a text snippet to CometML.
         """
-        if self._experiment is None:
+        if self._experiment is None or self._suppress_events:
             return
         try:
             self._experiment.log_text(text_name, str(text), step=int(self.step))
@@ -184,7 +416,11 @@ class CometMLWriter:
         """
         Log histogram data to CometML.
         """
-        if self._experiment is None or values_for_hist is None:
+        if (
+            self._experiment is None
+            or self._suppress_events
+            or values_for_hist is None
+        ):
             return
         values = self._to_numpy(values_for_hist)
         try:
@@ -201,16 +437,56 @@ class CometMLWriter:
         """
         Log tabular data to CometML.
         """
-        if self._experiment is None or table is None:
+        if self._experiment is None or self._suppress_events or table is None:
             return
         try:
+            # 4 Aug 2026 - AICODE-NOTE: log_table forwards extra keywords to
+            # pandas serialization. Validation step belongs in the deterministic
+            # filename; passing step= here makes DataFrame.to_csv fail.
             self._experiment.log_table(
                 filename=f"{self.mode}_{table_name}.csv",
                 tabular_data=table,
-                step=int(self.step),
+                index=False,
             )
         except Exception as error:
             self._log_warning("log_table", error)
+
+    def add_table_file(self, filename: str, table: pd.DataFrame):
+        """Log a table under an exact deterministic API asset filename."""
+        if self._experiment is None or self._suppress_events or table is None:
+            return None
+        try:
+            result = self._experiment.log_table(
+                filename=str(filename),
+                tabular_data=table,
+                index=False,
+            )
+            if result is None and self._require_online_registration:
+                raise RuntimeError(f"Comet returned no table asset for {filename}")
+            return result
+        except Exception as error:
+            if self._require_online_registration:
+                raise RuntimeError(
+                    f"Required Comet table was not logged: {filename}"
+                ) from error
+            self._log_warning("log_table", error)
+            return None
+
+    def add_asset(self, asset_name, path, metadata=None, overwrite=False):
+        """Log a file as an API asset rather than a report table."""
+        if self._experiment is None or self._suppress_events:
+            return
+        try:
+            self._experiment.log_asset(
+                str(path),
+                file_name=str(asset_name),
+                step=int(self.step),
+                metadata=metadata,
+                overwrite=bool(overwrite),
+                copy_to_tmp=True,
+            )
+        except Exception as error:
+            self._log_warning("log_asset", error)
 
     def add_images(self, images_name, images):
         """

@@ -3,6 +3,11 @@ project_name: "rsrch_30Oct"
 workspace: null
 run_name: "testing"
 mode: "online"
+# 10 Aug 2026 - E13C-DOC-01: Clean family launches opt into fail-closed
+# registration and record the immutable Comet key before optimizer step zero.
+experiment_comment: null
+require_online_registration: false
+suppress_events: false
 loss_names: ["loss"] # which losses to log (useful for multi-loss tasks, s.a. GANs)
 log_checkpoints: False # set to True if you want to log save_dir with checkpoints to W&B
 id_length: 32 # length of the run_id
