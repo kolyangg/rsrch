@@ -28,6 +28,8 @@ RUN_CONFIGS = {
     "CL14_CA_optimized_r2": "CL14_CA",
     "CL14_CA_optimized_speed_smoke_r2": "CL14_CA_skipval_smoke",
     "CL14_CA_optimized_speed_smoke_r3": "CL14_CA_skipval_smoke",
+    "CL14_CA_optimized_r3": "CL14_CA",
+    "CL14_CA_optimized_speed_smoke_r4": "CL14_CA_skipval_smoke",
     "CL14_CA_skipval_smoke_r1": "CL14_CA_skipval_smoke",
     "CL14_CA_skipval_smoke_r2": "CL14_CA_skipval_smoke",
     "CL14_CA_skipval_smoke_r3": "CL14_CA_skipval_smoke",
@@ -131,9 +133,11 @@ def main() -> None:
         "trainer.skip_initial_validation": args.config_name.endswith("_skipval_smoke"),
         "dataloaders.train.batch_size": 2,
         "dataloaders.train.num_workers": 2,
-        "dataloaders.train.pin_memory": True,
-        "dataloaders.train.persistent_workers": True,
-        "non_blocking_dataloader": True,
+        # 12 Aug 2026 - Training optimization: preserve CL14's stable loader;
+        # the pinned/persistent smoke crashed before its first optimizer step.
+        "dataloaders.train.pin_memory": False,
+        "dataloaders.train.persistent_workers": False,
+        "non_blocking_dataloader": False,
         "dataloaders.manual_val.batch_size": 12,
         "datasets.val.manual_val.limit": (
             12 if args.config_name.endswith("_onebatch_smoke") else

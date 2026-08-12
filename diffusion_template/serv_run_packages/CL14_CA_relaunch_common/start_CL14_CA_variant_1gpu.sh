@@ -5,6 +5,8 @@ set -euo pipefail
 : "${CONFIG_ID:?Set the Hydra config identity}"
 OWNER_ROOT="/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev"
 case "${RUN_ID}" in
+  # 12 Aug 2026 - Training optimization series with CL14 loader and CL20 Eddie validation.
+  CL14_CA_optimized_r3|CL14_CA_optimized_speed_smoke_r4) RUNTIME_SERIES="runtime_sources_cl14_ca_v15" ;;
   # 12 Aug 2026 - Training optimization smoke after restoring the sealed subject-v2 asset.
   CL14_CA_optimized_speed_smoke_r3) RUNTIME_SERIES="runtime_sources_cl14_ca_v14" ;;
   # 12 Aug 2026 - Training optimization source series with deferred prompt-mask indexing.
@@ -64,6 +66,7 @@ export LIBSTDCXX_PATH="${LIBSTDCXX_PATH:-${OWNER_ROOT}/conda_env/nasilaev/lib/li
 export COSMIC_LARGE_ROOT="/mnt/virtual_ai0001053-01309_SR006-nfs1/bobkov/cosmic_data"
 export COSMIC_LARGE_MANIFEST="${COSMIC_LARGE_ROOT}/gathered_data_cosmic_large_filtered.json"
 export FULL96_BBOX_MANUAL="${OWNER_ROOT}/datasets/dataset_full/val_dataset/protocols/cosmic_full96_auto_v1/pm96_bboxes_new.json"
+export SUBJECT_V2_ID_EMBEDS="${OWNER_ROOT}/analysis_jobs/subject_v2_historical_backfill_11runs_5gpu_20260809_r1/package/assets/id_embeds_manual_val_subject_v2.pth"
 export CUDA_VISIBLE_DEVICES=0
 export ACCELERATE_NUM_PROCESSES=1
 export TORCH_DISABLE_ADDR2LINE=1
@@ -80,6 +83,8 @@ test -s "${PM_PATH}"
 test -s "${COSMIC_LARGE_MANIFEST}"
 test -d "${COSMIC_LARGE_ROOT}"
 test -s "${FULL96_BBOX_MANUAL}"
+test "$(sha256sum "${SUBJECT_V2_ID_EMBEDS}" | cut -d' ' -f1)" = \
+  "e0d36212ad350db8252c4805acf46aa4c90289603d460584dc7692066712b465"
 test -s "${EXPERIMENT_SPEC_PATH}"
 test -f "${PROJECT_ROOT}/src/configs/${CONFIG_NAME}.yaml"
 test -f "${NVIDIA_LIB_ROOT}/cudnn/lib/libcudnn_adv.so.9"

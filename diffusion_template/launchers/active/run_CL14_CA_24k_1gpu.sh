@@ -15,6 +15,7 @@ source "${ROOT_DIR}/launchers/lib/prepare_comet_record.sh"
 : "${COSMIC_LARGE_ROOT:?Set the Cosmic image root}"
 : "${COMET_API_KEY:?Load COMET_API_KEY from diffusion_template/.env}"
 : "${FACE_QUALITY_SCORER_PYTHON:?Set the PyIQA scorer interpreter}"
+: "${SUBJECT_V2_ID_EMBEDS:?Set the sealed subject-v2 identity embeddings}"
 
 if [[ "$#" -ne 0 ]]; then
   echo "CL14_CA rejects ad-hoc Hydra overrides." >&2
@@ -22,7 +23,7 @@ if [[ "$#" -ne 0 ]]; then
 fi
 case "${RUN_NAME}:${CONFIG_NAME}" in
   # 12 Aug 2026 - Training optimization runs preserve the CL14_CA science.
-  CL14_CA:CL14_CA|CL14_CA_r3:CL14_CA|CL14_CA_r4:CL14_CA|CL14_CA_r5:CL14_CA|CL14_CA_r6:CL14_CA|CL14_CA_r7:CL14_CA|CL14_CA_optimized_r1:CL14_CA|CL14_CA_optimized_speed_smoke_r1:CL14_CA_skipval_smoke|CL14_CA_optimized_r2:CL14_CA|CL14_CA_optimized_speed_smoke_r2:CL14_CA_skipval_smoke|CL14_CA_optimized_speed_smoke_r3:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r1:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r2:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r3:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r4:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r5:CL14_CA_skipval_smoke|CL14_CA_oneval_smoke_r1:CL14_CA_oneval_smoke|CL14_CA_onebatch_smoke_r1:CL14_CA_onebatch_smoke|CL14_CA_onebatch_smoke_r2:CL14_CA_onebatch_smoke) ;;
+  CL14_CA:CL14_CA|CL14_CA_r3:CL14_CA|CL14_CA_r4:CL14_CA|CL14_CA_r5:CL14_CA|CL14_CA_r6:CL14_CA|CL14_CA_r7:CL14_CA|CL14_CA_optimized_r1:CL14_CA|CL14_CA_optimized_speed_smoke_r1:CL14_CA_skipval_smoke|CL14_CA_optimized_r2:CL14_CA|CL14_CA_optimized_speed_smoke_r2:CL14_CA_skipval_smoke|CL14_CA_optimized_speed_smoke_r3:CL14_CA_skipval_smoke|CL14_CA_optimized_r3:CL14_CA|CL14_CA_optimized_speed_smoke_r4:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r1:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r2:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r3:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r4:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r5:CL14_CA_skipval_smoke|CL14_CA_oneval_smoke_r1:CL14_CA_oneval_smoke|CL14_CA_onebatch_smoke_r1:CL14_CA_onebatch_smoke|CL14_CA_onebatch_smoke_r2:CL14_CA_onebatch_smoke) ;;
   *) echo "Unexpected CL14_CA run/config pair" >&2; exit 2 ;;
 esac
 
@@ -46,6 +47,10 @@ reference_sha="$({
     done
 } | sha256sum | cut -d' ' -f1)"
 test "${reference_sha}" = "7297fe241273914ec2d401952bea0c83730beb5a58ebf3820b0bf50dac22606e"
+# 12 Aug 2026 - Training optimization run validation fix: match CL20's sealed
+# bbox_overlap_v2 foreground-Eddie embedding instead of a runtime-relative file.
+test "$(sha256sum "${SUBJECT_V2_ID_EMBEDS}" | cut -d' ' -f1)" = \
+  "e0d36212ad350db8252c4805acf46aa4c90289603d460584dc7692066712b465"
 
 python tools/validate_CL14_CA_config.py \
   --config-name "${CONFIG_NAME}" \
@@ -77,6 +82,7 @@ MODEL_OVERRIDES=()
 if [[ -n "${PM_PATH:-}" ]]; then
   MODEL_OVERRIDES+=("model.photomaker_path=${PM_PATH}")
 fi
+MODEL_OVERRIDES+=("metrics.id_sim_subject_v2.id_embeds_pth=${SUBJECT_V2_ID_EMBEDS}")
 set +e
 accelerate launch \
   --config_file=src/configs/ddp/accelerate.yaml \
