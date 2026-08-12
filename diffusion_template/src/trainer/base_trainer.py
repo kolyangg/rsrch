@@ -145,6 +145,11 @@ class BaseTrainer:
 
         # define dataloaders
         self.train_dataloader = dataloaders["train"]
+        self._train_dataset_for_resume_validation = getattr(
+            self.train_dataloader,
+            "dataset",
+            None,
+        )
         if epoch_len is None:
             # epoch-based training
             self.epoch_len = len(self.train_dataloader)
@@ -221,6 +226,17 @@ class BaseTrainer:
         # resumes from a different epoch, rank-conditional first-epoch logic
         # (initial validation, barriers) can desynchronize collectives.
         self._sync_start_epoch()
+
+        # 12 Aug 2026 - CL20's schedule starts at an optimizer-step boundary;
+        # reject a checkpoint/schedule mismatch before consuming the iterator.
+        validate_resume_position = getattr(
+            self._train_dataset_for_resume_validation,
+            "validate_resume_position",
+            None,
+        )
+        if validate_resume_position is not None:
+            completed_steps = (self.start_epoch - 1) * self.epoch_len
+            validate_resume_position(completed_steps)
 
 
     def train(self):

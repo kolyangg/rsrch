@@ -91,6 +91,22 @@ def get_dataloaders(config, device, logger):
     train_loader_config.pop("grad_accum_enabled", None)
     train_loader_config.pop("batch_size_eff", None)
     ### 25 APR - ADD GRAD ACCUM ###
+    # 12 Aug 2026 - AICODE-NOTE: CL20 encodes curriculum and resume order in
+    # dataset indices. Other datasets keep the historical shuffled loader.
+    requires_sequential_sampling = bool(
+        getattr(train_dataset, "requires_sequential_sampling", False)
+    )
+    configured_shuffle = getattr(config, "train_dataloader_shuffle", None)
+    train_shuffle = (
+        not requires_sequential_sampling
+        if configured_shuffle is None
+        else bool(configured_shuffle)
+    )
+    if requires_sequential_sampling and train_shuffle:
+        raise ValueError(
+            f"{type(train_dataset).__name__} requires "
+            "train_dataloader_shuffle=false"
+        )
     dataloaders["train"] = instantiate(
         ### 25 APR - ADD GRAD ACCUM ###
         train_loader_config,
@@ -98,7 +114,7 @@ def get_dataloaders(config, device, logger):
         dataset=train_dataset,
         collate_fn=collate_fn,
         drop_last=True,
-        shuffle=True,
+        shuffle=train_shuffle,
         worker_init_fn=set_worker_seed,
     )
 

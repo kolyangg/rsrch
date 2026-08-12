@@ -1,0 +1,22 @@
+dino:
+  _target_: src.metrics.dino.DinoMetric
+  model_name: dinov2_vits14
+  to_norm: true
+
+clip_ts:
+  _target_: src.metrics.text_sim.TextSimMetric
+  model_name: ViT-L/14@336px
+
+# Keep the historical max-over-any-detected-face score as an explicitly named
+# audit curve. It is no longer the primary validation identity metric.
+id_sim_best_legacy:
+  _target_: src.metrics.id_sim_metric.IDSimBest
+  id_embeds_pth: ../dataset_full/val_dataset/id_embeds_manual_val.pth
+  metric_name: id_sim_legacy_best
+
+id_sim_subject_v2:
+  _target_: src.metrics.id_sim_metric.IDSimMaskMatched
+  id_embeds_pth: ${oc.env:SUBJECT_V2_ID_EMBEDS,/nonexistent/id_embeds_manual_val_subject_v2.pth}
+  metric_name: id_sim
+  minimum_mask_iou: 0.05
+  ambiguity_iou_margin: 0.02

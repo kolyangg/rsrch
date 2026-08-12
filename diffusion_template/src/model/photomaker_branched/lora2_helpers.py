@@ -464,6 +464,7 @@ def run_branched_forward_pass(
     face_prompt_embeds: torch.Tensor,
     class_tokens_mask: torch.Tensor,
     id_features: torch.Tensor | None,
+    reference_noise: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Run branched two-branch prediction and return merged noise prediction."""
     noise_pred, _, _ = two_branch_predict(
@@ -475,6 +476,7 @@ def run_branched_forward_pass(
         mask4=mask4,
         mask4_ref=mask4_ref,
         reference_latents=reference_latents,
+        reference_noise=reference_noise,
         face_prompt_embeds=face_prompt_embeds,
         class_tokens_mask=class_tokens_mask,
         face_embed_strategy=model.face_embed_strategy,

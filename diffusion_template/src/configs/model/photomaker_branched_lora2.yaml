@@ -21,3 +21,12 @@ photomaker_start_step: 10
 merge_start_step: 10
 branched_attn_start_step: 15
 num_inference_steps: 50
+
+# 12 Aug 2026 - Defaults-off CL18/CL19 extension. CL18 changes only its
+# training objective; CL19 opts selected SA blocks into the soft router.
+ba_hardcase_mode: "off"
+ba_hardcase_groups: null
+ba_hardcase_transition_cells: 2
+ba_crossview_consistency_enabled: false
+ba_crossview_consistency_probability: 0.25
+ba_crossview_consistency_weight: 0.05

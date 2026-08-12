@@ -95,6 +95,12 @@ class PhotomakerBranchedLora(SDXL):
         batched_conditioning_preparation: bool = True,
         cache_prepared_masks: bool = True,
         compute_branch_debug_outputs: bool = False,
+        ba_hardcase_mode: str = "off",
+        ba_hardcase_groups: Optional[Sequence[str]] = None,
+        ba_hardcase_transition_cells: int = 2,
+        ba_crossview_consistency_enabled: bool = False,
+        ba_crossview_consistency_probability: float = 0.25,
+        ba_crossview_consistency_weight: float = 0.05,
         ##### BRANCHED ATTENTION - NEW PARAMS 1 #####
     ):
         """NEW PARAMS 1: define BA training controls (strategy, processor variant, ID mixing, and BA-only toggles)."""
@@ -226,6 +232,20 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_patch_top_k = float(ba_patch_top_k)
         self.non_ba_train = bool(non_ba_train)
         self.train_ba_all_steps = bool(train_ba_all_steps)
+        self.ba_hardcase_mode = str(ba_hardcase_mode or "off").lower()
+        self.ba_hardcase_groups = tuple(
+            str(group) for group in (ba_hardcase_groups or ())
+        )
+        self.ba_hardcase_transition_cells = int(ba_hardcase_transition_cells)
+        self.ba_crossview_consistency_enabled = bool(
+            ba_crossview_consistency_enabled
+        )
+        self.ba_crossview_consistency_probability = float(
+            ba_crossview_consistency_probability
+        )
+        self.ba_crossview_consistency_weight = float(
+            ba_crossview_consistency_weight
+        )
         self.e13_family_contract = bool(e13_family_contract)
         if self.e13_family_contract:
             required = {
@@ -254,6 +274,14 @@ class PhotomakerBranchedLora(SDXL):
                 batched_conditioning_preparation=batched_conditioning_preparation,
                 cache_prepared_masks=cache_prepared_masks,
                 compute_branch_debug_outputs=compute_branch_debug_outputs,
+                ba_hardcase_mode=ba_hardcase_mode,
+                ba_hardcase_groups=ba_hardcase_groups,
+                ba_hardcase_transition_cells=ba_hardcase_transition_cells,
+                ba_crossview_consistency_enabled=ba_crossview_consistency_enabled,
+                ba_crossview_consistency_probability=(
+                    ba_crossview_consistency_probability
+                ),
+                ba_crossview_consistency_weight=ba_crossview_consistency_weight,
             )
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 
@@ -403,6 +431,8 @@ class PhotomakerBranchedLora(SDXL):
         crop_top_lefts: Sequence[Sequence[int]],
         face_bbox: Sequence[Sequence[float]],
         face_bbox_ref: Sequence[Sequence[float]] | None = None,
+        spatial_ref_images_alt: Sequence[Sequence[Image.Image]] | None = None,
+        face_bbox_ref_alt: Sequence[Sequence[float]] | None = None,
         do_cfg: bool = False,
         *args,
         **kwargs,
@@ -571,9 +601,89 @@ class PhotomakerBranchedLora(SDXL):
             )
             ##### BRANCHED ATTENTION - FORWARD PASS #####
 
+        crossview_loss = noise_pred.float().new_tensor(0.0)
+        if (
+            self.training
+            and self.ba_crossview_consistency_enabled
+            and spatial_ref_images_alt is not None
+            and face_bbox_ref_alt is not None
+            and torch.rand((), device=latents.device).item()
+            < self.ba_crossview_consistency_probability
+        ):
+            # 12 Aug 2026 - CL18 changes only the spatial reference view. The
+            # target/noise, prompt tokens and paired reference noise stay fixed.
+            alternate_refs = []
+            alternate_masks = []
+            for refs, bbox in zip(spatial_ref_images_alt, face_bbox_ref_alt):
+                refs = refs if isinstance(refs, (list, tuple)) else [refs]
+                if not refs:
+                    raise RuntimeError("Cross-view consistency received no alternate ref")
+                ref = refs[0]
+                alternate_refs.append(ref)
+                ref_size = (
+                    tuple(ref.shape[-2:])
+                    if isinstance(ref, torch.Tensor)
+                    else (ref.height, ref.width)
+                )
+                alternate_masks.append(
+                    self._bbox_to_ref_mask(
+                        bbox,
+                        noisy_latents.shape[-2:],
+                        ref_size,
+                    )
+                )
+            alternate_latents = self._encode_reference_latents(
+                alternate_refs,
+                target_shape=noisy_latents.shape[-2:],
+            ).to(dtype=noisy_latents.dtype)
+            alternate_mask4 = torch.cat(alternate_masks, dim=0).to(
+                device=self.device,
+                dtype=noisy_latents.dtype,
+            )
+            paired_reference_noise = getattr(self, "_ref_noise", None)
+            if paired_reference_noise is None:
+                raise RuntimeError("Cross-view consistency lost paired reference noise")
+            student_pred = run_branched_forward_pass(
+                self,
+                noisy_latents=noisy_latents,
+                timesteps=timesteps,
+                prompt_embeds=prompt_embeds,
+                added_cond_kwargs=added_cond_kwargs,
+                mask4=mask4,
+                mask4_ref=alternate_mask4,
+                reference_latents=alternate_latents,
+                face_prompt_embeds=face_prompt_embeds,
+                class_tokens_mask=class_tokens_mask,
+                id_features=id_features,
+                reference_noise=paired_reference_noise,
+            )
+            face = mask4.float()
+            if face.shape[-2:] != noise_pred.shape[-2:]:
+                face = F.interpolate(face, size=noise_pred.shape[-2:], mode="nearest")
+            teacher_face = noise_pred.detach().float() * face
+            student_face = student_pred.float() * face
+            smooth_map = F.smooth_l1_loss(
+                student_face,
+                teacher_face,
+                reduction="none",
+            )
+            smooth = (smooth_map * face).sum() / (
+                face.sum() * student_face.shape[1]
+            ).clamp_min(1.0)
+            cosine = F.cosine_similarity(
+                student_face.flatten(1),
+                teacher_face.flatten(1),
+                dim=1,
+            ).mean()
+            crossview_loss = smooth + 0.10 * (1.0 - cosine)
+
+        ba_aux_loss = self.ba_crossview_consistency_weight * crossview_loss
         return {
             'model_pred': noise_pred,
             'target': noise,
+            'ba_aux_loss': ba_aux_loss,
+            'ba_ownership_loss': noise_pred.float().new_tensor(0.0),
+            'ba_crossview_loss': crossview_loss.detach(),
         }
 
     def encode_prompt_with_trigger_word(

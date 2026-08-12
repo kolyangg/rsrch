@@ -1,0 +1,18 @@
+defaults:
+  - CL14_cosmic_joint_shadow_sa128_softmask_24k
+  - override metrics: all_metrics_subject_v2
+  - _self_
+
+# 12 Aug 2026 - Shared corrected-r2 validation contract. The wrapper binds
+# validation identity to its declared face box and forwards CL19's router
+# without modifying the sealed CL14 pipeline.
+pipeline:
+  _target_: src.pipelines.photomaker_branched_cl18_cl20.PhotomakerBranchedCL18CL20Pipeline.from_pretrained
+
+validation_args:
+  face_subject_selection_policy: bbox_overlap_v2
+
+inference_metrics: [clip_ts, id_sim_best_legacy, id_sim_subject_v2]
+
+writer:
+  loss_names: [loss, loss_ba_aux, loss_ba_ownership, loss_ba_crossview]

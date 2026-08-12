@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# 10 Aug 2026 - E13C-CFG-02/PERF-03/04: One fail-closed launcher for the three
-# clean recipes; it rejects Hydra overrides, verifies GPU runtime/config parity,
-# trains first, and performs face-quality scoring only after training succeeds.
+# 12 Aug 2026 - One fail-closed launcher now covers the three sealed clean
+# recipes plus the isolated CL18-CL20 extension. It still rejects ad-hoc Hydra
+# overrides and performs deferred face-quality scoring only after training.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${PROJECT_ROOT}"
+# 12 Aug 2026 - Dataset builders execute from nested tool directories; expose
+# this checkout explicitly so their `src.*` imports cannot resolve elsewhere.
+export PYTHONPATH="${PROJECT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
 if [[ -f .env ]]; then
   set -a
@@ -16,7 +19,7 @@ if [[ -f .env ]]; then
 fi
 
 : "${RUN_NAME:?Set a unique RUN_NAME}"
-: "${CONFIG_NAME:?Set CONFIG_NAME to E13, BC_E13 or CL14}"
+: "${CONFIG_NAME:?Set CONFIG_NAME to E13, BC_E13, CL14, CL18, CL19 or CL20}"
 : "${COMET_API_KEY:?Set COMET_API_KEY in diffusion_template/.env}"
 : "${FACE_QUALITY_SCORER_PYTHON:?Set the PyIQA 0.1.15 Python interpreter}"
 
@@ -41,6 +44,29 @@ verify_manifest_sha256() {
     echo "Manifest hash mismatch for ${manifest}: ${actual}" >&2
     exit 4
   }
+}
+
+verify_subject_v2() {
+  : "${SUBJECT_V2_ID_EMBEDS:?Set the sealed subject-v2 identity embeddings}"
+  test -s "${SUBJECT_V2_ID_EMBEDS}"
+  verify_manifest_sha256 \
+    "${SUBJECT_V2_ID_EMBEDS}" \
+    "e0d36212ad350db8252c4805acf46aa4c90289603d460584dc7692066712b465"
+}
+
+verify_corrected_r2_cosmic() {
+  : "${COSMIC_LARGE_MANIFEST:?Set COSMIC_LARGE_MANIFEST}"
+  : "${COSMIC_LARGE_ROOT:?Set COSMIC_LARGE_ROOT}"
+  : "${COSMIC_LARGE_EXPECTED_MANIFEST_SHA256:?Pin the Cosmic manifest SHA-256}"
+  test -s "${COSMIC_LARGE_MANIFEST}"
+  test -d "${COSMIC_LARGE_ROOT}"
+  [[ "${COSMIC_LARGE_EXPECTED_MANIFEST_SHA256}" == \
+    "8ba369ef2fdc0496a0d3d55afb5c7923c1aa299343a676ac6bc0d94f3a3a0196" ]] || {
+    echo "COSMIC_LARGE_EXPECTED_MANIFEST_SHA256 is not the corrected-r2 hash" >&2
+    exit 4
+  }
+  verify_manifest_sha256 \
+    "${COSMIC_LARGE_MANIFEST}" "${COSMIC_LARGE_EXPECTED_MANIFEST_SHA256}"
 }
 
 case "${CONFIG_NAME}" in
@@ -84,6 +110,33 @@ case "${CONFIG_NAME}" in
       "${COSMIC_LARGE_MANIFEST}" "${COSMIC_LARGE_EXPECTED_MANIFEST_SHA256}"
     EXPERIMENT_COMMENT="CL14 replay: exact E13 architecture, corrected Cosmic scale/pose policy, and training-only two-cell target-mask feather."
     ;;
+  CL18_cosmic_crossview_spatial_consistency_24k)
+    verify_corrected_r2_cosmic
+    verify_subject_v2
+    EXPERIMENT_COMMENT="CL18 corrected-r2 replay: CL14 plus training-only alternate-view spatial prediction consistency."
+    ;;
+  CL19_cosmic_true_soft_fullquery_router_24k)
+    verify_corrected_r2_cosmic
+    verify_subject_v2
+    EXPERIMENT_COMMENT="CL19 corrected-r2 replay: CL14 full-query messages with one two-cell cosine target router."
+    ;;
+  CL20_cosmic_bigcelebs_hardcase_curriculum_24k)
+    verify_corrected_r2_cosmic
+    verify_subject_v2
+    : "${BIG_CELEBS_MANIFEST:?Set BIG_CELEBS_MANIFEST}"
+    : "${BIG_CELEBS_IMAGES:?Set BIG_CELEBS_IMAGES}"
+    : "${BIG_CELEBS_EXPECTED_MANIFEST_SHA256:?Pin the BigCelebs manifest SHA-256}"
+    test -s "${BIG_CELEBS_MANIFEST}"
+    test -d "${BIG_CELEBS_IMAGES}"
+    [[ "${BIG_CELEBS_EXPECTED_MANIFEST_SHA256}" == \
+      "f846b8cc8a4ce087c78130beee48a65f1b13560b63e42a9715cb5686526e5efa" ]] || {
+      echo "BIG_CELEBS_EXPECTED_MANIFEST_SHA256 is not the sealed v2 hash" >&2
+      exit 4
+    }
+    verify_manifest_sha256 \
+      "${BIG_CELEBS_MANIFEST}" "${BIG_CELEBS_EXPECTED_MANIFEST_SHA256}"
+    EXPERIMENT_COMMENT="CL20 corrected-r2 replay: exact CL14 model with the sealed Cosmic/BigCelebs hard-case curriculum."
+    ;;
   *) echo "Unsupported CONFIG_NAME=${CONFIG_NAME}" >&2; exit 2 ;;
 esac
 
@@ -92,6 +145,11 @@ test ! -e "saved/${RUN_NAME}" || {
 }
 python tools/validate_e13_family_config.py
 python tools/verify_cl14_generation_parity.py
+case "${CONFIG_NAME}" in
+  CL18_*|CL19_*|CL20_*)
+    python tools/validate_cl18_cl20_config.py --config-name "${CONFIG_NAME}"
+    ;;
+esac
 
 # 10 Aug 2026 - E13C-DATA-01/02/03/04: Decode and policy preflights run before
 # the expensive model is loaded. Their JSON becomes part of the local run
@@ -118,13 +176,38 @@ case "${CONFIG_NAME}" in
       --sample-count 64 \
       --output "${PREFLIGHT_DIR}/big_celebs.json"
     ;;
-  CL14_cosmic_joint_shadow_sa128_softmask_24k)
+  CL14_cosmic_joint_shadow_sa128_softmask_24k|\
+  CL18_cosmic_crossview_spatial_consistency_24k|\
+  CL19_cosmic_true_soft_fullquery_router_24k)
     python tools/datasets/preflight_cosmic_cl.py \
       --config-name "${CONFIG_NAME}" \
       --sample-count 64 \
       --prompt-sample-count 2000 \
       --seed 0 \
-      --output "${PREFLIGHT_DIR}/cosmic_cl14.json"
+      --output "${PREFLIGHT_DIR}/cosmic.json"
+    ;;
+  CL20_cosmic_bigcelebs_hardcase_curriculum_24k)
+    # 12 Aug 2026 - Generate the schedule from sealed inputs on the server and
+    # reject it unless it reproduces the corrected-r2 bytes exactly.
+    export CL20_SCHEDULE="${PREFLIGHT_DIR}/train_48k_bs2.jsonl"
+    export CL20_SCHEDULE_SUMMARY="${PREFLIGHT_DIR}/train_48k_bs2.summary.json"
+    python tools/datasets/build_cl20_hardcase_schedule.py \
+      --cosmic-manifest "${COSMIC_LARGE_MANIFEST}" \
+      --cosmic-root "${COSMIC_LARGE_ROOT}" \
+      --big-manifest "${BIG_CELEBS_MANIFEST}" \
+      --big-images-root "${BIG_CELEBS_IMAGES}" \
+      --output "${CL20_SCHEDULE}" \
+      --summary-output "${CL20_SCHEDULE_SUMMARY}"
+    export CL20_SCHEDULE_SHA256="$(sha256sum "${CL20_SCHEDULE}" | cut -d' ' -f1)"
+    export CL20_SCHEDULE_START_ROW=0
+    [[ "${CL20_SCHEDULE_SHA256}" == \
+      "783eb1729871e4ac423c770042315572ee7ea24171797402fc4a565999dd5289" ]] || {
+      echo "CL20 schedule does not match the corrected-r2 seal" >&2
+      exit 4
+    }
+    python tools/datasets/preflight_cl20_curriculum.py \
+      --config-name "${CONFIG_NAME}" \
+      --output "${PREFLIGHT_DIR}/cl20_curriculum.json"
     ;;
 esac
 
@@ -153,6 +236,9 @@ if [[ -n "${PM_PATH:-}" ]]; then
   MODEL_OVERRIDES+=("model.photomaker_path=${PM_PATH}")
 fi
 
+# 12 Aug 2026 - Register and persist the immutable Comet key during startup;
+# waiting until a 24k run exits would leave an untraceable live experiment.
+set +e
 accelerate launch \
   --config_file=src/configs/ddp/accelerate.yaml \
   --num_processes=1 \
@@ -163,9 +249,49 @@ accelerate launch \
   writer.project_name=aug-large-ds \
   writer.require_online_registration=true \
   "writer.experiment_comment=${EXPERIMENT_COMMENT}" \
-  "${MODEL_OVERRIDES[@]}"
+  "${MODEL_OVERRIDES[@]}" &
+TRAIN_PID=$!
+set -e
 
-test -s "saved/${RUN_NAME}/comet_experiment.json"
+COMET_RECORD="saved/${RUN_NAME}/comet_experiment.json"
+COMET_READY=0
+for _ in $(seq 1 300); do
+  if [[ -s "${COMET_RECORD}" ]] && python - "${COMET_RECORD}" <<'PY'
+import json
+import sys
+
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+key = (record.get("comet") or {}).get("experiment_key")
+raise SystemExit(0 if isinstance(key, str) and len(key) == 32 else 1)
+PY
+  then
+    COMET_READY=1
+    echo "COMET_STARTUP_VERIFIED ${COMET_RECORD}"
+    break
+  fi
+  if ! kill -0 "${TRAIN_PID}" 2>/dev/null; then
+    wait "${TRAIN_PID}"
+    exit $?
+  fi
+  sleep 2
+done
+if [[ "${COMET_READY}" -ne 1 ]]; then
+  echo "Comet immutable key was not registered within 10 minutes." >&2
+  kill "${TRAIN_PID}" 2>/dev/null || true
+  wait "${TRAIN_PID}" || true
+  exit 78
+fi
+
+set +e
+wait "${TRAIN_PID}"
+TRAIN_STATUS=$?
+set -e
+if [[ "${TRAIN_STATUS}" -ne 0 ]]; then
+  echo "Training failed with status ${TRAIN_STATUS}; deferred face quality skipped." >&2
+  exit "${TRAIN_STATUS}"
+fi
+
+test -s "${COMET_RECORD}"
 "${FACE_QUALITY_SCORER_PYTHON}" \
   tools/comet/finalize_deferred_face_quality.py \
   --run-dir "saved/${RUN_NAME}" \

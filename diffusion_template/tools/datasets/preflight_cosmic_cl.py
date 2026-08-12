@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # 10 Aug 2026 - E13C-DATA-03/04: Retained the sealed CL-arm preflight; CL14
 # must realize its 1024 reference canvas, 6%-30% scale band, and prompt policy.
-"""Fail-closed dataset preflight for the CL1-CL3 Cosmic Large arms.
+"""Fail-closed configured-data preflight for supported Cosmic CL arms.
 
 Decodes a deterministic sample through the real configured loader and asserts
 the property each arm exists to establish: the reference/target face-scale
@@ -82,6 +82,7 @@ def main() -> None:
     picks = sorted(rng.sample(range(total), min(args.sample_count, total)))
 
     ratios, ref_areas, target_areas, center_offsets = [], [], [], []
+    alternate_reference_samples = 0
     ref_sizes, failures = set(), []
     for index in picks:
         sample = dataset[index]
@@ -101,6 +102,13 @@ def main() -> None:
         center_offsets.append(max(abs(rc[0] - tc[0]), abs(rc[1] - tc[1])))
         if sample["target_path"] == sample["reference_path"]:
             failures.append(f"target/reference leakage at index {index}")
+        if "spatial_reference_alt_path" in sample:
+            alternate_reference_samples += int(
+                "spatial_ref_images_alt" in sample
+                and "face_bbox_ref_alt" in sample
+            )
+            if sample["spatial_reference_alt_path"] == sample["reference_path"]:
+                failures.append(f"duplicate dual reference at index {index}")
 
     # Caption budget: the CLIP tokenizer truncates at 77 before PhotoMaker
     # expands the class token, so long Cosmic captions silently lose pose and
@@ -173,7 +181,9 @@ def main() -> None:
                 f"CL1 reference face area {median_ref_area:.2f}% outside the "
                 f"large_dataset band {SCENE_REF_AREA_BAND}"
             )
-    elif arm in ("CL9", "CL10", "CL11", "CL12", "CL13", "CL14"):
+    elif arm in (
+        "CL9", "CL10", "CL11", "CL12", "CL13", "CL14", "CL18", "CL19"
+    ):
         if ref_sizes != {(1024, 1024)}:
             failures.append(f"{arm} canvases must be 1024x1024, saw {ref_sizes}")
         med = report["reference_face_area_pct"]["median"] / 100.0
@@ -230,6 +240,11 @@ def main() -> None:
             failures.append(
                 f"CL5 expects {expected_refs} reference images per sample, saw {sorted(counts)}"
             )
+
+    if arm == "CL18":
+        report["alternate_reference_samples"] = alternate_reference_samples
+        if alternate_reference_samples != len(picks):
+            failures.append("CL18 did not emit a distinct alternate reference per sample")
 
     # CL0 is the deliberately unimproved baseline: uncapped legacy captions are
     # its defining property, so the truncation gate must not apply to it.

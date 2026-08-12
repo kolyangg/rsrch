@@ -91,6 +91,27 @@ train:
         target_scale_balance_mode: reorder
         reference_scale_jitter: [0.06, 0.30]
         reference_position_jitter: 0.15
+        # 12 Aug 2026 - Defaults are inert; CL18 alone asks for a second
+        # distinct same-ID spatial view for its training-only consistency pass.
+        same_identity_dual_reference: false
+        min_reference_candidates_for_target: 3
+        instance_transforms: ${transforms.instance_transforms.train}
+
+    # 12 Aug 2026 - CL20 owns row order, pairing, scale and flip decisions in
+    # one hash-sealed 48k-row schedule; model and validation remain CL14.
+    cl20_hardcase_curriculum:
+        _target_: src.datasets.cl20_hardcase_curriculum.CL20HardcaseCurriculumTrain
+        schedule_path: ${oc.env:CL20_SCHEDULE,/nonexistent/cl20_schedule.jsonl}
+        summary_path: ${oc.env:CL20_SCHEDULE_SUMMARY,/nonexistent/cl20_schedule.summary.json}
+        expected_schedule_sha256: ${oc.env:CL20_SCHEDULE_SHA256,0000000000000000000000000000000000000000000000000000000000000000}
+        cosmic_manifest_path: ${oc.env:COSMIC_LARGE_MANIFEST,/nonexistent/cosmic_large_manifest.json}
+        cosmic_root: ${oc.env:COSMIC_LARGE_ROOT,/nonexistent/cosmic_large_root}
+        big_manifest_path: ${oc.env:BIG_CELEBS_MANIFEST,/nonexistent/big_celebs_manifest.json}
+        big_images_root: ${oc.env:BIG_CELEBS_IMAGES,/nonexistent/big_celebs_images}
+        expected_rows: 48000
+        schedule_start_row: ${oc.env:CL20_SCHEDULE_START_ROW,0}
+        num_refs: 1
+        random_horizontal_flip: false
         instance_transforms: ${transforms.instance_transforms.train}
   
     large_dataset_serv:

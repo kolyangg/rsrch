@@ -1,6 +1,6 @@
 # Current project handoff
 
-**Last updated:** 10 August 2026
+**Last updated:** 12 August 2026
 
 **Repository:** clean worktree `/home/kolyangg/rsrch_e13_family_clean`
 
@@ -17,14 +17,18 @@ research question, experiment history, reliable results, current code and
 machine state, and the highest-value next work. Detailed evidence remains in
 the linked reports.
 
-## Clean E13-family branch decision — 10 August 2026
+## Clean E13-family branch decision — updated 12 August 2026
 
-This branch is the concise implementation line for E13, BC_E13 and CL14. It
-contains one shared fail-closed architecture contract and three leaf recipes:
+This branch is the concise implementation line for E13, BC_E13, CL14 and the
+isolated CL18-CL20 corrected-r2 extension. It contains one shared fail-closed
+architecture contract and six leaf recipes:
 
 - `E13_large_ds_joint_shadow_sa128_24k`
 - `BC_E13_big_celebs_joint_shadow_sa128_24k`
 - `CL14_cosmic_joint_shadow_sa128_softmask_24k`
+- `CL18_cosmic_crossview_spatial_consistency_24k`
+- `CL19_cosmic_true_soft_fullquery_router_24k`
+- `CL20_cosmic_bigcelebs_hardcase_curriculum_24k`
 
 BC_E13 changes only the dataset. CL14 changes the dataset policy and the
 training-only two-cell target-mask feather. The sealed CL14 inference files and
@@ -38,10 +42,23 @@ runbook are in
 Static sealed-source parity and a bit-exact selected-processor fixture pass;
 a fresh A100 historical-checkpoint/full-96 RGB replay is still deliberately
 pending and must be the first promotion gate.
-Do not port E14-E24 identity auxiliaries, residual/anchored/query-adaptive BA,
-multireference, dropout, full-body balancing, or subject-v2 into the shared
-contract. Use `launchers/active/run_e13_family_24k_1gpu.sh`; no clean-family
-training job had been submitted when this handoff was updated.
+The CL18-CL20 implementation ledger, source records, exact arm deltas,
+verification evidence and expanded Serv runbook are in
+[`2026-08-12_cl18_cl19_cl20_clean_extension.md`](../architecture/2026-08-12_cl18_cl19_cl20_clean_extension.md).
+CL18 adds training-only alternate-view consistency; CL19 adds only the
+full-query two-cell cosine router; CL20 adds only the sealed 48k-row
+Cosmic/BigCelebs curriculum. Subject-v2 binds PhotoMaker identity selection to
+the declared reference box during validation and is also the primary
+mask-owned identity metric; training conditioning keeps its historical
+default. The corrected-r2 source records are
+CL18 `f6530436bf22472c9fb7731d1696c5ab`, CL19
+`cfeda7b55c174b3c83e8d40537ebb6dd`, and CL20
+`b05488e2cce94476acc92bcaa21d7362`.
+Do not port the remaining E14-E24 identity auxiliaries,
+residual/anchored/query-adaptive BA, multireference, dropout, or full-body
+balancing into the shared contract. Use
+`launchers/active/run_e13_family_24k_1gpu.sh`; no clean-family training job was
+submitted as part of this update.
 
 ## Read this first
 

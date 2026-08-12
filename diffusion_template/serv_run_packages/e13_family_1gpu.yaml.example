@@ -1,4 +1,4 @@
-# 10 Aug 2026 - E13C-CFG-02/PERF-03: This one-A100 MLS template keeps machine
+# 12 Aug 2026 - This one-A100 MLS template covers E13 through CL20 while keeping machine
 # paths and run identity explicit. Copy it, replace every REPLACE_* value, and
 # inspect Running/Pending jobs before `mls job submit --config <yaml>`.
 # Do not submit this template directly.

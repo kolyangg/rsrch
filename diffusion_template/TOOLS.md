@@ -9,6 +9,8 @@ architecture switches.
 - `docs/handoffs/LATEST.md` — required new-session handoff.
 - `docs/architecture/2026-08-10_e13_family_clean_implementation.md` — complete
   implementation ledger, verification evidence, limitations, and Serv runbook.
+- `docs/architecture/2026-08-12_cl18_cl19_cl20_clean_extension.md` — isolated
+  CL18-CL20 deltas, source provenance, verification and server instructions.
 - `docs/validation_protocol.md` — fixed-96 validation contract.
 - `../.claude/skills/research-report/SKILL.md` — required house style for
   experiment analysis and reports.
@@ -18,6 +20,7 @@ architecture switches.
 ```bash
 python tools/validate_e13_family_config.py
 python tools/verify_cl14_generation_parity.py
+python tools/validate_cl18_cl20_config.py --config-name <CL18|CL19|CL20_config>
 bash -n launchers/active/run_e13_family_24k_1gpu.sh
 bash -n launchers/serv/start_e13_family_1gpu.sh
 ```
@@ -28,7 +31,10 @@ bash -n launchers/serv/start_e13_family_1gpu.sh
 - `verify_cl14_generation_parity.py` compares the pipeline and denoising source
   against sealed CL14 hashes and byte-seals every fixed-96 prompt, identity,
   reference, and bbox input.
-- `launchers/active/run_e13_family_24k_1gpu.sh` is the only training launcher.
+- `validate_cl18_cl20_config.py` checks each new arm against the sealed CL14
+  schedule, validation and trainable contract.
+- `launchers/active/run_e13_family_24k_1gpu.sh` is the only training launcher
+  for all six supported recipes.
 - `serv_run_packages/e13_family_1gpu.yaml.example` is the one-GPU MLS template.
 
 ## Dataset preflights and measurement
@@ -40,7 +46,12 @@ bash -n launchers/serv/start_e13_family_1gpu.sh
 - `tools/datasets/preflight_cosmic_large_adapted.py` — Cosmic filtering,
   prompts, target/reference geometry, cache-key, and decode sample audit.
 - `tools/datasets/preflight_cosmic_cl.py` — authoritative configured CL14
-  decode gate for the 1024 canvas, 6%-30% face-area band, and caption budget.
+  decode gate for the CL14/CL18/CL19 1024 canvas, face-area band, caption
+  budget, and CL18 distinct alternate reference.
+- `tools/datasets/build_cl20_hardcase_schedule.py` — deterministic sealed
+  48k-row Cosmic/BigCelebs curriculum builder.
+- `tools/datasets/preflight_cl20_curriculum.py` — verifies CL20 phase counts
+  and decodes schedule boundary rows through the configured loader.
 - `tools/datasets/measure_face_body_alignment.py` — detected face versus the
   fixed generated bbox: center offset, size ratio, and IoU. A size ratio below
   0.8 is the historical undersized-face threshold.

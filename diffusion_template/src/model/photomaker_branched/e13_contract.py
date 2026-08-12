@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterable
+from collections.abc import Sequence
 
 import torch
 
@@ -24,7 +25,13 @@ def initialise_e13_contract(model, *, ba_hard_v1_lora_rank: int = 128,
                             skip_unused_text_conditioning: bool = True,
                             batched_conditioning_preparation: bool = True,
                             cache_prepared_masks: bool = True,
-                            compute_branch_debug_outputs: bool = False) -> None:
+                            compute_branch_debug_outputs: bool = False,
+                            ba_hardcase_mode: str = "off",
+                            ba_hardcase_groups: Sequence[str] | None = None,
+                            ba_hardcase_transition_cells: int = 2,
+                            ba_crossview_consistency_enabled: bool = False,
+                            ba_crossview_consistency_probability: float = 0.25,
+                            ba_crossview_consistency_weight: float = 0.05) -> None:
     """Persist the deliberately small set of E13-family runtime controls."""
     # 10 Aug 2026 - E13C-CORE-01/02: E13 is one fail-closed hard-v1 route with
     # rank-128 branch LoRA. Rejecting other values prevents a failed installer
@@ -43,6 +50,20 @@ def initialise_e13_contract(model, *, ba_hard_v1_lora_rank: int = 128,
         raise ValueError("ba_training_mask_feather must be within [0, 8]")
     if conditioning_cache_enabled:
         raise ValueError("E13 diverse-pair training requires conditioning cache off")
+    hardcase_mode = str(ba_hardcase_mode or "off").lower()
+    hardcase_groups = tuple(str(group) for group in (ba_hardcase_groups or ()))
+    if hardcase_mode not in {"off", "soft_router"}:
+        raise ValueError("The clean extension supports only CL19 soft_router")
+    if hardcase_mode != "off" and not hardcase_groups:
+        raise ValueError("CL19 soft_router requires explicit U-Net groups")
+    if int(ba_hardcase_transition_cells) < 1:
+        raise ValueError("ba_hardcase_transition_cells must be positive")
+    crossview_probability = float(ba_crossview_consistency_probability)
+    crossview_weight = float(ba_crossview_consistency_weight)
+    if bool(ba_crossview_consistency_enabled) and not (
+        0.0 < crossview_probability <= 1.0 and crossview_weight > 0.0
+    ):
+        raise ValueError("CL18 cross-view probability/weight must be positive")
 
     model.ba_architecture_version = ARCHITECTURE
     model.ba_hard_v1_lora_rank = 128
@@ -64,6 +85,16 @@ def initialise_e13_contract(model, *, ba_hard_v1_lora_rank: int = 128,
     model.batched_conditioning_preparation = bool(batched_conditioning_preparation)
     model.cache_prepared_masks = bool(cache_prepared_masks)
     model.compute_branch_debug_outputs = bool(compute_branch_debug_outputs)
+    # 12 Aug 2026 - CL18/CL19 are defaults-off extensions: CL18 changes only
+    # the training objective; CL19 changes only the selected SA processor math.
+    model.ba_hardcase_mode = hardcase_mode
+    model.ba_hardcase_groups = hardcase_groups
+    model.ba_hardcase_transition_cells = int(ba_hardcase_transition_cells)
+    model.ba_crossview_consistency_enabled = bool(
+        ba_crossview_consistency_enabled
+    )
+    model.ba_crossview_consistency_probability = crossview_probability
+    model.ba_crossview_consistency_weight = crossview_weight
 
 
 def _is_lora_parameter(name: str) -> bool:
@@ -191,6 +222,25 @@ def architecture_manifest(model) -> dict:
     named = dict(model.unet.named_parameters())
     names = expected_trainable_names(model)
     semantic_names = tuple(getattr(model, "_ba_patched_processor_names", ()))
+    hard_v1_extensions = {
+        "true_reference_key_mask": False,
+        "branch_output_rank": None,
+        "reference_roi_warp": False,
+        "face_fusion_mode": "hard_reference_replace",
+        "lora_rank": 128,
+    }
+    if str(getattr(model, "ba_hardcase_mode", "off")) != "off":
+        hard_v1_extensions["hardcase_route"] = {
+            "mode": str(model.ba_hardcase_mode),
+            "groups": list(model.ba_hardcase_groups),
+            "transition_cells": int(model.ba_hardcase_transition_cells),
+        }
+    if bool(getattr(model, "ba_crossview_consistency_enabled", False)):
+        hard_v1_extensions["crossview_consistency"] = {
+            "probability": float(model.ba_crossview_consistency_probability),
+            "weight": float(model.ba_crossview_consistency_weight),
+            "teacher_stop_gradient": True,
+        }
     return {
         "format": "photomaker_branched_trainable_unet_v2",
         "ba_architecture_version": ARCHITECTURE,
@@ -210,13 +260,7 @@ def architecture_manifest(model) -> dict:
         "num_inference_steps": int(model.num_inference_steps),
         "generic_adapter_train_scope": "effective_all",
         "photomaker_default_train_scope": "effective_all",
-        "hard_v1_extensions": {
-            "true_reference_key_mask": False,
-            "branch_output_rank": None,
-            "reference_roi_warp": False,
-            "face_fusion_mode": "hard_reference_replace",
-            "lora_rank": 128,
-        },
+        "hard_v1_extensions": hard_v1_extensions,
         "semantic_processor_names_sha256": hashlib.sha256(
             "\n".join(semantic_names).encode("utf-8")
         ).hexdigest(),
@@ -285,6 +329,24 @@ def _validate_compatible_manifest(saved: dict, current: dict) -> None:
             "E13 checkpoint hard-v1 extension mismatch: "
             f"{extension_mismatches}"
         )
+    # 12 Aug 2026 - Unlike the inert E14-E24 fields tolerated above, CL19's
+    # router affects generation and CL18's objective affects trained weights.
+    for key in ("hardcase_route", "crossview_consistency"):
+        saved_value = saved_extensions.get(key)
+        current_value = current_extensions.get(key)
+        if key == "hardcase_route" and saved_value is not None:
+            # Source r2 manifests recorded inert hard-case tuning fields too;
+            # project to the three values that define CL19's actual equation.
+            saved_value = {
+                "mode": saved_value.get("mode"),
+                "groups": saved_value.get("groups"),
+                "transition_cells": saved_value.get("transition_cells"),
+            }
+        if saved_value != current_value:
+            raise RuntimeError(
+                f"E13 checkpoint {key} mismatch: "
+                f"saved={saved_value!r}, current={current_value!r}"
+            )
 
 
 def load_state_dict(model, state: dict) -> None:

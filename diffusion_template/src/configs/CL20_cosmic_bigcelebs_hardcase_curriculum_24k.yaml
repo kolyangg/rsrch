@@ -1,0 +1,13 @@
+defaults:
+  - cl18_cl20_extension_24k
+  - _self_
+
+# 12 Aug 2026 - CL20 changes only the sealed training schedule.
+train_dataset_name: cl20_hardcase_curriculum
+train_dataloader_shuffle: false
+
+writer:
+  experiment_comment: >-
+    CL20 keeps the CL14 model exact: 80/20 Cosmic/curated depth>=6 BigCelebs
+    through 20k, then 4k Cosmic-only re-anchoring. BigCelebs is balanced across
+    synthetic-small, occlusion-caption and action-caption strata.

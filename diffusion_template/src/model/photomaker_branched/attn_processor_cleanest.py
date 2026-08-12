@@ -110,6 +110,8 @@ class BranchedAttnProcessor(nn.Module):
         branched_attn_weight_mode: str = "shared",
         branched_attn_new_weight_kind: str = "full",
         branched_attn_lora_rank: int = 16,
+        hardcase_mode: str = "off",
+        hardcase_transition_cells: int = 2,
     ):
         super().__init__()
 
@@ -124,6 +126,12 @@ class BranchedAttnProcessor(nn.Module):
         self.branched_attn_weight_mode = (branched_attn_weight_mode or "shared").lower()
         self.branched_attn_new_weight_kind = (branched_attn_new_weight_kind or "full").lower()
         self.branched_attn_lora_rank = int(branched_attn_lora_rank)
+        self.hardcase_mode = str(hardcase_mode or "off").lower()
+        if self.hardcase_mode not in {"off", "soft_router"}:
+            raise ValueError(f"Unknown hardcase_mode={hardcase_mode!r}")
+        self.hardcase_transition_cells = int(hardcase_transition_cells)
+        if self.hardcase_transition_cells < 1:
+            raise ValueError("hardcase_transition_cells must be positive")
         
         self.mask = None
         self.mask_ref = None
@@ -206,6 +214,136 @@ class BranchedAttnProcessor(nn.Module):
         """Set masks for current denoising step"""
         self.mask = mask
         self.mask_ref = mask_ref if mask_ref is not None else mask
+
+    @staticmethod
+    def _reshape_heads(tensor: torch.Tensor, heads: int) -> torch.Tensor:
+        batch, length, channels = tensor.shape
+        if channels % heads:
+            raise RuntimeError(f"Attention width {channels} is not divisible by {heads}")
+        return tensor.view(batch, length, heads, channels // heads).transpose(1, 2)
+
+    @staticmethod
+    def _merge_heads(tensor: torch.Tensor) -> torch.Tensor:
+        batch, heads, length, width = tensor.shape
+        return tensor.transpose(1, 2).reshape(batch, length, heads * width)
+
+    def _normalized_halves(self, attn, hidden_states, temb):
+        normalized = hidden_states
+        if attn.spatial_norm is not None:
+            normalized = attn.spatial_norm(normalized, temb)
+        input_ndim = normalized.ndim
+        spatial = None
+        if input_ndim == 4:
+            total_batch, channels, height, width = normalized.shape
+            spatial = (channels, height, width)
+            normalized = normalized.view(
+                total_batch, channels, height * width
+            ).transpose(1, 2)
+        elif input_ndim != 3:
+            raise RuntimeError(f"Unsupported attention input rank: {input_ndim}")
+        if normalized.shape[0] % 2:
+            raise RuntimeError("CL19 requires [target, reference] doubled batches")
+        batch = normalized.shape[0] // 2
+        target = normalized[:batch]
+        reference = normalized[batch:]
+        if attn.group_norm is not None:
+            target = attn.group_norm(target.transpose(1, 2)).transpose(1, 2)
+            reference = attn.group_norm(reference.transpose(1, 2)).transpose(1, 2)
+        return target, reference, input_ndim, spatial
+
+    def _binary_mask(self, mask: torch.Tensor, length: int, batch: int, dtype):
+        previous = self.force_binary_masks
+        self.force_binary_masks = True
+        try:
+            prepared = self._prepare_mask(mask, length, batch).squeeze(1)
+        finally:
+            self.force_binary_masks = previous
+        return prepared.to(dtype=dtype)
+
+    def _soft_router_mask(self, mask: torch.Tensor, length: int, batch: int, dtype):
+        binary = self._binary_mask(mask, length, batch, torch.float32)
+        side = int(math.isqrt(length))
+        image = binary.transpose(1, 2).reshape(batch, 1, side, side)
+        remaining = image
+        result = torch.ones_like(image)
+        for index in range(self.hardcase_transition_cells):
+            eroded = 1.0 - F.max_pool2d(
+                1.0 - remaining, 3, stride=1, padding=1
+            )
+            ring = (remaining - eroded).clamp(0.0, 1.0)
+            phase = float(index + 1) / float(self.hardcase_transition_cells + 1)
+            weight = 0.5 - 0.5 * math.cos(math.pi * phase)
+            result = result * (1.0 - ring) + ring * weight
+            remaining = eroded
+        return (result * image).flatten(2).transpose(1, 2).to(dtype=dtype)
+
+    def _full_target_lanes(self, attn, target, reference):
+        batch, length, _ = target.shape
+        heads = int(attn.heads)
+        query = self._reshape_heads(self._q_noise(attn, target), heads)
+        native = F.scaled_dot_product_attention(
+            query,
+            self._reshape_heads(self._k_noise(attn, target), heads),
+            self._reshape_heads(self._v_noise(attn, target), heads),
+            dropout_p=0.0,
+            is_causal=False,
+        )
+        ref_mask = self._binary_mask(
+            self.mask_ref, length, batch, reference.dtype
+        )
+        reference_face = reference * ref_mask
+        reference_message = F.scaled_dot_product_attention(
+            query,
+            self._reshape_heads(self._k_ref(attn, reference_face), heads),
+            self._reshape_heads(self._v_ref(attn, reference_face), heads),
+            dropout_p=0.0,
+            is_causal=False,
+        )
+        return (
+            attn.to_out[0](self._merge_heads(native)),
+            attn.to_out[0](self._merge_heads(reference_message)),
+        )
+
+    def _finish_full_router(
+        self, attn, residual, target_out, reference, input_ndim, spatial
+    ) -> torch.Tensor:
+        heads = int(attn.heads)
+        reference_message = F.scaled_dot_product_attention(
+            self._reshape_heads(self._q_ref(attn, reference), heads),
+            self._reshape_heads(self._k_ref(attn, reference), heads),
+            self._reshape_heads(self._v_ref(attn, reference), heads),
+            dropout_p=0.0,
+            is_causal=False,
+        )
+        reference_out = attn.to_out[0](self._merge_heads(reference_message))
+        joined = attn.to_out[1](torch.cat([target_out, reference_out], dim=0))
+        if input_ndim == 4:
+            channels, height, width = spatial
+            joined = joined.transpose(-1, -2).reshape(
+                joined.shape[0], channels, height, width
+            )
+        if attn.residual_connection:
+            joined = joined + residual
+        return joined / attn.rescale_output_factor
+
+    def _call_soft_router(self, attn, hidden_states, temb) -> torch.Tensor:
+        # 12 Aug 2026 - AICODE-NOTE: CL19 computes full native and full
+        # target-Q/reference-KV messages, then applies one cosine blend. The
+        # reference key mask remains binary, preserving the historical sinks.
+        residual = hidden_states
+        target, reference, input_ndim, spatial = self._normalized_halves(
+            attn, hidden_states, temb
+        )
+        native_out, reference_out = self._full_target_lanes(
+            attn, target, reference
+        )
+        router = self._soft_router_mask(
+            self.mask, target.shape[1], target.shape[0], native_out.dtype
+        )
+        target_out = native_out * (1.0 - router) + reference_out * router
+        return self._finish_full_router(
+            attn, residual, target_out, reference, input_ndim, spatial
+        )
         
     def __call__(
         self,
@@ -225,6 +363,9 @@ class BranchedAttnProcessor(nn.Module):
         Output: doubled batch [merged_hidden, face_hidden]
         """
 
+
+        if self.hardcase_mode == "soft_router":
+            return self._call_soft_router(attn, hidden_states, temb)
 
         residual = hidden_states
         

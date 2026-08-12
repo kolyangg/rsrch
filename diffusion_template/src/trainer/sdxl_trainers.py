@@ -790,6 +790,10 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             sample["generated"] = generated_collection[idx]
             sample["id"] = ids_list[idx]
             sample["seed"] = seeds_list[idx]
+            # 12 Aug 2026 - Subject-v2 scores the face owned by the exact box
+            # passed to BA, not an unrelated detection elsewhere in the image.
+            sample["face_bbox_gen"] = face_bbox_gen_list[idx]
+            sample["face_bbox_ref"] = face_bbox_ref_list[idx]
 
             metric_time = 0.0
             for metric in self.metrics:

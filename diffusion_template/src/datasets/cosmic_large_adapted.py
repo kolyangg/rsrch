@@ -150,6 +150,8 @@ class CosmicLargeAdaptedTrain(BaseDataset):
         target_scale_balance_mode: str = "reorder",
         reference_scale_jitter: Sequence[float] | None = None,
         reference_position_jitter: float = 0.0,
+        same_identity_dual_reference: bool = False,
+        min_reference_candidates_for_target: int = 3,
         *args,
         **kwargs,
     ):
@@ -260,6 +262,12 @@ class CosmicLargeAdaptedTrain(BaseDataset):
         self.reference_position_jitter = float(reference_position_jitter)
         if not 0.0 <= self.reference_position_jitter <= 0.5:
             raise ValueError("reference_position_jitter must be in [0, 0.5]")
+        self.same_identity_dual_reference = bool(same_identity_dual_reference)
+        self.min_reference_candidates_for_target = int(
+            min_reference_candidates_for_target
+        )
+        if self.min_reference_candidates_for_target < 2:
+            raise ValueError("min_reference_candidates_for_target must be >= 2")
 
         with self.manifest_path.open("r", encoding="utf-8") as handle:
             records = json.load(handle)
@@ -324,6 +332,12 @@ class CosmicLargeAdaptedTrain(BaseDataset):
                     }
                 )
             if not candidates:
+                audit["filtered_no_reference"] += 1
+                continue
+            if (
+                self.same_identity_dual_reference
+                and len(candidates) < self.min_reference_candidates_for_target
+            ):
                 audit["filtered_no_reference"] += 1
                 continue
 
@@ -533,6 +547,61 @@ class CosmicLargeAdaptedTrain(BaseDataset):
             x0, y0, x1, y1 = reference_bbox
             reference_bbox = [width - x1, y0, width - x0, y1]
 
+        alternate_reference = None
+        alternate_reference_bbox = None
+        if self.same_identity_dual_reference:
+            # 12 Aug 2026 - CL18 keeps PhotoMaker tokens and target noise fixed;
+            # this second distinct view changes only the spatial reference K/V.
+            alternate_pool = [
+                candidate
+                for candidate in candidates
+                if candidate["path"] != reference_record["path"]
+            ]
+            if not alternate_pool:
+                raise RuntimeError("Dual-reference record has no alternate candidate")
+            alternate_record = random.choice(alternate_pool)
+            alternate_reference = self._open(alternate_record["path"])
+            alternate_reference_bbox = deepcopy(alternate_record["bbox"])
+            if self.reference_frame_mode == "target_face_frame":
+                alt_fraction = (
+                    None
+                    if self.reference_scale_jitter is None
+                    else random.uniform(*self.reference_scale_jitter)
+                )
+                alt_jitter = self.reference_position_jitter
+                alt_offset = (
+                    random.uniform(-alt_jitter, alt_jitter),
+                    random.uniform(-alt_jitter, alt_jitter),
+                )
+                (
+                    alternate_reference,
+                    alternate_reference_bbox,
+                    _,
+                    _,
+                ) = compose_target_frame_reference(
+                    alternate_reference,
+                    alternate_reference_bbox,
+                    target_bbox,
+                    canvas_size=1024,
+                    fill=self.reference_frame_fill,
+                    gray_level=self.reference_canvas_fill,
+                    target_face_fraction=alt_fraction,
+                    position_offset=alt_offset,
+                )
+            else:
+                (
+                    alternate_reference,
+                    alternate_reference_bbox,
+                    _,
+                ) = apply_reference_policy(
+                    alternate_reference,
+                    alternate_reference_bbox,
+                    crop_margin=self.reference_crop_margin,
+                    content_size=self.reference_content_size,
+                    canvas_size=self.reference_canvas_size,
+                    canvas_fill=self.reference_canvas_fill,
+                )
+
         if "orig_size" in record:
             orig_size = record["orig_size"]
             original_sizes = (orig_size[1], orig_size[0])
@@ -566,6 +635,12 @@ class CosmicLargeAdaptedTrain(BaseDataset):
             "reference_path": resolved_reference_path,
             "reference_cache_key": cache_key,
         }
+        if self.same_identity_dual_reference:
+            instance_data["spatial_ref_images_alt"] = [alternate_reference]
+            instance_data["face_bbox_ref_alt"] = alternate_reference_bbox
+            instance_data["spatial_reference_alt_path"] = str(
+                self.dataset_root / alternate_record["path"]
+            )
         instance_data = self.preprocess_data(instance_data)
         if not valid_bbox(instance_data["face_bbox"], (1024, 1024)):
             raise ValueError(

@@ -55,6 +55,17 @@ def patch_unet_attention_processors(
     del ba_denoise_progress  # hard_replace_v1 has no timestep gate
     disable_sa = bool(getattr(pipeline, "disable_branched_sa", False))
     disable_ca = bool(getattr(pipeline, "disable_branched_ca", False))
+    hardcase_mode = str(
+        getattr(pipeline, "ba_hardcase_mode", "off") or "off"
+    ).lower()
+    hardcase_groups = tuple(
+        str(group)
+        for group in (getattr(pipeline, "ba_hardcase_groups", None) or ())
+    )
+    if hardcase_mode not in {"off", "soft_router"}:
+        raise ValueError(f"Unsupported clean hard-case mode: {hardcase_mode}")
+    if hardcase_mode != "off" and not hardcase_groups:
+        raise RuntimeError("CL19 soft_router requires explicit U-Net groups")
     if bool(getattr(pipeline, "e13_family_contract", False)):
         # 10 Aug 2026 - E13C-CORE-01: Fail closed on the architectural
         # invariants shared by E13, BC_E13 and CL14.
@@ -182,6 +193,17 @@ def patch_unet_attention_processors(
                                 "ba_hard_v1_lora_rank",
                                 getattr(pipeline, "branched_attn_lora_rank", getattr(pipeline, "lora_rank", 16)),
                             )
+                        ),
+                        hardcase_mode=(
+                            hardcase_mode
+                            if any(
+                                name.startswith(f"{group}.")
+                                for group in hardcase_groups
+                            )
+                            else "off"
+                        ),
+                        hardcase_transition_cells=int(
+                            getattr(pipeline, "ba_hardcase_transition_cells", 2)
                         ),
                     )
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
