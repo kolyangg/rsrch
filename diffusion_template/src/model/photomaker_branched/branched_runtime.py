@@ -795,7 +795,6 @@ def patch_unet_attention_processors(
                         )
                     proc.set_masks(_mask, _mref)
                     proc.set_class_tokens_mask(class_tokens_mask)
-                    _apply_runtime_flags(proc, pipeline)
                     new_procs[name] = proc
                     patched_proc_names.append(name)
                 elif disable_ca:

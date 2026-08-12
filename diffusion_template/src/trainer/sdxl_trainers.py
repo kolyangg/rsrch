@@ -456,9 +456,14 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         local_scalars = torch.stack(
             [batch[name].detach().reshape(()) for name in loss_names]
         ).float()
-        gathered_matrix = self.accelerator.gather(local_scalars).reshape(
-            -1, len(loss_names)
-        )
+        # 12 Aug 2026 - Training optimization: a one-GPU run needs no NCCL
+        # scalar gather; bypassing it also avoids the vector-gather SIGSEGV.
+        if self.accelerator.num_processes == 1:
+            gathered_matrix = local_scalars.unsqueeze(0)
+        else:
+            gathered_matrix = self.accelerator.gather(local_scalars).reshape(
+                -1, len(loss_names)
+            )
         mean_scalars = gathered_matrix.mean(dim=0)
         mean_values = mean_scalars.cpu().tolist()
         has_active_reference_rank = bool(

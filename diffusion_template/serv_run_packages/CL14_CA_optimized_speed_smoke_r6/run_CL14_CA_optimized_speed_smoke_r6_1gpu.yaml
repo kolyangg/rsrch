@@ -1,0 +1,11 @@
+# 12 Aug 2026 - Training optimization throughput smoke with Python fault tracing.
+job:
+  description: "CL14_CA scalar-sync speed smoke r6, skip step-zero validation #nasilaev"
+  environment:
+    image: cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36
+  resource:
+    instance_type: a100.1gpu.8C.243G
+    processes: 1
+    workers: 1
+  script: "mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL14_CA_optimized_speed_smoke_r6 && PYTHONFAULTHANDLER=1 TORCH_SHOW_CPP_STACKTRACES=1 NCCL_ASYNC_ERROR_HANDLING=1 bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_sources_cl14_ca_v17/CL14_CA_optimized_speed_smoke_r6/diffusion_template/serv_run_packages/CL14_CA_optimized_speed_smoke_r6/start_CL14_CA_optimized_speed_smoke_r6_1gpu.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL14_CA_optimized_speed_smoke_r6/stdout_1gpu.log 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL14_CA_optimized_speed_smoke_r6/stderr_1gpu.log"
+  type: binary

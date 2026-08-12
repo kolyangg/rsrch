@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "run_name": "CL14_CA_optimized_speed_smoke_r6",
+  "plan": {
+    "status": "prepared_speed_smoke",
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Measure optimized CL14_CA training throughput without waiting for step-zero validation.",
+    "baseline": "CL14_cosmic_joint_shadow_sa128_softmask_24k_full96_r1",
+    "baseline_comet_experiment_key": "6fe0028be92242c38056b3d36665fdd6",
+    "single_scientific_change": "None; 12 Aug 2026 training optimization only: synchronize the 19 diagnostic scalars once and bypass unnecessary NCCL gathering on one GPU while retaining the exact CL14 loader and original attention kernels.",
+    "config": "src/configs/CL14_CA_skipval_smoke.yaml",
+    "launcher": "launchers/active/run_CL14_CA_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL14_CA_optimized_speed_smoke_r6/run_CL14_CA_optimized_speed_smoke_r6_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "fixed_contract": "Identical architecture, initialization, optimizer, data, 24k schedule, and 2348/224624676 ownership to CL14_CA; only initial validation is skipped for the operational speed measurement.",
+    "primary_metric": "Median seconds/iteration after warmup over at least 100 consecutive optimizer steps; target approximately CL14's 2.2 s/it.",
+    "risk": "The smoke has no canonical step-zero panel and must be stopped after throughput and finite-step proof.",
+    "expected_trainable_contract": "2348 tensors / 224624676 parameters"
+  }
+}
