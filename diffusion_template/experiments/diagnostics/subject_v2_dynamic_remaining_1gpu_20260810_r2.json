@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "kind": "subject_v2_dynamic_historical_backfill_one_gpu_jobs",
+  "created_at": "2026-08-10",
+  "status": "complete_all_25_runs_verified_on_comet",
+  "gpu_policy": {
+    "authorized_project_ceiling": 10,
+    "live_serv_capacity_at_submission": 4,
+    "requested_per_job": 1,
+    "active_project_gpus": 0,
+    "assignment": "shared atomic NFS run claims across independent MLS jobs"
+  },
+  "package": "serv_run_packages/subject_v2_dynamic_remaining_1gpu_20260810_r2",
+  "shared_claim_root": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/analysis_jobs/subject_v2_dynamic_remaining_1gpu_20260810_r2/dynamic_run_claims",
+  "jobs": [
+    {
+      "slot": 1,
+      "job_name": "lm-mpi-job-a528e879-358d-486d-9f17-8dc655309eb7",
+      "status": "completed",
+      "initial_claim": "CL6_cosmic_joint_shadow_sa128_boundary_24k_full96_r1"
+    },
+    {
+      "slot": 2,
+      "job_name": "lm-mpi-job-55fcaba9-351d-4c95-a901-725fa25180f3",
+      "status": "completed",
+      "initial_claim": "CL12_cosmic_joint_shadow_sa128_refscale_fullbody_multiref_24k_full96_r1"
+    },
+    {
+      "slot": 3,
+      "job_name": "lm-mpi-job-c532a193-92fb-41c1-8978-7051a5d87cf9",
+      "status": "completed",
+      "initial_claim": "CL13_cosmic_joint_shadow_sa128_refdropout_24k_full96_r1"
+    },
+    {
+      "slot": 4,
+      "job_name": "lm-mpi-job-d96b3825-0065-4c63-a0a4-2b11483e6cb1",
+      "status": "completed",
+      "initial_claim": "CL14_cosmic_joint_shadow_sa128_softmask_24k_full96_r1"
+    },
+    {
+      "slot": 5,
+      "job_name": "lm-mpi-job-212a5d08-b329-4c0d-9157-b5ab6fc62fc7",
+      "status": "completed",
+      "initial_claim": "E21_large_ds_joint_shadow_sa128_multiref_branchout_r32_24k_full96_r2"
+    },
+    {
+      "slot": 6,
+      "job_name": "lm-mpi-job-a500307e-4e4c-4bcb-8ae5-8f23e61f07fe",
+      "status": "completed",
+      "initial_claim": "E22_large_ds_joint_shadow_sa128_arcfaceaux_24k_full96_r2"
+    }
+  ],
+  "prepared_not_submitted": [
+    "run_worker_07.yaml",
+    "run_worker_08.yaml"
+  ],
+  "acceleration_2026_08_11": {
+    "verified_runs_before_submission": 19,
+    "unclaimed_runs_before_submission": 2,
+    "submitted_jobs": 2,
+    "result": "both Running with distinct E21 and E22 claims; all 13 dynamic runs assigned"
+  },
+  "completion_2026_08_11": {
+    "verified_runs": 25,
+    "invalid_audits": 0,
+    "replacement_steps_per_run": [
+      2000,
+      4000,
+      6000,
+      8000,
+      10000,
+      12000,
+      14000,
+      16000,
+      18000,
+      20000,
+      22000,
+      24000
+    ],
+    "job_manifest_status": "verified_on_comet",
+    "completed_mls_jobs": 6,
+    "active_project_gpus": 0,
+    "failure_signatures": 0
+  },
+  "monitor": {
+    "pid": 850568,
+    "poll_seconds": 30,
+    "status": "complete",
+    "observed_global_gpu_capacity": 8,
+    "behavior": "submit workers 05-08 one at a time only when measured capacity and unclaimed work permit; exit without retry on any allocation rejection"
+  },
+  "startup_evidence": {
+    "distinct_claims": 4,
+    "tracebacks": 0,
+    "conda_environment": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/conda_env/photomaker_NS",
+    "cl6_resume_step": 22000,
+    "cl6_live_eta": "approximately 16 minutes at startup",
+    "complete_checkpoint_manifests_reused_at_handoff": 177,
+    "verified_runs_reused_at_handoff": 12
+  },
+  "remaining_run_order": [
+    "CL6_cosmic_joint_shadow_sa128_boundary_24k_full96_r1",
+    "CL12_cosmic_joint_shadow_sa128_refscale_fullbody_multiref_24k_full96_r1",
+    "CL13_cosmic_joint_shadow_sa128_refdropout_24k_full96_r1",
+    "CL14_cosmic_joint_shadow_sa128_softmask_24k_full96_r1",
+    "E14_large_ds_joint_shadow_sa128_protected_24k_full96_r6",
+    "E15_large_ds_joint_persist_sa128_protected_24k_full96_r2",
+    "E16_large_ds_joint_persist_sa128_idloss_24k_full96_r2",
+    "E17_large_ds_joint_persist_sa128_resididca_24k_full96_r5",
+    "E18_large_ds_joint_persist_sa128_multiref_24k_full96_r4",
+    "E19_large_ds_joint_shadow_sa128_multiref_24k_full96_r2",
+    "E20_large_ds_joint_shadow_sa128_branchout_r32_24k_full96_r2",
+    "E21_large_ds_joint_shadow_sa128_multiref_branchout_r32_24k_full96_r2",
+    "E22_large_ds_joint_shadow_sa128_arcfaceaux_24k_full96_r2"
+  ]
+}

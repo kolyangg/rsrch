@@ -1,0 +1,29 @@
+defaults:
+  - CL15_CL20_hardcase_base_24k
+  - _self_
+
+# CL17: learned native ownership inside the face box, supervised by a sealed
+# index-seeded synthetic occluder family. Zero ownership scale reproduces CL14.
+model:
+  ba_hardcase_mode: semantic_ownership
+  ba_hardcase_groups: [up_blocks.0, up_blocks.1]
+  ba_hardcase_gate_max: 1.0
+  ba_hardcase_ownership_hidden_dim: 128
+  ba_hardcase_visible_face_floor: 0.20
+  ba_semantic_ownership_loss_weight: 0.05
+
+datasets:
+  train:
+    cosmic_large_adapted:
+      semantic_occlusion_probability: 0.25
+      semantic_occlusion_seed: 150017
+
+expected_trainable_contract:
+  enabled: false
+
+writer:
+  experiment_comment: >-
+    CL17 vs CL14 learns per-query native ownership from target features,
+    native/reference disagreement and timestep, with deterministic synthetic
+    eyewear/goggles/hair/hand/tear labels and a visible-face reference floor.
+

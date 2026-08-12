@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "run_name": "CL14_CA",
+  "plan": {
+    "status": "validation_started",
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Measure the causal value of corrected residual identity cross-attention on CL14.",
+    "baseline": "CL14_cosmic_joint_shadow_sa128_softmask_24k_full96_r1",
+    "baseline_comet_experiment_key": "6fe0028be92242c38056b3d36665fdd6",
+    "single_scientific_change": "Enable zero-initialized bounded residual identity CA v3 at up_blocks.0/1, rank64, gate 0.02..0.20; telemetry only otherwise.",
+    "config": "src/configs/CL14_CA.yaml",
+    "launcher": "launchers/active/run_CL14_CA_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL14_CA/run_CL14_CA_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "fixed_contract": "Fresh CL14 initialization; 24k steps; batch 2; fixed manual_val 96 at step 0 and every 2k; identical validation model, DDIM50, CFG5, seed0, prompts, references, boxes and live legacy metrics; sealed subject-v2 is backfilled on the immutable images; pose_adapt_ratio=0; ca_mixing_for_face=false.",
+    "primary_metric": "Mean subject-v2 ID similarity at matched step 24000; paired by the fixed 96 output keys.",
+    "risk": "The residual may remain unused, duplicate identity already carried by native PhotoMaker CA, or reintroduce face-local artifacts. E17 was safe but did not improve its own base.",
+    "expected_trainable_contract": "2348 tensors / 224624676 parameters",
+    "serv_job": "lm-mpi-job-cf7eda84-ad0b-4d50-af17-c3d9f19e5315",
+    "comet_experiment_key": "0cfe3c874d75448789acc0a5c9b4bc63",
+    "comet_url": "https://www.comet.com/nikolay-2104/aug-large-ds/0cfe3c874d75448789acc0a5c9b4bc63",
+    "runtime_snapshot": "runtime_sources_cl14_ca_v2/CL14_CA",
+    "source_manifest_sha256": "3052b6671351145d460fb54182f4cebafbdaf9101d0bea2d1a1861dd33653b70",
+    "startup_observation": "At 2026-08-12T18:17:26+01:00 the corrected job was Running with error_code=0, immutable Comet registration complete, exact 2348/224624676 trainable and optimizer contracts, and fixed step-0 manual_val started at image 00/96 (batch 0/8). Monitoring then stopped by request.",
+    "startup_attempts": [
+      {
+        "serv_job": "lm-mpi-job-4e99e1aa-1d37-40a0-a9db-ed31c59717c3",
+        "status": "failed_before_comet_or_validation",
+        "reason": "The CL14 snapshot predated live subject-v2 metric selection, so the launcher override targeted a missing structured-config key."
+      }
+    ]
+  }
+}

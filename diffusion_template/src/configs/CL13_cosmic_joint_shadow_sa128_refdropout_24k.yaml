@@ -1,0 +1,24 @@
+defaults:
+  - CL9_cosmic_joint_shadow_sa128_refscale_24k
+  - _self_
+
+# CL13 = CL9 + reference-branch dropout during training.
+#
+# The residual hard prompts - Skiing (goggles), Crying (hands), Kickboxing
+# (gloves) - fail IDENTICALLY on large_dataset, BigCelebs and cosmic_large, so
+# they are architectural, not dataset problems. Prompt difficulty is uncorrelated
+# with required face size (r = -0.026), so it is not a scale issue either: the
+# shared property is occlusion and extreme expression.
+#
+# The branch has never been trained to defer, so it paints a full face into
+# regions the scene has occluded. Dropping it on ~15% of steps keeps the native
+# PhotoMaker path a coherent fallback. Training only; inference always uses the
+# branch, so validation stays comparable.
+model:
+  ba_reference_dropout_probability: 0.15
+
+writer:
+  experiment_comment: >-
+    CL13 vs CL9 drops the reference branch on 15% of training steps so the native
+    path remains a usable fallback when an occluder owns the face region. Targets
+    the dataset-independent Skiing/Crying/Kickboxing failures.

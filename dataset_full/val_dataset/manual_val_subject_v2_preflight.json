@@ -1,0 +1,188 @@
+{
+  "ambiguous_count": 0,
+  "identity_count": 12,
+  "kind": "manual_val_subject_v2_preflight",
+  "rows": [
+    {
+      "ambiguous": false,
+      "bbox": [
+        104.0,
+        0.0,
+        303.0,
+        291.0
+      ],
+      "declared_bbox_iou": 0.8960660203509334,
+      "detection_score": null,
+      "face_count": 2,
+      "identity": "eddie",
+      "index": 1,
+      "selection_reason": "declared_bbox_max_iou"
+    },
+    {
+      "ambiguous": false,
+      "bbox": [
+        392.0,
+        178.0,
+        825.0,
+        800.0
+      ],
+      "declared_bbox_iou": 0.9226186924089513,
+      "detection_score": null,
+      "face_count": 1,
+      "identity": "elon",
+      "index": 0,
+      "selection_reason": "declared_bbox_max_iou"
+    },
+    {
+      "ambiguous": false,
+      "bbox": [
+        197.0,
+        105.0,
+        400.0,
+        379.0
+      ],
+      "declared_bbox_iou": 0.9227421667007987,
+      "detection_score": null,
+      "face_count": 1,
+      "identity": "jennie",
+      "index": 0,
+      "selection_reason": "declared_bbox_max_iou"
+    },
+    {
+      "ambiguous": false,
+      "bbox": [
+        124.0,
+        41.0,
+        225.0,
+        181.0
+      ],
+      "declared_bbox_iou": 0.8891796322489391,
+      "detection_score": null,
+      "face_count": 1,
+      "identity": "jensen",
+      "index": 0,
+      "selection_reason": "declared_bbox_max_iou"
+    },
+    {
+      "ambiguous": false,
+      "bbox": [
+        389.0,
+        109.0,
+        573.0,
+        372.0
+      ],
+      "declared_bbox_iou": 0.9058988764044944,
+      "detection_score": null,
+      "face_count": 1,
+      "identity": "jisoo",
+      "index": 0,
+      "selection_reason": "declared_bbox_max_iou"
+    },
+    {
+      "ambiguous": false,
+      "bbox": [
+        827.0,
+        388.0,
+        1328.0,
+        1166.0
+      ],
+      "declared_bbox_iou": 0.9183265004710855,
+      "detection_score": null,
+      "face_count": 1,
+      "identity": "keanu",
+      "index": 0,
+      "selection_reason": "declared_bbox_max_iou"
+    },
+    {
+      "ambiguous": false,
+      "bbox": [
+        165.0,
+        87.0,
+        354.0,
+        337.0
+      ],
+      "declared_bbox_iou": 0.9334160463192721,
+      "detection_score": null,
+      "face_count": 1,
+      "identity": "lex",
+      "index": 0,
+      "selection_reason": "declared_bbox_max_iou"
+    },
+    {
+      "ambiguous": false,
+      "bbox": [
+        239.0,
+        99.0,
+        442.0,
+        415.0
+      ],
+      "declared_bbox_iou": 0.9352417841796284,
+      "detection_score": null,
+      "face_count": 1,
+      "identity": "marion",
+      "index": 0,
+      "selection_reason": "declared_bbox_max_iou"
+    },
+    {
+      "ambiguous": false,
+      "bbox": [
+        158.0,
+        101.0,
+        341.0,
+        333.0
+      ],
+      "declared_bbox_iou": 0.9099813634984614,
+      "detection_score": null,
+      "face_count": 1,
+      "identity": "michael",
+      "index": 0,
+      "selection_reason": "declared_bbox_max_iou"
+    },
+    {
+      "ambiguous": false,
+      "bbox": [
+        324.0,
+        264.0,
+        885.0,
+        1064.0
+      ],
+      "declared_bbox_iou": 0.9458922908838969,
+      "detection_score": null,
+      "face_count": 1,
+      "identity": "robert",
+      "index": 0,
+      "selection_reason": "declared_bbox_max_iou"
+    },
+    {
+      "ambiguous": false,
+      "bbox": [
+        683.0,
+        91.0,
+        1249.0,
+        846.0
+      ],
+      "declared_bbox_iou": 0.9198458942412311,
+      "detection_score": null,
+      "face_count": 1,
+      "identity": "sydney",
+      "index": 0,
+      "selection_reason": "declared_bbox_max_iou"
+    },
+    {
+      "ambiguous": false,
+      "bbox": [
+        1903.0,
+        555.0,
+        2814.0,
+        1849.0
+      ],
+      "declared_bbox_iou": 0.8746414689518498,
+      "detection_score": null,
+      "face_count": 1,
+      "identity": "tom",
+      "index": 0,
+      "selection_reason": "declared_bbox_max_iou"
+    }
+  ],
+  "schema_version": 1
+}

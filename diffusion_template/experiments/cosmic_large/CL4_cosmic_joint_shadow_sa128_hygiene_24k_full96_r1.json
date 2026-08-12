@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "run_name": "CL4_cosmic_joint_shadow_sa128_hygiene_24k_full96_r1",
+  "plan": {
+    "status": "submitted_pending",
+    "priority": 2,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Isolate dataset hygiene (no reference mirroring + capped pose-first captions) from the geometry fixes.",
+    "baseline": "E13_large_ds_joint_shadow_sa128_24k_full96_r4",
+    "hypothesis": "Part of the CL2/CL3 delta is plain hygiene; CL4 measures how much, making CL4->CL2 and CL4->CL3 clean single-factor contrasts.",
+    "single_scientific_change": "reference mirroring off and pose-first captions capped at 50 words; native reference frame, no ROI warp",
+    "config": "src/configs/CL4_cosmic_joint_shadow_sa128_hygiene_24k.yaml",
+    "launcher": "launchers/active/run_CL1_CL3_cosmic_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL4_cosmic_joint_shadow_sa128_hygiene_24k_full96_r1/run_CL4_cosmic_joint_shadow_sa128_hygiene_24k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "serv_job": "lm-mpi-job-a132bdd2-b24d-4407-8d62-2fb571b7de46",
+    "comet_experiment_key": null,
+    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0 and every 2k, shadow pretrained-default validation, hard spatial BA r128 + generic r32 + PhotoMaker-default r64 at 1e-4, masked_loss_step=1, pose_adapt_ratio=0, ca_mixing_for_face=false, 2240 tensors / 219,217,920 params",
+    "shared_cosmic_controls": "min_face_res=192, complete 256px asset, reference mirroring OFF, pose-first captions capped at 50 words",
+    "dataset": {
+      "manifest": "gathered_data_cosmic_large_filtered.json",
+      "manifest_sha256": "8ba369ef2fdc0496a0d3d55afb5c7923c1aa299343a676ac6bc0d94f3a3a0196",
+      "root": "/mnt/virtual_ai0001053-01309_SR006-nfs1/bobkov/cosmic_data",
+      "input_records": 59143,
+      "accepted_records": 22140
+    },
+    "decision_gates": {
+      "step_0": "ownership 2240/219217920; CL0/CL4/CL5 step-0 must match the CL2 route (.30187) except CL5 which inherits CL3's warped route (.32788)",
+      "step_4000": "compare against CL2 .27219 / CL3 .34294 / E13 .36454 on the same panel",
+      "primary": "mean full-96 ID_sim AND count of catastrophic images (id_sim<0.05); E13 has 0 at 4k, CL3 has 6, CL2 has 11"
+    },
+    "analysis": "analysis/2026-08-07_cl2_cl3_early_results_and_next_cosmic_experiments.md",
+    "serv_runtime": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_sources_cl1_cl3_v1/CL4_cosmic_joint_shadow_sa128_hygiene_24k_full96_r1",
+    "source_manifest": {
+      "files": 969,
+      "source_revision": "d903b2c9e92ce1a6f3db7a1f8fccf82c0d1ab21f+cl0-cl5-snapshot-v1-20260807",
+      "verified": true
+    },
+    "preflight": {
+      "status": "ok",
+      "records": 22140,
+      "reference_sizes": "(256, 256)",
+      "face_scale_ratio_shared_1024_frame": {
+        "p10": 1.27,
+        "median": 2.18,
+        "p90": 2.83
+      },
+      "reference_face_area_pct_median": 41.87,
+      "target_face_area_pct_median": 8.71,
+      "prompt_over_77_tokens_fraction": 0.006,
+      "validator": "ok - roi_warp=false, frame=native, 24000 steps, 219,217,920 params",
+      "start_script_syntax": "ok",
+      "mls_yaml": "ok"
+    },
+    "allocation_exception": "SECOND USER-AUTHORIZED ONE-OFF EXCEPTION, granted 7 Aug 2026, scoped to CL4 alone. Project usage after this submission is 11 A100, which EXCEEDS the eight-A100 hard maximum in AGENTS.md and also exceeds the 10-A100 one-off granted earlier the same day for CL0+CL5. Both exceptions were explicit, scoped and user-initiated. The six E19-E24 jobs were at 20.0h of 24k runs at submission time and are expected to finish shortly, returning the project toward normal limits. Not a precedent: the ceiling reverts to six, or eight with a scoped exception, once these finish.",
+    "submission_attempts": [
+      {
+        "submitted_at": "2026-08-07T14:51Z",
+        "result": "accepted",
+        "serv_job": "lm-mpi-job-a132bdd2-b24d-4407-8d62-2fb571b7de46",
+        "status": "Pending",
+        "project_gpus_before": 10,
+        "project_gpus_after": 11,
+        "comet_experiment_key": null,
+        "preflight": "ok on the real 22,140-record manifest; validator ok; manifest sealed at 969 files"
+      }
+    ]
+  }
+}

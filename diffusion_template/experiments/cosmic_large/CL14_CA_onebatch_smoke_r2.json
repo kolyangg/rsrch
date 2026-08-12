@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "run_name": "CL14_CA_onebatch_smoke_r2",
+  "plan": {
+    "status": "stopped_after_successful_startup_proof",
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Verify CL14_CA forward, backward, telemetry logging, and optimizer stepping after one unchanged CL14 validation batch.",
+    "baseline": "CL14_cosmic_joint_shadow_sa128_softmask_24k_full96_r1",
+    "baseline_comet_experiment_key": "6fe0028be92242c38056b3d36665fdd6",
+    "single_scientific_change": "None; operationally limit only initial manual_val and its face-quality count contract to one fixed 12-item batch, then stop after the startup training gate.",
+    "config": "src/configs/CL14_CA_onebatch_smoke.yaml",
+    "launcher": "launchers/active/run_CL14_CA_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL14_CA_onebatch_smoke_r2/run_CL14_CA_onebatch_smoke_r2_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "serv_job": "lm-mpi-job-05738b32-5978-4559-96cb-6ac7ea38cd2d",
+    "comet_experiment_key": "f808676f2ad54e5e928d92b6650053ca",
+    "source_manifest_sha256": "ac2d5574ac22a13c3686c1dfa65a13e7ea3ab87c21d2871d9acfca45a76cb09d",
+    "startup_observation": "Completed one 12-image CL14 validation batch, wrote the 12-row ID table and 12-image face-quality staging manifest, restored the training base, and advanced through optimizer step 7 with finite loss 0.064705. Immutable-key Comet telemetry reports two identity tokens per installed group, gate 0.02, finite native-face RMS, and the expected zero-initialized residual. MLS stop was requested successfully after proof; final status Stopped.",
+    "fixed_contract": "Identical architecture, model initialization, optimizer, data, and 24k schedule to CL14_CA_r7; initial manual_val limit=12 and matching face-quality expected_images=12 are operational-only changes.",
+    "primary_metric": "Operational only: one successful 12-item validation batch followed by finite optimizer progress beyond step 1.",
+    "risk": "This run lacks the canonical 96-image step-zero panel and is not eligible for scientific comparison.",
+    "expected_trainable_contract": "2348 tensors / 224624676 parameters"
+  }
+}

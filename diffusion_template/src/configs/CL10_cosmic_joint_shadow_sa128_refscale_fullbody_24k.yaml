@@ -1,0 +1,33 @@
+defaults:
+  - CL9_cosmic_joint_shadow_sa128_refscale_24k
+  - _self_
+
+# CL10 = CL9 (the proven face-scale fix) + CL8's restored full-body dataset.
+#
+# At matched step 8k: CL9 cut undersized faces from 11 to 1 with p10 0.933 vs
+# E13's 0.937, and zeroed the jensen/jisoo/keanu cluster. CL8 left face scale
+# untouched (12 vs 11) but leads id_sim at .39640 with 2.6x the data. The two act
+# on different axes, so combining should keep CL9's geometry and gain CL8's data.
+#
+# Two corrections folded in:
+#  - jitter widened 0.30 -> 0.40: CL9's single remaining failure is eddie, whose
+#    validation reference face is 50.35%, above the old sampling range.
+#  - balancing set to `oversample`: CL8 shipped `reorder`, which only permutes the
+#    index and is destroyed by DataLoader shuffling, i.e. it was inert.
+datasets:
+  train:
+    cosmic_large_adapted:
+      reference_scale_jitter: [0.06, 0.40]
+      min_face_res: 64
+      target_scale_balance: true
+      # Bins merged above 10%: a separate >20% band holds only 3,395 targets and
+      # would need 5.8x duplication, over the 4x cap. [2,5,10] keeps every factor
+      # under 2x while still guaranteeing large faces stay represented.
+      target_scale_bins: [2.0, 5.0, 10.0]
+      target_scale_balance_mode: oversample
+
+writer:
+  experiment_comment: >-
+    CL10 = CL9 reference face scale/position jitter (widened to 0.06-0.40) on
+    CL8's restored full-body dataset with working oversample balancing. Primary
+    metric is undersized-face count at matched steps; id_sim secondary.

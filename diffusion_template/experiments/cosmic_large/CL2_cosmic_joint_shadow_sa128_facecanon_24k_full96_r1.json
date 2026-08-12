@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "run_name": "CL2_cosmic_joint_shadow_sa128_facecanon_24k_full96_r1",
+  "plan": {
+    "status": "submitted_pending",
+    "priority": 2,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Test whether the existing 256px crop suffices once its face is presented at the target frame and scale before the VAE.",
+    "baseline": "E13_large_ds_joint_shadow_sa128_24k_full96_r4",
+    "hypothesis": "Branched-lane geometry, not reference resolution or context, is the binding constraint.",
+    "single_scientific_change": "reference_frame_mode=target_face_frame composites the 256px reference face into the target face box at the target scale; no model flag changes",
+    "config": "src/configs/CL2_cosmic_joint_shadow_sa128_facecanon_24k.yaml",
+    "launcher": "launchers/active/run_CL1_CL3_cosmic_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL2_cosmic_joint_shadow_sa128_facecanon_24k_full96_r1/run_CL2_cosmic_joint_shadow_sa128_facecanon_24k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "serv_job": "lm-mpi-job-d04a6885-7c4a-46d7-ac57-3d3f3671bc97",
+    "comet_experiment_key": null,
+    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0 and every 2k, shadow pretrained-default validation, hard spatial BA r128 + generic r32 + PhotoMaker-default r64 at 1e-4, masked_loss_step=1, pose_adapt_ratio=0, ca_mixing_for_face=false, 2240 tensors / 219,217,920 parameters",
+    "shared_cosmic_controls": "min_face_res=192, pose-first captions capped at 50 words, target mirroring on, reference mirroring OFF, no self-reference fallback",
+    "dataset": {
+      "manifest": "gathered_data_cosmic_large_filtered.json",
+      "manifest_sha256": null,
+      "identity_groups_sha256": null,
+      "accepted_records": 22140,
+      "root": "/mnt/virtual_ai0001053-01309_SR006-nfs1/bobkov/cosmic_data",
+      "input_records": 59143,
+      "filtered_target_face": 37003,
+      "filtered_reference_bbox": 137
+    },
+    "decision_gates": {
+      "step_0": "ownership 2240/219217920; contract gate per step_zero_expectation",
+      "step_8000": "ID >= .30212 (E13 step 0); below and falling => stop, record negative",
+      "step_12000": "ID >= .32704 (E11 best clean arm) to continue to 24k",
+      "step_24000": "ID within .02 of E13 .39980 AND clean full-96 face anatomy"
+    },
+    "analysis": "analysis/2026-08-06_cosmic_large_vs_large_dataset_root_cause_and_cl1_cl3_plan.md",
+    "prerequisite": "none; unblocked",
+    "step_zero_expectation": "byte-identical to E13 r4 step 0 (ID .30212)",
+    "serv_runtime": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_sources_cl1_cl3_v1/CL2_cosmic_joint_shadow_sa128_facecanon_24k_full96_r1",
+    "source_manifest": {
+      "files": 861,
+      "source_revision": "d903b2c9e92ce1a6f3db7a1f8fccf82c0d1ab21f+cl1-cl3-snapshot-v1-20260806",
+      "verified": true
+    },
+    "preflight": {
+      "status": "ok",
+      "reference_sizes": "(1024, 1024)",
+      "face_scale_ratio_p10_median_p90": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "reference_face_area_pct_median": 9.233,
+      "target_face_area_pct_median": 8.7061,
+      "center_offset_px_max": 0.4966,
+      "prompt_over_77_tokens_fraction": 0.006
+    },
+    "caption_cap_note": "prompt_max_words lowered 55 -> 50 after a real-data measurement: at 55 16.5% of Cosmic captions still exceeded 77 CLIP tokens. A 3000-record sweep showed pose-first ordering alone leaves 87.2% over (legacy 86.4%), so the cap, not the ordering, controls truncation. Cap 50 gives 0.7%.",
+    "submission_attempts": [
+      {
+        "submitted_at": "2026-08-06T23:19:45+01:00",
+        "authorization": "user-authorized eight-A100 exception scoped to CL2",
+        "project_gpus_before": 7,
+        "result": "rejected_before_job_creation",
+        "error_code": 1,
+        "error_message": "WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE",
+        "job_created": false,
+        "comet_experiment_key": null,
+        "audit_record": "local_scripts/serv_job_records/unparsed-submit-2026-08-06T23-19-45+01-00.json",
+        "note": "Workspace-wide capacity limit, not this project's ceiling. No job, no log directory and no Comet experiment were created, so the r1 run name is uncontaminated and reusable. Per AGENTS.md this request must not be retried unless the user asks."
+      },
+      {
+        "submitted_at": "2026-08-06T23:35:09+01:00",
+        "authorization": "user requested retry; eight-A100 exception scoped to CL2 still standing",
+        "project_gpus_before": 7,
+        "workspace_gpus_active": 17,
+        "result": "rejected_before_job_creation",
+        "error_code": 1,
+        "error_message": "WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE",
+        "job_created": false,
+        "comet_experiment_key": null,
+        "audit_record": "local_scripts/serv_job_records/unparsed-submit-2026-08-06T23-35-09+01-00.json",
+        "note": "Workspace quota exhausted across all users (ours 7, a.ivanova 6, aichugunov 4). Package re-verified intact before submitting. No further retry without a new user request."
+      },
+      {
+        "submitted_at": "2026-08-07T08:52Z",
+        "authorization": "user-authorized eight-A100 exception (CL2 and CL3); user asked to submit now",
+        "project_gpus_before": 6,
+        "project_gpus_after": 7,
+        "result": "accepted",
+        "serv_job": "lm-mpi-job-d04a6885-7c4a-46d7-ac57-3d3f3671bc97",
+        "status": "Pending",
+        "comet_experiment_key": null,
+        "note": "E17 r5 finished, freeing project capacity; workspace dropped from 17 to 10 A100."
+      }
+    ]
+  }
+}

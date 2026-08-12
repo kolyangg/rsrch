@@ -13,6 +13,7 @@ from peft.utils import get_peft_model_state_dict
 from transformers import CLIPImageProcessor
 
 import os
+import random
 from diffusers.utils import (
     convert_state_dict_to_diffusers,
     convert_unet_state_dict_to_peft,
@@ -28,6 +29,7 @@ from .lora2_helpers import (
     assert_branched_trainable_contract,
     branched_trainable_role_groups,
     collect_branched_telemetry,
+    collect_hardcase_aux_loss,
     install_branched_processors_for_training,
     prepare_branched_training_inputs,
     run_branched_forward_pass,
@@ -82,6 +84,7 @@ class PhotomakerBranchedLora(SDXL):
         conditioning_cache_enabled: bool = False,
         conditioning_cache_max_entries: int = 512,
         batched_conditioning_preparation: bool = False,
+        face_subject_selection_policy: str = "legacy_first",
         cache_prepared_masks: bool = False,
         compute_branch_debug_outputs: bool = True,
         strict_branched_install: bool = False,
@@ -119,6 +122,27 @@ class PhotomakerBranchedLora(SDXL):
         ba_hard_v1_true_reference_key_mask: bool = False,
         ba_hard_v1_branch_output_rank: Optional[int] = None,
         ba_hard_v1_reference_roi_warp: bool = False,
+        # 09 Aug 2026 - CL13/CL14 controls, both defaults-off and TRAINING-ONLY.
+        # The hard prompts (Skiing/Crying/Kickboxing) fail identically on
+        # large_dataset, BigCelebs and cosmic, so they are architectural rather
+        # than dataset problems. Inference is untouched by both flags, so arms
+        # using them stay comparable with every previous run.
+        ba_reference_dropout_probability: float = 0.0,
+        ba_training_mask_feather: int = 0,
+        # 11 Aug 2026 - CL15-CL19 hard-case routes. Defaults preserve CL14.
+        ba_hardcase_mode: str = "off",
+        ba_hardcase_groups: Optional[Sequence[str]] = None,
+        ba_hardcase_rank: int = 64,
+        ba_hardcase_gate_max: float = 0.20,
+        ba_hardcase_roi_size: int = 32,
+        ba_hardcase_face_threshold_px: int = 256,
+        ba_hardcase_transition_cells: int = 2,
+        ba_hardcase_ownership_hidden_dim: int = 128,
+        ba_hardcase_visible_face_floor: float = 0.20,
+        ba_semantic_ownership_loss_weight: float = 0.05,
+        ba_crossview_consistency_enabled: bool = False,
+        ba_crossview_consistency_probability: float = 0.25,
+        ba_crossview_consistency_weight: float = 0.05,
         generic_adapter_train_scope: str = "none",
         photomaker_default_train_scope: str = "none",
         ba_hard_v1_lora_rank: Optional[int] = None,
@@ -442,6 +466,11 @@ class PhotomakerBranchedLora(SDXL):
                 f"got {self.ba_spatial_reference_shuffle_probability}"
             )
         self.ba_install_on_device = bool(ba_install_on_device)
+        self.face_subject_selection_policy = str(face_subject_selection_policy).lower()
+        if self.face_subject_selection_policy not in {"legacy_first", "bbox_overlap_v2"}:
+            raise ValueError(
+                "face_subject_selection_policy must be legacy_first or bbox_overlap_v2"
+            )
         self.ba_enforce_reference_only_hard_route = bool(
             ba_enforce_reference_only_hard_route
         )
@@ -460,6 +489,88 @@ class PhotomakerBranchedLora(SDXL):
             raise ValueError(
                 "ba_hard_v1_branch_output_rank must be positive when enabled"
             )
+        self.ba_reference_dropout_probability = float(ba_reference_dropout_probability)
+        if not 0.0 <= self.ba_reference_dropout_probability <= 0.5:
+            raise ValueError("ba_reference_dropout_probability must be in [0, 0.5]")
+        self.ba_training_mask_feather = int(ba_training_mask_feather)
+        if not 0 <= self.ba_training_mask_feather <= 8:
+            raise ValueError("ba_training_mask_feather must be in [0, 8]")
+        self.ba_hardcase_mode = str(ba_hardcase_mode or "off").lower()
+        self.ba_hardcase_groups = (
+            None
+            if ba_hardcase_groups is None
+            else tuple(str(group) for group in ba_hardcase_groups)
+        )
+        self.ba_hardcase_rank = int(ba_hardcase_rank)
+        self.ba_hardcase_gate_max = float(ba_hardcase_gate_max)
+        self.ba_hardcase_roi_size = int(ba_hardcase_roi_size)
+        self.ba_hardcase_face_threshold_px = int(ba_hardcase_face_threshold_px)
+        self.ba_hardcase_transition_cells = int(ba_hardcase_transition_cells)
+        self.ba_hardcase_ownership_hidden_dim = int(
+            ba_hardcase_ownership_hidden_dim
+        )
+        self.ba_hardcase_visible_face_floor = float(
+            ba_hardcase_visible_face_floor
+        )
+        self.ba_semantic_ownership_loss_weight = float(
+            ba_semantic_ownership_loss_weight
+        )
+        allowed_hardcase_modes = {
+            "off",
+            "highres_roi",
+            "clean_memory",
+            "semantic_ownership",
+            "soft_router",
+        }
+        if self.ba_hardcase_mode not in allowed_hardcase_modes:
+            raise ValueError(
+                f"ba_hardcase_mode must be one of {sorted(allowed_hardcase_modes)}"
+            )
+        if self.ba_hardcase_mode != "off" and not all(
+            (
+                self.ba_hardcase_groups,
+                self.ba_architecture_version == "hard_replace_v1",
+                self.branched_attn_weight_mode == "noise_and_ref",
+                self.train_ba_only,
+                self.strict_trainable_contract,
+                self.pose_adapt_ratio == 0.0,
+                not self.ca_mixing_for_face,
+            )
+        ):
+            raise ValueError(
+                "CL15+ hard-case routes require grouped strict hard-v1 "
+                "BA-only noise_and_ref with reference-only K/V"
+            )
+        if min(
+            self.ba_hardcase_rank,
+            self.ba_hardcase_roi_size,
+            self.ba_hardcase_face_threshold_px,
+            self.ba_hardcase_transition_cells,
+            self.ba_hardcase_ownership_hidden_dim,
+        ) <= 0:
+            raise ValueError("Hard-case rank/geometry controls must be positive")
+        if not 0.0 < self.ba_hardcase_gate_max <= 1.0:
+            raise ValueError("ba_hardcase_gate_max must be in (0, 1]")
+        if not 0.0 <= self.ba_hardcase_visible_face_floor <= 1.0:
+            raise ValueError("ba_hardcase_visible_face_floor must be in [0, 1]")
+        if self.ba_semantic_ownership_loss_weight < 0.0:
+            raise ValueError("ba_semantic_ownership_loss_weight must be non-negative")
+        self.ba_crossview_consistency_enabled = bool(
+            ba_crossview_consistency_enabled
+        )
+        self.ba_crossview_consistency_probability = float(
+            ba_crossview_consistency_probability
+        )
+        self.ba_crossview_consistency_weight = float(
+            ba_crossview_consistency_weight
+        )
+        if self.ba_crossview_consistency_enabled and not (
+            0.0 < self.ba_crossview_consistency_probability <= 1.0
+            and self.ba_crossview_consistency_weight > 0.0
+            and self.pose_adapt_ratio == 0.0
+            and not self.ca_mixing_for_face
+        ):
+            raise ValueError("Invalid cross-view BA consistency configuration")
         self.ba_hard_v1_reference_roi_warp = bool(
             ba_hard_v1_reference_roi_warp
         )
@@ -626,6 +737,8 @@ class PhotomakerBranchedLora(SDXL):
                 self.ba_hard_v1_lora_rank is not None,
                 self.ba_identity_ca_v2_enabled,
                 self.ba_residual_identity_ca_v3_enabled,
+                self.ba_hardcase_mode != "off",
+                self.ba_crossview_consistency_enabled,
             )
         ):
             raise ValueError("Hard-v1 controls require ba_architecture_version=hard_replace_v1")
@@ -870,6 +983,8 @@ class PhotomakerBranchedLora(SDXL):
                 or self.ba_hard_v1_lora_rank is not None
                 or self.ba_identity_ca_v2_enabled
                 or self.ba_residual_identity_ca_v3_enabled
+                or self.ba_hardcase_mode != "off"
+                or self.ba_crossview_consistency_enabled
             )
         )
         processor_code_version = {
@@ -1040,6 +1155,37 @@ class PhotomakerBranchedLora(SDXL):
                     "merge": "native_plus_face_mask_times_bounded_gate_times_rms_id_delta",
                     "delta_output_zero_init": True,
                     "legacy_branched_ca": False,
+                }
+            if self.ba_hardcase_mode != "off":
+                hard_v1_extensions["hardcase_route"] = {
+                    "mode": self.ba_hardcase_mode,
+                    "groups": list(self.ba_hardcase_groups or ()),
+                    "rank": int(self.ba_hardcase_rank),
+                    "gate_max": float(self.ba_hardcase_gate_max),
+                    "roi_size": int(self.ba_hardcase_roi_size),
+                    "face_threshold_px": int(
+                        self.ba_hardcase_face_threshold_px
+                    ),
+                    "transition_cells": int(
+                        self.ba_hardcase_transition_cells
+                    ),
+                    "ownership_hidden_dim": int(
+                        self.ba_hardcase_ownership_hidden_dim
+                    ),
+                    "visible_face_floor": float(
+                        self.ba_hardcase_visible_face_floor
+                    ),
+                    "semantic_loss_weight": float(
+                        self.ba_semantic_ownership_loss_weight
+                    ),
+                }
+            if self.ba_crossview_consistency_enabled:
+                hard_v1_extensions["crossview_consistency"] = {
+                    "probability": float(
+                        self.ba_crossview_consistency_probability
+                    ),
+                    "weight": float(self.ba_crossview_consistency_weight),
+                    "teacher_stop_gradient": True,
                 }
             manifest["hard_v1_extensions"] = hard_v1_extensions
         if self.identity_aux_enabled:
@@ -1644,6 +1790,9 @@ class PhotomakerBranchedLora(SDXL):
         face_bbox_ref: Sequence[Sequence[float]] | None = None,
         reference_cache_key: Sequence[str] | None = None,
         identity_id: Sequence[str] | None = None,
+        ba_occluder_mask: Sequence[torch.Tensor] | None = None,
+        spatial_ref_images_alt: Sequence[Sequence[Image.Image]] | None = None,
+        face_bbox_ref_alt: Sequence[Sequence[float]] | None = None,
         global_step: int = 0,
         do_cfg: bool = False,
         *args,
@@ -1710,6 +1859,29 @@ class PhotomakerBranchedLora(SDXL):
             "time_ids": add_time_ids.to(device=self.device, dtype=self.unet.dtype),
         }
 
+        self._ba_ownership_target_mask = None
+        if ba_occluder_mask is not None:
+            prepared_occluders = []
+            for value in ba_occluder_mask:
+                tensor = torch.as_tensor(value, dtype=torch.float32)
+                if tensor.ndim == 2:
+                    tensor = tensor.unsqueeze(0)
+                if tensor.ndim != 3 or tensor.shape[0] != 1:
+                    raise ValueError(
+                        "ba_occluder_mask items must have shape HxW or 1xHxW"
+                    )
+                prepared_occluders.append(tensor)
+            ownership_mask = torch.stack(prepared_occluders).to(self.device)
+            if ownership_mask.shape[-2:] != mask4.shape[-2:]:
+                ownership_mask = F.interpolate(
+                    ownership_mask,
+                    size=mask4.shape[-2:],
+                    mode="nearest",
+                )
+            self._ba_ownership_target_mask = ownership_mask.to(
+                dtype=noisy_latents.dtype
+            )
+
         ### MEMO: INITIAL LORA UNet pass ###
         # model_pred = self.unet(
         #     noisy_model_input,
@@ -1760,7 +1932,25 @@ class PhotomakerBranchedLora(SDXL):
                 device=self.device, dtype=self.unet.dtype
             )
 
-        if self.train_ba_all_steps:
+        # 09 Aug 2026 - CL13: occasionally take the plain PhotoMaker path so the
+        # native route stays a coherent fallback. The branch has never been
+        # trained to defer, which is why it paints a full face onto goggles and
+        # hands. Training only - `_reference_dropout_active` is never set during
+        # validation, so inference always uses the branch.
+        drop_reference = False
+        if self.training and self.ba_reference_dropout_probability > 0.0:
+            drop_reference = random.random() < self.ba_reference_dropout_probability
+        self._reference_dropout_active = bool(drop_reference)
+
+        if drop_reference:
+            noise_pred = self.unet(
+                noisy_latents,
+                timesteps,
+                encoder_hidden_states=prompt_embeds,
+                added_cond_kwargs=added_cond_kwargs,
+                return_dict=False,
+            )[0]
+        elif self.train_ba_all_steps:
             noise_pred = run_branched_forward_pass(
                 self,
                 noisy_latents=noisy_latents,
@@ -1816,6 +2006,93 @@ class PhotomakerBranchedLora(SDXL):
         # pass. The latter is deliberately suppressed so it cannot overwrite
         # the actual production-path sample.
         ba_telemetry = collect_branched_telemetry(self)
+        ownership_loss = collect_hardcase_aux_loss(self)
+        if ownership_loss is None:
+            ownership_loss = noise_pred.float().new_tensor(0.0)
+        hardcase_aux_loss = (
+            self.ba_semantic_ownership_loss_weight * ownership_loss
+        )
+
+        crossview_loss = noise_pred.float().new_tensor(0.0)
+        if (
+            self.training
+            and self.ba_crossview_consistency_enabled
+            and spatial_ref_images_alt is not None
+            and face_bbox_ref_alt is not None
+            and torch.rand((), device=latents.device).item()
+            < self.ba_crossview_consistency_probability
+        ):
+            alternate_refs = []
+            alternate_masks = []
+            for refs, bbox in zip(spatial_ref_images_alt, face_bbox_ref_alt):
+                refs = refs if isinstance(refs, (list, tuple)) else [refs]
+                if not refs:
+                    raise RuntimeError("Cross-view consistency received no alternate ref")
+                ref = refs[0]
+                alternate_refs.append(ref)
+                ref_size = (
+                    tuple(ref.shape[-2:])
+                    if isinstance(ref, torch.Tensor)
+                    else (ref.height, ref.width)
+                )
+                alternate_masks.append(
+                    self._bbox_to_ref_mask(
+                        bbox,
+                        noisy_latents.shape[-2:],
+                        ref_size,
+                    )
+                )
+            alternate_latents = self._encode_reference_latents(
+                alternate_refs,
+                target_shape=noisy_latents.shape[-2:],
+            ).to(dtype=noisy_latents.dtype)
+            alternate_mask4 = torch.cat(alternate_masks, dim=0).to(
+                device=self.device,
+                dtype=noisy_latents.dtype,
+            )
+            paired_reference_noise = getattr(self, "_ref_noise", None)
+            if paired_reference_noise is None:
+                raise RuntimeError("Cross-view consistency lost paired reference noise")
+            student_pred = run_branched_forward_pass(
+                self,
+                noisy_latents=noisy_latents,
+                timesteps=timesteps,
+                prompt_embeds=prompt_embeds,
+                added_cond_kwargs=added_cond_kwargs,
+                mask4=mask4,
+                mask4_ref=alternate_mask4,
+                reference_latents=alternate_latents,
+                face_prompt_embeds=face_prompt_embeds,
+                class_tokens_mask=class_tokens_mask,
+                id_features=id_features,
+                reference_noise=paired_reference_noise,
+            )
+            face = mask4.float()
+            if face.shape[-2:] != noise_pred.shape[-2:]:
+                face = F.interpolate(
+                    face,
+                    size=noise_pred.shape[-2:],
+                    mode="nearest",
+                )
+            teacher_face = noise_pred.detach().float() * face
+            student_face = student_pred.float() * face
+            smooth_map = F.smooth_l1_loss(
+                student_face,
+                teacher_face,
+                reduction="none",
+            )
+            smooth = (smooth_map * face).sum() / (
+                face.sum() * student_face.shape[1]
+            ).clamp_min(1.0)
+            cosine = F.cosine_similarity(
+                student_face.flatten(1),
+                teacher_face.flatten(1),
+                dim=1,
+            ).mean()
+            crossview_loss = smooth + 0.10 * (1.0 - cosine)
+            hardcase_aux_loss = hardcase_aux_loss + (
+                self.ba_crossview_consistency_weight * crossview_loss
+            )
         wrong_spatial_reference_pred = None
         reference_shuffle_applied = noise_pred.new_tensor(0.0)
         reference_prediction_delta_ratio = noise_pred.new_tensor(0.0)
@@ -1930,6 +2207,9 @@ class PhotomakerBranchedLora(SDXL):
             'reference_shuffle_applied': reference_shuffle_applied,
             'reference_prediction_delta_ratio': reference_prediction_delta_ratio,
             'ba_telemetry': ba_telemetry,
+            'ba_aux_loss': hardcase_aux_loss,
+            'ba_ownership_loss': ownership_loss.detach(),
+            'ba_crossview_loss': crossview_loss.detach(),
             'identity_aux_loss': identity_aux_loss,
             'identity_aux_weight': identity_aux_weight,
             'identity_aux_applied': identity_aux_applied,
@@ -2193,6 +2473,23 @@ class PhotomakerBranchedLora(SDXL):
             return mask
 
         mask[:, :, y_start:y_end, x_start:x_end] = 1.0
+        feather = int(getattr(self, "ba_training_mask_feather", 0))
+        if feather > 0:
+            # 09 Aug 2026 - CL14: a hard binary box teaches a discontinuous
+            # handover at the edge, which shows up as seams and unblended faces.
+            # Ramp inward so the branch learns a gradual transition. Training
+            # only: the inference pipeline builds its own mask and never reads
+            # this flag, so validation stays byte-comparable.
+            for step in range(1, feather + 1):
+                weight = step / float(feather + 1)
+                ys, ye = y_start + step - 1, y_end - step + 1
+                xs, xe = x_start + step - 1, x_end - step + 1
+                if ye <= ys or xe <= xs:
+                    break
+                mask[:, :, ys, xs:xe] = weight
+                mask[:, :, ye - 1, xs:xe] = weight
+                mask[:, :, ys:ye, xs] = weight
+                mask[:, :, ys:ye, xe - 1] = weight
         return mask
 
     def _encode_reference_latent(

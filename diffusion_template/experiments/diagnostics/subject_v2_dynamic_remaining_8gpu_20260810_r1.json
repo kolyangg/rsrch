@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "kind": "subject_v2_dynamic_historical_backfill",
+  "created_at": "2026-08-10",
+  "status": "superseded_by_independent_one_gpu_jobs",
+  "handoff": {
+    "stopped_job": "lm-mpi-job-7df3819d-7fdc-4ca0-a50a-b058bb254f03",
+    "stopped_status": "stopped",
+    "verified_runs_at_stop": 12,
+    "staged_step_manifests_at_stop": 177,
+    "eight_gpu_submission": "PROJECT_GPU_LIMIT_REACHED_ONLY_4_FREE; no job created",
+    "four_gpu_yaml": "serv_run_packages/subject_v2_dynamic_remaining_8gpu_20260810_r1/run_dynamic_4workers.yaml",
+    "four_gpu_submission": "not attempted; superseded after the user explicitly requested independent one-GPU jobs",
+    "successor_record": "experiments/diagnostics/subject_v2_dynamic_remaining_1gpu_20260810_r2.json"
+  },
+  "replaces_job": "lm-mpi-job-7df3819d-7fdc-4ca0-a50a-b058bb254f03",
+  "reason": "three of eight allocated workers were idle while thirteen runs remained unfinished or unverified",
+  "gpu_policy": {
+    "authorized_ceiling": 10,
+    "requested_gpus": 8,
+    "assignment": "dynamic NFS run claims; no fixed-chain idle while unclaimed runs remain"
+  },
+  "remaining_runs": [
+    "CL6_cosmic_joint_shadow_sa128_boundary_24k_full96_r1",
+    "CL12_cosmic_joint_shadow_sa128_refscale_fullbody_multiref_24k_full96_r1",
+    "CL13_cosmic_joint_shadow_sa128_refdropout_24k_full96_r1",
+    "CL14_cosmic_joint_shadow_sa128_softmask_24k_full96_r1",
+    "E14_large_ds_joint_shadow_sa128_protected_24k_full96_r6",
+    "E15_large_ds_joint_persist_sa128_protected_24k_full96_r2",
+    "E16_large_ds_joint_persist_sa128_idloss_24k_full96_r2",
+    "E17_large_ds_joint_persist_sa128_resididca_24k_full96_r5",
+    "E18_large_ds_joint_persist_sa128_multiref_24k_full96_r4",
+    "E19_large_ds_joint_shadow_sa128_multiref_24k_full96_r2",
+    "E20_large_ds_joint_shadow_sa128_branchout_r32_24k_full96_r2",
+    "E21_large_ds_joint_shadow_sa128_multiref_branchout_r32_24k_full96_r2",
+    "E22_large_ds_joint_shadow_sa128_arcfaceaux_24k_full96_r2"
+  ]
+}

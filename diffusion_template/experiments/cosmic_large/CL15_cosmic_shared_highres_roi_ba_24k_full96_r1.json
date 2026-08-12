@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "run_name": "CL15_cosmic_shared_highres_roi_ba_24k_full96_r1",
+  "plan": {
+    "status": "failed_startup_packaging",
+    "priority": 1,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Recover identity detail when the target face collapses to few U-Net tokens.",
+    "baseline": "CL14_cosmic_joint_shadow_sa128_softmask_24k_full96_r1",
+    "single_scientific_change": "Zero-gated fixed 32x32 target-ROI-Q/reference-ROI-KV residual at up0/up1 for faces <=256px.",
+    "config": "src/configs/CL15_cosmic_shared_highres_roi_ba_24k.yaml",
+    "launcher": "launchers/active/run_CL15_CL20_hardcases_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL15_cosmic_shared_highres_roi_ba_24k_full96_r1/run_CL15_cosmic_shared_highres_roi_ba_24k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "serv_job": "lm-mpi-job-a0ef3449-6319-4d99-96e0-a38b1ffe4814",
+    "comet_experiment_key": "6c5dca42e7d349278a04cc69c8e7bdc5",
+    "failure": "Wrong runtime dataset_full symlink; failed before validation.",
+    "fixed_contract": "24k steps, batch 2, fixed manual_val 96 at step 0/every 2k, DDIM50, unchanged prompts/seeds/refs/boxes/metrics, pose_adapt_ratio=0, ca_mixing_for_face=false"
+  }
+}

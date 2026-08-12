@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "run_name": "CL3_cosmic_joint_shadow_sa128_fmtfix_24k_full96_r1",
+  "plan": {
+    "status": "submitted_pending",
+    "priority": 3,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Test whether the reference/target face-scale mismatch can be corrected after the encoder in feature space.",
+    "baseline": "E13_large_ds_joint_shadow_sa128_24k_full96_r4",
+    "hypothesis": "Post-encoder ROI warping recovers registration without changing reference pixels.",
+    "single_scientific_change": "model.ba_hard_v1_reference_roi_warp=true with the native 256px reference (existing defaults-off flag, pinned false for E1-E24)",
+    "config": "src/configs/CL3_cosmic_joint_shadow_sa128_fmtfix_24k.yaml",
+    "launcher": "launchers/active/run_CL1_CL3_cosmic_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL3_cosmic_joint_shadow_sa128_fmtfix_24k_full96_r1/run_CL3_cosmic_joint_shadow_sa128_fmtfix_24k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "serv_job": "lm-mpi-job-a56119d6-e392-44a9-b034-3fa6d4ac9348",
+    "comet_experiment_key": null,
+    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0 and every 2k, shadow pretrained-default validation, hard spatial BA r128 + generic r32 + PhotoMaker-default r64 at 1e-4, masked_loss_step=1, pose_adapt_ratio=0, ca_mixing_for_face=false, 2240 tensors / 219,217,920 parameters",
+    "shared_cosmic_controls": "min_face_res=192, pose-first captions capped at 50 words, target mirroring on, reference mirroring OFF, no self-reference fallback",
+    "dataset": {
+      "manifest": "gathered_data_cosmic_large_filtered.json",
+      "manifest_sha256": null,
+      "identity_groups_sha256": null,
+      "accepted_records": 22140,
+      "root": "/mnt/virtual_ai0001053-01309_SR006-nfs1/bobkov/cosmic_data",
+      "input_records": 59143
+    },
+    "decision_gates": {
+      "step_0": "ownership 2240/219217920; contract gate per step_zero_expectation",
+      "step_8000": "ID >= .30212 (E13 step 0); below and falling => stop, record negative",
+      "step_12000": "ID >= .32704 (E11 best clean arm) to continue to 24k",
+      "step_24000": "ID within .02 of E13 .39980 AND clean full-96 face anatomy"
+    },
+    "analysis": "analysis/2026-08-06_cosmic_large_vs_large_dataset_root_cause_and_cl1_cl3_plan.md",
+    "prerequisite": "none; contingency arm, run only if CL2 is clearly positive but incomplete",
+    "step_zero_expectation": "CHANGES the step-zero route (like E1/E3/E4/E12); declare its own step-zero value",
+    "serv_runtime": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_sources_cl1_cl3_v1/CL3_cosmic_joint_shadow_sa128_fmtfix_24k_full96_r1",
+    "source_manifest": {
+      "files": 863,
+      "source_revision": "d903b2c9e92ce1a6f3db7a1f8fccf82c0d1ab21f+cl1-cl3-snapshot-v1-20260806",
+      "verified": true
+    },
+    "preflight": {
+      "status": "ok",
+      "reference_sizes": "(256, 256)",
+      "face_scale_ratio_shared_1024_frame": {
+        "p10": 1.3,
+        "median": 2.157,
+        "p90": 2.88
+      },
+      "reference_face_area_pct_median_own_frame": 41.78,
+      "target_face_area_pct_median": 8.71,
+      "prompt_over_77_tokens_fraction": 0.006,
+      "note": "CL3 deliberately preserves the uncorrected pixel-space mismatch; the measured median 2.157 confirms the analysis prediction of 2.12 from population medians."
+    },
+    "caption_cap_note": "prompt_max_words lowered 55 -> 50 after a real-data measurement: at 55 16.5% of Cosmic captions still exceeded 77 CLIP tokens. A 3000-record sweep showed pose-first ordering alone leaves 87.2% over (legacy 86.4%), so the cap, not the ordering, controls truncation. Cap 50 gives 0.7%.",
+    "roi_warp_verification": {
+      "method": "direct CPU test of _warp_reference_roi_to_target with measured Cosmic geometry",
+      "sink_fraction_64x64": {
+        "before": 0.569,
+        "after": 0.912
+      },
+      "sink_fraction_32x32": {
+        "before": 0.609,
+        "after": 0.912
+      },
+      "large_dataset_reference_point": 0.927,
+      "zero_outside_target_mask": true,
+      "empty_mask_guard_raises": true,
+      "note": "Sink normalization comes from `warped * target_mask_2d` at attn_processor_cleanest.py:574, not from the face_key_mask_flat switch, which is inert while ba_hard_v1_true_reference_key_mask is false."
+    },
+    "not_submitted_reason": "Project is at 7 Running A100s (E17 r5 + E19-E24 r2). CL2 is authorized as the 8th; CL3 would be the 9th, above the eight-A100 hard maximum in AGENTS.md even with an exception. Staged and fully verified; submit when the project drops to six or fewer, or with a new explicit authorization once capacity allows.",
+    "submission_attempts": [
+      {
+        "submitted_at": "2026-08-07T08:52Z",
+        "authorization": "user-authorized eight-A100 exception (CL2 and CL3); user asked to submit now",
+        "project_gpus_before": 6,
+        "project_gpus_after": 8,
+        "result": "accepted",
+        "serv_job": "lm-mpi-job-a56119d6-e392-44a9-b034-3fa6d4ac9348",
+        "status": "Pending",
+        "comet_experiment_key": null,
+        "note": "E17 r5 finished, freeing project capacity; workspace dropped from 17 to 10 A100."
+      }
+    ]
+  }
+}

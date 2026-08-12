@@ -6,6 +6,23 @@
   "ignore_mask": true,
   "image_dpi_percent": null,
   "run_name_max_chars_per_line": 16,
+  "markdown_source": null,
+  "metric_point_labels": {
+    "enabled": false,
+    "decimals": 3
+  },
+  "per_image_metric": {
+    "enabled": false,
+    "column": "id_sim",
+    "label": "ID",
+    "decimals": 3
+  },
+  "group_average_tables": {
+    "enabled": false,
+    "metric_column": "id_sim",
+    "metric_label": "Subject-v2 ID Similarity",
+    "decimals": 3
+  },
   "key_metrics": [
     "one_id_val/id_sim",
     "one_id_val/text_sim"
@@ -24,5 +41,12 @@
     "strict_face_routing",
     "trainer.masked_loss_step"
   ],
-  "runs": []
+  "hyperparameter_labels": {},
+  "runs": [
+    {
+      "run_id": "REPLACE_WITH_COMET_EXPERIMENT_KEY",
+      "run_name": "optional short report label",
+      "hyperparameter_overrides": {}
+    }
+  ]
 }

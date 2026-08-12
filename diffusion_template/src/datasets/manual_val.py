@@ -23,12 +23,18 @@ class ManualPhotoMakerValDataset(Dataset):
         bbox_mask_gen: str | None = None,
         seeds: Sequence[int] = (0, 1, 2),
         limit: int | None = None,
+        face_subject_selection_policy: str = "legacy_first",
         instance_transforms=None,
     ):
         self.images_dir = Path(images_dir)
         self.prompts_path = Path(prompts_path)
         self.seeds = list(seeds)
         self.instance_transforms = instance_transforms  # unused; kept for config compatibility
+        self.face_subject_selection_policy = str(face_subject_selection_policy).lower()
+        if self.face_subject_selection_policy not in {"legacy_first", "bbox_overlap_v2"}:
+            raise ValueError(
+                "face_subject_selection_policy must be legacy_first or bbox_overlap_v2"
+            )
 
         if not self.images_dir.exists():
             raise FileNotFoundError(f"Images directory not found: {self.images_dir}")
@@ -141,4 +147,5 @@ class ManualPhotoMakerValDataset(Dataset):
             "id": sample["id"],
             "face_bbox_ref": sample.get("face_bbox_ref"),
             "face_bbox_gen": face_bbox_gen,
+            "face_subject_selection_policy": self.face_subject_selection_policy,
         }

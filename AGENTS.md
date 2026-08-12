@@ -135,6 +135,15 @@ be found with `rg`.
 
 # Experiment documentation
 
+When asked to analyse results, compare runs, diagnose a failure, propose next
+experiments, or produce a report/writeup/PDF, follow the `research-report`
+skill at `.claude/skills/research-report/SKILL.md`. It is the house style for
+every report in `diffusion_template/analysis/` and encodes the measurement
+conventions and the silent data-joining traps in this repo. Publish with
+`diffusion_template/tools/reports/publish_report.py <report.md> --upload`,
+which renders the PDF into `analysis/assets/` and uploads it to Dropbox under
+the rules below.
+
 Document material architecture/configuration changes and the exact launchers
 used. Reports should separate observed evidence from hypotheses and should note
 whether conclusions come from visuals, metrics, logs, or code inspection.
@@ -164,10 +173,13 @@ instruction.
 # Tool index and Comet run records
 
 Use `diffusion_template/TOOLS.md` as the entry point for repository tools and
-server-operation helpers.
+server-operation helpers. Project skills live in `.claude/skills/` at the
+repository root — currently `research-report` (see Experiment documentation).
 
 When the user asks to upload a local artifact to Dropbox, run
-`diffusion_template/tools/dropbox/upload_to_dropbox.py`. It enforces the
+`diffusion_template/tools/dropbox/upload_to_dropbox.py`.
+`tools/reports/publish_report.py --upload` already calls it for reports, so
+use that instead of uploading a report PDF by hand. It enforces the
 project destination `/rsrch/YYYY-MM-DD/<filename>`, verifies the uploaded
 content hash, and uses credentials from the gitignored
 `diffusion_template/.env`. A Dropbox upload is not complete unless the tool
@@ -181,13 +193,13 @@ logs, or responses.
 Before submitting an A100 job on Serv, inspect the running and pending MLS
 jobs. This project's normal ceiling is six A100 GPUs requested concurrently.
 An explicitly authorized exceptional submission may raise the ceiling to
-eight A100 GPUs, but only when the user names the experiment/job scope and
-clearly authorizes the eight-GPU exception. The ceiling returns to six after
+ten A100 GPUs, but only when the user names the experiment/job scope and
+clearly authorizes the ten-GPU exception. The ceiling returns to six after
 those specified submissions finish or are removed. Count this project's own
 Running and Pending jobs by their actual one- or two-GPU request; other users'
 jobs do not count. Pending means the request was submitted successfully and
 does not prevent submitting more gate-approved jobs while the applicable
-six- or eight-GPU ceiling is respected. If MLS rejects or discards a request
+six- or ten-GPU ceiling is respected. If MLS rejects or discards a request
 because an allocation or request limit was exceeded, do not retry that request
 unless the user later asks.
 

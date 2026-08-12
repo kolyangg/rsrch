@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "run_name": "CL14_CA_oneval_smoke_r1",
+  "plan": {
+    "status": "prepared_startup_smoke",
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Verify CL14_CA forward, backward, telemetry logging, and optimizer stepping after the proven CL14 validation lifecycle.",
+    "baseline": "CL14_cosmic_joint_shadow_sa128_softmask_24k_full96_r1",
+    "baseline_comet_experiment_key": "6fe0028be92242c38056b3d36665fdd6",
+    "single_scientific_change": "None; operationally limit only initial manual_val to one fixed item and stop after the startup training gate.",
+    "config": "src/configs/CL14_CA_oneval_smoke.yaml",
+    "launcher": "launchers/active/run_CL14_CA_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL14_CA_oneval_smoke_r1/run_CL14_CA_oneval_smoke_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "fixed_contract": "Identical architecture, model initialization, optimizer, data, and 24k schedule to CL14_CA_r7; initial manual_val limit=1 is the only operational difference.",
+    "primary_metric": "Operational only: one successful validation item followed by finite optimizer progress beyond step 1.",
+    "risk": "This run lacks the canonical 96-image step-zero panel and is not eligible for scientific comparison.",
+    "expected_trainable_contract": "2348 tensors / 224624676 parameters"
+  }
+}

@@ -1,0 +1,12 @@
+defaults:
+  - BC_E13_big_celebs_joint_shadow_sa128_24k
+  - _self_
+
+train_dataset_name: bc_e13_ds1
+
+writer:
+  experiment_comment: >-
+    E13 base; dataset-only BC_E13_ds1 change: deterministic BigCelebs
+    repeat-depth balancing over a 2,561-ID deep cohort with flip-safe captions.
+    Architecture, optimization, loss, seeds, and fixed-96 validation are
+    unchanged from E13/BC_E13.

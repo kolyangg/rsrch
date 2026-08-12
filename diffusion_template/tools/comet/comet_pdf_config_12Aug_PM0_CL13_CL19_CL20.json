@@ -1,0 +1,108 @@
+{
+  "export_json": "../../comet_data/12Aug_PM0_CL13_CL19_CL20/comet_runs_export.json",
+  "output_format": "pdf",
+  "max_columns": 6,
+  "max_rows": 4,
+  "ignore_mask": true,
+  "image_dpi_percent": null,
+  "run_name_max_chars_per_line": 18,
+  "per_image_metric": {
+    "enabled": true,
+    "column": "id_sim",
+    "label": "ID",
+    "decimals": 3
+  },
+  "group_average_tables": {
+    "enabled": true,
+    "metric_column": "id_sim",
+    "metric_label": "Subject-v2 ID Similarity",
+    "decimals": 3
+  },
+  "key_metrics": [
+    "manual_val/id_sim"
+  ],
+  "key_hyperparameters": [
+    "step_shown",
+    "comparison.checkpoint",
+    "comparison.training_data",
+    "comparison.scientific_change",
+    "validation_args.use_branched_attention",
+    "comparison.ba_routing",
+    "model.ba_reference_dropout_probability",
+    "model.ba_hardcase_transition_cells",
+    "comparison.trainable_params",
+    "dataloaders.train.batch_size",
+    "trainer.epoch_len",
+    "pipeline.pose_adapt_ratio",
+    "pipeline.ca_mixing_for_face"
+  ],
+  "hyperparameter_labels": {
+    "step_shown": "Validation panel step",
+    "comparison.checkpoint": "Model / checkpoint",
+    "comparison.training_data": "Training data",
+    "comparison.scientific_change": "Scientific change",
+    "validation_args.use_branched_attention": "Branched attention at validation",
+    "comparison.ba_routing": "BA routing",
+    "model.ba_reference_dropout_probability": "Reference-branch dropout",
+    "model.ba_hardcase_transition_cells": "Router transition cells",
+    "comparison.trainable_params": "Trainable parameters",
+    "dataloaders.train.batch_size": "Training batch size",
+    "trainer.epoch_len": "Optimizer steps per epoch",
+    "pipeline.pose_adapt_ratio": "Pose-adapt ratio",
+    "pipeline.ca_mixing_for_face": "Face CA mixing"
+  },
+  "runs": [
+    {
+      "run_id": "74efd227d3f8488a98e83d815c77c07c",
+      "run_name": "PhotoMaker V2 original",
+      "hyperparameter_overrides": {
+        "comparison.checkpoint": "Pretrained PhotoMaker V2",
+        "comparison.training_data": "None (inference-only)",
+        "comparison.scientific_change": "No training; plain PhotoMaker",
+        "comparison.ba_routing": "Off; native PhotoMaker",
+        "model.ba_reference_dropout_probability": "n/a",
+        "model.ba_hardcase_transition_cells": "n/a",
+        "comparison.trainable_params": "0",
+        "dataloaders.train.batch_size": "n/a",
+        "trainer.epoch_len": "n/a"
+      }
+    },
+    {
+      "run_id": "248d7967cec4457f91219a9ebec22687",
+      "run_name": "CL13 final (24k)",
+      "hyperparameter_overrides": {
+        "comparison.checkpoint": "CL13 final at 24k",
+        "comparison.training_data": "Cosmic Large",
+        "comparison.scientific_change": "15% ref-branch dropout",
+        "comparison.ba_routing": "Hard spatial target-Q/ref-KV",
+        "model.ba_hardcase_transition_cells": "n/a",
+        "comparison.trainable_params": "219.22M"
+      }
+    },
+    {
+      "run_id": "cfeda7b55c174b3c83e8d40537ebb6dd",
+      "run_name": "CL19 current",
+      "hyperparameter_overrides": {
+        "comparison.checkpoint": "Latest complete CL19",
+        "comparison.training_data": "Cosmic Large",
+        "comparison.scientific_change": "2-cell cosine soft router",
+        "comparison.ba_routing": "Soft full-query target-Q/ref-KV",
+        "model.ba_reference_dropout_probability": "0",
+        "comparison.trainable_params": "219.22M"
+      }
+    },
+    {
+      "run_id": "b05488e2cce94476acc92bcaa21d7362",
+      "run_name": "CL20 current",
+      "hyperparameter_overrides": {
+        "comparison.checkpoint": "Latest complete CL20",
+        "comparison.training_data": "80/20 Cosmic/BigCelebs + re-anchor",
+        "comparison.scientific_change": "Curriculum only; CL14 model",
+        "comparison.ba_routing": "CL14 hard spatial BA",
+        "model.ba_reference_dropout_probability": "0",
+        "model.ba_hardcase_transition_cells": "n/a (mode off)",
+        "comparison.trainable_params": "219.22M"
+      }
+    }
+  ]
+}

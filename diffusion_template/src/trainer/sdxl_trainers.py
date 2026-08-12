@@ -402,6 +402,13 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         output = self.model(**batch, do_cfg=do_cfg)
         batch.update(output)
 
+        # 12 Aug 2026 - AICODE-NOTE: BA telemetry is model output, not loss
+        # output. Promote it independently so CL14's unchanged masked loss can
+        # log the residual-CA route without changing the scientific objective.
+        ba_telemetry = output.get("ba_telemetry")
+        if ba_telemetry:
+            batch.update(ba_telemetry)
+
         batch["is_masked_loss"] = (
             self.masked_loss_step > 0
             and batch["batch_idx"] % self.masked_loss_step == 0
@@ -842,6 +849,18 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             val_refs.append(refs_list)
 
         val_kwargs = dict(self.config.validation_args)
+        subject_policies = get_value("face_subject_selection_policy", None)
+        if isinstance(subject_policies, list):
+            normalized_policies = {str(value) for value in subject_policies}
+            if len(normalized_policies) != 1:
+                raise RuntimeError(
+                    "One validation batch cannot mix face-subject selection policies"
+                )
+            subject_policy = next(iter(normalized_policies))
+        else:
+            subject_policy = subject_policies
+        if subject_policy is not None:
+            val_kwargs["face_subject_selection_policy"] = str(subject_policy)
         val_kwargs["debug_idx"] = int(batch_debug_idx)
         val_kwargs["debug_total"] = int(batch_debug_total)
         val_kwargs["val_debug"] = val_debug
@@ -952,9 +971,16 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             sample["generated"] = generated_collection[idx]
             sample["id"] = ids_list[idx]
             sample["seed"] = seeds_list[idx]
+            # 09 Aug 2026 - AICODE-NOTE: identity ownership must be scored
+            # against the exact resolved box used by BA, not the dataset's
+            # pre-override/index fallback (which is None for filename-keyed
+            # full-96 maps).
+            sample["face_bbox_gen"] = face_bbox_gen_list[idx]
+            sample["face_bbox_ref"] = face_bbox_ref_list[idx]
 
             metric_time = 0.0
             id_sim_value = None
+            id_sim_diagnostics = {}
             for metric in self.metrics:
                 metric_start = time.time()
                 metric_result = metric(**sample)
@@ -963,6 +989,17 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                     eval_metrics.update(k, v)
                     if k == "id_sim":
                         id_sim_value = float(
+                            v.item() if hasattr(v, "item") else v
+                        )
+                    elif k in {
+                        "id_sim_legacy_best",
+                        "id_sim_mask_iou",
+                        "id_sim_face_count",
+                        "id_sim_no_face",
+                        "id_sim_unowned",
+                        "id_sim_ambiguous",
+                    }:
+                        id_sim_diagnostics[k] = float(
                             v.item() if hasattr(v, "item") else v
                         )
             total_metric_time += metric_time
@@ -976,8 +1013,7 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 output_key = keys[idx]
                 if output_key is None:
                     output_key = f"{str(prompts[idx])[:10]}_{ids_list[idx]}.png"
-                self._validation_per_image_id_rows.append(
-                    {
+                row = {
                         "image_index": table_image_index,
                         "output_key": str(output_key),
                         "identity": str(ids_list[idx]),
@@ -986,7 +1022,8 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                         "generated_image_count": len(generated_collection[idx]),
                         "id_sim": id_sim_value,
                     }
-                )
+                row.update(id_sim_diagnostics)
+                self._validation_per_image_id_rows.append(row)
 
         batch["generated"] = generated_collection if batch_size > 1 else generated_collection[0]
         batch["generated_masks"] = generated_masks_collection if batch_size > 1 else generated_masks_collection[0]

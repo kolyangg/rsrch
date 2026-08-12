@@ -1,0 +1,10 @@
+job:
+  description: "Resume CL6 BC_E13_ds3 CL8; then repair CL10-CL14 before E14-E22, eight A100 workers #nasilaev"
+  environment:
+    image: cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36
+  resource:
+    instance_type: a100.1gpu.8C.243G
+    processes: 1
+    workers: 8
+  script: "mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/subject_v2_historical_backfill_recovery_priority_8gpu_20260810_r1 && bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/analysis_jobs/subject_v2_historical_backfill_recovery_priority_8gpu_20260810_r1/package/dispatch_recovery_priority_8workers.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/subject_v2_historical_backfill_recovery_priority_8gpu_20260810_r1/stdout.log 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/subject_v2_historical_backfill_recovery_priority_8gpu_20260810_r1/stderr.log"
+  type: binary

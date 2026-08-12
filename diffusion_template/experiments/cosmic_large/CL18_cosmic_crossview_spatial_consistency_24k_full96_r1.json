@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "run_name": "CL18_cosmic_crossview_spatial_consistency_24k_full96_r1",
+  "plan": {
+    "status": "failed_startup_packaging",
+    "priority": 4,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Reduce Marion and off-axis identity sensitivity to the selected spatial reference view.",
+    "baseline": "CL14_cosmic_joint_shadow_sa128_softmask_24k_full96_r1",
+    "single_scientific_change": "25% stop-gradient cross-view prediction consistency with identical target/noise/PhotoMaker tokens and alternate same-ID spatial K/V.",
+    "config": "src/configs/CL18_cosmic_crossview_spatial_consistency_24k.yaml",
+    "launcher": "launchers/active/run_CL15_CL20_hardcases_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL18_cosmic_crossview_spatial_consistency_24k_full96_r1/run_CL18_cosmic_crossview_spatial_consistency_24k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "serv_job": "lm-mpi-job-535a8df0-1d35-430d-bcaf-56923abb789c",
+    "comet_experiment_key": "75bcf28efb6b482f977bce89e23f1ee4",
+    "failure": "Wrong runtime dataset_full symlink; failed before validation.",
+    "fixed_contract": "24k steps, batch 2, fixed manual_val 96 at step 0/every 2k, single-reference inference, DDIM50, unchanged validation prompts/seeds/refs/boxes/metrics"
+  }
+}

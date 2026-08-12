@@ -1,0 +1,94 @@
+schema_version: 1
+kind: implementation_gated_experiment_blueprint
+status: design_only_not_runnable
+launchable: false
+priority: 4
+proposed_run_name: CL18_cosmic_crossview_spatial_ba_consistency_24k
+base_config: src/configs/CL14_cosmic_joint_shadow_sa128_softmask_24k.yaml
+
+single_change: >-
+  Add a target-coordinate spatial BA consistency objective across two same-ID
+  reference views while inference remains single-reference CL14.
+hypothesis: >-
+  Marion and off-axis/action cases expose reference-view sensitivity. Holding
+  target Q, target noise, and PhotoMaker identity tokens fixed while changing
+  only the spatial BA reference should teach view-invariant identity evidence
+  without sacrificing target pose.
+
+proposed_overlay:
+  model:
+    ba_crossview_consistency:
+      enabled: true
+      active_batch_probability: 0.25
+      stages: [up_blocks.0, up_blocks.1]
+      teacher_reference: canonical_high_quality_same_id
+      student_reference: pose_divergent_same_id
+      shared_photomaker_embedding_source: teacher_reference
+      compare: normalized_target_face_coordinates
+      teacher_stop_gradient: true
+      loss: smooth_l1_plus_cosine
+      weight: 0.05
+  datasets:
+    train:
+      cosmic_large_adapted:
+        same_identity_dual_reference: true
+        min_reference_candidates_for_target: 3
+        min_reference_arcface_score: 0.70
+        preferred_yaw_gap_deg: [15, 55]
+        deterministic_pair_manifest_required: true
+  pipeline:
+    pose_adapt_ratio: 0.0
+    ca_mixing_for_face: false
+
+implementation:
+  code_paths:
+    - src/datasets
+    - src/model/photomaker_branched/attn_processor_cleanest.py
+    - src/model/photomaker_branched/lora2.py
+    - src/trainer/base_trainer.py
+  invariants:
+    - Target latent, timestep, noise, target Q, and PhotoMaker embedding are identical between passes.
+    - Only the spatial reference K/V image changes between teacher and student.
+    - Loss is measured in target face coordinates, never by warping target Q to reference pose.
+    - No second reference or auxiliary branch is required at inference.
+    - Wrong-ID sensitivity is monitored to reject a reference-invariant collapse.
+  dated_comment_required: true
+
+fixed_contract:
+  optimizer_steps: 24000
+  epoch_len: 2000
+  batch_size: 2
+  validation: fixed_manual_val_96_step0_and_every_2000
+  inference_steps: 50
+  corrected_subject_v2_metric: true
+  unchanged_scheduler_prompts_seeds_refs_boxes: true
+
+preflight:
+  - Materialize and hash the pair manifest; exclude every manual_val identity/image.
+  - Assert the two passes differ only in spatial reference tensors.
+  - Confirm gradients flow only through the student lane for the consistency loss.
+  - Track correct-versus-wrong-reference branch sensitivity by layer and timestep.
+  - Profile the dual-pass subset at batch size 2 before launch approval.
+
+intermediate_kill_rule: >-
+  Stop after 8k if correct-versus-wrong-reference sensitivity shrinks by more
+  than 10%, if Marion has no gain, or if overall identity trails matched CL14
+  by more than 0.010.
+final_decision_gate:
+  overall_subject_v2_id_min: 0.4561
+  marion_subject_v2_id_min: 0.3800
+  skiing_subject_v2_id_min: 0.3650
+  text_similarity_min: 26.17
+  qualitative_requirements:
+    - Marion wins at least 7 of 12 blind pairs without copying the teacher pose.
+    - Pose, composition, and face size remain visually equivalent to CL14.
+
+serv:
+  requested_a100_gpus: 1
+  project_gpu_ceiling: 6
+  submission_authorized: false
+
+evidence:
+  - E19 used extra references only for PhotoMaker identity tokens; ref0 remained the sole spatial BA lane.
+  - DynamicID and Diff-PC both motivate explicit view/pose disentanglement during training.
+  - Each accepted Cosmic target has 2-10 ArcFace-retrieved reference crops, so two spatial views can be selected without changing the target distribution.

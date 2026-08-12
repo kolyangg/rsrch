@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "run_name": "CL14_CA_skipval_smoke_r2",
+  "plan": {
+    "status": "prepared_startup_smoke",
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Verify CL14_CA forward, backward, telemetry logging, and optimizer stepping without waiting for step-zero validation.",
+    "baseline": "CL14_cosmic_joint_shadow_sa128_softmask_24k_full96_r1",
+    "baseline_comet_experiment_key": "6fe0028be92242c38056b3d36665fdd6",
+    "single_scientific_change": "None; operationally skip only initial validation and stop after the startup training gate.",
+    "config": "src/configs/CL14_CA_skipval_smoke.yaml",
+    "launcher": "launchers/active/run_CL14_CA_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL14_CA_skipval_smoke_r2/run_CL14_CA_skipval_smoke_r2_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "fixed_contract": "Identical architecture, model initialization, optimizer, data, and 24k schedule to CL14_CA_r4; trainer.skip_initial_validation=true is the only operational difference.",
+    "primary_metric": "Operational only: finite loss and successful optimizer progress beyond step 1.",
+    "risk": "This run lacks the canonical step-zero panel and is not eligible for scientific comparison.",
+    "expected_trainable_contract": "2348 tensors / 224624676 parameters"
+  }
+}

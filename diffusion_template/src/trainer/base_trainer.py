@@ -942,6 +942,15 @@ class BaseTrainer:
                         "ba_residual_identity_ca_v3_rank",
                         "ba_residual_identity_ca_v3_gate_init",
                         "ba_residual_identity_ca_v3_gate_max",
+                        "ba_hardcase_mode",
+                        "ba_hardcase_groups",
+                        "ba_hardcase_rank",
+                        "ba_hardcase_gate_max",
+                        "ba_hardcase_roi_size",
+                        "ba_hardcase_face_threshold_px",
+                        "ba_hardcase_transition_cells",
+                        "ba_hardcase_ownership_hidden_dim",
+                        "ba_hardcase_visible_face_floor",
                     ):
                         if hasattr(_val_model, attribute):
                             setattr(
@@ -1183,6 +1192,17 @@ class BaseTrainer:
             "generated_image_count",
             "id_sim",
         ]
+        diagnostic_columns = [
+            "id_sim_legacy_best",
+            "id_sim_mask_iou",
+            "id_sim_face_count",
+            "id_sim_no_face",
+            "id_sim_unowned",
+            "id_sim_ambiguous",
+        ]
+        columns.extend(
+            name for name in diagnostic_columns if any(name in row for row in rows)
+        )
         table = pd.DataFrame(rows, columns=columns)
         filename = f"id_sim__{part}__step_{int(step):06d}.csv"
         table_dir = self.checkpoint_dir / "validation_tables"

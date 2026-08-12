@@ -1,5 +1,6 @@
 defaults:
   - large_dataset_rhca_hard_v1_audited_20k
+  - override /metrics: all_metrics_subject_v2
   - _self_
 
 # Shared E13-E18 substrate: restore the three historically effective paths,
@@ -9,6 +10,21 @@ model:
   ba_hard_v1_lora_rank: 128
   generic_adapter_train_scope: effective_all
   photomaker_default_train_scope: effective_all
+
+pipeline:
+  # 09 Aug 2026 - Validation binds reference identity embeddings to the
+  # declared reference box. Training conditioning remains legacy_first so this
+  # validation repair does not silently change the E13 training trajectory.
+  face_subject_selection_policy: bbox_overlap_v2
+  pose_adapt_ratio: 0.0
+  ca_mixing_for_face: false
+
+datasets:
+  val:
+    manual_val:
+      face_subject_selection_policy: bbox_overlap_v2
+
+inference_metrics: [clip_ts, id_sim_best_legacy, id_sim_subject_v2]
 
 trainer:
   epoch_len: 2000
@@ -57,7 +73,3 @@ expected_trainable_contract:
       name_substring: ".default."
       tensors: 700
       parameters: 60948480
-
-pipeline:
-  pose_adapt_ratio: 0.0
-  ca_mixing_for_face: false

@@ -160,6 +160,55 @@ python tools/comet/comet_experiment.py backfill \
 Backfill is a migration path, not the normal workflow. Future runs must obtain
 the key directly from `CometMLWriter`.
 
+## Selectively repair subject-v2 checkpoint validation
+
+`backfill_subject_v2_validation.py` repairs only identities and prompts whose
+reference embedding changed (currently Eddie), then rescores the merged
+fixed-96 panel. It requires the immutable Comet record and exact saved training
+source/config contract. Dry-run is the default: checkpoints are deserialized, the original
+generation batch is replayed pixel-exact, corrected rows are generated at the
+configured validation batch size, and everything is staged before mutation.
+
+One checkpoint:
+
+```bash
+python tools/comet/backfill_subject_v2_validation.py \
+  --run-dir saved/<run_name> \
+  --config <exact-historical-hydra-config-name-or-yaml> \
+  --staging-root output/<run_name>_subject_v2 \
+  --checkpoint saved/<run_name>/weights-epoch<N>.pth \
+  --checkpoint-step <optimizer-step>
+```
+
+All deserializable checkpoints with exactly one complete 96-image Comet panel:
+
+```bash
+python tools/comet/backfill_subject_v2_validation.py \
+  --run-dir saved/<run_name> \
+  --config <exact-historical-hydra-config-name-or-yaml> \
+  --staging-root output/<run_name>_subject_v2 \
+  --all-safe-checkpoints
+```
+
+If the historical cached automatic bbox JSON is no longer adjacent to the
+saved config, add `--generation-bbox-map /exact/captured/map.json`. Its hash is
+recorded and the pixel replay gate rejects the wrong protocol. Inspect the job
+and step manifests, replay logs, merged panels, and CSVs; then repeat the same
+command with `--reuse-staging --write`. Writes back up and delete only exact
+targets, rebuild affected metric histories, upload replacements, and download
+them again for SHA-256 verification. Local output reports both current-
+checkpoint and whole-job ETA.
+
+Never substitute a current Hydra config/source tree for the run's immutable
+historical tree: historical
+epoch length, RealVis validation base, processor-copy mode, shadow adapter,
+scheduler, batch size, and bbox cache are part of the replay contract.
+When the updated tool is supplied as an external overlay, set both
+`PM_BACKFILL_PROJECT_ROOT` and `PM_EVAL_PROJECT_ROOT` to that immutable
+historical `diffusion_template` root and put the overlay before it on
+`PYTHONPATH`. The guarded 11-run, five-worker example is documented in
+`serv_run_packages/subject_v2_historical_backfill_11runs_5gpu_20260809_r1/README.md`.
+
 ## Existing reporting utilities
 
 - `export_comet_runs.py` exports manifest-listed runs.

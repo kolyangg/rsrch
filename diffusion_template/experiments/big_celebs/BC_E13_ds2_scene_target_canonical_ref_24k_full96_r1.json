@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "run_name": "BC_E13_ds2_scene_target_canonical_ref_24k_full96_r1",
+  "plan": {
+    "status": "running",
+    "priority": 2,
+    "machine": "serv",
+    "gpus": 1,
+    "config": "src/configs/BC_E13_ds2_scene_target_canonical_ref_24k.yaml",
+    "launcher": "launchers/active/run_BC_E13_dataset_experiments_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/BC_E13_ds2_scene_target_canonical_ref_24k_full96_r1/run_BC_E13_ds2_scene_target_canonical_ref_24k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "dataset_mode": "ds2",
+    "baseline": "E13_large_ds_joint_shadow_sa128_24k_full96_r4",
+    "controlled_delta": "training dataset usage only: repeat-depth balancing plus scene-target/canonical-reference roles",
+    "hypothesis": "BigCelebs portraits are better identity references than targets; a scene-target/canonical-reference split improves dynamic and occluded validation cells.",
+    "comet_comment": "E13 base; dataset-only BC_E13_ds2 change: ds1 repeat-depth balancing plus a 2:1 scene-rich target quota and deterministic canonical same-ID references with flip-safe captions. Architecture, optimization, loss, seeds, and fixed-96 validation are unchanged from E13/BC_E13.",
+    "schedule": {
+      "policy_version": "bc_e13_dataset_schedule_v1",
+      "rows": 48000,
+      "batch_size": 2,
+      "seed": 20260809,
+      "cohort_identities": 2561,
+      "cohort_images": 60087,
+      "minimum_images_per_identity": 14,
+      "maximum_images_per_identity": 186,
+      "scene_eligible_targets": 27165,
+      "canonical_references": 23094,
+      "scene_target_quota": "2 of every 3 BigCelebs rows",
+      "scene_area_max": 0.17154455184936523,
+      "canonical_min_face_side": 384,
+      "schedule_sha256": "3300e2ea9ecfc23c60d9c94056df2c2ed0dad495211d892dcf6b33f39a25e9be",
+      "schedule_summary_sha256": "5483f0a1635b1f1918abe4da9def864b5f357d5db34c34540fdf65c6a9c74bac",
+      "seal_timing": "built from pinned Serv manifests and fully audited before Comet creation"
+    },
+    "sources": {
+      "big_celebs_manifest_sha256": "f846b8cc8a4ce087c78130beee48a65f1b13560b63e42a9715cb5686526e5efa",
+      "large_dataset_manifest_sha256": "0056f9647c6ca69079c3b7ae479ea5cdf9e642f076460249b160000eecb3ee50"
+    },
+    "fixed_contract": "E13/BC_E13 model, optimizer, masked-alternating loss, 24k steps, batch 2, schema-v2 checkpoints, pose_adapt_ratio=0, ca_mixing_for_face=false, fixed-96 step0/every2k, deferred canonical face quality",
+    "runtime": {
+      "mls_job_name": "lm-mpi-job-dc1dae0c-b373-47e1-a84a-96593da966f9",
+      "comet_experiment_key": "5db54d7d4557487e94251656736843db",
+      "comet_url": "https://www.comet.com/nikolay-2104/aug-large-ds/5db54d7d4557487e94251656736843db",
+      "comet_record_verified": true
+    }
+  }
+}

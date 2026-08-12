@@ -1,0 +1,29 @@
+defaults:
+  - CL4_cosmic_joint_shadow_sa128_hygiene_24k
+  - _self_
+
+# CL8 = CL4 + restore the full-body target distribution.
+#
+# min_face_res=192 discards 37,003 of cosmic's 59,143 targets, and 99.6% of what
+# it discards is full-body framing - it removes 96% of ALL the full-body imagery
+# cosmic has (36,843 of 38,197). Every CL arm therefore trained on an almost
+# purely portrait-framed corpus (median face 9.49% of frame vs 3.25% raw) and
+# never learned to place a small face on a full body. The failing validation
+# prompts are exactly the wide-framing ones: Kickboxing, Skiing, Jumping,
+# Rushing, Night-ride.
+#
+# Lowering the filter restores them, but raw cosmic is 64.6% small-face, so a
+# scale-balanced sampler keeps every face-area band represented rather than
+# letting the restored majority dominate.
+datasets:
+  train:
+    cosmic_large_adapted:
+      min_face_res: 64
+      target_scale_balance: true
+      target_scale_bins: [2.0, 5.0, 10.0, 20.0]   # face area % of the 1024 frame
+
+writer:
+  experiment_comment: >-
+    CL8 vs CL4 lowers min_face_res 192->64 and round-robins targets across
+    face-area bands, restoring the full-body framing that the filter removed.
+    Primary metric is face scale (undersized count), id_sim secondary.

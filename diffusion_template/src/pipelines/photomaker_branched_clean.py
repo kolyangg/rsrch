@@ -580,10 +580,12 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         photomaker_scale: float = 1.0,  # Add scale parameter for attention
         branched_attn_start_step: int = 10,
         face_embed_strategy: str = "face", # "face", #  "face" or "id_embeds"
+        face_subject_selection_policy: str = "legacy_first",
         use_bbox_mask_ref: bool = False, # BBox-driven masking toggles (validation convenience)
         use_bbox_mask_gen: bool = False, # BBox-driven masking toggles (validation convenience)
         face_bbox_ref: Optional[List[float]] = None, # Optional per-sample face boxes (x0,y0,x1,y1) in pixel space
         face_bbox_gen: Optional[List[float]] = None, # Optional per-sample face boxes (x0,y0,x1,y1) in pixel space
+        ba_target_visibility_mask: Optional[Any] = None,
         mask_expansion_ratio: float = 1.0,
         mask_softness: float = 0.0,
         import_mask: Optional[str] = "../compare/testing/ref2_masks/keanu_gen_mask.png",        
@@ -829,6 +831,8 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             self,
             id_embeds=id_embeds,
             input_id_images=id_images_for_embeds,
+            face_bbox_ref=face_bbox_ref,
+            face_subject_selection_policy=face_subject_selection_policy,
             device=device,
             dtype=dtype,
         )
@@ -885,6 +889,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             use_dynamic_mask=use_dynamic_mask,
             use_bbox_mask_gen=use_bbox_mask_gen,
             face_bbox_gen=face_bbox_gen,
+            ba_target_visibility_mask=ba_target_visibility_mask,
             generator=generator,
             device=device,
             face_embed_strategy=face_embed_strategy,

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "run_name": "CL16_cosmic_clean_multiscale_ref_memory_24k_full96_r1",
+  "plan": {
+    "status": "failed_startup_packaging",
+    "priority": 2,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Supply stable high-frequency identity evidence under large target timesteps.",
+    "baseline": "CL14_cosmic_joint_shadow_sa128_softmask_24k_full96_r1",
+    "single_scientific_change": "Detached t=1/null-text reference memory at mid/up0/up1 with rank64 K/V/output and zero-gated bounded RMS residual.",
+    "config": "src/configs/CL16_cosmic_clean_multiscale_ref_memory_24k.yaml",
+    "launcher": "launchers/active/run_CL15_CL20_hardcases_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL16_cosmic_clean_multiscale_ref_memory_24k_full96_r1/run_CL16_cosmic_clean_multiscale_ref_memory_24k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "serv_job": "lm-mpi-job-b63e8fb8-8287-4ce7-a1f0-ec6c48986e65",
+    "comet_experiment_key": "693d0ddc20e64b8c8ec49ba4c8f81e8b",
+    "failure": "Wrong runtime dataset_full symlink; failed before validation.",
+    "fixed_contract": "24k steps, batch 2, fixed manual_val 96 at step 0/every 2k, DDIM50, unchanged prompts/seeds/refs/boxes/metrics, pose_adapt_ratio=0, ca_mixing_for_face=false"
+  }
+}

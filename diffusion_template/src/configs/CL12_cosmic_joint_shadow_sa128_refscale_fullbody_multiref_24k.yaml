@@ -1,0 +1,26 @@
+defaults:
+  - CL10_cosmic_joint_shadow_sa128_refscale_fullbody_24k
+  - _self_
+
+# CL12 = the union of everything that has worked: CL9's reference scale/position
+# jitter (which took undersized faces 11 -> 0), CL8's restored full-body targets,
+# and CL11's three identity references.
+#
+# CL10 and CL11 are strong on DISJOINT identities at 14k - CL11 on jisoo .474 and
+# keanu .498 (weak single references), CL10 on marion .353 - and both hold face
+# scale at zero undersized. This is the highest-id_sim candidate and needs no new
+# mechanism.
+datasets:
+  train:
+    cosmic_large_adapted:
+      num_identity_refs: 3
+
+model:
+  # The batched conditioning path asserts one reference per sample, as E19 does.
+  batched_conditioning_preparation: false
+
+writer:
+  experiment_comment: >-
+    CL12 = CL9 reference scale/position jitter + CL8 full-body targets +
+    3 PhotoMaker identity references. Primary metric is undersized-face count;
+    id_sim secondary. Watch marion for CL11's regression carrying over.

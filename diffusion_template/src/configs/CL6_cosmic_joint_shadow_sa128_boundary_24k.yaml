@@ -1,0 +1,34 @@
+defaults:
+  - CL3_cosmic_joint_shadow_sa128_fmtfix_24k
+  - _self_
+
+# CL6 = CL3 + E14's protected reconstruction loss.
+#
+# Every CL arm trains with masked_loss_step=1, so the loss is face-box MSE at
+# every step and the neck/jaw/shoulder junction receives NO gradient ever. On
+# large_dataset that is harmless because the reference face already arrives at
+# the target's scale (ratio 1.00), so the in-mask optimum is body-consistent by
+# construction. On cosmic_large the branch is fed a face at ~2.2x target scale,
+# the in-mask optimum cannot meet the shoulders, and nothing penalises it.
+#
+# boundary_ring_width=2 supervises a two-latent-cell ring AROUND the face box -
+# exactly the unsupervised junction - and full_weight=0.1 keeps the body from
+# drifting. Verified code: E14 ran this on large_dataset (.39185 vs E13 .39980).
+loss_kind: branched_reference
+
+loss_function:
+  _target_: src.loss.branched_reference_loss.BranchedReferenceLoss
+  face_weight: 1.0
+  full_weight: 0.1
+  boundary_weight: 0.05
+  boundary_ring_width: 2
+  reference_weight: 0.0
+
+writer:
+  # Must list the new components or they are silently not logged (cf. E17).
+  loss_names: [loss, loss_face, loss_full, loss_boundary]
+  experiment_comment: >-
+    CL6 vs CL3 adds protected reconstruction: face MSE plus 0.1 full-latent MSE
+    and 0.05 two-cell boundary-ring MSE, restoring gradient at the face/body
+    junction that masked_loss_step=1 leaves unsupervised. Primary metric is
+    face/body alignment; id_sim is secondary this round.

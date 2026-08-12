@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "kind": "subject_v2_historical_validation_backfill_recovery",
+  "created_at": "2026-08-10",
+  "status": "running",
+  "serv_job": "lm-mpi-job-7df3819d-7fdc-4ca0-a50a-b058bb254f03",
+  "submitted_at_utc": "2026-08-10T10:33:43Z",
+  "running_observation": {
+    "observed_at_utc": "2026-08-10T10:36:00Z",
+    "worker_claims": 8,
+    "worker_status_running": 8,
+    "tracebacks": 0,
+    "verified_runs_before_resume": 8,
+    "cl6_resume_step": 22000,
+    "bc_e13_ds3_resume_step": 18000,
+    "cl8_and_cl10_cl14_step": 2000,
+    "transient_502_retries_observed": true
+  },
+  "monitor": {
+    "pid": 839332,
+    "remote_state": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/analysis_jobs/subject_v2_historical_backfill_recovery_priority_8gpu_20260810_r1/monitor",
+    "poll_seconds": 60,
+    "stale_alert_seconds": 2700,
+    "expected_verified_runs": 25,
+    "first_observation": "2026-08-10T10:39:33Z status=running verified=8/25 staged_steps=114 workers_running=8 workers_failed=0 log_stale_seconds=21"
+  },
+  "failed_job": "lm-mpi-job-44b99a20-a6ad-4023-b3c6-f249b1abe83d",
+  "failure": {
+    "observed_at_utc": "2026-08-10T09:12:56Z",
+    "completed_verified_runs": 8,
+    "unfinished_runs": [
+      "CL6_cosmic_joint_shadow_sa128_boundary_24k_full96_r1",
+      "BC_E13_ds3_large_anchor_2to1_24k_full96_r1",
+      "CL8_cosmic_joint_shadow_sa128_fullbody_24k_full96_r1"
+    ],
+    "causes": [
+      "Comet asset-list read timeout after 120 seconds",
+      "Comet asset download HTTP 502 Bad Gateway"
+    ],
+    "comet_integrity": "unfinished runs have no job_manifest and no Comet write; eight completed runs have replacement_verified.json"
+  },
+  "gpu_policy": {
+    "authorized_project_ceiling": 10,
+    "requested_gpus": 8,
+    "allocation": "three recovery workers plus five priority chains"
+  },
+  "resume_contract": {
+    "reuse_complete_step_manifests": true,
+    "quarantine_incomplete_steps": true,
+    "comet_read_attempts": 8,
+    "atomic_asset_downloads": true,
+    "transactional_per_run_publication": true
+  }
+}

@@ -98,3 +98,31 @@ image indices do not exactly match the validation dataset.
 For the standard panel, each table therefore has exactly 96 rows. Keep
 `trainer.log_per_image_id_sim_table: true` for comparable runs. Retrieval by
 immutable Comet experiment key is documented in `tools/comet/README.md`.
+
+## Subject-v2 identity ownership
+
+New E13-family runs use `bbox_overlap_v2` during validation. InsightFace
+detection order is not identity ownership: the PhotoMaker identity vector is
+selected by maximum IoU with the declared reference-face box. A missing,
+non-overlapping, or ambiguous reference detection fails validation closed.
+Historical saved configs and explicit replay arms retain `legacy_first`.
+
+The primary `manual_val/id_sim` score is computed on the generated face with
+maximum IoU to the **exact generation box used by BA**. A face with IoU below
+`0.05` is unowned and receives zero. The following audit curves and CSV
+columns are logged as well:
+
+- `manual_val/id_sim_legacy_best`: historical max over every detected face;
+- `manual_val/id_sim_mask_iou` and `manual_val/id_sim_face_count`;
+- `manual_val/id_sim_no_face`, `manual_val/id_sim_unowned`, and
+  `manual_val/id_sim_ambiguous`.
+
+The trainer may replace the dataset's manual generation box with a cached
+automatic box before BA inference. It writes that resolved box back into the
+per-sample metric input. Never rescore against the untouched dataset field:
+for Chef/Lex those two boxes select different people.
+
+Audit the fixed references with
+`tools/datasets/preflight_manual_val_subject_v2.py`. The versioned embeddings
+and selector manifest are `id_embeds_manual_val_subject_v2.pth` and
+`id_embeds_manual_val_subject_v2.json` in the validation dataset directory.

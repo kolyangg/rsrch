@@ -14,6 +14,7 @@ export JSON are included in the report in export order.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import re
@@ -39,6 +40,11 @@ LANDSCAPE_A4 = (11.69, 8.27)
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
 PLACEHOLDER_RUN_ID = "REPLACE_WITH_COMET_EXPERIMENT_KEY"
 MAX_CHARTS_PER_PAGE = 6
+MARKDOWN_PAGE_RE = re.compile(r"^<!--\s*report-page:\s*(.+?)\s*-->$")
+MARKDOWN_LAYOUT_RE = re.compile(r"^<!--\s*layout:\s*(.+?)\s*-->$")
+MARKDOWN_COLUMN_RE = re.compile(r"^<!--\s*column:\s*(.+?)\s*-->$")
+MARKDOWN_IMAGE_RE = re.compile(r"^!\[([^]]+)\]\(([^)]+)\)\s*$")
+MARKDOWN_NUMBERED_RE = re.compile(r"^(\d+)\.\s+(.+)$")
 PREFERRED_METRICS = [
     "train_loss",
     "loss",
@@ -228,7 +234,9 @@ def display_label_for_image(file_name: str) -> str:
 
 
 def canonical_image_key(file_name: str) -> str:
-    return display_label_for_image(file_name)
+    # Comet image assets replace spaces with underscores, while per-image CSV
+    # output_key values retain spaces. Normalize both sides before joining.
+    return re.sub(r"\s", "_", display_label_for_image(file_name))
 
 
 def is_mask_image_name(file_name: str) -> bool:
@@ -247,6 +255,14 @@ def normalize_string_list(value: Any, field_name: str) -> list[str]:
     if not isinstance(value, list):
         raise ConfigError(f"'{field_name}' must be a list when provided.")
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def normalize_object(value: Any, field_name: str) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ConfigError(f"'{field_name}' must be an object when provided.")
+    return dict(value)
 
 
 def select_numeric_metrics(
@@ -323,10 +339,15 @@ def load_pdf_config(path: Path) -> tuple[dict[str, Any], Path]:
                 f"runs[{index}].run_id still uses the template placeholder {PLACEHOLDER_RUN_ID}."
             )
         run_name = run.get("run_name")
+        hyperparameter_overrides = normalize_object(
+            run.get("hyperparameter_overrides"),
+            f"runs[{index}].hyperparameter_overrides",
+        )
         normalized_runs.append(
             {
                 "run_id": run_id,
                 "run_name": None if run_name in (None, "") else str(run_name).strip(),
+                "hyperparameter_overrides": hyperparameter_overrides,
             }
         )
 
@@ -337,6 +358,27 @@ def load_pdf_config(path: Path) -> tuple[dict[str, Any], Path]:
         raw_config.get("key_hyperparameters", DEFAULT_KEY_HYPERPARAMETERS),
         "key_hyperparameters",
     )
+    hyperparameter_labels = {
+        str(key): str(value)
+        for key, value in normalize_object(
+            raw_config.get("hyperparameter_labels"), "hyperparameter_labels"
+        ).items()
+    }
+    per_image_metric = normalize_object(
+        raw_config.get("per_image_metric"), "per_image_metric"
+    )
+    group_average_tables = normalize_object(
+        raw_config.get("group_average_tables"), "group_average_tables"
+    )
+    metric_point_labels = normalize_object(
+        raw_config.get("metric_point_labels"), "metric_point_labels"
+    )
+    markdown_source_raw = raw_config.get("markdown_source")
+    markdown_source = None
+    if markdown_source_raw not in (None, ""):
+        markdown_source = resolve_path(config_dir, str(markdown_source_raw))
+        if not markdown_source.is_file():
+            raise ConfigError(f"Markdown source does not exist: {markdown_source}")
 
     normalized_config = {
         "export_json": resolve_path(config_dir, raw_config.get("export_json"), DEFAULT_EXPORT_JSON),
@@ -354,6 +396,11 @@ def load_pdf_config(path: Path) -> tuple[dict[str, Any], Path]:
         ),
         "key_metrics": configured_metrics,
         "key_hyperparameters": configured_hyperparameters,
+        "hyperparameter_labels": hyperparameter_labels,
+        "per_image_metric": per_image_metric,
+        "group_average_tables": group_average_tables,
+        "metric_point_labels": metric_point_labels,
+        "markdown_source": markdown_source,
         "runs": normalized_runs,
     }
     return normalized_config, config_dir
@@ -391,6 +438,7 @@ def prepare_selected_runs(
                     "name": str(export_run.get("name") or export_run.get("id")),
                     "export_run": export_run,
                     "image_map": build_run_image_map(export_run, image_root_dir, ignore_mask),
+                    "hyperparameter_overrides": {},
                 }
             )
         if not selected_runs:
@@ -409,6 +457,7 @@ def prepare_selected_runs(
                 "name": run_display_name(run_cfg, export_run),
                 "export_run": export_run,
                 "image_map": build_run_image_map(export_run, image_root_dir, ignore_mask),
+                "hyperparameter_overrides": run_cfg.get("hyperparameter_overrides", {}),
             }
         )
 
@@ -447,6 +496,440 @@ def build_run_image_map(
             "path": image_path,
         }
     return image_map
+
+
+def attach_per_image_metric_data(
+    selected_runs: list[dict[str, Any]],
+    image_root_dir: Path,
+    metric_config: dict[str, Any],
+) -> None:
+    if not metric_config.get("enabled", False):
+        return
+
+    metric_column = str(metric_config.get("column") or "id_sim")
+    for run in selected_runs:
+        tables = run["export_run"].get("downloaded_tables", [])
+        candidates = [
+            table
+            for table in tables
+            if isinstance(table, dict) and table.get("kind") == "per_image_id"
+        ]
+        if len(candidates) != 1:
+            raise ConfigError(
+                f"{run['name']}: expected exactly one per-image ID table, "
+                f"found {len(candidates)}"
+            )
+        saved_path = candidates[0].get("saved_path")
+        table_path = (image_root_dir / str(saved_path)).resolve()
+        if not table_path.is_file():
+            raise ConfigError(f"{run['name']}: per-image table is missing: {table_path}")
+
+        with table_path.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        if not rows or "output_key" not in rows[0] or metric_column not in rows[0]:
+            raise ConfigError(
+                f"{run['name']}: table must contain output_key and {metric_column!r}"
+            )
+
+        metric_map: dict[str, float] = {}
+        for row in rows:
+            key = canonical_image_key(str(row.get("output_key") or ""))
+            try:
+                value = float(row[metric_column])
+            except (TypeError, ValueError, KeyError):
+                raise ConfigError(
+                    f"{run['name']}: non-numeric {metric_column!r} for {key!r}"
+                )
+            if key in metric_map:
+                raise ConfigError(f"{run['name']}: duplicate per-image key {key!r}")
+            metric_map[key] = value
+
+        missing = sorted(set(run["image_map"]) - set(metric_map), key=natural_sort_key)
+        extra = sorted(set(metric_map) - set(run["image_map"]), key=natural_sort_key)
+        if missing or extra or len(rows) != len(run["image_map"]):
+            raise ConfigError(
+                f"{run['name']}: image/metric join mismatch "
+                f"images={len(run['image_map'])} rows={len(rows)} "
+                f"missing={missing[:5]} extra={extra[:5]}"
+            )
+        run["per_image_metric_map"] = metric_map
+        run["per_image_metric_rows"] = rows
+
+
+def prompt_group_label(row: dict[str, str]) -> str:
+    output_key = display_label_for_image(str(row.get("output_key") or ""))
+    identity = str(row.get("identity") or "").strip()
+    suffix = f"_{identity}" if identity else ""
+    if suffix and output_key.lower().endswith(suffix.lower()):
+        output_key = output_key[: -len(suffix)]
+    return " ".join(output_key.replace("_", " ").split()) or "Unknown"
+
+
+def parse_markdown_pages(path: Path) -> list[dict[str, Any]]:
+    pages: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    current_column = "main"
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.rstrip()
+        page_match = MARKDOWN_PAGE_RE.match(line)
+        if page_match:
+            current = {
+                "name": page_match.group(1).strip(),
+                "layout": "text",
+                "columns": {"main": []},
+                "source_dir": path.parent,
+            }
+            pages.append(current)
+            current_column = "main"
+            continue
+        if current is None:
+            if line.strip():
+                raise ConfigError(
+                    f"Markdown content before first report-page marker in {path}"
+                )
+            continue
+        layout_match = MARKDOWN_LAYOUT_RE.match(line)
+        if layout_match:
+            current["layout"] = layout_match.group(1).strip()
+            continue
+        column_match = MARKDOWN_COLUMN_RE.match(line)
+        if column_match:
+            current_column = column_match.group(1).strip()
+            current["columns"].setdefault(current_column, [])
+            continue
+        current["columns"].setdefault(current_column, []).append(line)
+    return pages
+
+
+def markdown_title(columns: dict[str, list[str]], fallback: str) -> str:
+    for lines in columns.values():
+        for line in lines:
+            if line.startswith("# "):
+                return line[2:].strip()
+    return fallback
+
+
+def render_markdown_column(
+    ax: plt.Axes,
+    lines: list[str],
+    wrap_width: int,
+) -> None:
+    ax.axis("off")
+    blocks: list[tuple[str, str]] = []
+    paragraph: list[str] = []
+
+    def flush_paragraph() -> None:
+        if paragraph:
+            blocks.append(("paragraph", " ".join(paragraph)))
+            paragraph.clear()
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("# "):
+            flush_paragraph()
+            continue
+        if stripped.startswith("## "):
+            flush_paragraph()
+            blocks.append(("heading", stripped[3:].strip()))
+        elif stripped.startswith("- "):
+            flush_paragraph()
+            blocks.append(("bullet", stripped[2:].strip()))
+        elif stripped.startswith("$$") and stripped.endswith("$$"):
+            flush_paragraph()
+            blocks.append(("formula", "$" + stripped[2:-2].strip() + "$"))
+        else:
+            paragraph.append(stripped)
+    flush_paragraph()
+
+    y = 0.985
+    for kind, value in blocks:
+        if kind == "heading":
+            y -= 0.015
+            ax.text(0.0, y, value, ha="left", va="top", fontsize=11.2, weight="bold")
+            y -= 0.052
+            continue
+        if kind == "formula":
+            ax.text(0.03, y, value, ha="left", va="top", fontsize=10.0)
+            y -= 0.068
+            continue
+        prefix = "- " if kind == "bullet" else ""
+        first_width = max(20, wrap_width - len(prefix))
+        wrapped = textwrap.wrap(value, width=first_width) or [""]
+        rendered = prefix + wrapped[0]
+        if len(wrapped) > 1:
+            rendered += "\n" + "\n".join(
+                ("  " if kind == "bullet" else "") + item for item in wrapped[1:]
+            )
+        ax.text(
+            0.0,
+            y,
+            rendered,
+            ha="left",
+            va="top",
+            fontsize=8.4,
+            linespacing=1.20,
+            color="#202020",
+        )
+        y -= 0.034 * len(wrapped) + 0.016
+    if y < -0.01:
+        raise ConfigError("Markdown architecture page content exceeds its column")
+
+
+def render_architecture_markdown_page(
+    writer: "ReportWriter",
+    page: dict[str, Any],
+    dpi: int,
+    page_number: int,
+) -> int:
+    columns = page["columns"]
+    title = markdown_title(columns, page["name"])
+    fig = plt.figure(figsize=LANDSCAPE_A4)
+    fig.text(0.025, 0.975, title, ha="left", va="top", fontsize=14, weight="bold")
+    left = fig.add_axes([0.03, 0.07, 0.54, 0.84])
+    right = fig.add_axes([0.60, 0.07, 0.37, 0.84])
+    render_markdown_column(left, columns.get("left", columns.get("main", [])), 83)
+    render_markdown_column(right, columns.get("right", []), 55)
+    add_page_number(fig, page_number)
+    writer.save_figure(fig, dpi=dpi)
+    plt.close(fig)
+    return page_number + 1
+
+
+def render_code_markdown_column(
+    ax: plt.Axes,
+    lines: list[str],
+    wrap_width: int,
+) -> None:
+    ax.axis("off")
+    blocks: list[tuple[str, str]] = []
+    paragraph: list[str] = []
+    code_lines: list[str] = []
+    in_code = False
+
+    def flush_paragraph() -> None:
+        if paragraph:
+            blocks.append(("paragraph", " ".join(paragraph)))
+            paragraph.clear()
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            if in_code:
+                blocks.append(("code", "\n".join(code_lines)))
+                code_lines.clear()
+                in_code = False
+            else:
+                flush_paragraph()
+                in_code = True
+            continue
+        if in_code:
+            code_lines.append(line.rstrip())
+            continue
+        if not stripped or stripped.startswith("# "):
+            flush_paragraph()
+        elif stripped.startswith("## "):
+            flush_paragraph()
+            blocks.append(("heading", stripped[3:].strip()))
+        elif stripped.startswith("- "):
+            flush_paragraph()
+            blocks.append(("bullet", stripped[2:].strip()))
+        else:
+            paragraph.append(stripped)
+    if in_code:
+        raise ConfigError("Unclosed fenced code block in Markdown report page")
+    flush_paragraph()
+
+    y = 0.99
+    for kind, value in blocks:
+        if kind == "heading":
+            y -= 0.01
+            ax.text(0.0, y, value, ha="left", va="top", fontsize=10.6, weight="bold")
+            y -= 0.047
+        elif kind == "code":
+            line_count = value.count("\n") + 1
+            ax.text(
+                0.012,
+                y,
+                value,
+                ha="left",
+                va="top",
+                fontsize=6.45,
+                family="monospace",
+                linespacing=1.18,
+                color="#102030",
+                bbox={
+                    "boxstyle": "round,pad=0.55",
+                    "facecolor": "#f3f6f9",
+                    "edgecolor": "#9aa7b5",
+                    "linewidth": 0.65,
+                },
+            )
+            y -= 0.0255 * line_count + 0.030
+        else:
+            prefix = "- " if kind == "bullet" else ""
+            wrapped = textwrap.wrap(value, width=wrap_width) or [""]
+            rendered = prefix + wrapped[0]
+            if len(wrapped) > 1:
+                rendered += "\n" + "\n".join(
+                    ("  " if kind == "bullet" else "") + item
+                    for item in wrapped[1:]
+                )
+            ax.text(
+                0.0,
+                y,
+                rendered,
+                ha="left",
+                va="top",
+                fontsize=8.0,
+                linespacing=1.18,
+            )
+            y -= 0.032 * len(wrapped) + 0.014
+    if y < -0.01:
+        raise ConfigError("Markdown code page content exceeds its column")
+
+
+def render_code_markdown_page(
+    writer: "ReportWriter",
+    page: dict[str, Any],
+    dpi: int,
+    page_number: int,
+) -> int:
+    columns = page["columns"]
+    title = markdown_title(columns, page["name"])
+    fig = plt.figure(figsize=LANDSCAPE_A4)
+    fig.text(0.025, 0.975, title, ha="left", va="top", fontsize=14, weight="bold")
+    left = fig.add_axes([0.025, 0.06, 0.46, 0.86])
+    right = fig.add_axes([0.515, 0.06, 0.46, 0.86])
+    render_code_markdown_column(left, columns.get("left", columns.get("main", [])), 70)
+    render_code_markdown_column(right, columns.get("right", []), 70)
+    add_page_number(fig, page_number)
+    writer.save_figure(fig, dpi=dpi)
+    plt.close(fig)
+    return page_number + 1
+
+
+def render_references_prompts_markdown_page(
+    writer: "ReportWriter",
+    page: dict[str, Any],
+    dpi: int,
+    page_number: int,
+) -> int:
+    columns = page["columns"]
+    lines = [line for group in columns.values() for line in group]
+    title = markdown_title(columns, page["name"])
+    images: list[tuple[str, Path]] = []
+    prompts: list[tuple[int, str]] = []
+    for line in lines:
+        image_match = MARKDOWN_IMAGE_RE.match(line.strip())
+        if image_match:
+            path = Path(image_match.group(2)).expanduser()
+            if not path.is_absolute():
+                path = (page["source_dir"] / path).resolve()
+            if not path.is_file():
+                raise ConfigError(f"Markdown reference image is missing: {path}")
+            images.append((image_match.group(1).strip(), path))
+            continue
+        prompt_match = MARKDOWN_NUMBERED_RE.match(line.strip())
+        if prompt_match:
+            prompts.append((int(prompt_match.group(1)), prompt_match.group(2).strip()))
+    if len(images) != 8 or len(prompts) != 12:
+        raise ConfigError(
+            f"Reference/prompt page requires exactly 8 images and 12 prompts; "
+            f"found {len(images)} and {len(prompts)}"
+        )
+
+    fig = plt.figure(figsize=LANDSCAPE_A4)
+    fig.text(0.025, 0.975, title, ha="left", va="top", fontsize=14, weight="bold")
+    fig.text(0.025, 0.925, "Reference identities", ha="left", va="top", fontsize=11.5, weight="bold")
+    fig.text(0.50, 0.925, "Prompt templates", ha="left", va="top", fontsize=11.5, weight="bold")
+
+    cell_w, cell_h = 0.215, 0.182
+    for index, (name, path) in enumerate(images):
+        row, col = divmod(index, 2)
+        ax = fig.add_axes([0.025 + col * 0.225, 0.73 - row * 0.205, cell_w, cell_h])
+        image = Image.open(path).convert("RGB")
+        ax.imshow(image)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_color("#5b677a")
+            spine.set_linewidth(0.8)
+        ax.text(
+            0.5,
+            -0.055,
+            name,
+            transform=ax.transAxes,
+            ha="center",
+            va="top",
+            fontsize=8.8,
+            weight="bold",
+        )
+
+    prompt_ax = fig.add_axes([0.50, 0.085, 0.47, 0.80])
+    prompt_ax.axis("off")
+    y = 0.99
+    for number, prompt in prompts:
+        wrapped = textwrap.wrap(prompt, width=66) or [""]
+        text_value = f"{number}. {wrapped[0]}"
+        if len(wrapped) > 1:
+            text_value += "\n   " + "\n   ".join(wrapped[1:])
+        prompt_ax.text(
+            0.0,
+            y,
+            text_value,
+            ha="left",
+            va="top",
+            fontsize=8.35,
+            linespacing=1.18,
+        )
+        y -= 0.069 + 0.028 * (len(wrapped) - 1)
+    validation_contract = "\n".join(
+        textwrap.wrap(
+            "Validation contract: 8 references x 12 prompts x seed 0 = 96 images. "
+            "<class> resolves to 'man img' or 'woman img'.",
+            width=72,
+        )
+    )
+    fig.text(
+        0.50,
+        0.048,
+        validation_contract,
+        ha="left",
+        va="bottom",
+        fontsize=7.8,
+        color="#444444",
+    )
+    add_page_number(fig, page_number)
+    writer.save_figure(fig, dpi=dpi)
+    plt.close(fig)
+    return page_number + 1
+
+
+def render_markdown_pages(
+    writer: "ReportWriter",
+    markdown_source: Path | None,
+    dpi: int,
+    page_number: int,
+) -> int:
+    if markdown_source is None:
+        return page_number
+    for page in parse_markdown_pages(markdown_source):
+        layout = str(page.get("layout") or "text")
+        if layout == "architecture":
+            page_number = render_architecture_markdown_page(
+                writer, page, dpi, page_number
+            )
+        elif layout == "code":
+            page_number = render_code_markdown_page(
+                writer, page, dpi, page_number
+            )
+        elif layout == "references_prompts":
+            page_number = render_references_prompts_markdown_page(
+                writer, page, dpi, page_number
+            )
+        else:
+            raise ConfigError(f"Unsupported Markdown report-page layout: {layout}")
+    return page_number
 
 
 def collect_image_keys(selected_runs: list[dict[str, Any]]) -> list[str]:
@@ -515,8 +998,12 @@ def stringify_hyperparameter_value(value: Any) -> str:
 
 
 def hyperparameter_value_for_run(run: dict[str, Any], hyperparameter_name: str) -> str:
+    overrides = run.get("hyperparameter_overrides", {})
+    if hyperparameter_name in overrides:
+        return stringify_hyperparameter_value(overrides[hyperparameter_name])
     if hyperparameter_name == "step_shown":
-        return step_display_value_for_run(run)
+        resolved = run["export_run"].get("resolved_step_number")
+        return "step unavailable" if resolved is None else f"step {resolved}"
 
     export_run = run["export_run"]
     hyperparameters = export_run.get("hyperparameters", {})
@@ -530,6 +1017,7 @@ def render_hyperparameter_page(
     writer: "ReportWriter",
     selected_runs: list[dict[str, Any]],
     hyperparameter_names: list[str],
+    hyperparameter_labels: dict[str, str],
     run_name_max_chars_per_line: int,
     dpi: int,
     page_number: int,
@@ -543,8 +1031,8 @@ def render_hyperparameter_page(
     ax.axis("off")
 
     run_count = max(1, len(selected_runs))
-    header_wrap_width = 10
-    value_wrap_width = 10
+    header_wrap_width = 12
+    value_wrap_width = 15
     row_label_wrap_width = 28
     first_col_width = 0.24 if run_count <= 4 else 0.26
     remaining_width = 1.0 - first_col_width
@@ -555,7 +1043,8 @@ def render_hyperparameter_page(
     ]
     cell_text: list[list[str]] = []
     for hyperparameter_name in hyperparameter_names:
-        row = [wrap_label(hyperparameter_name, row_label_wrap_width)]
+        row_label = hyperparameter_labels.get(hyperparameter_name, hyperparameter_name)
+        row = [wrap_label(row_label, row_label_wrap_width)]
         for run in selected_runs:
             row.append(
                 wrap_label(
@@ -573,7 +1062,7 @@ def render_hyperparameter_page(
         bbox=[0.005, 0.055, 0.99, 0.89],
     )
     table.auto_set_font_size(False)
-    font_size = 12 if run_count <= 4 else 11 if run_count <= 6 else 10
+    font_size = 10.5 if run_count <= 4 else 10 if run_count <= 6 else 9
     table.set_fontsize(font_size)
     row_scale = 1.8 if len(hyperparameter_names) <= 10 else 1.65
     table.scale(1, row_scale)
@@ -609,6 +1098,7 @@ def render_image_pages(
     run_name_max_chars_per_line: int,
     image_max_side: int,
     image_dpi_percent: float | None,
+    per_image_metric: dict[str, Any],
     dpi: int,
     page_number: int,
 ) -> int:
@@ -700,6 +1190,32 @@ def render_image_pages(
                     cell_ax.set_xticks([])
                     cell_ax.set_yticks([])
                     cell_ax.set_frame_on(False)
+                    if per_image_metric.get("enabled", False):
+                        metric_map = run.get("per_image_metric_map", {})
+                        if image_key not in metric_map:
+                            raise ConfigError(
+                                f"{run['name']}: missing image metric for {image_key}"
+                            )
+                        decimals = int(per_image_metric.get("decimals", 3))
+                        label = str(per_image_metric.get("label") or "ID")
+                        cell_ax.text(
+                            0.975,
+                            0.975,
+                            f"{label} {metric_map[image_key]:.{decimals}f}",
+                            transform=cell_ax.transAxes,
+                            ha="right",
+                            va="top",
+                            fontsize=8.2,
+                            color="white",
+                            weight="bold",
+                            bbox={
+                                "boxstyle": "round,pad=0.25",
+                                "facecolor": "#111827",
+                                "edgecolor": "white",
+                                "linewidth": 0.55,
+                                "alpha": 0.90,
+                            },
+                        )
 
             add_step_footnote(fig, run_chunk)
             add_page_number(fig, page_number)
@@ -714,6 +1230,7 @@ def render_metric_pages(
     writer: "ReportWriter",
     selected_runs: list[dict[str, Any]],
     metrics: list[str],
+    metric_point_labels: dict[str, Any],
     dpi: int,
     page_number: int,
 ) -> int:
@@ -740,12 +1257,56 @@ def render_metric_pages(
 
         for ax, metric_name in zip(axes_list, metric_page):
             plotted_any = False
-            for run in selected_runs:
+            for run_index, run in enumerate(selected_runs):
                 series = extract_metric_series(run["export_run"].get("metrics", {}).get(metric_name))
                 if not series:
                     continue
                 steps, values = zip(*series)
-                ax.plot(steps, values, linewidth=1.6, label=run["name"])
+                line, = ax.plot(
+                    steps,
+                    values,
+                    linewidth=1.8,
+                    marker="o",
+                    markersize=4,
+                    label=run["name"],
+                )
+                if metric_point_labels.get("enabled", False):
+                    decimals = int(metric_point_labels.get("decimals", 3))
+                    color = line.get_color()
+                    last_index = len(series) - 1
+                    max_index = max(range(len(series)), key=lambda index: values[index])
+                    label_indices = [(last_index, "last")]
+                    if max_index != last_index:
+                        label_indices.append((max_index, "max"))
+                    vertical_offsets = [-15, 12, -22, 18]
+                    for point_order, (point_index, point_kind) in enumerate(label_indices):
+                        y_offset = vertical_offsets[
+                            (run_index + point_order) % len(vertical_offsets)
+                        ]
+                        ax.annotate(
+                            f"{point_kind} {values[point_index]:.{decimals}f}",
+                            xy=(steps[point_index], values[point_index]),
+                            xytext=(7, y_offset),
+                            textcoords="offset points",
+                            ha="left",
+                            va="center",
+                            fontsize=7.5,
+                            color="white",
+                            weight="bold",
+                            bbox={
+                                "boxstyle": "round,pad=0.22",
+                                "facecolor": color,
+                                "edgecolor": "white",
+                                "linewidth": 0.5,
+                                "alpha": 0.92,
+                            },
+                            arrowprops={
+                                "arrowstyle": "-",
+                                "color": color,
+                                "linewidth": 0.7,
+                            },
+                            clip_on=False,
+                        )
                 plotted_any = True
 
             if not plotted_any:
@@ -758,6 +1319,7 @@ def render_metric_pages(
             ax.set_ylabel("Value")
             ax.grid(True, alpha=0.3)
             ax.legend(fontsize=8)
+            ax.margins(x=0.08, y=0.12)
 
         for ax in axes_list[metric_count:]:
             ax.set_axis_off()
@@ -768,6 +1330,136 @@ def render_metric_pages(
         page_number += 1
 
     return page_number
+
+
+def grouped_metric_means(
+    run: dict[str, Any],
+    metric_column: str,
+    group_kind: str,
+) -> dict[str, float]:
+    grouped: dict[str, list[float]] = {}
+    for row in run.get("per_image_metric_rows", []):
+        if group_kind == "identity":
+            group = str(row.get("identity") or "Unknown").strip().title()
+        elif group_kind == "prompt":
+            group = prompt_group_label(row)
+        else:
+            raise ConfigError(f"Unknown metric grouping: {group_kind}")
+        try:
+            value = float(row[metric_column])
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ConfigError(
+                f"{run['name']}: invalid {metric_column!r} in grouped table"
+            ) from exc
+        grouped.setdefault(group, []).append(value)
+    return {group: sum(values) / len(values) for group, values in grouped.items()}
+
+
+def render_group_average_page(
+    writer: "ReportWriter",
+    selected_runs: list[dict[str, Any]],
+    table_config: dict[str, Any],
+    dpi: int,
+    page_number: int,
+) -> int:
+    if not table_config.get("enabled", False):
+        return page_number
+
+    metric_column = str(table_config.get("metric_column") or "id_sim")
+    metric_label = str(
+        table_config.get("metric_label") or "Subject-v2 ID similarity"
+    )
+    decimals = int(table_config.get("decimals", 3))
+
+    identity_values = [
+        grouped_metric_means(run, metric_column, "identity")
+        for run in selected_runs
+    ]
+    prompt_values = [
+        grouped_metric_means(run, metric_column, "prompt")
+        for run in selected_runs
+    ]
+    identities = sorted(
+        set().union(*(values.keys() for values in identity_values)),
+        key=natural_sort_key,
+    )
+    prompts = sorted(
+        set().union(*(values.keys() for values in prompt_values)),
+        key=natural_sort_key,
+    )
+
+    fig = plt.figure(figsize=LANDSCAPE_A4)
+    fig.text(
+        0.02,
+        0.982,
+        f"Mean {metric_label} by Identity and Prompt",
+        ha="left",
+        va="top",
+        fontsize=14,
+        weight="bold",
+    )
+    axes = [
+        fig.add_axes([0.02, 0.10, 0.40, 0.80]),
+        fig.add_axes([0.44, 0.10, 0.54, 0.80]),
+    ]
+    run_labels = [wrap_label(run["name"], 10) for run in selected_runs]
+
+    def draw_table(
+        ax: plt.Axes,
+        title: str,
+        groups: list[str],
+        values_by_run: list[dict[str, float]],
+        first_col_width: float,
+    ) -> None:
+        ax.axis("off")
+        ax.set_title(title, fontsize=12, weight="bold", pad=8)
+        rows: list[list[str]] = []
+        for group in groups:
+            rows.append(
+                [wrap_label(group, 18)]
+                + [
+                    (
+                        f"{values[group]:.{decimals}f}"
+                        if group in values
+                        else "n/a"
+                    )
+                    for values in values_by_run
+                ]
+            )
+        remaining = 1.0 - first_col_width
+        table = ax.table(
+            cellText=rows,
+            colLabels=[title[:-1] if title.endswith("s") else title] + run_labels,
+            colWidths=[first_col_width]
+            + [remaining / len(selected_runs)] * len(selected_runs),
+            cellLoc="center",
+            bbox=[0.0, 0.0, 1.0, 0.96],
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(8.5)
+        table.scale(1, 1.35)
+        for col in range(1 + len(selected_runs)):
+            table[(0, col)].set_facecolor("#e9eef5")
+            table[(0, col)].get_text().set_weight("bold")
+        for row_index, group in enumerate(groups, start=1):
+            table[(row_index, 0)].set_facecolor("#f7f7f7")
+            table[(row_index, 0)].get_text().set_weight("bold")
+            numeric = [values.get(group) for values in values_by_run]
+            finite = [value for value in numeric if value is not None]
+            if finite:
+                row_max = max(finite)
+                for run_index, value in enumerate(numeric, start=1):
+                    if value is not None and math.isclose(value, row_max):
+                        table[(row_index, run_index)].set_facecolor("#e3f3e8")
+                        table[(row_index, run_index)].get_text().set_weight("bold")
+
+    draw_table(axes[0], "Identities", identities, identity_values, 0.27)
+    draw_table(axes[1], "Prompts", prompts, prompt_values, 0.26)
+    add_step_footnote(fig, selected_runs)
+    add_page_number(fig, page_number)
+    writer.save_figure(fig, dpi=dpi)
+    plt.close(fig)
+    return page_number + 1
 
 
 class ReportWriter:
@@ -862,11 +1554,16 @@ def build_report(
     if not isinstance(export_payload, dict):
         raise ConfigError(f"Export JSON must be an object: {export_json_path}")
 
-    selected_runs, _ = prepare_selected_runs(
+    selected_runs, image_root_dir = prepare_selected_runs(
         config["runs"],
         export_payload,
         export_json_path,
         config["ignore_mask"],
+    )
+    attach_per_image_metric_data(
+        selected_runs,
+        image_root_dir,
+        config["per_image_metric"],
     )
     image_keys = collect_image_keys(selected_runs)
     metrics = select_numeric_metrics(selected_runs, config["key_metrics"])
@@ -890,6 +1587,13 @@ def build_report(
             run_name_max_chars_per_line=config["run_name_max_chars_per_line"],
             image_max_side=image_max_side,
             image_dpi_percent=image_dpi_percent,
+            per_image_metric=config["per_image_metric"],
+            dpi=dpi,
+            page_number=page_number,
+        )
+        page_number = render_markdown_pages(
+            writer=writer,
+            markdown_source=config["markdown_source"],
             dpi=dpi,
             page_number=page_number,
         )
@@ -897,6 +1601,14 @@ def build_report(
             writer=writer,
             selected_runs=selected_runs,
             metrics=metrics,
+            metric_point_labels=config["metric_point_labels"],
+            dpi=dpi,
+            page_number=page_number,
+        )
+        page_number = render_group_average_page(
+            writer=writer,
+            selected_runs=selected_runs,
+            table_config=config["group_average_tables"],
             dpi=dpi,
             page_number=page_number,
         )
@@ -904,6 +1616,7 @@ def build_report(
             writer=writer,
             selected_runs=selected_runs,
             hyperparameter_names=config["key_hyperparameters"],
+            hyperparameter_labels=config["hyperparameter_labels"],
             run_name_max_chars_per_line=config["run_name_max_chars_per_line"],
             dpi=dpi,
             page_number=page_number,

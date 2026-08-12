@@ -1,0 +1,14 @@
+defaults:
+  - CL14_CA
+  - _self_
+
+# Operational startup probe only: architecture and schedule are unchanged.
+trainer:
+  skip_initial_validation: true
+
+writer:
+  experiment_comment: >-
+    CL14_CA startup smoke. Identical model, optimizer, data, and schedule to
+    CL14_CA, with only trainer.skip_initial_validation=true so the first real
+    optimizer step can be checked immediately. Stop after the startup gate;
+    do not use this run for scientific comparison.

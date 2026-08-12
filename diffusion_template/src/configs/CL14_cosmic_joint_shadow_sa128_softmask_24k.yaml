@@ -1,0 +1,21 @@
+defaults:
+  - CL9_cosmic_joint_shadow_sa128_refscale_24k
+  - _self_
+
+# CL14 = CL9 + a feathered TARGET face mask during training.
+#
+# The training mask is a hard binary rectangle, so the branch learns a
+# discontinuous handover at the box edge - the mechanism behind visible seams and
+# faces that do not blend into the body. Worst current IoU cases:
+# Skiing_man_jensen 0.71-0.80, Skiing_man_keanu 0.72-0.77.
+#
+# Training only: the inference pipeline builds its own mask and never reads this
+# flag, so the step-zero panel and all validation stay byte-comparable with CL9.
+model:
+  ba_training_mask_feather: 2
+
+writer:
+  experiment_comment: >-
+    CL14 vs CL9 feathers the target face mask by two latent cells during training
+    so the branch learns a gradual handover at the face boundary. Primary metric
+    is the IoU tail; id_sim expected neutral.

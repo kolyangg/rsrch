@@ -109,6 +109,14 @@ class BranchedAttnProcessor(nn.Module):
         true_reference_key_mask: bool = False,
         branch_output_rank: Optional[int] = None,
         reference_roi_warp: bool = False,
+        hardcase_mode: str = "off",
+        hardcase_rank: int = 64,
+        hardcase_gate_max: float = 0.20,
+        hardcase_roi_size: int = 32,
+        hardcase_face_threshold_px: int = 256,
+        hardcase_transition_cells: int = 2,
+        hardcase_ownership_hidden_dim: int = 128,
+        hardcase_visible_face_floor: float = 0.20,
     ):
         super().__init__()
 
@@ -131,6 +139,60 @@ class BranchedAttnProcessor(nn.Module):
         if self.branch_output_rank is not None and self.branch_output_rank <= 0:
             raise ValueError("branch_output_rank must be positive when enabled")
         self.reference_roi_warp = bool(reference_roi_warp)
+        self.hardcase_mode = str(hardcase_mode or "off").lower()
+        if self.hardcase_mode not in {
+            "off",
+            "highres_roi",
+            "clean_memory",
+            "semantic_ownership",
+            "soft_router",
+        }:
+            raise ValueError(f"Unknown hardcase_mode={hardcase_mode!r}")
+        self.hardcase_rank = int(hardcase_rank)
+        self.hardcase_gate_max = float(hardcase_gate_max)
+        self.hardcase_roi_size = int(hardcase_roi_size)
+        self.hardcase_face_threshold_px = int(hardcase_face_threshold_px)
+        self.hardcase_transition_cells = int(hardcase_transition_cells)
+        self.hardcase_visible_face_floor = float(hardcase_visible_face_floor)
+        if self.hardcase_rank <= 0 or self.hardcase_roi_size <= 1:
+            raise ValueError("Hard-case rank and ROI size must be positive")
+        if not 0.0 < self.hardcase_gate_max <= 1.0:
+            raise ValueError("hardcase_gate_max must be in (0, 1]")
+        if self.hardcase_transition_cells < 1:
+            raise ValueError("hardcase_transition_cells must be positive")
+        if not 0.0 <= self.hardcase_visible_face_floor <= 1.0:
+            raise ValueError("hardcase_visible_face_floor must be in [0, 1]")
+
+        self.roi_gate_raw = None
+        self.memory_to_k = None
+        self.memory_to_v = None
+        self.memory_to_out = None
+        self.memory_gate_raw = None
+        self.ownership_norm = None
+        self.ownership_mlp = None
+        self.ownership_scale_raw = None
+        if self.hardcase_mode == "highres_roi":
+            self.roi_gate_raw = nn.Parameter(torch.zeros((), dtype=trainable_dtype))
+        elif self.hardcase_mode == "clean_memory":
+            self.memory_gate_raw = nn.Parameter(torch.zeros((), dtype=trainable_dtype))
+        elif self.hardcase_mode == "semantic_ownership":
+            ownership_hidden = int(hardcase_ownership_hidden_dim)
+            if ownership_hidden <= 0:
+                raise ValueError("hardcase_ownership_hidden_dim must be positive")
+            self.ownership_norm = nn.LayerNorm(hidden_size, elementwise_affine=False)
+            self.ownership_mlp = nn.Sequential(
+                nn.Linear(hidden_size + 2, ownership_hidden),
+                nn.SiLU(),
+                nn.Linear(ownership_hidden, 1),
+            )
+            nn.init.zeros_(self.ownership_mlp[-1].weight)
+            nn.init.zeros_(self.ownership_mlp[-1].bias)
+            self.ownership_scale_raw = nn.Parameter(torch.zeros((), dtype=trainable_dtype))
+        self.clean_reference_memory = None
+        self.capture_clean_memory = False
+        self.ownership_target_mask = None
+        self._ownership_aux_loss = None
+        self.ba_denoise_progress = None
         
         self.mask = None
         self.mask_ref = None
@@ -200,6 +262,28 @@ class BranchedAttnProcessor(nn.Module):
                 rank=self.branch_output_rank,
                 trainable_dtype=self.trainable_dtype,
             )
+        if self.hardcase_mode == "clean_memory":
+            # 11 Aug 2026 - AICODE-NOTE: the clean-memory lane owns separate
+            # low-rank K/V/output deltas, while its zero gate preserves CL14 at
+            # initialization. Target Q always remains in target coordinates.
+            self.memory_to_k = _clone_effective_linear(
+                attn.to_k,
+                kind="lora",
+                rank=self.hardcase_rank,
+                trainable_dtype=self.trainable_dtype,
+            )
+            self.memory_to_v = _clone_effective_linear(
+                attn.to_v,
+                kind="lora",
+                rank=self.hardcase_rank,
+                trainable_dtype=self.trainable_dtype,
+            )
+            self.memory_to_out = _clone_effective_linear(
+                attn.to_out[0],
+                kind="lora",
+                rank=self.hardcase_rank,
+                trainable_dtype=self.trainable_dtype,
+            )
 
     def _q_noise(self, attn, hidden_states: torch.Tensor) -> torch.Tensor:
         layer = self.noise_to_q if self.noise_to_q is not None else attn.to_q
@@ -229,6 +313,348 @@ class BranchedAttnProcessor(nn.Module):
         """Set masks for current denoising step"""
         self.mask = mask
         self.mask_ref = mask_ref if mask_ref is not None else mask
+
+    def set_clean_memory_capture(self, enabled: bool) -> None:
+        self.capture_clean_memory = bool(enabled)
+
+    def clear_clean_memory(self) -> None:
+        self.clean_reference_memory = None
+
+    def set_ownership_target_mask(self, mask: Optional[torch.Tensor]) -> None:
+        self.ownership_target_mask = mask
+
+    def set_denoise_progress(self, progress: Optional[torch.Tensor]) -> None:
+        self.ba_denoise_progress = progress
+
+    def ownership_aux_loss(self) -> Optional[torch.Tensor]:
+        return self._ownership_aux_loss
+
+    @staticmethod
+    def _reshape_heads(tensor: torch.Tensor, heads: int) -> torch.Tensor:
+        batch, length, channels = tensor.shape
+        if channels % heads:
+            raise RuntimeError(f"Attention width {channels} is not divisible by {heads}")
+        return tensor.view(batch, length, heads, channels // heads).transpose(1, 2)
+
+    @staticmethod
+    def _merge_heads(tensor: torch.Tensor) -> torch.Tensor:
+        batch, heads, length, width = tensor.shape
+        return tensor.transpose(1, 2).reshape(batch, length, heads * width)
+
+    def _normalized_halves(self, attn, hidden_states, temb):
+        normalized = hidden_states
+        if attn.spatial_norm is not None:
+            normalized = attn.spatial_norm(normalized, temb)
+        input_ndim = normalized.ndim
+        spatial = None
+        if input_ndim == 4:
+            total_batch, channels, height, width = normalized.shape
+            spatial = (channels, height, width)
+            normalized = normalized.view(total_batch, channels, height * width).transpose(1, 2)
+        elif input_ndim != 3:
+            raise RuntimeError(f"Unsupported attention input rank: {input_ndim}")
+        if normalized.shape[0] % 2:
+            raise RuntimeError("Hard-case BA requires [target, reference] doubled batches")
+        batch = normalized.shape[0] // 2
+        target = normalized[:batch]
+        reference = normalized[batch:]
+        if attn.group_norm is not None:
+            target = attn.group_norm(target.transpose(1, 2)).transpose(1, 2)
+            reference = attn.group_norm(reference.transpose(1, 2)).transpose(1, 2)
+        return target, reference, input_ndim, spatial
+
+    def _binary_mask(self, mask: torch.Tensor, length: int, batch: int, dtype) -> torch.Tensor:
+        previous = self.force_binary_masks
+        self.force_binary_masks = True
+        try:
+            prepared = self._prepare_mask(mask, length, batch).squeeze(1)
+        finally:
+            self.force_binary_masks = previous
+        return prepared.to(dtype=dtype)
+
+    def _soft_router_mask(self, mask: torch.Tensor, length: int, batch: int, dtype) -> torch.Tensor:
+        binary = self._binary_mask(mask, length, batch, torch.float32)
+        side = int(math.isqrt(length))
+        image = binary.transpose(1, 2).reshape(batch, 1, side, side)
+        remaining = image
+        result = torch.ones_like(image)
+        cells = self.hardcase_transition_cells
+        for index in range(cells):
+            eroded = 1.0 - F.max_pool2d(1.0 - remaining, 3, stride=1, padding=1)
+            ring = (remaining - eroded).clamp(0.0, 1.0)
+            phase = float(index + 1) / float(cells + 1)
+            weight = 0.5 - 0.5 * math.cos(math.pi * phase)
+            result = result * (1.0 - ring) + ring * weight
+            remaining = eroded
+        result = result * image
+        return result.flatten(2).transpose(1, 2).to(dtype=dtype)
+
+    @staticmethod
+    def _masked_rms(tensor: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        denom = (mask.float().sum(dim=(1, 2)) * tensor.shape[-1]).clamp_min(1.0)
+        energy = (tensor.float().square() * mask.float()).sum(dim=(1, 2)) / denom
+        return energy.clamp_min(1.0e-12).sqrt().view(-1, 1, 1)
+
+    def _full_target_lanes(self, attn, target, reference):
+        batch, length, _ = target.shape
+        heads = int(attn.heads)
+        q = self._reshape_heads(self._q_noise(attn, target), heads)
+        native = F.scaled_dot_product_attention(
+            q,
+            self._reshape_heads(self._k_noise(attn, target), heads),
+            self._reshape_heads(self._v_noise(attn, target), heads),
+            dropout_p=0.0,
+            is_causal=False,
+        )
+        ref_mask = self._binary_mask(self.mask_ref, length, batch, reference.dtype)
+        reference_face = reference * ref_mask
+        reference_message = F.scaled_dot_product_attention(
+            q,
+            self._reshape_heads(self._k_ref(attn, reference_face), heads),
+            self._reshape_heads(self._v_ref(attn, reference_face), heads),
+            dropout_p=0.0,
+            is_causal=False,
+        )
+        native_message = self._merge_heads(native)
+        reference_message = self._merge_heads(reference_message)
+        native_out = attn.to_out[0](native_message)
+        reference_out = (
+            self.face_to_out(reference_message)
+            if self.face_to_out is not None
+            else attn.to_out[0](reference_message)
+        )
+        return native_out, reference_out, q
+
+    def _finish_full_router(
+        self, attn, residual, target_out, reference, input_ndim, spatial
+    ) -> torch.Tensor:
+        heads = int(attn.heads)
+        reference_message = F.scaled_dot_product_attention(
+            self._reshape_heads(self._q_ref(attn, reference), heads),
+            self._reshape_heads(self._k_ref(attn, reference), heads),
+            self._reshape_heads(self._v_ref(attn, reference), heads),
+            dropout_p=0.0,
+            is_causal=False,
+        )
+        reference_out = attn.to_out[0](self._merge_heads(reference_message))
+        joined = torch.cat([target_out, reference_out], dim=0)
+        joined = attn.to_out[1](joined)
+        if input_ndim == 4:
+            channels, height, width = spatial
+            joined = joined.transpose(-1, -2).reshape(
+                joined.shape[0], channels, height, width
+            )
+        if attn.residual_connection:
+            joined = joined + residual
+        return joined / attn.rescale_output_factor
+
+    def _ownership_probability(
+        self,
+        target: torch.Tensor,
+        native_out: torch.Tensor,
+        reference_out: torch.Tensor,
+    ) -> torch.Tensor:
+        disagreement = (reference_out.float() - native_out.float()).square().mean(
+            dim=-1, keepdim=True
+        ).clamp_min(0.0).sqrt().to(dtype=target.dtype)
+        progress = getattr(self, "ba_denoise_progress", None)
+        if progress is None:
+            progress_feature = target.new_zeros(target.shape[0], 1, 1)
+        else:
+            progress_feature = torch.as_tensor(
+                progress, device=target.device, dtype=target.dtype
+            ).reshape(-1, 1, 1)
+            if progress_feature.shape[0] == 1:
+                progress_feature = progress_feature.expand(target.shape[0], -1, -1)
+        progress_feature = progress_feature.expand(-1, target.shape[1], -1)
+        features = torch.cat(
+            [self.ownership_norm(target), disagreement, progress_feature], dim=-1
+        )
+        logits = self.ownership_mlp(features)
+        semantic_probability = torch.sigmoid(logits)
+        # Starts at exactly zero, but has a live derivative at the boundary.
+        scale = self.hardcase_gate_max * 2.0 * torch.clamp(
+            torch.sigmoid(self.ownership_scale_raw) - 0.5,
+            min=0.0,
+            max=0.5,
+        )
+        routed_probability = semantic_probability * scale
+        supervision = self.ownership_target_mask
+        self._ownership_aux_loss = None
+        if supervision is not None:
+            target_mask = self._binary_mask(
+                supervision, target.shape[1], target.shape[0], torch.float32
+            )
+            face = self._binary_mask(
+                self.mask, target.shape[1], target.shape[0], torch.float32
+            )
+            denom = face.sum().clamp_min(1.0)
+            self._ownership_aux_loss = (
+                F.binary_cross_entropy(
+                    semantic_probability.float(), target_mask, reduction="none"
+                )
+                * face
+            ).sum() / denom
+        return routed_probability
+
+    @staticmethod
+    def _roi_bounds(mask: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        image = mask.squeeze(-1) > 0.5
+        side = int(math.isqrt(image.shape[1]))
+        image = image.reshape(image.shape[0], side, side)
+        rows, cols = image.any(dim=2), image.any(dim=1)
+        if not bool(rows.any(dim=1).all() and cols.any(dim=1).all()):
+            raise RuntimeError("High-resolution ROI received an empty mask")
+        y0 = rows.float().argmax(dim=1)
+        x0 = cols.float().argmax(dim=1)
+        y1 = side - rows.flip(1).float().argmax(dim=1)
+        x1 = side - cols.flip(1).float().argmax(dim=1)
+        return x0, y0, x1, y1
+
+    def _sample_roi(self, hidden: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        batch, length, channels = hidden.shape
+        side = int(math.isqrt(length))
+        x0, y0, x1, y1 = self._roi_bounds(mask)
+        samples = []
+        source = hidden.transpose(1, 2).reshape(batch, channels, side, side)
+        for index in range(batch):
+            crop = source[index:index + 1, :, y0[index]:y1[index], x0[index]:x1[index]]
+            samples.append(F.interpolate(
+                crop.float(),
+                size=(self.hardcase_roi_size, self.hardcase_roi_size),
+                mode="bilinear",
+                align_corners=False,
+            ).to(dtype=hidden.dtype))
+        return torch.cat(samples).flatten(2).transpose(1, 2)
+
+    def _scatter_roi(self, roi: torch.Tensor, mask: torch.Tensor, length: int) -> torch.Tensor:
+        batch, _, channels = roi.shape
+        side = int(math.isqrt(length))
+        x0, y0, x1, y1 = self._roi_bounds(mask)
+        source = roi.transpose(1, 2).reshape(
+            batch, channels, self.hardcase_roi_size, self.hardcase_roi_size
+        )
+        canvases = []
+        for index in range(batch):
+            canvas = roi.new_zeros(1, channels, side, side)
+            resized = F.interpolate(
+                source[index:index + 1].float(),
+                size=(int(y1[index] - y0[index]), int(x1[index] - x0[index])),
+                mode="bilinear",
+                align_corners=False,
+            ).to(dtype=roi.dtype)
+            canvas[:, :, y0[index]:y1[index], x0[index]:x1[index]] = resized
+            canvases.append(canvas)
+        return torch.cat(canvases).flatten(2).transpose(1, 2)
+
+    def _highres_roi_residual(self, attn, target, reference) -> torch.Tensor:
+        batch, length, _ = target.shape
+        target_mask = self._binary_mask(self.mask, length, batch, target.dtype)
+        reference_mask = self._binary_mask(self.mask_ref, length, batch, reference.dtype)
+        source_px = 1024.0 * target_mask.sum(dim=1).sqrt().squeeze(-1) / math.sqrt(length)
+        active = (source_px <= float(self.hardcase_face_threshold_px)).to(target.dtype)
+        target_roi = self._sample_roi(target, target_mask)
+        reference_roi = self._sample_roi(reference, reference_mask)
+        heads = int(attn.heads)
+        roi_message = F.scaled_dot_product_attention(
+            self._reshape_heads(self._q_noise(attn, target_roi), heads),
+            self._reshape_heads(self._k_ref(attn, reference_roi), heads),
+            self._reshape_heads(self._v_ref(attn, reference_roi), heads),
+            dropout_p=0.0,
+            is_causal=False,
+        )
+        roi_out = attn.to_out[0](self._merge_heads(roi_message))
+        scattered = self._scatter_roi(roi_out, target_mask, length) * target_mask
+        gate = self.hardcase_gate_max * torch.tanh(self.roi_gate_raw)
+        return scattered * gate * active.view(batch, 1, 1)
+
+    def _call_hardcase(self, attn, hidden_states, temb) -> torch.Tensor:
+        residual = hidden_states
+        target, reference, input_ndim, spatial = self._normalized_halves(
+            attn, hidden_states, temb
+        )
+        if self.capture_clean_memory:
+            self.clean_reference_memory = reference.detach()
+            return self._call_legacy(attn, hidden_states, temb=temb)
+
+        mode = self.hardcase_mode
+        if mode in {"highres_roi", "clean_memory"}:
+            baseline = self._call_legacy(attn, hidden_states, temb=temb)
+            batch = target.shape[0]
+            if mode == "highres_roi":
+                addition = self._highres_roi_residual(attn, target, reference)
+            else:
+                memory = self.clean_reference_memory
+                if memory is None:
+                    raise RuntimeError("Clean reference memory was not captured")
+                if memory.shape != reference.shape:
+                    raise RuntimeError(
+                        f"Clean-memory shape mismatch: {tuple(memory.shape)} vs {tuple(reference.shape)}"
+                    )
+                heads = int(attn.heads)
+                q = self._reshape_heads(self._q_noise(attn, target), heads)
+                ref_mask = self._binary_mask(
+                    self.mask_ref, memory.shape[1], batch, memory.dtype
+                )
+                message = F.scaled_dot_product_attention(
+                    q,
+                    self._reshape_heads(self.memory_to_k(memory * ref_mask), heads),
+                    self._reshape_heads(self.memory_to_v(memory * ref_mask), heads),
+                    dropout_p=0.0,
+                    is_causal=False,
+                )
+                memory_out = self.memory_to_out(self._merge_heads(message))
+                face = self._binary_mask(self.mask, target.shape[1], batch, memory_out.dtype)
+                target_base = baseline[:batch]
+                if input_ndim == 4:
+                    channels, height, width = spatial
+                    target_base = target_base.view(batch, channels, height * width).transpose(1, 2)
+                ratio = self._masked_rms(target_base, face) / self._masked_rms(memory_out, face)
+                gate = self.hardcase_gate_max * torch.tanh(self.memory_gate_raw)
+                addition = memory_out * ratio.to(memory_out.dtype) * face * gate
+            if input_ndim == 4:
+                channels, height, width = spatial
+                addition = addition.transpose(-1, -2).reshape(
+                    batch, channels, height, width
+                )
+            target_out = baseline[:batch] + addition / attn.rescale_output_factor
+            return torch.cat([target_out, baseline[batch:]], dim=0)
+
+        native_out, reference_out, _ = self._full_target_lanes(attn, target, reference)
+        if mode == "semantic_ownership":
+            p_occluder = self._ownership_probability(
+                target, native_out, reference_out
+            ).to(dtype=native_out.dtype)
+            face = self._binary_mask(
+                self.mask, target.shape[1], target.shape[0], native_out.dtype
+            )
+            native_weight = face * p_occluder * (
+                1.0 - self.hardcase_visible_face_floor
+            )
+            native_full = self._finish_full_router(
+                attn, residual, native_out, reference, input_ndim, spatial
+            )[: target.shape[0]]
+            baseline = self._call_legacy(attn, hidden_states, temb=temb)
+            baseline_target = baseline[: target.shape[0]]
+            if input_ndim == 4:
+                _, height, width = spatial
+                native_weight = native_weight.transpose(-1, -2).reshape(
+                    target.shape[0], 1, height, width
+                )
+            target_out = baseline_target * (1.0 - native_weight)
+            target_out = target_out + native_full * native_weight
+            return torch.cat([target_out, baseline[target.shape[0]:]], dim=0)
+
+        if mode == "soft_router":
+            router = self._soft_router_mask(
+                self.mask, target.shape[1], target.shape[0], native_out.dtype
+            )
+        else:
+            raise RuntimeError(f"Unhandled hard-case mode {mode!r}")
+        target_out = native_out * (1.0 - router) + reference_out * router
+        return self._finish_full_router(
+            attn, residual, target_out, reference, input_ndim, spatial
+        )
         
     def __call__(
         self,
@@ -249,6 +675,30 @@ class BranchedAttnProcessor(nn.Module):
         """
 
 
+        if self.hardcase_mode != "off" or self.capture_clean_memory:
+            # 11 Aug 2026 - All CL15+ routes are explicit opt-ins. The legacy
+            # function below remains untouched and is the sole path when off.
+            return self._call_hardcase(attn, hidden_states, temb)
+        return self._call_legacy(
+            attn,
+            hidden_states,
+            encoder_hidden_states=encoder_hidden_states,
+            attention_mask=attention_mask,
+            temb=temb,
+            scale=scale,
+            cross_attention_kwargs=cross_attention_kwargs,
+        )
+
+    def _call_legacy(
+        self,
+        attn,
+        hidden_states: torch.Tensor,
+        encoder_hidden_states: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        temb: Optional[torch.Tensor] = None,
+        scale: float = 1.0,
+        cross_attention_kwargs: Optional[dict] = None,
+    ) -> torch.Tensor:
         residual = hidden_states
         
         # Handle spatial norm

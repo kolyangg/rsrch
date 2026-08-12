@@ -1,0 +1,100 @@
+schema_version: 1
+kind: implementation_gated_experiment_blueprint
+status: design_only_not_runnable
+launchable: false
+priority: 3
+proposed_run_name: CL17_cosmic_semantic_visibility_ownership_gate_24k
+base_config: src/configs/CL14_cosmic_joint_shadow_sa128_softmask_24k.yaml
+
+single_change: >-
+  Replace rectangle-only output ownership inside the face with a learned
+  per-query native-versus-reference visibility gate.
+hypothesis: >-
+  Hair, glasses, goggles, tears, and hands are target-scene content even when
+  they overlap the face box. A semantic gate can let the native target lane own
+  occluders while retaining explicit reference BA on visible facial surface.
+
+proposed_overlay:
+  model:
+    ba_semantic_ownership:
+      enabled: true
+      lanes: [native_target, cl14_reference_ba]
+      gate_inputs:
+        - target_query
+        - native_reference_output_disagreement
+        - prompt_cross_attention_summary
+        - target_timestep_embedding
+      gate_hidden_dim: 128
+      gate_parameterization: face_mask_times_one_minus_occluder_probability
+      occluder_probability_init: 0.0
+      visible_face_reference_floor: 0.20
+      merge: convex_once
+      telemetry: per_stage_per_timestep_gate_histograms
+  datasets:
+    train:
+      semantic_occlusion_supervision:
+        enabled: true
+        source: deterministic_real_parse_plus_synthetic_alpha
+        synthetic_families: [eyewear, ski_goggles, hair_strands, hands, tears]
+        apply_probability: 0.25
+        seed_manifest_required: true
+  pipeline:
+    pose_adapt_ratio: 0.0
+    ca_mixing_for_face: false
+
+implementation:
+  code_paths:
+    - src/model/photomaker_branched/attn_processor_cleanest.py
+    - src/model/photomaker_branched/branched_runtime.py
+    - src/model/photomaker_branched/lora2.py
+    - src/datasets
+    - src/trainer/base_trainer.py
+  invariants:
+    - Both lanes use the same full target query coordinates.
+    - Reference BA keeps explicit reference K/V and cannot be silently bypassed.
+    - The convex blend is applied once; continuous gates never double-mask Q and output.
+    - Synthetic occluder alpha is excluded from reference-owned supervision.
+    - The native lane owns target objects; the reference lane owns visible facial surface.
+  dated_comment_required: true
+
+fixed_contract:
+  optimizer_steps: 24000
+  epoch_len: 2000
+  batch_size: 2
+  validation: fixed_manual_val_96_step0_and_every_2000
+  inference_steps: 50
+  corrected_subject_v2_metric: true
+  unchanged_scheduler_prompts_seeds_refs_boxes: true
+
+preflight:
+  - Freeze a deterministic augmentation manifest and verify alpha/image/prompt alignment.
+  - Assert exact CL14 output at zero-initialized occluder probability.
+  - Assert exact native output at gate=0 and exact CL14 reference output at gate=1.
+  - Assert clean visible-face reference floor and finite gradients to both lanes.
+  - Log gate values separately on skin, occluder, hair, and outside-face pixels.
+  - Run correct/wrong-reference probes to reject learned reference retreat.
+
+intermediate_kill_rule: >-
+  Stop after 8k if mean reference gate on clean visible skin is below 0.85, if
+  occluder gate is not at least 0.10 lower than skin, or if overall identity is
+  more than 0.010 below matched CL14.
+final_decision_gate:
+  overall_subject_v2_id_min: 0.4511
+  skiing_subject_v2_id_min: 0.3750
+  skiing_topiq_face_min: 0.7700
+  crying_topiq_face_min: 0.6840
+  text_similarity_min: 26.17
+  qualitative_requirements:
+    - Blind review reduces Skiing topology/duplication failures by at least 50%.
+    - Crying preserves tears, expression, and hand/object topology; raw ID alone cannot pass it.
+    - Clean prompts show no learned retreat from the reference branch.
+
+serv:
+  requested_a100_gpus: 1
+  project_gpu_ceiling: 6
+  submission_authorized: false
+
+evidence:
+  - Static occluder masks did not consistently repair Skiing and could duplicate goggles.
+  - DynamicID supports query-dependent relevance gating instead of a fixed rectangle.
+  - PersonaHOI supports separate native-scene and personalized branches with local residual merge.

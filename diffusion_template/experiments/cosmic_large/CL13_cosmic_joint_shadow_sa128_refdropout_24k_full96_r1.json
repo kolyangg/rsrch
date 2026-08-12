@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "run_name": "CL13_cosmic_joint_shadow_sa128_refdropout_24k_full96_r1",
+  "plan": {
+    "status": "submitted",
+    "priority": 2,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Make the branch defer when an occluder owns the face region.",
+    "baseline": "CL9_cosmic_joint_shadow_sa128_refscale_24k_full96_r1",
+    "hypothesis": "The hard prompts fail identically on large_dataset, BigCelebs and cosmic, and prompt difficulty is uncorrelated with face size (r=-0.026). The shared property is occlusion and extreme expression. The branch has never been trained to defer, so it paints a full face onto goggles and hands.",
+    "single_scientific_change": "ba_reference_dropout_probability=0.15, training only",
+    "risk": "most speculative; if id_sim falls materially drop to 0.05 or abandon",
+    "config": "src/configs/CL13_cosmic_joint_shadow_sa128_refdropout_24k.yaml",
+    "launcher": "launchers/active/run_CL1_CL3_cosmic_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL13_cosmic_joint_shadow_sa128_refdropout_24k_full96_r1/run_CL13_cosmic_joint_shadow_sa128_refdropout_24k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "serv_job": "lm-mpi-job-9f1db03f-0815-4f38-be39-9244342fa3f3",
+    "comet_experiment_key": null,
+    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0 and every 2k, shadow pretrained-default validation, hard spatial BA r128 + generic r32 + PhotoMaker-default r64 at 1e-4, pose_adapt_ratio=0, ca_mixing_for_face=false, 2240/219,217,920 params, reference scale/position jitter from CL9, mirroring off, pose-first captions capped at 50",
+    "primary_metric": "Undersized-face count (<0.8 of the required box) and the IoU tail at MATCHED steps via tools/datasets/measure_face_body_alignment.py. At 14k: E13=0, CL9=0, CL10=0, CL11=0, CL8=10. id_sim secondary.",
+    "cross_dataset_context": "The residual hard prompts (Skiing/Jumping/Dancing/Crying) and the eddie and marion identities fail identically on large_dataset (E13), BigCelebs (BC_E13) and cosmic. CL13/CL14 are architectural precisely because no dataset change can move them.",
+    "decision_gates": {
+      "step_0": "ownership 2240/219217920; CL13/CL14 panels byte-identical to CL9 (training-only flags)",
+      "step_4000": "undersized stays 0",
+      "step_8000": "CL13: no no-face outputs, Skiing_wom_jisoo renders a face. CL14: fewer IoU<0.8 than CL9's 4",
+      "step_14000": "CL12 id_sim >= CL9's .3973 and marion >= .30",
+      "promotion": "undersized 0 with id_sim >= CL9's .41513 at 24k"
+    },
+    "analysis": "analysis/2026-08-09_cl8_cl11_results_hard_cases_and_cl12_cl14.md",
+    "snapshot": "runtime_sources_cl1_cl3_v1/CL13_cosmic_joint_shadow_sa128_refdropout_24k_full96_r1 (sealed, 1220 files, rev c04970f3+cl12-cl14-snapshot-v1-20260809)",
+    "preflight": {
+      "records": 22140,
+      "ref_face_area_pct_median": 19.06,
+      "refs_per_sample": 1,
+      "status": "ok",
+      "failures": []
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "runs": [
+    {
+      "run_id": "74efd227d3f8488a98e83d815c77c07c",
+      "run_name": "PM0_original_photomaker_CL19_full96_r1",
+      "step_number": 0
+    },
+    {
+      "run_id": "6fe0028be92242c38056b3d36665fdd6",
+      "run_name": "CL14_cosmic_joint_shadow_sa128_softmask_24k_full96_r1",
+      "step_number": 24000
+    },
+    {
+      "run_id": "cfeda7b55c174b3c83e8d40537ebb6dd",
+      "run_name": "CL19_cosmic_true_soft_fullquery_router_24k_full96_r2",
+      "step_number": 24000
+    },
+    {
+      "run_id": "b05488e2cce94476acc92bcaa21d7362",
+      "run_name": "CL20_cosmic_bigcelebs_hardcase_curriculum_24k_full96_r2",
+      "step_number": 24000
+    }
+  ]
+}

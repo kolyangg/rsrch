@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "run_name": "BC_E13_big_celebs_joint_shadow_sa128_24k_full96_r1",
+  "plan": {
+    "status": "running",
+    "priority": 1,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Transfer E13's successful shadow-coadapter mechanism from Large Dataset to the sealed BigCelebs v2 release.",
+    "baseline": "E13_large_ds_joint_shadow_sa128_24k_full96_r4",
+    "controlled_delta": "training dataset: large_dataset -> big_celebs",
+    "config": "src/configs/BC_E13_big_celebs_joint_shadow_sa128_24k.yaml",
+    "launcher": "launchers/active/run_BC_E13_big_celebs_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/BC_E13_big_celebs_joint_shadow_sa128_24k_full96_r1/run_BC_E13_big_celebs_joint_shadow_sa128_24k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "scheduled_submission": {
+      "date": "2026-08-08",
+      "timezone": "Europe/London",
+      "attempt_hours": [5, 6, 7, 8, 9],
+      "retry_conditions": [
+        "BigCelebs completion marker absent",
+        "project A100 capacity would exceed the authorized ceiling",
+        "MLS submission rejected or response unparseable"
+      ],
+      "authorized_project_a100_ceiling": 8,
+      "requested_gpus": 1,
+      "post_acceptance_monitoring": "first check no earlier than 35 minutes after acceptance; stop after at least three completed training batches"
+    },
+    "fixed_contract": "24k optimizer steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false, and deferred nonfatal canonical face quality after training",
+    "architecture": {
+      "ba_architecture_version": "hard_replace_v1",
+      "spatial_ba_rank": 128,
+      "generic_effective_adapter_rank": 32,
+      "photomaker_default_effective_adapter_rank": 64,
+      "validation_shadow_photomaker_default": true,
+      "trainable_tensors": 2240,
+      "trainable_parameters": 219217920,
+      "checkpoint_schema": "trainable_v2"
+    },
+    "dataset": {
+      "name": "big_celebs",
+      "class": "src.datasets.big_celebs.BigCelebsTrain",
+      "release": "v2",
+      "release_root": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/datasets/bigcelebs/releases/v2",
+      "manifest": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/datasets/bigcelebs/releases/v2/filtered_ids3_adj.json",
+      "manifest_sha256": "f846b8cc8a4ce087c78130beee48a65f1b13560b63e42a9715cb5686526e5efa",
+      "images_root": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/datasets/bigcelebs/releases/v2/large_dataset",
+      "dataset_manifest": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/datasets/bigcelebs/releases/v2/dataset_manifest.json",
+      "download_log": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/datasets/dataset_tools/download_bigcelebs_v2.log",
+      "required_download_marker": "BIGCELEBS_V2_DOWNLOAD_COMPLETE",
+      "images": 349348,
+      "identities": 68648,
+      "minimum_face_side": 192,
+      "reference_policy": "uniform distinct image from the same sealed identity",
+      "target_reference_leakage": "forbidden",
+      "readiness": "must pass the terminal download marker, READY seal, complete image-tree, manifest policy, and 64-pair decode gates before Comet creation"
+    },
+    "training": {
+      "optimizer_steps": 24000,
+      "epoch_len": 2000,
+      "epochs": 12,
+      "batch_size": 2,
+      "checkpoint_interval_steps": 2000,
+      "loss_kind": "masked_alternating"
+    },
+    "validation": {
+      "dataset": "manual_val",
+      "protocol": "cosmic_full96_auto_v1",
+      "images_per_step": 96,
+      "steps": "0 and every 2000 through 24000",
+      "face_quality_execution_mode": "deferred",
+      "comparability": "same prompts, references, seeds, bboxes, scheduler, inference steps, CFG, and metric definitions as E13"
+    },
+    "runtime": {
+      "source_state": "hash_verified_isolated_serv_runtime_from_ad194a026ab701dd979712d415c487dd536a4645",
+      "isolated_serv_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_BC_E13_bigcelebs_20260808",
+      "submission_attempted": true,
+      "submitted_at": "2026-08-08T05:00:26+01:00",
+      "submission_existing_project_a100_gpus": 6,
+      "submission_authorized_project_a100_ceiling": 8,
+      "mls_job_name": "lm-mpi-job-7d361838-6faa-43be-a44c-ea6df1871233",
+      "mls_status": "running",
+      "mls_error_code": 0,
+      "comet_experiment_key": "c138db7c41ae435c8a7560f40cf5f58d",
+      "comet_record_verified": true,
+      "startup_monitoring_completed_at": "2026-08-08T05:45:19+01:00",
+      "startup_monitoring_completed_train_batches": 98,
+      "latest_observed_optimizer_step_lower_bound": 3350,
+      "epoch1_checkpoint_verified": true,
+      "startup_error_scan": "no traceback or CUDA OOM signature observed"
+    }
+  }
+}

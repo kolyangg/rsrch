@@ -8,6 +8,27 @@ import torch
 
 from .branched_runtime import patch_unet_attention_processors, select_branched_processor_names, two_branch_predict
 from .insightface_package import analyze_faces
+from src.face_subject_selector import LEGACY_FIRST, select_subject_face
+
+
+def _subject_embedding(model, ref, declared_bbox):
+    img_np = np.array(ref.convert("RGB"))[:, :, ::-1]
+    faces = analyze_faces(model.face_analyzer, img_np)
+    policy = str(
+        getattr(model, "face_subject_selection_policy", LEGACY_FIRST)
+    ).lower()
+    if not faces:
+        if policy != LEGACY_FIRST:
+            raise RuntimeError(
+                "Subject-v2 training conditioning found no face in a reference image"
+            )
+        return torch.zeros(512, dtype=torch.float32)
+    selected, _audit = select_subject_face(
+        faces,
+        declared_bbox=declared_bbox,
+        policy=policy,
+    )
+    return torch.from_numpy(selected["embedding"]).float()
 
 
 def _branched_trainable_context(model) -> dict:
@@ -151,6 +172,23 @@ def _is_expected_branched_trainable(name: str, context: dict) -> bool:
                 and ".attn1.processor.face_to_out." in name
                 and ("lora_A" in name or "lora_B" in name)
             )
+        if not expected and is_selected_proc:
+            hardcase_markers = (
+                ".attn1.processor.roi_gate_raw",
+                ".attn1.processor.memory_gate_raw",
+                ".attn1.processor.ownership_scale_raw",
+                ".attn1.processor.ownership_mlp.",
+            )
+            expected = any(marker in name for marker in hardcase_markers)
+        if not expected and is_selected_proc and any(
+            marker in name
+            for marker in (
+                ".attn1.processor.memory_to_k.",
+                ".attn1.processor.memory_to_v.",
+                ".attn1.processor.memory_to_out.",
+            )
+        ):
+            expected = "lora_A" in name or "lora_B" in name
 
     if context["non_ba_train"] and is_non_ba_attn:
         expected = expected or (
@@ -379,6 +417,22 @@ def collect_branched_telemetry(model) -> dict[str, torch.Tensor]:
             values = [entry[metric_name].detach().float() for entry in entries]
             aggregated[f"ba/{metric_name}/{group}"] = torch.stack(values).mean()
     return aggregated
+
+
+def collect_hardcase_aux_loss(model) -> torch.Tensor | None:
+    """Return the live semantic-ownership supervision graph, if present."""
+    losses = []
+    for processor_name in getattr(model, "_ba_patched_processor_names", ()):
+        processor = model.unet.attn_processors.get(processor_name)
+        getter = getattr(processor, "ownership_aux_loss", None)
+        if getter is None:
+            continue
+        value = getter()
+        if value is not None:
+            losses.append(value.float())
+    if not losses:
+        return None
+    return torch.stack(losses).mean()
 
 
 def configure_branched_trainables(model) -> None:
@@ -618,14 +672,14 @@ def prepare_branched_training_inputs(
 
                 prompt_for_id = prompt_embeds.to(dtype=model.id_encoder.dtype)
                 id_embed_list = []
-                for ref in refs:
-                    img_np = np.array(ref.convert("RGB"))[:, :, ::-1]
-                    faces = analyze_faces(model.face_analyzer, img_np)
-                    if faces:
-                        embedding = torch.from_numpy(faces[0]["embedding"]).float()
-                    else:
-                        embedding = torch.zeros(512, dtype=torch.float32)
-                    id_embed_list.append(embedding)
+                for ref_index, ref in enumerate(refs):
+                    id_embed_list.append(
+                        _subject_embedding(
+                            model,
+                            ref,
+                            ref_bbox if ref_index == 0 else None,
+                        )
+                    )
 
                 id_embeds = torch.stack(id_embed_list, dim=0).unsqueeze(0)
                 id_embeds = id_embeds.to(
@@ -793,14 +847,8 @@ def _prepare_branched_training_inputs_batched(
         )
 
         id_embed_list = []
-        for ref in flat_refs:
-            img_np = np.array(ref.convert("RGB"))[:, :, ::-1]
-            faces = analyze_faces(model.face_analyzer, img_np)
-            if faces:
-                embedding = torch.from_numpy(faces[0]["embedding"]).float()
-            else:
-                embedding = torch.zeros(512, dtype=torch.float32)
-            id_embed_list.append(embedding)
+        for ref, ref_bbox in zip(flat_refs, face_bbox_ref):
+            id_embed_list.append(_subject_embedding(model, ref, ref_bbox))
         id_embeds = torch.stack(id_embed_list, dim=0).unsqueeze(1).to(
             device=model.device, dtype=model.id_encoder.dtype
         )

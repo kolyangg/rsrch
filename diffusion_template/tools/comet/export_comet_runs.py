@@ -46,6 +46,7 @@ DEFAULT_OUTPUT_DIR = TEMPLATE_ROOT / "comet_data"
 DEFAULT_OUTPUT_JSON_NAME = "comet_runs_export.json"
 CHUNK_SIZE = 1024 * 1024
 PLACEHOLDER_RUN_ID = "REPLACE_WITH_COMET_EXPERIMENT_KEY"
+PER_IMAGE_ID_TABLE_RE = re.compile(r"^id_sim__.+__step_\d+\.csv$")
 
 LOGGER = logging.getLogger("comet_export")
 
@@ -496,6 +497,21 @@ def select_assets_for_step(
     return assets_by_step[resolved_step], resolved_step, available_steps, True
 
 
+def select_per_image_id_tables(
+    assets: list[dict[str, Any]],
+    resolved_step: int | None,
+) -> list[dict[str, Any]]:
+    if resolved_step is None:
+        return []
+    return [
+        asset
+        for asset in assets
+        if asset.get("type") == "dataframe"
+        and parse_optional_int(asset.get("step")) == resolved_step
+        and PER_IMAGE_ID_TABLE_RE.match(str(asset.get("fileName") or ""))
+    ]
+
+
 def export_run(
     client: CometRestClient,
     run_config: dict[str, Any],
@@ -537,6 +553,7 @@ def export_run(
                     "available_image_steps": [],
                 },
                 "downloaded_images": [],
+                "downloaded_tables": [],
                 "warnings": [],
                 "errors": ["No step_number was provided for this run and no global override was set."],
             },
@@ -571,6 +588,7 @@ def export_run(
                     "available_image_steps": [],
                 },
                 "downloaded_images": [],
+                "downloaded_tables": [],
                 "warnings": [],
                 "errors": [f"Failed to fetch experiment metadata: {exc}"],
             },
@@ -647,8 +665,38 @@ def export_run(
         assets = []
         errors.append(f"Failed to fetch image assets: {exc}")
 
+    try:
+        all_asset_payload = client.get_json(
+            "/experiment/asset/list",
+            experimentKey=run_id,
+            type="all",
+        )
+        all_assets = all_asset_payload.get("assets", [])
+    except Exception as exc:
+        all_assets = []
+        errors.append(f"Failed to fetch per-image metric assets: {exc}")
+
+    completed_table_steps = {
+        parse_optional_int(asset.get("step"))
+        for asset in all_assets
+        if asset.get("type") == "dataframe"
+        and PER_IMAGE_ID_TABLE_RE.match(str(asset.get("fileName") or ""))
+    }
+    completed_table_steps.discard(None)
+    selection_assets = assets
+    if completed_table_steps:
+        # 12 Aug 2026 - A training process can expose some images for the next validation
+        # while that panel is still running. The per-image table is written
+        # only after the complete panel is scored, so use it as the completion
+        # seal when available.
+        selection_assets = [
+            asset
+            for asset in assets
+            if parse_optional_int(asset.get("step")) in completed_table_steps
+        ]
+
     matching_assets, resolved_step, available_image_steps, fallback_used = select_assets_for_step(
-        assets,
+        selection_assets,
         requested_step,
     )
 
@@ -715,6 +763,41 @@ def export_run(
 
     downloaded_images = list(downloaded_images_by_name.values())
 
+    # 12 Aug 2026 - Keep the image panel and its per-image ID values bound to
+    # the same resolved validation step; report overlays must never join a CSV
+    # from a different checkpoint.
+    downloaded_tables: list[dict[str, Any]] = []
+    matching_tables = select_per_image_id_tables(all_assets, resolved_step)
+    if resolved_step is not None and not matching_tables:
+        warnings.append(
+            f"No per-image ID table was found for resolved step {resolved_step}."
+        )
+
+    table_dir = run_dir / "_tables"
+    for asset in matching_tables:
+        asset_id = asset.get("assetId")
+        if not asset_id:
+            errors.append(f"Encountered per-image table without assetId: {asset}")
+            continue
+        file_name = sanitize_file_name(str(asset.get("fileName") or asset_id))
+        destination = deterministic_output_path(table_dir, file_name)
+        try:
+            download_info = client.download_asset(run_id, asset_id, destination)
+        except Exception as exc:
+            errors.append(f"Failed to download per-image ID table {asset_id}: {exc}")
+            continue
+        downloaded_tables.append(
+            {
+                "kind": "per_image_id",
+                "asset_id": asset_id,
+                "file_name": destination.name,
+                "saved_path": str(destination.relative_to(output_dir)),
+                "step": parse_optional_int(asset.get("step")),
+                "file_size": parse_optional_int(asset.get("fileSize")),
+                "content_type": download_info.get("content_type"),
+            }
+        )
+
     duration_millis = parse_optional_int(metadata.get("durationMillis"))
     running_time = {
         "duration_millis": duration_millis,
@@ -754,6 +837,7 @@ def export_run(
         "metrics_summary": metrics_summary,
         "metrics": metrics,
         "downloaded_images": downloaded_images,
+        "downloaded_tables": downloaded_tables,
         "warnings": warnings,
         "errors": errors,
     }

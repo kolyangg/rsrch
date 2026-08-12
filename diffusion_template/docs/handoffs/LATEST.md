@@ -1,6 +1,6 @@
 # Current project handoff
 
-**Last updated:** 6 August 2026
+**Last updated:** 12 August 2026
 
 **Repository:** `/home/kolyangg/rsrch_apr_test`
 
@@ -43,6 +43,232 @@ base, scheduler, inference steps, CFG, or metrics silently. Exact
 comparability is part of correctness.
 
 ## Executive state
+
+### PM0 / CL14 / CL19 / CL20 visual comparison snapshot — 12 August 2026
+
+The latest exact-format Comet comparison PDF is
+`output/pdf/comet_report_PM0_CL14_CL19_CL20_12Aug2026.pdf`; it supersedes the
+earlier CL13 report for the requested comparison. It freezes the latest
+complete validation panels available at export time: PhotoMaker V2 step 0
+(`74efd227d3f8488a98e83d815c77c07c`), CL14 final step 24k
+(`6fe0028be92242c38056b3d36665fdd6`), CL19 step 18k
+(`cfeda7b55c174b3c83e8d40537ebb6dd`), and CL20 step 18k
+(`b05488e2cce94476acc92bcaa21d7362`). Their subject-v2 ID means are
+`0.556580`, `0.456116`, `0.506175`, and `0.443401`, respectively. CL14 peaks
+at `0.457096` at step 22k; CL20 peaks at `0.446974` at step 16k. This remains
+an explicitly unmatched-step snapshot; do not interpret it as a final
+CL19/CL20 comparison.
+
+The 24-page report contains all 96 matched images per run with the per-image
+subject-v2 ID value in a filled top-right box, readable formula-based
+architecture pages, exact critical attention-code excerpts, the eight fixed
+reference identities and twelve prompts, a working full-history
+`manual_val/id_sim` curve with three-decimal last/maximum labels, grouped
+identity/prompt means, and a final table of the scientifically meaningful
+configuration differences. The editable architecture/code/reference source is
+`tools/comet/comet_report_pages_PM0_CL14_CL19_CL20.md`; reusable inputs are
+`tools/comet/comet_runs_12Aug_PM0_CL14_CL19_CL20.json` and
+`tools/comet/comet_pdf_config_12Aug_PM0_CL14_CL19_CL20.json`. The exporter uses
+the per-image ID table as the completion seal, preventing a partially uploaded
+next validation panel from being mistaken for the current step.
+
+A later immutable-key refresh at `2026-08-12T15:46:37Z` found complete,
+table-sealed 20k panels for CL19 and CL20; the PDF above remains the earlier
+18k visual freeze. At the matched 20k gate, CL19 reaches subject-v2 ID
+`0.503941`, text `26.3499`, and mask IoU `0.91473`; CL20 reaches `0.452543`,
+`26.5938`, and `0.89226`; CL14 at 20k is `0.455268`, `26.2381`, and
+`0.89596`. CL19 therefore leads CL14 by `+0.048673` ID at a matched step,
+while CL20 remains effectively CL14-level. CL19's current peak remains
+`0.506175` at 18k. No complete CL19/CL20 22k or 24k panel existed at that
+cutoff.
+
+The historical branched-cross-attention audit is
+`analysis/2026-08-12_branched_cross_attention_disable_history_and_cl19_reintroduction.md`.
+It concludes that the legacy `BranchedCrossAttnProcessor` must remain disabled:
+July Cosmic evidence showed broader corruption, and direct code inspection
+shows reference-hidden queries, identity output returned to the reference
+half, unused spatial masks, and whole-lane replacement. This rejects the
+legacy processor, not explicit CA as a project mechanism: the older leak-free
+one-ID CA-on checkpoint was coherent and higher-ID, E12 rejects hard ID-only
+face replacement, and E17's bounded residual CA was safe but inconclusive on
+a weaker substrate without branch telemetry. The recommended next CA test is
+a fresh single-delta CL19 successor using the existing corrected bounded
+residual identity-token CA v3 in `up_blocks.0/1`, with native CA intact and
+complete branch-use telemetry. Do not mutate or resume CL19/CL20 to add CA and
+do not launch the conditional CL20 transfer unless the CL19-based arm passes.
+
+The user subsequently selected CL14, rather than CL19, as the control for the
+next CA ablation and fixed the new run name to exactly `CL14_CA`. The
+implementation-ready design is
+`analysis/2026-08-12_CL14_CA_implementation_plan.md`. It specifies a fresh
+CL14-configured training run—not a continuation from CL14's 24k checkpoint—with
+only the corrected residual identity-token CA v3 enabled in `up_blocks.0/1`,
+rank 64, gate `0.02..0.20`, full branch telemetry, and an expected startup
+contract of `2,348 / 224,624,676`. The immutable comparison control remains
+CL14 key `6fe0028be92242c38056b3d36665fdd6`. This user-selected experiment is a
+cleaner answer to “does CA add value to CL14,” although CL19 remains the
+stronger absolute architecture substrate. The implementation and corrected
+active scientific run now exist; see the final `CL14_CA implementation and
+validation startup` section for immutable IDs, the telemetry fix, CL14-parity
+deployment, and current status.
+
+### Original PhotoMaker CL19-matched baseline — completed, 11 August 2026
+
+The original pretrained PhotoMaker V2 baseline now has a complete, fail-closed
+run on the exact CL19 validation contract. Serv job
+`lm-mpi-job-0b15a0e4-5db3-48e6-bd98-450d5865ddd0` completed with exit code
+zero; immutable Comet experiment `74efd227d3f8488a98e83d815c77c07c`
+contains 96/96 images at exact step 0, all identity/text aggregates, all seven
+face-quality aggregates, the 96-row per-image identity table, and the verified
+96-row per-image face-quality CSV asset. A fresh immutable-key Comet export
+reported zero warnings and zero errors.
+
+The run uses CL19's byte-sealed prompts, references, bboxes, seed 0, full
+96-image subject-v2 panel, RealVisXL validation base, DDIM 50, CFG 5, batch 12,
+PhotoMaker start step 10, and metric definitions. It loads the pretrained
+`PhotoMaker-V2/photomaker-v2.bin`, takes no optimizer step, loads no training
+checkpoint, and disables branched attention so validation restores the native
+attention processors plus the pretrained PhotoMaker default adapter. This is
+the controlled plain-PhotoMaker baseline for CL19, not a BA experiment.
+
+Step-0 observed metrics are: subject-v2 ID `0.5565802762`, legacy-best ID
+`0.5014309009`, text similarity `26.0014648438`, mask IoU `0.8651533823`,
+face count `1.1354166667`, no-face/unowned/ambiguous all `0`, face-detection
+rate and TOPIQ-Face coverage both `1.0`, TOPIQ-Face mean `0.7531917117`,
+TOPIQ-Face p10 `0.5918496251`, TOPIQ mean `0.6147096589`, MUSIQ mean
+`73.0987923145`, and MANIQA-PIPAL mean `0.6437278905`.
+
+Durable implementation and launch records are
+`src/configs/PM0_original_photomaker_CL19_full96.yaml`,
+`launchers/active/run_PM0_original_photomaker_CL19_full96_1gpu.sh`,
+`serv_run_packages/PM0_original_photomaker_CL19_full96_r1/`, and
+`experiments/baselines/PM0_original_photomaker_CL19_full96_r1.json`.
+
+### CL9 fixed-checkpoint edge validations — completed, 11 August 2026
+
+Both user-authorized one-A100 sidecars finished with MLS status `failed`, but
+the ROI sidecar first produced the decisive baseline result: **96/96 fixed-panel
+images replayed with exact RGB equality** from CL9's 24k checkpoint.
+
+- `lm-mpi-job-bcff7ec7-e2b5-47de-87ac-ca37210da8dd` — the isolated Marion
+  12-image baseline was `0/12` exact and the fail-closed gate prevented roll,
+  similarity, and occluder arms from running. The full-96 success rules out a
+  broadly wrong checkpoint/evaluator; the exact sequence-state cause is not
+  established. Repair by replaying all 96 rows in historical order for each
+  targeted arm, keeping indices 0-83 as sentinels.
+- `lm-mpi-job-5dc7cc57-c622-48a5-a80d-16607107f151` — full-96 baseline was
+  `96/96` exact. The first ROI arm then failed before saving an intervention
+  image because the immutable DDIMScheduler does not accept a custom timestep
+  list. Repair by retaining the standard DDIM50 grid and running its late suffix
+  inside a bounded scheduler-compatible denoising loop.
+
+Both use CL9 `weights-epoch12.pth` (step 24k, SHA-256
+`5396993b16ace89908501bfddb2e412e755a3f6478a6449c502062d6ca7357c3`),
+RealVis, `legacy_full_copy`, batch 12, CFG 5, DDIM 50, the exact active bbox
+map, `pose_adapt_ratio=0`, and `ca_mixing_for_face=false`. Neither causal
+intervention produced results; do not infer performance from the failed jobs.
+The audited status report is
+`analysis/2026-08-10_cl9_baseline_replay_and_validation_status.md`. Durable plans are
+`experiments/diagnostics/CL9V_marion_occlusion_validation_24k_20260810_r1.json`
+and `experiments/diagnostics/CL9V_smallface_roi_refine_24k_20260810_r1.json`.
+
+Repaired `r2` packages are deployed and pass local plus remote shell/compile
+checks. The Marion package replays full96 and changes only indices 84-95; the
+ROI package uses a verified suffix of the unchanged DDIM50 grid. Submission
+attempts at 16:14 local time were rejected with
+`PROJECT_GPU_LIMIT_REACHED_ONLY_0_FREE`: the eight-GPU recovery job still owns
+all project capacity. The user explicitly renewed the scoped ten-GPU exception,
+but one fresh attempt per package at 16:20 was rejected by the Serv backend with
+the same error before any MLS job was created. The active eight-GPU recovery
+allocation was still at 12/25 verified runs, with five workers running and one
+failed; do not stop it merely to make room. The user then explicitly authorized
+recurring retries. Durable Serv scheduler PID `849511` will first try both jobs
+at `2026-08-10 17:00 Europe/London`, then every 30 minutes. It tracks the two
+YAMLs independently, never resubmits an accepted job, exits after both have MLS
+IDs, and stops early if the agent creates the scheduler `STOP` flag. State is at
+`analysis_sidecars/cl9v_r2_submission_scheduler_20260810`. Records:
+`experiments/diagnostics/CL9V_marion_occlusion_validation_24k_20260810_r2.json`
+and `experiments/diagnostics/CL9V_smallface_roi_refine_24k_20260810_r2.json`.
+
+The scheduler was live-audited at 17:15 local time. It attempted both YAMLs at
+17:00 as configured, counted four current `#nasilaev` GPUs, and reached MLS;
+both were rejected before job creation with
+`PROJECT_GPU_LIMIT_REACHED_ONLY_0_FREE`. A user-requested immediate attempt at
+17:15 received the same response for both. Scheduler PID `849511` remains alive
+and the next anchored attempt is 17:30 local time.
+
+At 22:00 local, MLS accepted both `r2` YAMLs, but the original scheduler parser
+did not recognize pretty-printed multi-line JSON and later duplicated Marion.
+All three allocations failed without usable intervention outputs. Small-face
+`r2` exposed a rectangular BA target (`seq_len 580 is not square`); Marion
+`r2` exposed that the evaluator applies reference conditioning once to the
+whole 96-row array, not once per batch. The parser now recognizes multi-line
+responses and accepted IDs are sealed before subsequent retries.
+
+Clean `r3` packages were built rather than reusing partial roots. Small-face
+uses a square source crop/work canvas and passed local plus deployed all-16-row
+geometry gates. Marion replaces only entries 84-95 in the evaluator's full96
+conditioned-reference arrays and passed local plus deployed substitution gates
+against the real transform manifest. Small-face `r3` job
+`lm-mpi-job-131bc8e8-7a90-4d3c-acf3-1a2c13514ce6` completed successfully in
+1,249 seconds with exit code zero after both small-face ROI arms and scoring.
+It passed the reused `96/96` exact baseline gate and the 80-image sentinel gate
+for each arm. Marion `r3` was initially rejected seconds later for zero free
+capacity. The running MLS worker had no supported exec/attach continuation
+hook, so it was not mutated. Scheduler PID `860799` detected small-face
+completion at `2026-08-10T21:50:16Z` and immediately secured Marion job
+`lm-mpi-job-193731be-cba3-4ae8-8606-53dbb0b59d47`; the scheduler then exited
+normally. Marion passed its exact baseline gate, generated all 96 roll-arm
+images, passed the 84-image roll sentinel gate, generated all 96 similarity and
+all 96 occlusion-ownership images, and passed both remaining sentinel gates.
+MLS job `lm-mpi-job-193731be-cba3-4ae8-8606-53dbb0b59d47` completed successfully
+in 6,209 seconds with sidecar exit code zero. All three arms have subject-v2
+and TOPIQ-Face outputs, and the final 338-file SHA-256 manifest is present.
+Durable records are the two
+`CL9V_*_20260810_r3.json` files under `experiments/diagnostics/`.
+
+The completed paired analysis is
+`analysis/2026-08-11_cl9_validation_interventions_results.md` with its rendered
+PDF in `analysis/assets/2026-08-11_cl9_validation_interventions_results.pdf`.
+The promotion summary excludes Eddie for the ROI and ownership arms because
+the exact historical replay predates the repaired Eddie generation rows. The
+18-step ROI suffix is the only positive result: non-Eddie ID improves by
+`+0.097` with `11/14` wins while all 16 composites remain pixel-exact outside
+the ROI; the 10-step suffix loses `-0.116` with `0/14` wins. Marion roll gives
+a modest `+0.023` ID and `+0.015` TOPIQ but needs multi-seed replication;
+five-point similarity is effectively neutral. The static occluder mask is
+rejected: combined non-Eddie ID is flat, face scale/alignment regress, and the
+largest Skiing gains move goggles away from the intended occlusion. Run the
+14/16/18/20-step multi-seed ROI sweep first, then a per-image precise occluder
+geometry diagnostic before considering training either mechanism.
+
+The three promotion-gated follow-ups completed as one fail-closed,
+single-A100 chain in
+`serv_run_packages/cl9v_validation_chain_20260811_r4/`. The 30-minute monitor
+submitted once capacity fell to four project GPUs; MLS job
+`lm-mpi-job-09cb6478-b936-4ecb-b69b-a082742641c2` ran from
+`2026-08-11T01:15:27Z` to `08:14:44Z` and exited at `final_hashes` with code
+zero. All 26 stages completed. The chain passed `96/96` baseline replay,
+`80/80` sentinels for every one of the 16 ROI arms, `16/16` exact-outside-ROI
+composites per arm, `96/96` exact reproduction of r3 for ROI18 seed 0,
+`80/80` precise-occluder sentinels, and `84/84` sentinels for all six new
+Marion arms. Its final output seal contains 2,974 hashes.
+
+The multi-seed result promotes the `18`-step ROI suffix: non-Eddie ID improves
+`+0.09684` over 56 prompt-seed pairs with `43/56` wins and clustered 95%
+interval `[+0.04354,+0.14659]`; all four seed means are `+0.094` to `+0.100`.
+ROI20 also passes but has lower mean ID and more face/boundary movement. The
+precise occluder arm is better than the static mask (`+0.03834`, `9/14` wins,
+TOPIQ `+0.02743`, IoU `-0.00320`) but fails continuation because Skiing is
+only `4/7` and visual goggle duplication/relocation remains. Marion roll does
+not replicate: all-seed ID is `+0.00128`, `19/48` wins, interval
+`[-0.00837,+0.01234]`; retire roll and five-point normalization as identity
+fixes. The replicated ROI mechanism unlocks
+`CL9T_shared_ba_highres_face_aux_24k_r1`; learned occluder-gate training stays
+deferred. The updated evidence is in
+`analysis/2026-08-11_cl9_validation_interventions_results.md`; the durable run
+record is
+`experiments/diagnostics/CL9V_validation_chain_24k_20260811_r4.json`.
 
 ### E11/E12 BA-capacity plan — 4 August 2026
 
@@ -2091,3 +2317,678 @@ immediately deleted duplicate E23/E24 submissions caused by MLS visibility
 lag, implementation details, YAMLs, and complete job/key mapping are recorded
 in
 [`analysis/2026-08-06_e19_e24_implementation_and_launch.md`](../../analysis/2026-08-06_e19_e24_implementation_and_launch.md).
+
+### BigCelebs E13 transfer launch — 8 August 2026
+
+`BC_E13_big_celebs_joint_shadow_sa128_24k_full96_r1` transfers E13 r4's
+shadow-coadapter contract to the sealed BigCelebs v2 training dataset, with
+the fixed full-96 validation protocol unchanged. Its isolated Serv runtime is
+`runtime_worktrees/rsrch_test_BC_E13_bigcelebs_20260808`, built from commit
+`ad194a026ab701dd979712d415c487dd536a4645`. The gated 05:00 BST attempt saw
+six existing project A100s under the explicitly authorized eight-GPU ceiling
+and was accepted as job `lm-mpi-job-7d361838-6faa-43be-a44c-ea6df1871233`.
+The immutable Comet key is `c138db7c41ae435c8a7560f40cf5f58d`.
+
+The required delayed startup check began after 35 minutes and stopped after
+observing 98 completed training batches. A later live check found the job
+Running with MLS `error_code=0`, no traceback or CUDA-OOM signature, durable
+epoch-1 checkpoints at 2,000 steps, and progress beyond optimizer step 3,350.
+The exact config, launcher, Serv package, dataset paths, and launch evidence
+are recorded in
+[`experiments/big_celebs/BC_E13_big_celebs_joint_shadow_sa128_24k_full96_r1.json`](../../experiments/big_celebs/BC_E13_big_celebs_joint_shadow_sa128_24k_full96_r1.json).
+
+### E13 versus BigCelebs analysis and dataset-only follow-ups — 9 August 2026
+
+`BC_E13_big_celebs_joint_shadow_sa128_24k_full96_r1` completed successfully
+with MLS `error_code=0`. Its controlled comparison with E13 is documented in
+[`analysis/2026-08-09_e13_vs_bc_e13_bigcelebs_dataset_analysis.md`](../../analysis/2026-08-09_e13_vs_bc_e13_bigcelebs_dataset_analysis.md),
+with a visually verified 15-page PDF under
+`output/pdf/2026-08-09_e13_vs_bc_e13_bigcelebs_dataset_analysis.pdf`.
+The report's metric freeze preceded BC_E13's deferred face-quality finalizer;
+its ID/text conclusions and paired full-96 analysis are complete, while the
+report deliberately does not invent unavailable face-quality values.
+
+Observed result:
+
+- E13 reaches `.399799 @24k`; BC_E13 peaks at `.399010 @16k` but falls to
+  `.389430 @24k`. The paired final-panel mean delta is `-.010369`, median
+  `-.01733`, 40/96 BC wins, with a 95% panel-bootstrap interval of
+  `[-.02488, +.00441]`. This is a modest aggregate loss with large
+  identity/prompt interactions, not a uniform failure.
+- BC_E13 is persistently weak on Jisoo/Crying, Eddie/Night ride,
+  Eddie/Crying, Jisoo/Rushing, Keanu/Dancing, and Lex/Jumping, while Jensen
+  and Skiing improve. The report contains matched images and exact per-cell
+  metrics for representative wins and losses.
+- BigCelebs has 349,348 images / 68,648 IDs versus Large's 47,500 / 2,561,
+  but the unchanged 48k-row budget reaches only about 31,480 BigCelebs IDs;
+  roughly 21,382 are expected once and only about 10,097 at least twice.
+  Median identity depth is 4 instead of 18.
+- The domain also shifts sharply toward portraits: 83.97% portrait/close-up
+  versus 0.324%, with much less standing, hands/holding, and multi-person
+  content. Unrestricted image-proportional sampling and random same-ID
+  references therefore spend the fixed budget on breadth and close-ups rather
+  than repeated, scene-rich identity supervision.
+- Horizontal flips leave directional captions unchanged. The measured
+  directional-caption rate implies about 1,846 additional wrong-direction
+  rows over 48k for BigCelebs relative to Large. The release itself is
+  mechanically healthy; the auxiliary unused `caption_changes.jsonl` is
+  defective because all 71,321 rows repeat one path.
+
+Three opt-in dataset-only policies were implemented by the requested
+GPT-5.6-Sol High agent. Historical Large and BigCelebs loaders remain
+unchanged. The implementation entry points are
+`src/datasets/bc_e13_schedule_policy.py`,
+`src/datasets/big_celebs_e13_scheduled.py`,
+`tools/datasets/build_bc_e13_dataset_schedule.py`, and
+`launchers/active/run_BC_E13_dataset_experiments_24k_1gpu.sh`; exact configs,
+specs, and Serv packages use the `BC_E13_ds1`, `BC_E13_ds2`, and
+`BC_E13_ds3` prefixes. The sequential loader fails closed on source and
+schedule hashes, preserves schedule order, uses distinct same-ID references,
+and disables directional-caption flips. Full Hydra comparison permits only
+`train_dataset_name` and `writer.experiment_comment` to differ from BC_E13;
+all three retain E13's 2,240 trainable tensors / 219,217,920 parameters,
+`pose_adapt_ratio=0`, and `ca_mixing_for_face=false`.
+
+The isolated Serv runtime is
+`runtime_worktrees/rsrch_test_BC_E13_dataset_20260809`, branch `test` at
+`ad194a026ab701dd979712d415c487dd536a4645`. Before submission, each real
+48k schedule was regenerated twice with byte-identical hashes, fully scanned,
+and decoded at 64 distributed target/reference pairs. The accepted one-A100
+jobs are:
+
+- `BC_E13_ds1_repeatdepth_balanced_24k_full96_r1`: 2,561 strict deep IDs,
+  18/19 visits each; schedule
+  `b4fbceebe4dc76bbe5f5430cdf608f961266c495b092e245f8d3f836a6b88f73`;
+  job `lm-mpi-job-7e1b163c-d16f-445c-896f-a313e12e2cf0`; Comet
+  `b5b23b0ca4b449bc8f4703d6a7334be1`.
+- `BC_E13_ds2_scene_target_canonical_ref_24k_full96_r1`: the same identity
+  order with 32k scene targets / 16k unrestricted targets and canonical
+  top-three references; schedule
+  `3300e2ea9ecfc23c60d9c94056df2c2ed0dad495211d892dcf6b33f39a25e9be`;
+  job `lm-mpi-job-dc1dae0c-b373-47e1-a84a-96593da966f9`; Comet
+  `5db54d7d4557487e94251656736843db`.
+- `BC_E13_ds3_large_anchor_2to1_24k_full96_r1`: deterministic 32k Large /
+  16k BigCelebs interleave, with 10,667 scene-role BigCelebs targets;
+  schedule
+  `b61b42a282c4db2b15d3ae25d6b47a1bcd6ab5e739051d81034214207f40c711`;
+  job `lm-mpi-job-439c7f1b-d339-4077-a871-c52e4f264caa`; Comet
+  `43adf33cf7174e89b8fde1cdd640a052`.
+
+Immediately before the three submissions the project used four A100s. The
+successive audits saw totals of four, five, and six; the new requests brought
+the project to seven, within the user's scoped eight-GPU exception. All three
+immutable `saved/<run>/comet_experiment.json` records were verified after the
+complete source/schedule/decode gates, and all three jobs remained Running at
+the final startup check.
+
+### Problematic validation audit and corrected Eddie intervention — 9 August 2026
+
+The cross-run audit covering E13, BC_E13, CL10 and CL11 is finalized in
+[`analysis/2026-08-09_problematic_validation_e13_cl10_cl11_bc_e13.md`](../../analysis/2026-08-09_problematic_validation_e13_cl10_cl11_bc_e13.md).
+It uses the controlled fixed-96 18k panels, historical endpoint panels, 41
+checkpoint histories, detector/fixed-mask geometry, and a completed local
+12-prompt corrected-Eddie final-checkpoint intervention. The sidecar is an
+analysis-only protocol exception and must not be joined to historical Comet
+curves as if it were a normal validation event.
+
+Two independent validation defects are proven:
+
+- Eddie's reference contains foreground Eddie plus a small background face.
+  Historical `faces[0]` selection uses the bystander for the validation target
+  and PhotoMaker conditioning while the spatial BA crop already uses Eddie.
+  The stored embedding has cosine `-0.0078` to the intended foreground face.
+- `IDSimBest` can reward identity on another body because it maximizes over all
+  generated detections without mask ownership. All four 18k Chef/Lex images
+  show this failure; the winning identity face has fixed-mask IoU `0.000`.
+
+The corrected Eddie chain completed successfully for E13 24k, BC_E13 24k and
+the requested CL11 20k checkpoint. Replacing only the historical bystander
+embedding with foreground Eddie, while preserving reference pixels/bbox,
+prompts, seeds, fixed generation masks, scheduler, inference steps, CFG and
+checkpoint, raises intended-Eddie ID similarity:
+
+- E13 24k: `0.0653 -> 0.3407`, paired `+0.2754`, 12/12 wins;
+- BC_E13 24k: `0.0626 -> 0.2842`, paired `+0.2216`, 11/12 wins;
+- CL11 20k: `0.0741 -> 0.2992`, paired `+0.2251`, 11/12 wins.
+
+The correction is necessary but not sufficient. Corrected median mask IoU is
+only `0.799-0.835`; E13/BC_E13 Jumping move the face off the fixed mask (IoU
+`0.000`), and all three Kickboxing outputs fuse or duplicate face/body anatomy.
+E13 Kickboxing still scores `0.449` with mask IoU `0.122`, demonstrating that
+ArcFace plus binary detection can reward a visibly invalid face. CL11 preserves
+Jumping placement best (`0.744` IoU) but has lower Eddie identity. Skiing stays
+low (`0.102-0.142`) with severe goggle/eye artifacts despite reasonable mask
+alignment.
+
+Sidecar outputs are under
+`analysis/assets/problematic_validation_20260809/final_checkpoint_sidecar/`;
+paired tables and figures are generated by
+`analysis/assets/problematic_validation_20260809/analyze_final_corrected_sidecar.py`.
+Checkpoint SHA-256 values are E13
+`4a9d95a3f957609fcf4eb77771f263dec8e71189dc72aae347233091de4249ab`,
+BC_E13 `99b305bad425dd07073a4a54e0a978dea0d4a02456c8129eb1b12afbbf5a459e`,
+and CL11 `e65972c8c14b5031f879e1ee8b1e11a707823e0cfccdb80553219fc8069dbb83`;
+the preserved generation-bbox protocol hash is
+`4db6344d0deb0af0ee7a25d839b774c9a4a0c5b8f6ff4cc00aaa9c0d6d85c099`.
+
+E13 remains the base. Priority order is now: (P0) a versioned subject selector
+and mask-owned ID metric with legacy metrics preserved; (P1) an E13
+PhotoMaker identity-onset/cross-attention isolation sweep to prevent global
+composition drift; (P2) a separately normalized native/reference face-message
+mixture for occlusion and anatomy. Target-scale matching is next after those.
+Keep `pose_adapt_ratio=0` and `ca_mixing_for_face=false` throughout.
+
+The final report PDF is
+`analysis/assets/2026-08-09_problematic_validation_e13_cl10_cl11_bc_e13.pdf`
+(`32,615,925` bytes; SHA-256
+`fee2995303a6f283353f9f5f92f717b337ac43abf102d1b1cdda8e98e3f0ccbd`).
+All 19 pages were rendered and visually checked; the Dropbox upload returned
+content-integrity OK.
+
+A separate image-by-image before/after report is
+[`analysis/2026-08-09_eddie_validation_pre_vs_post_reference_fix.md`](../../analysis/2026-08-09_eddie_validation_pre_vs_post_reference_fix.md),
+with PDF
+`analysis/assets/2026-08-09_eddie_validation_pre_vs_post_reference_fix.pdf`
+(`33,108,650` bytes; SHA-256
+`e238c81350c72a44984b71e5ed3f984d2b9e3640fa4903a4b8dec43f27f6e401`).
+It shows all 36 historical/corrected pairs with fixed-mask and detected-face
+overlays. The key paired summary is 34/36 identity wins versus only 4/36 mask
+IoU wins, with five new post-fix mask IoUs below `0.30`. All 12 PDF pages were
+rendered and visually checked; Dropbox integrity verification passed.
+
+### Correction: Eddie sidecar validation contract was not reproduced — 9 August 2026
+
+The generated corrected-Eddie evidence in the immediately preceding section is
+**withdrawn** after a user-raised image audit and code/config trace. Do not use
+the `34/36` win count, corrected alignment deltas, counterfactual full-96 means,
+or E13/BC_E13/CL11 corrected-image rankings. The historical Comet images,
+wrong-reference-selector diagnosis, mask-ownership diagnosis, and non-Eddie
+measurements remain valid.
+
+The old corrected sidecar did load the intended RealVis base and preserved the
+recorded checkpoints, prompts, seed 0, references, reference boxes, cached
+generation boxes, DDIM scheduler, 50 steps and CFG 5. It nevertheless differed
+from all three in-training validation contracts in material ways:
+
+- it forced `processor_base_mode=validation_native`; E13, BC_E13 and CL11 all
+  resolve to strict `legacy_full_copy` (70 stateful BA processors);
+- `evaluate_rhca_checkpoint.py` did not implement
+  `validation_shadow_photomaker_default=true`, so 700 trained checkpoint
+  `.default.` tensors remained active instead of restoring the pretrained
+  PhotoMaker default on RealVis; and
+- it forced batch size 1 and rewrote the validation dataset limit to 12, while
+  training generated the 12 Eddie rows as one batch inside configured full-96.
+
+The old sidecar also changed the ArcFace vector fused into global PhotoMaker
+prompt tokens at denoising step 10; spatial BA begins at step 15. It was not a
+face-local BA-mask change, and the foreground Eddie BA bbox was already
+correct. Thus an exact future replay may still show global composition response
+to the selector correction, but only after an unchanged baseline reproduces the
+historical images.
+
+The evaluator now derives and enforces base, processor, shadow, CFG, CA and
+batch semantics from the experiment config; mirrors strict processor copying
+and the pretrained-default snapshot/restore; propagates the trainer's full BA
+runtime attribute set; retains the configured full-96 context; and records the
+contract in its manifest. The local contract-v2 chain first generates an
+unchanged historical replay, requires exact pixels for all 12 Eddie images, and
+only then permits the corrected global-ID arm. The old Serv launcher is blocked
+and the old analysis script rejects non-v2 manifests. No corrected validation
+was launched during this audit. See
+[`analysis/2026-08-09_eddie_revalidation_contract_audit.md`](../../analysis/2026-08-09_eddie_revalidation_contract_audit.md).
+
+### Eddie contract-v2 Serv replay launched — 9 August 2026
+
+The guarded one-GPU chain was submitted on Serv at
+`2026-08-09T19:37:53+01:00` as
+`lm-mpi-job-baea4903-7f8d-4785-a67d-f153df3299da`. Six project A100s were
+Running and none Pending immediately before submission; this job is the seventh
+GPU under the user's scoped ten-GPU exception for the corrected Eddie chained
+revalidation. Serv accepted it and the job completed successfully in 2,111
+seconds at `2026-08-09T20:13:25+01:00`.
+
+The chain uses the immutable E13, BC_E13, and CL11 runtime snapshots and sealed
+checkpoint hashes, with the patched evaluator supplied as an external overlay;
+the experiment runtime trees are not edited. For each model it runs the
+unchanged 12-image historical batch first, requires exact RGB pixels against
+the original Comet images, and only then permits the foreground-Eddie global
+PhotoMaker identity-vector arm. Any failed replay gate stops the entire chain.
+Outputs and stage markers are under
+`/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/analysis_sidecars/eddie_revalidation_contract_v2_serv_20260809_r1`.
+The audit record is
+`experiments/diagnostics/eddie_revalidation_contract_v2_serv_20260809_r1.json`.
+
+All three gates passed: E13, BC_E13 and CL11 each reproduced 12/12 historical
+Eddie images RGB pixel-exact, with no failed pairs or contract mismatches. The
+chain then produced all 36 corrected images. The local
+`analysis/assets/problematic_validation_20260809/final_checkpoint_sidecar_contract_v2/`
+copy verified 105/105 output files against Serv's SHA-256 manifest.
+
+The valid analysis reverses the invalid sidecar's composition conclusion:
+intended-Eddie identity improves in 36/36 prompt pairs (`+0.360/+0.291/+0.289`
+mean for E13/BC_E13/CL11), corrected median mask IoU remains
+`0.891/0.875/0.880`, and no corrected image falls below `0.30`. Kickboxing and
+Jumping retain body layout. P1 is therefore the E13 dual native/reference
+face-message diagnostic for residual anatomy/occlusion; P2 is target-scale
+matching for small faces. The PhotoMaker-onset sweep is demoted.
+
+The rebuilt main PDF is
+`analysis/assets/2026-08-09_problematic_validation_e13_cl10_cl11_bc_e13.pdf`
+(`32,237,957` bytes; SHA-256
+`e5a5638eb367e202ccfe85082714975f8b080dd21622a401739ce32b76b20981`).
+The rebuilt pre/post PDF is
+`analysis/assets/2026-08-09_eddie_validation_pre_vs_post_reference_fix.pdf`
+(`32,738,165` bytes; SHA-256
+`e81a81977c12d3b23418324ce6d813b3aad62e6a3fc97e5ba2161dded5fdb7c8`).
+All 19 and 12 pages respectively were rendered and visually checked; both
+Dropbox uploads returned content-integrity OK.
+
+### Subject-v2 training-validation repair and selective Comet backfill — 9 August 2026
+
+The Eddie defect is now fixed in the shared E13-family **validation** path.
+`bbox_overlap_v2` selects the InsightFace detection with maximum overlap to the
+declared reference box and fails closed on missing/non-overlapping/ambiguous
+detections. The training model retains `legacy_first`, so this repair does not
+silently change the E13 optimization trajectory. Historical configs also keep
+the legacy default for exact replay. E13, BC_E13 and CL11 compose to validation
+policy v2, batch 12, full 96, `pose_adapt_ratio=0`, and
+`ca_mixing_for_face=false`.
+
+The versioned reference preflight passes 12/12 identities. Eddie is the only
+multi-face reference and selects detection index 1 with IoU `0.896066`; all 11
+other references select index 0 and remain numerically equal to their legacy
+vectors. The new embedding artifact is
+`dataset_full/val_dataset/id_embeds_manual_val_subject_v2.pth`, SHA-256
+`e0d36212ad350db8252c4805acf46aa4c90289603d460584dc7692066712b465`;
+its provenance manifest binds both new and legacy embedding hashes.
+
+The generated-face metric now receives the exact bbox resolved by the trainer
+and passed into BA. This corrected a second, analysis-side inconsistency. The
+earlier Chef/Lex claim used the dataset manual bbox `[590,413,694,543]`, while
+in-training BA used cached auto bbox `[223,380,447,668]`. On the E13 18k image,
+the actual-box mask-owned result equals historical best ID `0.365892` with IoU
+`0.898726`; the unused manual box selects the background chef at ID `0.139086`.
+Chef/Lex is therefore not a proven live BA ownership failure. It remains a
+useful negative check showing why metrics must consume the resolved box.
+`IDSimMaskMatched` is the corrected primary score; historical max-over-any-face
+ID is retained as `manual_val/id_sim_legacy_best`, with mask IoU, face count,
+no-face, unowned and ambiguity diagnostics in curves and per-image CSVs. The
+main report Markdown contains a prominent erratum; its previously uploaded PDF
+predates that erratum.
+
+`tools/comet/backfill_subject_v2_validation.py` is prepared for retrospective
+repair of CL0-CL10, E13, BC_E13 and related runs. It supports one checkpoint or
+all deserializable checkpoints with complete fixed-96 Comet panels, discovers
+changed identities from the hash-bound selector manifest, expands generation
+to original batch boundaries, and publishes only requested identity/prompt
+rows. Before correction it replays the historical batch and requires exact RGB
+pixels. It merges corrected rows into the other historical images, rescoring
+all 96 with batched CLIP, mask-owned and legacy ID, and the canonical seven
+face-quality metrics. Dry-run is the default; `--write` backs up exact assets
+and complete metric histories, waits for Comet deletions, restores/replaces the
+series and tables, then downloads every replacement and verifies SHA-256.
+`--generation-bbox-map` pins run-specific cached maps such as CL11's distinct
+historical protocol. Local `BACKFILL_ETA` lines report current-checkpoint and
+whole-job remaining time, while evaluator batch lines retain inference ETA.
+
+No historical Comet experiment was mutated while implementing this repair.
+Run the script from each experiment's exact immutable source/config tree; using
+a current Hydra tree can mis-derive historical epoch/step, RealVis,
+processor-copy, shadow-adapter, batch, scheduler, or bbox semantics.
+
+The requested retrospective E13, BC_E13, BC_E13_ds1/ds2/ds3 and CL4-CL9 job
+was submitted on Serv as one five-worker binary allocation. The first
+production job was `lm-mpi-job-af9c6f65-e450-4edb-bd62-1d24379228c7`; it entered Running at
+`2026-08-09T22:12:48Z` with five one-A100 nodes. Three project A100 jobs were
+active before submission, so the total request is eight under the user's
+scoped ten-GPU exception. Worker 0 owns E13 -> CL4 -> CL6; workers 1-4 own
+BC_E13 -> CL5, ds1 -> CL7, ds3 -> CL8, and CL9 -> ds2 respectively. Every
+initial run discovered all 12 safe checkpoints, 12 affected Eddie rows, batch
+12, and began the step-2k exact historical replay gate. First rolling estimates
+put one 12-checkpoint run near 2.3-2.9 hours; the three-run tail gives an early
+wall estimate of roughly 7-9 hours, subject to full-96 IQA and Comet write time.
+
+The deployed package is
+`serv_run_packages/subject_v2_historical_backfill_11runs_5gpu_20260809_r1/`.
+The launcher uses an updated backfill tool SHA-256
+`51b8ef9839a6ed77210a163e35fed77f57b7c95feb3958f255faab41a9bd57d1`.
+A read-only live audit passed exactly 96 normalized canonical image assets at
+all 12 saved steps in all 11 immutable Comet experiments. Three earlier
+startup/preflight attempts produced no staging files and no Comet writes: the
+first exposed the machine-local legacy-embedding location, the second was
+stopped after internal worker shells lacked a Conda bootstrap, and the third
+exposed Comet's removed `.png` suffix plus nondeterministic ` (N)` counters.
+The production package now resolves legacy embeddings from each immutable
+runtime, directly enters the pinned environment on worker nodes, and uses the
+existing export/report filename normalization for discovery, exact deletion,
+and post-upload verification. The audit record is
+`experiments/diagnostics/subject_v2_historical_backfill_11runs_5gpu_20260809_r1.json`.
+
+The first production allocation was then stopped after its fail-closed replay
+gate found 12/12 pixel mismatches for both E13 and BC_E13 at step 2k. It made
+zero corrected images, zero job manifests, and zero Comet writes. The cause
+was a launcher-only contract error: it passed the sealed canonical manual bbox
+seed (`a39645e2...`) as `--generation-bbox-map`, while training used each
+immutable runtime's derived `pm96_bboxes_new_auto.json`. The corrected launcher
+separates the manual seed from the active cache and seals E13/BC-family maps at
+`4db6344d...` and CL4-CL9 maps at `b33cf026...`. All 12 Eddie boxes differ
+between the manual seed and active cache, explaining the complete replay
+rejection.
+
+After re-auditing Serv at three active project A100s and zero Pending, the
+corrected five-worker package was resubmitted at `2026-08-09T22:31:01Z` as
+`lm-mpi-job-44b99a20-a6ad-4023-b3c6-f249b1abe83d`. Its five GPUs bring the
+project total to eight under the user's scoped ten-GPU exception. The failed
+partial staging is preserved separately at
+`staging_failed_manual_seed_af9c6f65`; the corrected job starts from an empty
+staging directory.
+
+All five initial step-2k historical replay gates subsequently passed exact RGB
+and advanced into corrected-Eddie generation: E13, BC_E13, BC_E13_ds1,
+BC_E13_ds3, and CL9. This directly validates both sealed active-cache families
+before any Comet write. The job remains in dry staging; Comet mutation is still
+blocked until every checkpoint of a whole run has staged successfully.
+
+### E14-E22 subject-v2 backfill schedule — 10 August 2026
+
+At `2026-08-09T23:41Z`, the active five-GPU backfill remained healthy with 15
+fully staged checkpoints, every worker processing step 8k, no traceback, and
+current-run remaining estimates of 2.0-2.4 hours. Worker 0 still owns the
+three-run E13→CL4→CL6 bottleneck; measured throughput implies whole-job
+completion around 09:00-10:00 Europe/London, with normal uncertainty from
+full-run Comet replacement.
+
+The selected completed revisions for the requested extension are E14 r6, E15
+r2, E16 r2, E17 r5, E18 r4, and E19-E22 r2. Each owns exactly 12 weights
+checkpoints and an immutable Comet record. E14-E18 seal active generation
+cache `4db6344d...`; E19-E22 seal `b33cf026...`.
+
+An immediate two-GPU E14/E15 request was attempted only after counting eight
+project Running+Pending GPUs, but MLS rejected it before job creation with
+`PROJECT_GPU_LIMIT_REACHED_ONLY_1_FREE`. Per the allocation-rejection rule it
+was not retried. All nine runs are now assigned to one delayed five-worker
+wave: E14→E19, E15→E20, E16→E21, E17→E22, and E18. Serv-side scheduler PID
+`832912` requires current job
+`lm-mpi-job-44b99a20-a6ad-4023-b3c6-f249b1abe83d` to succeed, waits 20 minutes,
+then recounts project Running+Pending GPUs and makes exactly one submission
+attempt only if adding five remains within the authorized ceiling of ten.
+Companion PID `832935` monitors the submitted job through Running and then
+exits. State is under
+`analysis_jobs/subject_v2_historical_backfill_e14_e22_20260810_r1/scheduler`;
+the local audit is
+`experiments/diagnostics/subject_v2_historical_backfill_e14_e22_20260810_r1.json`.
+
+At the user's subsequent request, completed CL10 r2 and CL11-CL14 r1 were
+inserted at the head of that still-unsubmitted delayed wave. All five were
+live-audited on Serv as Completed with exactly 12 weights checkpoints, immutable
+Comet records, the legacy embedding hash `23ae9707...`, and active bbox hash
+`b33cf026...`. The priority chains are now CL10→E14→E19,
+CL11→E15→E20, CL12→E16→E21, CL13→E17→E22, and CL14→E18. This
+puts one CL run first on every A100; E14-E22 start only after the corresponding
+CL run is transactionally published and hash-verified. The scheduler and
+20-minute dependency gate are unchanged.
+
+The original five-GPU job later failed at `2026-08-10T09:12:56Z` after eight
+runs had been transactionally published and verified. CL6 encountered a
+120-second Comet asset-list timeout after staging through 20k; BC_E13_ds3
+encountered an asset-download HTTP 502 after staging through 16k; CL8 had not
+started. No unfinished run had a job manifest or any Comet mutation. The
+success-gated E14-E22 scheduler therefore exited without submitting, as
+intended.
+
+Recovery job `lm-mpi-job-7df3819d-7fdc-4ca0-a50a-b058bb254f03` was submitted
+under the user's scoped ten-GPU exception and entered Running with eight A100
+workers on 10 August. Workers 0-2 own CL6 resume, BC_E13_ds3 resume, and CL8;
+workers 3-7 own CL10→E14→E19, CL11→E15→E20, CL12→E16→E21,
+CL13→E17→E22, and CL14→E18. The tool now retries idempotent Comet reads and
+downloads up to eight times with exponential backoff, downloads atomically,
+hash-validates and reuses completed step manifests, and preserves incomplete
+steps under `incomplete_recovery/` before regenerating them. Initial live
+checks found all eight distinct claims Running with zero tracebacks: CL6 had
+resumed at 22k, BC_E13_ds3 at 18k, and CL8/CL10-CL14 at 2k. Multiple fresh
+Comet 502s were observed and recovered by the new retry path.
+
+Serv-side monitor PID `839332` polls that recovery job every 60 seconds, logs
+job/worker status plus staged and verified counts, and alerts after 45 minutes
+without worker-log progress. Its first observation at `2026-08-10T10:39:33Z`
+was Running, `8/25` total runs verified, 114 step manifests, eight workers
+Running, zero workers failed, and 21 seconds since log progress. State is under
+`analysis_jobs/subject_v2_historical_backfill_recovery_priority_8gpu_20260810_r1/monitor`.
+
+CL6 later failed while scoring its incomplete 22k step because OpenAI CLIP
+downloaded `ViT-L-14-336px.pt` into the worker-local `~/.cache/clip` and the
+result failed its checksum. The traceback itself confirms execution under the
+pinned Nasilaev `photomaker_NS` environment; CLIP's cache is independent of
+Conda and `TORCH_HOME`. The metric file is now pinned under
+`metric_cache/clip/ViT-L-14-336px.pt` (934,088,680 bytes, SHA-256
+`3035c92b350959924f9f00213499208652fc7ea050643e8b385c2dac08641f02`),
+passed explicitly through `CLIP_CACHE_DIR`, and the worker fails startup unless
+both `python` and `CONDA_PREFIX` resolve exactly to
+`nasilaev/conda_env/photomaker_NS`. A one-GPU CL6 recovery request was rejected
+before job creation with `PROJECT_GPU_LIMIT_REACHED_ONLY_0_FREE` and was not
+retried.
+
+At the user's request to avoid idle allocated GPUs, the fixed-chain recovery
+job was stopped after 12 runs were verified and 177 complete checkpoint
+manifests were preserved. A replacement uses an NFS-claimed dynamic queue so
+each worker takes the next unfinished CL6/CL12-CL14/E14-E22 run immediately.
+The subsequent eight-GPU submission was rejected before job creation with
+`PROJECT_GPU_LIMIT_REACHED_ONLY_4_FREE`. Per the no-retry-after-limit rule it
+was not resubmitted in the same turn. A validated four-GPU fallback is deployed
+as `analysis_jobs/subject_v2_dynamic_remaining_8gpu_20260810_r1/package/run_dynamic_4workers.yaml`
+and awaits an explicit post-rejection user request. At this handoff no project
+GPU job is Running or Pending; Comet and staging state remain intact.
+
+The user then explicitly requested independent one-GPU submissions. The worker
+now accepts a shared dynamic NFS claim root across distinct MLS job IDs; this
+prevents separate jobs from all selecting CL6 while retaining job-isolated logs
+and status. Four one-A100 jobs were submitted individually—the full live Serv
+capacity reported after another user's four-GPU allocation—and all four entered
+Running with distinct claims and zero startup tracebacks:
+
+- `lm-mpi-job-a528e879-358d-486d-9f17-8dc655309eb7`: CL6, resumed at 22k;
+- `lm-mpi-job-55fcaba9-351d-4c95-a901-725fa25180f3`: CL12;
+- `lm-mpi-job-c532a193-92fb-41c1-8978-7051a5d87cf9`: CL13;
+- `lm-mpi-job-d96b3825-0065-4c63-a0a4-2b11483e6cb1`: CL14.
+
+Each worker claims another E14-E22 run immediately after verifying its current
+run, so CL6 failure cannot block the other queue. Four additional one-GPU YAMLs
+are deployed but not submitted while no further Serv GPU is free. The package
+is `analysis_jobs/subject_v2_dynamic_remaining_1gpu_20260810_r2/package`; the
+local audit is
+`experiments/diagnostics/subject_v2_dynamic_remaining_1gpu_20260810_r2.json`.
+Durable Serv monitor PID `850568` polls every 30 seconds and submits workers
+05-08 individually only if measured global capacity and unclaimed work permit;
+it exits without retry after any allocation rejection. Its first two snapshots
+showed all eight Serv GPUs allocated (four to this queue, four to another user),
+four distinct project jobs Running, four claims, and nine runs still unclaimed.
+
+On 11 August, after 19 of 25 runs were transactionally verified and only E21
+and E22 remained unclaimed, the user requested use of newly available GPUs.
+Two additional one-A100 jobs were submitted separately and both entered
+Running with distinct claims:
+
+- `lm-mpi-job-212a5d08-b329-4c0d-9157-b5ab6fc62fc7`: E21;
+- `lm-mpi-job-a500307e-4e4c-4bcb-8ae5-8f23e61f07fe`: E22.
+
+The queue now uses six project A100s, all 13 dynamic runs are claimed, and no
+additional worker can accelerate the remaining work. The earlier four workers
+own E17-E20. Startup showed the pinned `photomaker_NS` environment and no
+traceback, OOM, checksum, or Comet error.
+
+The historical subject-v2 replacement wave completed on 11 August. All six
+independent MLS jobs reached Completed with `error_code=0`; the monitor exited
+normally after observing zero project jobs and all 13 dynamic runs claimed.
+The final Serv audit found exactly 25 `replacement_verified.json` records,
+zero invalid audits, the complete 2k-through-24k saved-checkpoint sequence for
+every run, and `job_manifest.status=verified_on_comet` throughout. Thus the
+corrected images and recalculated per-image/aggregate metrics are now stored in
+the original immutable Comet IDs for E13, BC_E13 and ds1-ds3, CL4-CL14, and
+E14-E22. No project GPU remains allocated to this wave.
+
+### CL14 hard-case architecture review — 11 August 2026
+
+The detailed architecture/data/literature review requested after CL14 became
+the best corrected run is complete in
+`analysis/2026-08-11_cl14_hard_cases_architecture_research_and_experiment_plan.md`.
+No training job was launched. Six implementation-gated, non-runnable YAML
+blueprints are under `experiments/designs/cl14_next_20260811/`; they must not be
+copied into `src/configs/` or submitted until their listed parity, checkpoint,
+causality, memory, and validation preflights pass.
+
+Immutable comparison keys are CL14
+`6fe0028be92242c38056b3d36665fdd6` and CL9
+`81bb311ed70545eda3281c64bc48be47`. Corrected step-24k subject-v2 identity is
+`0.456116` versus `0.447997` (`+0.008120`, `63/96` paired wins). Marion improves
+by `+0.038795` but remains lowest at `0.349982`; Jumping/Dancing remain the
+small-face floor, while Skiing/Crying regress against CL9. CL14 has 96/96 face
+detection, median detected/requested face-size ratio `1.0145`, and no IoU below
+`0.3`, so its small-face issue is absolute local resolution rather than box
+underfill.
+
+The review found a material CL14 interpretation discrepancy. CL14 writes a
+two-cell target training feather (`1/3`, `2/3`), but the installed BA processors
+default `force_binary_masks=true` and threshold at `>0.5`. The intended soft
+ramp is therefore a hard one-cell erosion. Do not “fix” this by setting the flag
+false: current processors mask Q and output, so that would not implement a
+single continuous native/reference blend. Blueprint P5 specifies separate
+target routing and reference key masks with full lanes and one convex blend.
+Standalone true-reference-key masking remains excluded because E1 failed and
+removing zero sinks changes reference-softmax amplitude.
+
+Recommended independent experiment order is:
+
+1. P1 / CL15 shared high-resolution ROI BA—the training analogue of the
+   replicated CL9 18-step ROI gain (`+0.09684`, `43/56` non-Eddie wins).
+2. P2 / CL16 bounded clean multi-scale reference memory alongside CL14.
+3. P3 / CL17 semantic native/reference ownership for glasses, hair, hands,
+   tears, and goggles, with a clean-skin reference floor and causality telemetry.
+4. P4 / CL18 cross-view consistency in the spatial BA lane while target Q,
+   target noise, and PhotoMaker tokens remain fixed.
+5. P5 / CL19 the correct continuous full-query router described above.
+6. P6 / CL20 a 20% curated deep-ID/hard-case BigCelebs curriculum for 20k plus
+   a 4k Cosmic-only re-anchor; broad BigCelebs replacement is rejected because
+   all corrected 24k BigCelebs/ds arms remain below CL14 overall.
+
+Nineteen primary papers, extracted text, eight immutable official-README
+snapshots, and a SHA-256 manifest are archived under
+`analysis/sources/2026-08-11_cl14_architecture_review/`. The highest-value
+connections are RealisID-style local crop/upscale/scatter implemented with
+shared BA, DreamCache-style clean feature memory, DynamicID/PersonaHOI-style
+query ownership, and same-ID cross-view regularization. PuLID-style accurate-x0
+ID loss is deliberately reserved for later because naive ID-loss arms already
+failed and editability contamination remains a high risk.
+
+### CL15-CL20 implementation and Serv startup — 11 August 2026
+
+The six CL14 hard-case blueprints were implemented as defaults-off additions on
+the CL14 PhotoMaker + branched-attention base. The shared config is
+`src/configs/CL15_CL20_hardcase_base_24k.yaml`; the runnable arm configs are
+`src/configs/CL15_cosmic_shared_highres_roi_ba_24k.yaml` through
+`src/configs/CL20_cosmic_bigcelebs_hardcase_curriculum_24k.yaml`. Submit with
+`launchers/active/run_CL15_CL20_hardcases_24k_1gpu.sh`. All arms preserve
+target Q/reference K/V BA, `pipeline.pose_adapt_ratio=0`,
+`pipeline.ca_mixing_for_face=false`, 24k optimizer steps, batch 2,
+`epoch_len=2000`, and the sealed CL14 step-0/every-2k manual-val-96 DDIM50
+contract. `tools/validate_CL15_CL20_config.py` fail-closes these invariants.
+
+The defaults-off implementation adds: CL15 fixed 32x32 high-resolution ROI BA;
+CL16 detached clean t=1/null-text multiscale reference memory; CL17 semantic
+native/reference ownership plus deterministic occluder supervision; CL18
+alternate same-ID cross-view consistency; CL19 one-time cosine full-query
+blend; and CL20 an exact sealed 48k-sample Cosmic/BigCelebs schedule (40k
+Cosmic, 8k BigCelebs, with BigCelebs strata 2667 small / 2667 occlusion / 2666
+action). CL20 schedule SHA-256 is
+`783eb1729871e4ac423c770042315572ee7ea24171797402fc4a565999dd5289`.
+
+The first r1 submissions are non-scientific startup failures and must not be
+used as experiment results: CL15-CL19 used a packaging symlink to a
+protocol-only dataset mirror, and CL20 lacked the subject-v2 embedding mount.
+Their immutable Comet records are retained with
+`status=failed_startup_packaging`. The corrected r2 source snapshot revision is
+`ad194a026ab701dd979712d415c487dd536a4645+cl15-cl20-r2-mountfix-valseal-metricseal-20260811`.
+It pins the CL14 validation assets and subject-v2 embedding SHA-256 and mounts
+the full dataset root.
+
+All corrected r2 jobs were submitted one by one after a capacity check, reached
+the fixed step-0 96-image validation, completed it, and emitted a training-loop
+marker with zero monitored startup failures:
+
+- CL15: job `lm-mpi-job-9cbf24b7-543a-47ad-b790-c30a36e09303`, Comet
+  `d57604dc77334e0f9874ddd049e85a17`;
+- CL16: job `lm-mpi-job-7c6a1db0-4d26-4339-8871-e99b2366f395`, Comet
+  `7b71eb3dbb3a492e8fa9bb0d87343c28`;
+- CL17: job `lm-mpi-job-15b25e73-47da-4ab1-a71f-efec8f50ed0c`, Comet
+  `e05ce586c9364678a8370a774773341c`;
+- CL18: job `lm-mpi-job-1c4dd150-9688-4ca0-b678-8f74134a70e7`, Comet
+  `f6530436bf22472c9fb7731d1696c5ab`;
+- CL19: job `lm-mpi-job-f1b9d006-208c-4b35-8e4a-ab0ab2f030a9`, Comet
+  `cfeda7b55c174b3c83e8d40537ebb6dd`;
+- CL20: job `lm-mpi-job-1e0f08fd-b0d3-4b26-9167-5d55103f442d`, Comet
+  `b05488e2cce94476acc92bcaa21d7362`.
+
+Monitoring stopped at the requested terminal condition at
+2026-08-11T15:59:05+03:00: Comet 6/6, validation 6/6, training 6/6, failed 0.
+Use the immutable local records under `experiments/cosmic_large/` for all
+subsequent retrieval and comparison.
+
+### CL14_CA implementation and validation startup — 12 August 2026
+
+`CL14_CA` now runs the corrected residual identity cross-attention v3 on the
+CL14 control: target Q attends active PhotoMaker ID-token K/V in
+`up_blocks.0/1`, rank 64, zero-initialized output, gate 0.02 bounded by 0.20.
+Native CA remains intact; legacy branched CA remains disabled;
+`pose_adapt_ratio=0` and `ca_mixing_for_face=false`. The exact ownership gate
+passed at 2,348 tensors / 224,624,676 parameters for both trainables and
+optimizer membership.
+
+The first architecture-capable run, job
+`lm-mpi-job-cf7eda84-ad0b-4d50-af17-c3d9f19e5315`, Comet
+`0cfe3c874d75448789acc0a5c9b4bc63`, completed fixed-96 step-zero validation
+and then failed on its first training batch. The model returned new route
+telemetry nested under `ba_telemetry`, but CL14's unchanged masked loss did not
+flatten it; `SDXLTrainer` then indexed the absent top-level key
+`ba/identity_ca_token_count/up0`. The minimal fix in
+`src/trainer/sdxl_trainers.py` promotes `output["ba_telemetry"]` immediately
+after `batch.update(output)`. It changes logging only and leaves CL14's loss
+and scientific objective unchanged.
+
+Subsequent startup-only failures came from package drift, especially custom
+InsightFace roots and incomplete default worker caches; they are not
+architecture evidence. The final wrapper follows CL14: analyzer constructors
+remain unchanged, the sealed five-file `buffalo_l` cache is copied into the
+default `~/.insightface/models/buffalo_l` location, its hash is checked, and
+the normal CL14 validation/offload/reinstall lifecycle is retained. A
+deliberately corrupted partial cache was repaired and both detection and
+recognition initialized with network access disabled.
+
+The active scientific run is `CL14_CA_r7`: Serv job
+`lm-mpi-job-244ef7b2-3943-4998-a82e-ae1be2208169`, immutable Comet key
+`4d96dc8e776b4039b1116acc5cdcf706`, runtime
+`runtime_sources_cl14_ca_v8/CL14_CA_r7`, manifest SHA-256
+`00cdb22e122cc94f64496808a3146cf452cae60a71f6ac033e9f3d7cfd13339c`.
+It completed all 96 step-zero images, wrote the 96-row ID table, staged all 96
+face-quality inputs, restored the CL14 training base, and advanced beyond
+optimizer step 224 with finite logged losses. Immutable-key Comet
+telemetry at step 0 records two active identity tokens in both groups, gate
+0.02, finite native-face RMS, and the expected zero-initialized residual. It
+must remain running unless a later error is observed.
+
+The user-requested operational one-batch smoke uses 12 fixed-panel items at
+CL14's inherited batch size 12 and sets the matching face-quality expected
+count to 12. It is not scientifically comparable. Smoke r1 generated all 12
+images but stopped at the inherited 96-image assertion. Corrected smoke r2 is
+Serv job `lm-mpi-job-05738b32-5978-4559-96cb-6ac7ea38cd2d`, sealed runtime
+`runtime_sources_cl14_ca_v11/CL14_CA_onebatch_smoke_r2`, manifest SHA-256
+`ac2d5574ac22a13c3686c1dfa65a13e7ea3ab87c21d2871d9acfca45a76cb09d`.
+Its immutable Comet key is `f808676f2ad54e5e928d92b6650053ca`.
+It completed the 12-image validation, wrote its ID table and face-quality
+staging manifest, restored the training base, and advanced through optimizer
+step 7 with finite loss `0.064705`. Immutable-key telemetry confirmed two
+identity tokens per group, gate 0.02, finite native-face RMS, and the expected
+zero-initialized residual. The requested MLS stop succeeded; final status is
+Stopped. The scientific `CL14_CA_r7` job remained Running.
+
+The detailed failure analysis, exact code, reproduction gates, and live run
+ledger are in
+`analysis/2026-08-12_CL14_CA_startup_failure_fix_and_relaunch.md`.

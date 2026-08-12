@@ -19,11 +19,26 @@ guide is dormant historical guidance while this notice is in force.
 
 ## Experiment tracking and reports
 
+**Asked for an analysis, comparison, findings writeup, report or PDF? Start
+with the `research-report` skill** — [`.claude/skills/research-report/SKILL.md`](../.claude/skills/research-report/SKILL.md)
+(repo root, one level above `diffusion_template/`). It carries the house
+report structure, the evidence discipline, the measurement conventions, and
+the silent data-joining traps that have repeatedly produced wrong numbers here.
+Render and publish with its companion tool, from `diffusion_template/`:
+
+```bash
+python tools/reports/publish_report.py analysis/<YYYY-MM-DD>_<slug>.md --upload
+```
+
+That renders `analysis/<name>.md` to `analysis/assets/<name>.pdf` and uploads
+it to `/rsrch/YYYY-MM-DD/` in Dropbox. Quote the temporary link it prints in
+the reply and note the ~4h expiry; the upload is not complete without it.
+
 - [Comet experiment records and retrieval](tools/comet/README.md) —
   automatically records every new Comet experiment key beside its saved run,
   then retrieves metrics and validation images by that immutable key.
-- [General tool directory](tools/README.md) — Comet report generation,
-  checkpoint inference/evaluation, and dataset preparation.
+- [General tool directory](tools/README.md) — report publishing, Comet report
+  generation, checkpoint inference/evaluation, and dataset preparation.
 
 For every new Comet experiment, verify
 `saved/<run_name>/comet_experiment.json` during startup. Use
@@ -133,6 +148,15 @@ duplicates. The ceiling returns to six after E11/E12 finish or are removed.
   download, offline face-quality scoring, compact seven-curve backfill,
   one API-only per-image CSV asset, fail-closed legacy-layout cleanup, and
   post-write verification.
+- `tools/comet/backfill_subject_v2_validation.py` — replay-gated selective
+  regeneration of identities/prompts whose reference selector changed; it
+  merges each correction into the historical fixed-96 panel, batches scoring,
+  recalculates aggregate metrics, and can replace exact image/table/metric
+  records on the run's immutable Comet experiment. Dry-run is default; use
+  `PM_BACKFILL_PROJECT_ROOT` and `PM_EVAL_PROJECT_ROOT` when delivering the
+  tool as an overlay onto an immutable historical source tree. The audited
+  five-worker E13/BC_E13/CL4-CL9 allocation is under
+  `serv_run_packages/subject_v2_historical_backfill_11runs_5gpu_20260809_r1/`.
 - `tools/comet/download_face_quality_images.py` — download-only staging of
   exact Comet image steps with file-size and PIL verification.
 - `tools/comet/build_full96_longitudinal_pdf.py` — fail-closed PDF comparison

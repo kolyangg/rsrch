@@ -24,6 +24,7 @@ from src.model.photomaker_branched.debug_helpers import (
     save_debug_ref_mask_overlay,
 )
 from src.model.photomaker_branched.insightface_package import analyze_faces, create_face_analyzer
+from src.face_subject_selector import LEGACY_FIRST, select_subject_face
 
 
 def _val_debug_enabled(pipeline) -> bool:
@@ -160,6 +161,8 @@ def ensure_id_embeds(
     *,
     id_embeds: Optional[torch.FloatTensor],
     input_id_images: Sequence[Any],
+    face_bbox_ref: Optional[Sequence[float] | Sequence[Sequence[float]]],
+    face_subject_selection_policy: str,
     device: torch.device,
     dtype: torch.dtype,
 ) -> torch.FloatTensor:
@@ -193,8 +196,27 @@ def ensure_id_embeds(
     else:
         refs = list(input_id_images)
 
+    if is_per_prompt:
+        if (
+            isinstance(face_bbox_ref, (list, tuple))
+            and len(face_bbox_ref) == len(refs)
+            and all(
+                bbox is None
+                or (isinstance(bbox, (list, tuple)) and len(bbox) == 4)
+                for bbox in face_bbox_ref
+            )
+        ):
+            declared_bboxes = list(face_bbox_ref)
+        else:
+            declared_bboxes = [face_bbox_ref] * len(refs)
+    else:
+        declared_bboxes = [None] * len(refs)
+        if declared_bboxes:
+            declared_bboxes[0] = face_bbox_ref
+
     embeddings = []
-    for ref in refs:
+    selections = []
+    for ref, declared_bbox in zip(refs, declared_bboxes):
         if isinstance(ref, torch.Tensor):
             ref_img = ref.detach().cpu()
             if ref_img.dim() == 3:
@@ -208,10 +230,28 @@ def ensure_id_embeds(
 
         faces = analyze_faces(pipeline._face_analyzer, img_np)
         if faces:
-            embedding = torch.from_numpy(faces[0]["embedding"]).float()
+            selected, audit = select_subject_face(
+                faces,
+                declared_bbox=declared_bbox,
+                policy=face_subject_selection_policy,
+            )
+            embedding = torch.from_numpy(selected["embedding"]).float()
+            selections.append(audit.to_dict())
         else:
+            if str(face_subject_selection_policy).lower() != LEGACY_FIRST:
+                raise RuntimeError(
+                    "Subject-v2 identity conditioning found no face in a reference image"
+                )
             embedding = torch.zeros(512, dtype=torch.float32)
+            selections.append(
+                {
+                    "selection_reason": "legacy_no_face_zero_vector",
+                    "face_count": 0,
+                }
+            )
         embeddings.append(embedding)
+
+    pipeline._face_subject_selections = selections
 
     stacked = torch.stack(embeddings, dim=0)
     if is_per_prompt:
@@ -335,12 +375,76 @@ def prepare_gen_mask(
     use_dynamic_mask: bool,
     use_bbox_mask_gen: bool,
     face_bbox_gen: Optional[List[float]],
+    ba_target_visibility_mask: Optional[Any] = None,
     mask_expansion_ratio: float,
     mask_softness: float,
     height: int,
     width: int,
     batch_size: int = 1,
 ) -> None:
+    def apply_visibility_mask(gen_mask: np.ndarray) -> np.ndarray:
+        if ba_target_visibility_mask is None:
+            pipeline._ba_target_visibility_mask = None
+            return gen_mask
+
+        value = ba_target_visibility_mask
+        if isinstance(value, torch.Tensor):
+            visibility = value.detach().float().cpu()
+        else:
+            if isinstance(value, PIL.Image.Image):
+                value = np.asarray(value.convert("L"), dtype=np.float32) / 255.0
+            elif isinstance(value, (list, tuple)) and value and isinstance(
+                value[0], PIL.Image.Image
+            ):
+                value = np.stack(
+                    [
+                        np.asarray(item.convert("L"), dtype=np.float32) / 255.0
+                        for item in value
+                    ],
+                    axis=0,
+                )
+            visibility = torch.as_tensor(np.asarray(value), dtype=torch.float32)
+
+        if visibility.ndim == 2:
+            visibility = visibility[None, None]
+        elif visibility.ndim == 3:
+            visibility = visibility[:, None]
+        elif visibility.ndim == 4 and visibility.shape[1] == 1:
+            pass
+        else:
+            raise ValueError(
+                "ba_target_visibility_mask must have shape HxW, BxHxW, or Bx1xHxW"
+            )
+        if visibility.shape[0] == 1 and batch_size > 1:
+            visibility = visibility.expand(batch_size, -1, -1, -1)
+        if visibility.shape[0] != batch_size:
+            raise ValueError(
+                "ba_target_visibility_mask batch mismatch: "
+                f"got {visibility.shape[0]}, expected {batch_size}"
+            )
+        if visibility.shape[-2:] != (height, width):
+            visibility = F.interpolate(
+                visibility,
+                size=(height, width),
+                mode="nearest",
+            )
+        if not bool(torch.isfinite(visibility).all()):
+            raise ValueError("ba_target_visibility_mask contains non-finite values")
+        if bool(torch.any((visibility < 0.0) | (visibility > 1.0))):
+            raise ValueError("ba_target_visibility_mask values must be in [0, 1]")
+
+        visibility_np = visibility[:, 0].numpy().astype(np.float32)
+        base = np.asarray(gen_mask, dtype=np.float32)
+        if base.ndim == 2:
+            base = base[None]
+        # 10 Aug 2026 - AICODE-NOTE: Visibility can only remove target queries
+        # from the existing reference-owned face mask. Excluded pixels fall
+        # through to the unchanged native/background lane; reference K/V and
+        # the reference mask are deliberately untouched.
+        result = base * visibility_np
+        pipeline._ba_target_visibility_mask = visibility_np
+        return result if np.asarray(gen_mask).ndim == 3 else result[0]
+
     #### 08 MAR - FIX BATCHED VALIDATION ####
     if (not use_dynamic_mask) and use_bbox_mask_gen and face_bbox_gen is not None:
         per_sample_boxes = (
@@ -373,6 +477,7 @@ def prepare_gen_mask(
                 )
             pipeline._face_bbox_gen_original = [list(box) for box in boxes]
             pipeline._face_bbox_gen_expanded = expanded_boxes
+            gen_mask = apply_visibility_mask(gen_mask)
             pipeline._face_mask = gen_mask
             pipeline._face_mask_t = torch.from_numpy(gen_mask.astype(np.float32))[:, None]
             return
@@ -393,6 +498,7 @@ def prepare_gen_mask(
         )
         pipeline._face_bbox_gen_original = list(face_bbox_gen)
         pipeline._face_bbox_gen_expanded = list(expanded_bbox_gen)
+        gen_mask = apply_visibility_mask(gen_mask)
         pipeline._face_mask = gen_mask
         pipeline._face_mask_t = torch.from_numpy(gen_mask.astype(np.float32))[None, None]
     elif (not use_dynamic_mask) and use_bbox_mask_gen and face_bbox_gen is None:
@@ -488,6 +594,7 @@ def run_branched_setup(
     use_dynamic_mask: bool,
     use_bbox_mask_gen: bool,
     face_bbox_gen: Optional[List[float]],
+    ba_target_visibility_mask: Optional[Any] = None,
     generator: Optional[torch.Generator],
     device: torch.device,
     face_embed_strategy: str,
@@ -524,6 +631,7 @@ def run_branched_setup(
         use_dynamic_mask=use_dynamic_mask,
         use_bbox_mask_gen=use_bbox_mask_gen,
         face_bbox_gen=face_bbox_gen,
+        ba_target_visibility_mask=ba_target_visibility_mask,
         mask_expansion_ratio=mask_expansion_ratio,
         mask_softness=mask_softness,
         height=height,

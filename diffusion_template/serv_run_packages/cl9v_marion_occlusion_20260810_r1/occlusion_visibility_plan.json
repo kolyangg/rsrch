@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "kind": "cl9_frozen_manually_reviewed_occluder_ownership",
+  "coordinate_space": "generation_bbox_fraction",
+  "source": "CL9 immutable Comet step-24000 first-pass images",
+  "policy": {
+    "Skiing": "Exclude the high-confidence upper-face goggle band from reference ownership.",
+    "Crying": "Keep a conservative central facial ellipse; route side hand/hair overlap to the native lane."
+  },
+  "entries": {
+    "2": {"family": "Skiing", "exclude_rects": [[0.0, 0.0, 1.0, 0.58]]},
+    "7": {"family": "Crying", "visible_ellipse": [0.16, 0.02, 0.84, 1.0]},
+    "14": {"family": "Skiing", "exclude_rects": [[0.0, 0.0, 1.0, 0.58]]},
+    "19": {"family": "Crying", "visible_ellipse": [0.16, 0.02, 0.84, 1.0]},
+    "26": {"family": "Skiing", "exclude_rects": [[0.0, 0.0, 1.0, 0.58]]},
+    "31": {"family": "Crying", "visible_ellipse": [0.16, 0.02, 0.84, 1.0]},
+    "38": {"family": "Skiing", "exclude_rects": [[0.0, 0.0, 1.0, 0.58]]},
+    "43": {"family": "Crying", "visible_ellipse": [0.16, 0.02, 0.84, 1.0]},
+    "50": {"family": "Skiing", "exclude_rects": [[0.0, 0.0, 1.0, 0.58]]},
+    "55": {"family": "Crying", "visible_ellipse": [0.16, 0.02, 0.84, 1.0]},
+    "62": {"family": "Skiing", "exclude_rects": [[0.0, 0.0, 1.0, 0.58]]},
+    "67": {"family": "Crying", "visible_ellipse": [0.16, 0.02, 0.84, 1.0]},
+    "74": {"family": "Skiing", "exclude_rects": [[0.0, 0.0, 1.0, 0.58]]},
+    "79": {"family": "Crying", "visible_ellipse": [0.16, 0.02, 0.84, 1.0]},
+    "86": {"family": "Skiing", "exclude_rects": [[0.0, 0.0, 1.0, 0.58]]},
+    "91": {"family": "Crying", "visible_ellipse": [0.16, 0.02, 0.84, 1.0]}
+  }
+}

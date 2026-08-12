@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "kind": "fixed_checkpoint_validation_chain",
+  "name": "CL9V_validation_chain_24k_20260811_r4",
+  "date": "2026-08-11",
+  "status": "implemented_pending_capacity",
+  "objective": "Replicate and bound the positive small-face ROI result, test per-image precise occluder ownership, and replicate Marion roll across diagnostic seeds while retaining one scarce A100 allocation for the entire chain.",
+  "source": {
+    "run_name": "CL9_cosmic_joint_shadow_sa128_refscale_24k_full96_r1",
+    "comet_experiment_key": "81bb311ed70545eda3281c64bc48be47",
+    "checkpoint": "weights-epoch12.pth",
+    "checkpoint_step": 24000,
+    "checkpoint_sha256": "5396993b16ace89908501bfddb2e412e755a3f6478a6449c502062d6ca7357c3",
+    "historical_baseline": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/analysis_sidecars/cl9v_smallface_roi_20260810_r1/outputs/full96_historical_replay",
+    "historical_baseline_gate": "96/96 exact RGB at step 24000"
+  },
+  "fixed_controls": {
+    "validation_dataset": "manual_val fixed 96",
+    "validation_base": "SG161222/RealVisXL_V4.0",
+    "processor_base_mode": "legacy_full_copy",
+    "batch_size": 12,
+    "guidance_scale": 5.0,
+    "scheduler": "DDIM",
+    "num_inference_steps": 50,
+    "generation_bbox_map_sha256": "b33cf02665cd875a738fba8f20c2ea95fcb0585358436e32691af0013a2f1c7d",
+    "reference_id_embedding_policy": "legacy_first",
+    "pose_adapt_ratio": 0.0,
+    "ca_mixing_for_face": false,
+    "disable_branched_ca": true,
+    "new_comet_experiment": false
+  },
+  "chain": [
+    {
+      "priority": 1,
+      "name": "CL9V_smallface_roi_suffix_multiseed_24k_r4",
+      "kind": "validation",
+      "single_change": "Sweep DDIM50 ROI suffix lengths 14, 16, 18, and 20 at seeds 0, 1, 2, and 3; all crop, expansion, scale, feather, checkpoint, and prompt controls remain fixed.",
+      "target_indices": [5, 9, 17, 21, 29, 33, 41, 45, 53, 57, 65, 69, 77, 81, 89, 93],
+      "suffix_steps": [14, 16, 18, 20],
+      "seeds": [0, 1, 2, 3],
+      "seed_contract": "Seed 0 is standard validation. Seeds 1-3 are explicitly labelled diagnostic exceptions and alter only the 16 refined ROI targets; copied rows remain the exact seed-0 historical baseline.",
+      "roi_scale": 2.0,
+      "bbox_expansion": 1.5,
+      "feather_fraction": 0.12,
+      "gates": [
+        "80/80 non-target rows exact RGB for every arm",
+        "16/16 target composites exact outside their declared ROI",
+        "seed-0 18-step arm exact RGB reproduction of completed r3",
+        "subject-v2 and TOPIQ-Face outputs for every arm"
+      ],
+      "decision_gate": "Promote one setting only if non-Eddie mean ID gain is at least +0.07, at least 75% of target rows win across diagnostic seeds, TOPIQ change is at least -0.01, mask-IoU change is at least -0.02, all outside-ROI pixels are exact, and no reviewed row has a pasted-face seam or expression regression."
+    },
+    {
+      "priority": 2,
+      "name": "CL9V_occluder_oracle_geometry_24k_r4",
+      "kind": "validation",
+      "single_change": "Replace the rejected family-wide rectangle/ellipse with manually reviewed per-image polygons tracing the baseline goggles, hands, fingers, or overlapping hair.",
+      "target_indices": [2, 7, 14, 19, 26, 31, 38, 43, 50, 55, 62, 67, 74, 79, 86, 91],
+      "visibility_plan": "occlusion_visibility_plan_precise.json",
+      "routing_invariant": "Visibility can remove reference ownership from target queries only; reference K/V, reference mask, native lane, pose_adapt_ratio, and CA mixing remain unchanged.",
+      "oracle_limitation": "Polygons are informed by the exact first-pass baseline and are not a deployable first-pass inference mechanism.",
+      "gates": [
+        "CPU geometry preflight covers exactly 16 expected rows",
+        "each mask blocks 2%-50% of its generation bbox",
+        "80/80 non-target rows exact RGB",
+        "subject-v2 and TOPIQ-Face outputs plus full visual review"
+      ],
+      "decision_gate": "Continue to a learned gate only if at least 5/7 non-Eddie Skiing identities win, mean mask-IoU changes by at least -0.02, TOPIQ is non-decreasing, and blinded review confirms the intended occluder stays in place. Crying is evaluated separately and is expected to be neutral rather than negative."
+    },
+    {
+      "priority": 3,
+      "name": "CL9V_marion_roll_multiseed_24k_r4",
+      "kind": "validation",
+      "single_change": "Compare the original Marion photograph with the completed -7.65 degree same-canvas roll correction at seeds 0-3; scoring reference and propagated/redetected boxes remain controlled.",
+      "target_indices": [84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95],
+      "seeds": [0, 1, 2, 3],
+      "seed_zero_source": "Completed r3 original historical baseline and Marion roll outputs",
+      "new_arms": "Original and roll for seeds 1-3. Only indices 84-95 change seed; indices 0-83 remain seed-0 RGB sentinels.",
+      "gates": [
+        "84/84 non-Marion rows exact RGB for all six new arms",
+        "same source file and unchanged subject-v2 scoring vector",
+        "subject-v2 and TOPIQ-Face outputs for original/roll at each seed"
+      ],
+      "decision_gate": "Retain roll as opt-in preprocessing only if aggregate mean ID gain is at least +0.02, at least 70% of pairs win, TOPIQ does not decrease, and no prompt family loses more than 0.05 ID on average."
+    }
+  ],
+  "excluded_from_chain": [
+    {
+      "name": "CL9T_shared_ba_highres_face_aux_24k_r1",
+      "reason": "Training remains gated on a stable multi-seed ROI validation result."
+    },
+    {
+      "name": "CL9T_query_visibility_gate_24k_r1",
+      "reason": "Training remains gated on a successful precise-oracle occluder validation."
+    },
+    {
+      "name": "CL9T_offaxis_reference_consistency_24k_r1",
+      "reason": "Training remains gated on a robust multi-seed Marion roll result."
+    }
+  ],
+  "serv": {
+    "machine": "serv",
+    "branch": "test",
+    "package": "serv_run_packages/cl9v_validation_chain_20260811_r4",
+    "launcher": "start_cl9v_validation_chain_20260811_r4_1gpu.sh",
+    "yaml": "run_cl9v_validation_chain_20260811_r4_1gpu.yaml",
+    "gpu_request": "1x A100",
+    "processes": 1,
+    "workers": 1,
+    "estimated_runtime_after_start": "7-8 hours",
+    "submission_policy": "Check project Running and Pending A100 requests before every attempt. User requested a manual availability check every 30 minutes until acceptance.",
+    "mls_job_id": null,
+    "submitted_at": null
+  }
+}

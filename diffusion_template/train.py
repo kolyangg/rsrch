@@ -488,6 +488,15 @@ def main(config):
             "ba_hard_v1_true_reference_key_mask",
             "ba_hard_v1_branch_output_rank",
             "ba_hard_v1_reference_roi_warp",
+            "ba_hardcase_mode",
+            "ba_hardcase_groups",
+            "ba_hardcase_rank",
+            "ba_hardcase_gate_max",
+            "ba_hardcase_roi_size",
+            "ba_hardcase_face_threshold_px",
+            "ba_hardcase_transition_cells",
+            "ba_hardcase_ownership_hidden_dim",
+            "ba_hardcase_visible_face_floor",
         ):
             if hasattr(pipeline_model, attribute):
                 setattr(pipeline, attribute, getattr(pipeline_model, attribute))

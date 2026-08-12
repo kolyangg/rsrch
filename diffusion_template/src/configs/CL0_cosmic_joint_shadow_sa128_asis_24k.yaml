@@ -1,0 +1,41 @@
+defaults:
+  - E13_large_ds_joint_shadow_sa128_24k
+  - _self_
+
+# CL0: the missing baseline. Exact E13 model/optimizer/validation contract, run
+# on cosmic_large with the loader EXACTLY as it behaved before the CL work:
+# 20% margin crop to 256px, independent reference mirroring, uncapped legacy
+# captions, native reference frame, no ROI warp. Every value below is the
+# historical default from src/configs/datasets/all_datasets.yaml; they are
+# written out explicitly so the baseline is self-documenting and cannot drift
+# with a future default change.
+#
+# CL0 measures what E13 alone does on cosmic_large, so CL2/CL3/CL4/CL5 gains are
+# attributable rather than assumed.
+train_dataset_name: cosmic_large_adapted
+val_datasets_names: [manual_val]
+
+datasets:
+  train:
+    cosmic_large_adapted:
+      min_face_res: 192
+      min_reference_score: null
+      reference_crop_margin: 0.2
+      reference_content_size: 256
+      reference_canvas_size: null
+      reference_canvas_fill: 127
+      reference_frame_mode: native
+      random_horizontal_flip: true
+      random_reference_flip: true
+      prompt_mode: legacy
+      prompt_max_words: null
+  val:
+    manual_val:
+      limit: 96
+
+writer:
+  experiment_comment: >-
+    CL0 baseline: exact E13 route on cosmic_large with the pre-CL loader
+    behaviour (0.2 margin crop to 256px, reference mirroring on, uncapped legacy
+    captions, native reference frame, no ROI warp). Establishes what E13 alone
+    achieves on cosmic_large so the CL2-CL5 deltas are attributable.

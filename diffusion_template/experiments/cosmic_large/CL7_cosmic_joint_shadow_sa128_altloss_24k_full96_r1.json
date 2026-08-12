@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "run_name": "CL7_cosmic_joint_shadow_sa128_altloss_24k_full96_r1",
+  "plan": {
+    "status": "submitted_pending",
+    "priority": 2,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Test whether the face/body junction needs full-image supervision rather than a weighted ring.",
+    "baseline": "CL3_cosmic_joint_shadow_sa128_fmtfix_24k_full96_r1",
+    "hypothesis": "Same diagnosis as CL6, blunter instrument. CL6 vs CL7 distinguishes 'a narrow ring suffices' from 'the junction needs equal supervision'.",
+    "single_scientific_change": "loss_kind=masked_alternating_audited with masked_loss_step=2 (even/odd face-only vs full-latent MSE); everything else identical to CL3",
+    "config": "src/configs/CL7_cosmic_joint_shadow_sa128_altloss_24k.yaml",
+    "launcher": "launchers/active/run_CL1_CL3_cosmic_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL7_cosmic_joint_shadow_sa128_altloss_24k_full96_r1/run_CL7_cosmic_joint_shadow_sa128_altloss_24k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "serv_job": "lm-mpi-job-f3ef0a24-6e70-4aab-bac6-94a3ba5af271",
+    "comet_experiment_key": null,
+    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0 and every 2k, shadow pretrained-default validation, hard spatial BA r128 + generic r32 + PhotoMaker-default r64 at 1e-4, pose_adapt_ratio=0, ca_mixing_for_face=false, 2240 tensors / 219,217,920 params, ROI warp ON, native 256px reference, mirroring off, pose-first captions capped at 50",
+    "primary_metric": "face/body ALIGNMENT: images outside E13's centre-offset envelope (p90=0.095), measured by tools/datasets/measure_face_body_alignment.py at MATCHED steps. id_sim is explicitly secondary this round.",
+    "decision_gates": {
+      "telemetry": "first 3 batches log the new loss component non-zero (loss_boundary / loss_full)",
+      "step_0": "panel identical to CL3 (id_sim .32788); neither arm changes the inference route",
+      "step_4000": "images outside E13 envelope below CL3's 32; id_sim within 0.02 of CL3's .34294",
+      "promotion": "alignment approaching E13's 9/96 with id_sim at or above CL3"
+    },
+    "baseline_measurements": {
+      "E13_outside_envelope": "9/96",
+      "CL3_outside_envelope": "32/95",
+      "CL0_outside_envelope": "37/96",
+      "CL4_outside_envelope": "28/95",
+      "CL5_outside_envelope": "35/94"
+    },
+    "analysis": "analysis/2026-08-07_cl_face_body_alignment_analysis_and_cl6_cl7.md",
+    "serv_runtime": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_sources_cl1_cl3_v1/CL7_cosmic_joint_shadow_sa128_altloss_24k_full96_r1",
+    "source_manifest": {
+      "files": 972,
+      "source_revision": "d903b2c9e92ce1a6f3db7a1f8fccf82c0d1ab21f+cl6-cl7-snapshot-v1-20260807",
+      "verified": true
+    },
+    "allocation_exception": "User-authorized scoped exception; project usage after this submission is 8 A100. This is within the eight-A100 maximum documented in AGENTS.md for an explicitly scoped exception. The earlier 10- and 11-GPU one-offs have expired: five of the six E19-E24 jobs finished.",
+    "preflight": {
+      "status": "ok",
+      "records": 22140,
+      "manifest_files": 972,
+      "loss_resolves_in_serv_env": true,
+      "gradient_outside_face_box": "verified non-zero (CL6 every batch; CL7 odd batches). CL3 control measured exactly 0.0",
+      "validator": "ok - 24000 steps, warp True, 219,217,920 params"
+    },
+    "submission_attempts": [
+      {
+        "submitted_at": "2026-08-07T19:46Z",
+        "result": "accepted",
+        "serv_job": "lm-mpi-job-f3ef0a24-6e70-4aab-bac6-94a3ba5af271",
+        "status": "Pending",
+        "project_gpus_before": 6,
+        "project_gpus_after": 8,
+        "comet_experiment_key": null
+      }
+    ]
+  }
+}

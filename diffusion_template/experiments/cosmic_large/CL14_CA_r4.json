@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "run_name": "CL14_CA_r4",
+  "plan": {
+    "status": "prepared_relaunch",
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Run the corrected CL14_CA scientific arm after repairing telemetry plumbing and restoring the sealed validation mount.",
+    "baseline": "CL14_cosmic_joint_shadow_sa128_softmask_24k_full96_r1",
+    "baseline_comet_experiment_key": "6fe0028be92242c38056b3d36665fdd6",
+    "single_scientific_change": "Enable zero-initialized bounded residual identity CA v3 at up_blocks.0/1, rank64, gate 0.02..0.20; telemetry only otherwise.",
+    "config": "src/configs/CL14_CA.yaml",
+    "launcher": "launchers/active/run_CL14_CA_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL14_CA_r4/run_CL14_CA_r4_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "fixed_contract": "Fresh CL14 initialization; 24k steps; batch 2; fixed manual_val 96 at step 0 and every 2k; unchanged validation model, DDIM50, CFG5, seed0, prompts, references, boxes, and metrics; pose_adapt_ratio=0; ca_mixing_for_face=false.",
+    "primary_metric": "Mean subject-v2 ID similarity at matched step 24000; paired by the fixed 96 output keys.",
+    "risk": "The residual may remain unused or harm identity/face quality; retain the full telemetry and validation gates.",
+    "expected_trainable_contract": "2348 tensors / 224624676 parameters"
+  }
+}

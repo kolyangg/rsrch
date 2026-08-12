@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "run_name": "BC_E13_ds3_large_anchor_2to1_24k_full96_r1",
+  "plan": {
+    "status": "running",
+    "priority": 3,
+    "machine": "serv",
+    "gpus": 1,
+    "config": "src/configs/BC_E13_ds3_large_anchor_2to1_24k.yaml",
+    "launcher": "launchers/active/run_BC_E13_dataset_experiments_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/BC_E13_ds3_large_anchor_2to1_24k_full96_r1/run_BC_E13_ds3_large_anchor_2to1_24k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "dataset_mode": "ds3",
+    "baseline": "E13_large_ds_joint_shadow_sa128_24k_full96_r4",
+    "controlled_delta": "training dataset usage only: deterministic 2:1 Large-to-BigCelebs interleave",
+    "hypothesis": "BigCelebs can add identity material without replacing the scene-rich distribution that made E13 strong.",
+    "comet_comment": "E13 base; dataset-only BC_E13_ds3 change: deterministic 2:1 Large-to-BigCelebs mixture, with the BigCelebs share using ds2 scene-target/canonical-reference sampling and flip-safe captions. Architecture, optimization, loss, seeds, and fixed-96 validation are unchanged from E13/BC_E13.",
+    "schedule": {
+      "policy_version": "bc_e13_dataset_schedule_v1",
+      "rows": 48000,
+      "batch_size": 2,
+      "seed": 20260809,
+      "large_rows": 32000,
+      "big_celebs_rows": 16000,
+      "cohort_identities": 2561,
+      "cohort_images": 60087,
+      "minimum_images_per_identity": 14,
+      "maximum_images_per_identity": 186,
+      "scene_eligible_targets": 27165,
+      "canonical_references": 23094,
+      "scene_area_max": 0.17154455184936523,
+      "canonical_min_face_side": 384,
+      "schedule_sha256": "b61b42a282c4db2b15d3ae25d6b47a1bcd6ab5e739051d81034214207f40c711",
+      "schedule_summary_sha256": "8ff78b6c6f55189ef04ad63ac474c2adef64a3ab368d4b29f7455df07948f9a5",
+      "seal_timing": "built from pinned Serv manifests and fully audited before Comet creation"
+    },
+    "sources": {
+      "big_celebs_manifest_sha256": "f846b8cc8a4ce087c78130beee48a65f1b13560b63e42a9715cb5686526e5efa",
+      "large_dataset_manifest_sha256": "0056f9647c6ca69079c3b7ae479ea5cdf9e642f076460249b160000eecb3ee50"
+    },
+    "fixed_contract": "E13/BC_E13 model, optimizer, masked-alternating loss, 24k steps, batch 2, schema-v2 checkpoints, pose_adapt_ratio=0, ca_mixing_for_face=false, fixed-96 step0/every2k, deferred canonical face quality",
+    "runtime": {
+      "mls_job_name": "lm-mpi-job-439c7f1b-d339-4077-a871-c52e4f264caa",
+      "comet_experiment_key": "43adf33cf7174e89b8fde1cdd640a052",
+      "comet_url": "https://www.comet.com/nikolay-2104/aug-large-ds/43adf33cf7174e89b8fde1cdd640a052",
+      "comet_record_verified": true
+    }
+  }
+}

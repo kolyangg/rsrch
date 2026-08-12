@@ -86,6 +86,11 @@ def patch_unet_attention_processors(
     if identity_ca_v2_enabled and residual_identity_ca_v3_enabled:
         raise RuntimeError("Hard and residual identity CA cannot both be enabled")
 
+    hardcase_mode = str(getattr(pipeline, "ba_hardcase_mode", "off") or "off").lower()
+    hardcase_groups = tuple(
+        str(group) for group in (getattr(pipeline, "ba_hardcase_groups", None) or ())
+    )
+
     if configured_architecture_version is None:
         # Validation pipelines reuse the already-installed training U-Net but
         # historically copy only a subset of model attributes. Infer the exact
@@ -109,6 +114,25 @@ def patch_unet_attention_processors(
             architecture_version = "hard_replace_v1"
     else:
         architecture_version = str(configured_architecture_version).lower()
+
+    if hardcase_mode != "off":
+        if architecture_version != "hard_replace_v1":
+            raise RuntimeError("CL15+ hard-case routes require hard_replace_v1")
+        if not hardcase_groups:
+            raise RuntimeError("ba_hardcase_mode requires non-empty ba_hardcase_groups")
+        invalid_hardcase_groups = [
+            group
+            for group in hardcase_groups
+            if not (
+                group == "mid_block"
+                or group.startswith("down_blocks.")
+                or group.startswith("up_blocks.")
+            )
+        ]
+        if invalid_hardcase_groups:
+            raise ValueError(
+                f"Invalid ba_hardcase_groups={invalid_hardcase_groups!r}"
+            )
 
     if bool(getattr(pipeline, "ba_enforce_reference_only_hard_route", False)):
         if architecture_version != "hard_replace_v1":
@@ -212,6 +236,27 @@ def patch_unet_attention_processors(
             "Installed branched processor architecture does not match "
             f"{architecture_version}: {incompatible_self_processors[:5]}"
         )
+    if has_branched and architecture_version == "hard_replace_v1":
+        mismatched_hardcase_routes = []
+        for name, processor in current_procs.items():
+            if type(processor) is not HardReplaceBranchedAttnProcessor:
+                continue
+            expected_mode = (
+                hardcase_mode
+                if any(name.startswith(f"{group}.") for group in hardcase_groups)
+                else "off"
+            )
+            if processor.hardcase_mode != expected_mode:
+                mismatched_hardcase_routes.append(
+                    (name, processor.hardcase_mode, expected_mode)
+                )
+        if mismatched_hardcase_routes:
+            # 11 Aug 2026 - AICODE-NOTE: processor reuse must never turn a YAML
+            # toggle into a silent no-op; validation must use the trained route.
+            raise RuntimeError(
+                "Installed hard-case processor map does not match configuration: "
+                f"{mismatched_hardcase_routes[:5]}"
+            )
 
     def _resolve_attn_module(unet, proc_name):
         mod = unet
@@ -256,6 +301,10 @@ def patch_unet_attention_processors(
         )
         if hasattr(proc, "set_denoise_progress"):
             proc.set_denoise_progress(ba_denoise_progress)
+        if hasattr(proc, "set_ownership_target_mask"):
+            proc.set_ownership_target_mask(
+                getattr(pipe, "_ba_ownership_target_mask", None)
+            )
         if hasattr(proc, "set_mix_override"):
             proc.set_mix_override(getattr(pipe, "ba_mix_override", None))
         if hasattr(proc, "set_telemetry_enabled"):
@@ -612,6 +661,51 @@ def patch_unet_attention_processors(
                                     pipeline,
                                     "ba_hard_v1_reference_roi_warp",
                                     False,
+                                )
+                            ),
+                            hardcase_mode=(
+                                hardcase_mode
+                                if any(
+                                    name.startswith(f"{group}.")
+                                    for group in hardcase_groups
+                                )
+                                else "off"
+                            ),
+                            hardcase_rank=int(
+                                getattr(pipeline, "ba_hardcase_rank", 64)
+                            ),
+                            hardcase_gate_max=float(
+                                getattr(pipeline, "ba_hardcase_gate_max", 0.20)
+                            ),
+                            hardcase_roi_size=int(
+                                getattr(pipeline, "ba_hardcase_roi_size", 32)
+                            ),
+                            hardcase_face_threshold_px=int(
+                                getattr(
+                                    pipeline,
+                                    "ba_hardcase_face_threshold_px",
+                                    256,
+                                )
+                            ),
+                            hardcase_transition_cells=int(
+                                getattr(
+                                    pipeline,
+                                    "ba_hardcase_transition_cells",
+                                    2,
+                                )
+                            ),
+                            hardcase_ownership_hidden_dim=int(
+                                getattr(
+                                    pipeline,
+                                    "ba_hardcase_ownership_hidden_dim",
+                                    128,
+                                )
+                            ),
+                            hardcase_visible_face_floor=float(
+                                getattr(
+                                    pipeline,
+                                    "ba_hardcase_visible_face_floor",
+                                    0.20,
                                 )
                             ),
                         )
@@ -1100,6 +1194,59 @@ def two_branch_predict(
         timestep_cond_doubled = torch.cat([timestep_cond, timestep_cond], dim=0)
     else:
         timestep_cond_doubled = None
+
+    if str(getattr(pipeline, "ba_hardcase_mode", "off")).lower() == "clean_memory":
+        memory_source = getattr(pipeline, "_ba_clean_memory_source_tensor", None)
+        if memory_source is not reference_latents:
+            memory_processors = [
+                processor
+                for processor in pipeline.unet.attn_processors.values()
+                if getattr(processor, "hardcase_mode", "off") == "clean_memory"
+            ]
+            if not memory_processors:
+                raise RuntimeError("Clean-memory mode installed no memory processors")
+            for processor in memory_processors:
+                processor.clear_clean_memory()
+                processor.set_clean_memory_capture(True)
+            clean_timestep = torch.ones(
+                batched_latents.shape[0], device=device, dtype=t_batched.dtype
+            )
+            clean_reference = reference_latents.to(dtype=latent_model_input.dtype)
+            if clean_reference.shape[0] < batch_size:
+                clean_reference = clean_reference.expand(
+                    batch_size, -1, -1, -1
+                )
+            clean_batched = torch.cat([clean_reference, clean_reference], dim=0)
+            null_encoder = torch.zeros_like(encoder_hidden_states)
+            null_kwargs = {
+                key: (torch.zeros_like(value) if torch.is_tensor(value) else value)
+                for key, value in doubled_kwargs.items()
+            }
+            try:
+                # 11 Aug 2026 - The cache is an identity source, not a second
+                # trainable U-Net trajectory. Detaching it also bounds memory.
+                with torch.no_grad():
+                    pipeline.unet(
+                        clean_batched,
+                        clean_timestep,
+                        encoder_hidden_states=null_encoder,
+                        timestep_cond=(
+                            None
+                            if timestep_cond_doubled is None
+                            else torch.zeros_like(timestep_cond_doubled)
+                        ),
+                        added_cond_kwargs=null_kwargs,
+                        return_dict=False,
+                    )
+            finally:
+                for processor in memory_processors:
+                    processor.set_clean_memory_capture(False)
+            if any(
+                processor.clean_reference_memory is None
+                for processor in memory_processors
+            ):
+                raise RuntimeError("Clean-memory capture missed a configured processor")
+            pipeline._ba_clean_memory_source_tensor = reference_latents
 
     # Runtime knobs for branched processors via call kwargs
     base_cross_attention_kwargs = getattr(pipeline, "_cross_attention_kwargs", None)
