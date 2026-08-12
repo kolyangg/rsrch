@@ -27,6 +27,7 @@ RUN_CONFIGS = {
     "CL14_CA_optimized_speed_smoke_r1": "CL14_CA_skipval_smoke",
     "CL14_CA_optimized_r2": "CL14_CA",
     "CL14_CA_optimized_speed_smoke_r2": "CL14_CA_skipval_smoke",
+    "CL14_CA_optimized_speed_smoke_r3": "CL14_CA_skipval_smoke",
     "CL14_CA_skipval_smoke_r1": "CL14_CA_skipval_smoke",
     "CL14_CA_skipval_smoke_r2": "CL14_CA_skipval_smoke",
     "CL14_CA_skipval_smoke_r3": "CL14_CA_skipval_smoke",
