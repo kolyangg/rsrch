@@ -41,6 +41,8 @@ RUN_CONFIGS = {
     # 12 Aug 2026 - Training optimization pair with CL20's Eddie validation fix.
     "CL14_CA_optimized_r8": "CL14_CA",
     "CL14_CA_optimized_speed_smoke_r9": "CL14_CA_skipval_smoke",
+    "CL14_CA_optimized_r9": "CL14_CA",
+    "CL14_CA_optimized_speed_smoke_r10": "CL14_CA_skipval_smoke",
     "CL14_CA_skipval_smoke_r1": "CL14_CA_skipval_smoke",
     "CL14_CA_skipval_smoke_r2": "CL14_CA_skipval_smoke",
     "CL14_CA_skipval_smoke_r3": "CL14_CA_skipval_smoke",

@@ -517,6 +517,23 @@ class BaseTrainer:
                 self.accelerator.wait_for_everyone()
             ### Modified for attention processors training ###
 
+        if (
+            epoch == 1
+            and self.skip_initial_validation
+            and int(getattr(self.accelerator, "num_processes", 1)) == 1
+        ):
+            # 12 Aug 2026 - Training optimization: step-zero validation normally
+            # rehomes the training model CPU→GPU. Preserve that proven CUDA
+            # storage lifecycle in speed smokes without generating val images.
+            training_model = self.accelerator.unwrap_model(self.model)
+            training_model.to("cpu")
+            gc.collect()
+            torch.cuda.empty_cache()
+            training_model.to(self.device)
+            gc.collect()
+            torch.cuda.empty_cache()
+            print("[Training Optimization] Rehomed model before skip-val training")
+
         for batch_idx, batch in enumerate(
             tqdm(self.train_dataloader, desc=f"train_{pid}", total=self.epoch_len)
         ):

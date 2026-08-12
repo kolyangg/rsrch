@@ -44,6 +44,7 @@ class HardIdentityCrossAttnProcessorV2(nn.Module):
         self.id_to_out = None
         self.mask: Optional[torch.Tensor] = None
         self.class_tokens_mask: Optional[torch.Tensor] = None
+        self.identity_token_indices: Optional[torch.Tensor] = None
         self.has_cross_attention_kwargs = True
         self._latest_telemetry: dict[str, torch.Tensor] = {}
 
@@ -97,8 +98,10 @@ class HardIdentityCrossAttnProcessorV2(nn.Module):
     def set_class_tokens_mask(
         self,
         class_tokens_mask: Optional[torch.Tensor],
+        identity_token_indices: Optional[torch.Tensor] = None,
     ) -> None:
         self.class_tokens_mask = class_tokens_mask
+        self.identity_token_indices = identity_token_indices
 
     def latest_ba_telemetry(self) -> dict[str, torch.Tensor]:
         return dict(self._latest_telemetry)
@@ -199,6 +202,51 @@ class HardIdentityCrossAttnProcessorV2(nn.Module):
             mask = mask.repeat(batch_size // mask.shape[0], 1)
         return mask
 
+    def _gather_identity_tokens(
+        self,
+        identity_prompt: torch.Tensor,
+        batch_size: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        indices = self.identity_token_indices
+        if indices is not None:
+            if indices.ndim != 2 or indices.shape[1] == 0:
+                raise RuntimeError("Identity-token indices must be a nonempty 2D tensor")
+            if indices.shape[0] != batch_size:
+                if batch_size % indices.shape[0] != 0:
+                    raise RuntimeError("Identity-token index batch mismatch")
+                indices = indices.repeat(batch_size // indices.shape[0], 1)
+            # 12 Aug 2026 - Training optimization: reuse the validated fixed
+            # ID-token indices instead of synchronizing once per CA layer.
+            indices = indices.to(device=identity_prompt.device, dtype=torch.long)
+            gathered = torch.gather(
+                identity_prompt,
+                dim=1,
+                index=indices.unsqueeze(-1).expand(-1, -1, identity_prompt.shape[-1]),
+            )
+            counts = torch.full(
+                (batch_size,),
+                indices.shape[1],
+                device=identity_prompt.device,
+                dtype=torch.long,
+            )
+            return gathered, counts
+
+        token_mask = self._expanded_token_mask(
+            batch_size=batch_size,
+            token_count=identity_prompt.shape[1],
+            device=identity_prompt.device,
+        )
+        token_counts = token_mask.sum(dim=1)
+        if bool((token_counts <= 0).any()) or int(torch.unique(token_counts).numel()) != 1:
+            raise RuntimeError("Identity CA requires equal, nonzero active ID-token counts")
+        active_count = int(token_counts[0].item())
+        return (
+            identity_prompt[token_mask].reshape(
+                batch_size, active_count, identity_prompt.shape[-1]
+            ),
+            token_counts,
+        )
+
     def __call__(
         self,
         attn,
@@ -277,26 +325,9 @@ class HardIdentityCrossAttnProcessorV2(nn.Module):
         native_target = attn.to_out[1](attn.to_out[0](native_target))
         native_reference = attn.to_out[1](attn.to_out[0](native_reference))
 
-        token_mask = self._expanded_token_mask(
-            batch_size=batch_size,
-            token_count=identity_prompt.shape[1],
-            device=identity_prompt.device,
-        )
-        token_counts = token_mask.sum(dim=1)
-        if bool((token_counts <= 0).any()):
-            raise RuntimeError(
-                "Hard identity CA found a row without active PhotoMaker ID tokens"
-            )
-        if int(torch.unique(token_counts).numel()) != 1:
-            raise RuntimeError(
-                "Hard identity CA requires an equal active ID-token count per row: "
-                f"counts={token_counts.detach().cpu().tolist()}"
-            )
-        active_count = int(token_counts[0].item())
-        gathered_identity = identity_prompt[token_mask].reshape(
+        gathered_identity, token_counts = self._gather_identity_tokens(
+            identity_prompt,
             batch_size,
-            active_count,
-            identity_prompt.shape[-1],
         )
         identity_message = self._project_attention(
             target_hidden,
