@@ -418,9 +418,7 @@ def patch_unet_attention_processors(
     setattr(pipeline, "_ba_identity_ca_processor_names", tuple(identity_ca_names))
 
     identity_token_indices = None
-    if identity_ca_enabled:
-        if class_tokens_mask is None:
-            raise RuntimeError("Corrected identity CA requires class_tokens_mask")
+    if identity_ca_enabled and class_tokens_mask is not None:
         token_mask = class_tokens_mask.detach().to(dtype=torch.bool)
         if token_mask.ndim == 1:
             token_mask = token_mask.unsqueeze(0)
@@ -428,6 +426,7 @@ def patch_unet_attention_processors(
             raise RuntimeError("Identity-token mask must be a 2D tensor")
         # 12 Aug 2026 - Training optimization: validate the tiny prompt mask
         # once per U-Net pass, then share fixed indices across every CA layer.
+        # Processor installation has no prompt yet, so defer this to forward.
         index_rows = [
             row.nonzero(as_tuple=False).flatten().tolist()
             for row in token_mask.cpu()
