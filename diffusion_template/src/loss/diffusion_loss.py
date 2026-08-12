@@ -68,8 +68,11 @@ class MaskedDiffusionLoss(nn.Module):
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
 
         auxiliary = loss.new_tensor(0.0) if ba_aux_loss is None else ba_aux_loss
+        # 12 Aug 2026 - Training optimization: retain CL14's exact autograd
+        # graph when defaults-off hard-case loss is absent.
+        objective = loss if ba_aux_loss is None else loss + auxiliary
         return {
-            'loss': loss + auxiliary,
+            'loss': objective,
             'loss_ba_aux': auxiliary.detach(),
             'loss_ba_ownership': (
                 loss.new_tensor(0.0)

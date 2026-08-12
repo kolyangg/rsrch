@@ -2200,21 +2200,27 @@ class PhotomakerBranchedLora(SDXL):
             )
         )
 
-        return {
+        result = {
             'model_pred': noise_pred,
             'target': noise,
             'pred_wrong_spatial_ref': wrong_spatial_reference_pred,
             'reference_shuffle_applied': reference_shuffle_applied,
             'reference_prediction_delta_ratio': reference_prediction_delta_ratio,
             'ba_telemetry': ba_telemetry,
-            'ba_aux_loss': hardcase_aux_loss,
-            'ba_ownership_loss': ownership_loss.detach(),
-            'ba_crossview_loss': crossview_loss.detach(),
             'identity_aux_loss': identity_aux_loss,
             'identity_aux_weight': identity_aux_weight,
             'identity_aux_applied': identity_aux_applied,
             **identity_aux_telemetry,
         }
+        # 12 Aug 2026 - Training optimization: defaults-off hard-case plumbing
+        # must leave CL14's backward graph exact; expose aux edges only when used.
+        if self.ba_hardcase_mode != "off" or self.ba_crossview_consistency_enabled:
+            result.update(
+                ba_aux_loss=hardcase_aux_loss,
+                ba_ownership_loss=ownership_loss.detach(),
+                ba_crossview_loss=crossview_loss.detach(),
+            )
+        return result
 
     def encode_prompt_with_trigger_word(
         self,
