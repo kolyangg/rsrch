@@ -115,25 +115,38 @@ class ResidualIdentityCrossAttnProcessorV3(HardIdentityCrossAttnProcessorV2):
             generation_prompt = attn.norm_encoder_hidden_states(generation_prompt)
             identity_prompt = attn.norm_encoder_hidden_states(identity_prompt)
 
-        # 12 Aug 2026 - Training optimization: target and reference native CA
-        # are independent batch rows, so one doubled-batch projection/SDPA is
-        # mathematically identical and avoids a second set of kernel launches.
-        native_hidden = torch.cat([target_hidden, reference_hidden], dim=0)
-        native_prompt = torch.cat([generation_prompt, identity_prompt], dim=0)
-        native_output = self._project_attention(
-            native_hidden,
-            native_prompt,
+        native_target = self._project_attention(
+            target_hidden,
+            generation_prompt,
             query_projection=attn.to_q,
             key_projection=attn.to_k,
             value_projection=attn.to_v,
             heads=int(attn.heads),
         )
-        native_output = attn.to_out[1](attn.to_out[0](native_output))
-        native_target, native_reference = native_output.split(batch_size, dim=0)
-
-        gathered_identity, token_counts = self._gather_identity_tokens(
+        native_reference = self._project_attention(
+            reference_hidden,
             identity_prompt,
-            batch_size,
+            query_projection=attn.to_q,
+            key_projection=attn.to_k,
+            value_projection=attn.to_v,
+            heads=int(attn.heads),
+        )
+        native_target = attn.to_out[1](attn.to_out[0](native_target))
+        native_reference = attn.to_out[1](attn.to_out[0](native_reference))
+
+        token_mask = self._expanded_token_mask(
+            batch_size=batch_size,
+            token_count=identity_prompt.shape[1],
+            device=identity_prompt.device,
+        )
+        token_counts = token_mask.sum(dim=1)
+        if bool((token_counts <= 0).any()) or int(torch.unique(token_counts).numel()) != 1:
+            raise RuntimeError(
+                "Residual identity CA requires equal, nonzero active ID-token counts"
+            )
+        active_count = int(token_counts[0].item())
+        gathered_identity = identity_prompt[token_mask].reshape(
+            batch_size, active_count, identity_prompt.shape[-1]
         )
         identity_hidden = self._project_attention(
             target_hidden,

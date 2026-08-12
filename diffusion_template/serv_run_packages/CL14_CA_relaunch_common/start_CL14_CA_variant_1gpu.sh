@@ -5,6 +5,8 @@ set -euo pipefail
 : "${CONFIG_ID:?Set the Hydra config identity}"
 OWNER_ROOT="/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev"
 case "${RUN_ID}" in
+  # 12 Aug 2026 - Training optimization series retaining only safe scalar batching.
+  CL14_CA_optimized_r4|CL14_CA_optimized_speed_smoke_r5) RUNTIME_SERIES="runtime_sources_cl14_ca_v16" ;;
   # 12 Aug 2026 - Training optimization series with CL14 loader and CL20 Eddie validation.
   CL14_CA_optimized_r3|CL14_CA_optimized_speed_smoke_r4) RUNTIME_SERIES="runtime_sources_cl14_ca_v15" ;;
   # 12 Aug 2026 - Training optimization smoke after restoring the sealed subject-v2 asset.
