@@ -5,6 +5,8 @@ set -euo pipefail
 : "${CONFIG_ID:?Set the Hydra config identity}"
 OWNER_ROOT="/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev"
 case "${RUN_ID}" in
+  # 12 Aug 2026 - Training optimization derived from the proven live r7 source.
+  CL14_CA_optimized_r7|CL14_CA_optimized_speed_smoke_r8) RUNTIME_SERIES="runtime_sources_cl14_ca_v19" ;;
   # 12 Aug 2026 - Training optimization series with exact defaults-off graph.
   CL14_CA_optimized_r6|CL14_CA_optimized_speed_smoke_r7) RUNTIME_SERIES="runtime_sources_cl14_ca_v18" ;;
   # 12 Aug 2026 - Training optimization series with one-GPU scalar-gather bypass.
