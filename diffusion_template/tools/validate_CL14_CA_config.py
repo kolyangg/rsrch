@@ -21,6 +21,10 @@ RUN_CONFIGS = {
     "CL14_CA_r5": "CL14_CA",
     "CL14_CA_r6": "CL14_CA",
     "CL14_CA_r7": "CL14_CA",
+    # 12 Aug 2026 - Training optimization launch pair: identical science,
+    # optimized scalar synchronization, ID-token gather, and data transfer.
+    "CL14_CA_optimized_r1": "CL14_CA",
+    "CL14_CA_optimized_speed_smoke_r1": "CL14_CA_skipval_smoke",
     "CL14_CA_skipval_smoke_r1": "CL14_CA_skipval_smoke",
     "CL14_CA_skipval_smoke_r2": "CL14_CA_skipval_smoke",
     "CL14_CA_skipval_smoke_r3": "CL14_CA_skipval_smoke",
@@ -44,6 +48,9 @@ ALLOWED_DIFFS = {
     "trainer.skip_initial_validation",
     "datasets.val.manual_val.limit",
     "trainer.face_quality.expected_images",
+    "non_blocking_dataloader",
+    "dataloaders.train.pin_memory",
+    "dataloaders.train.persistent_workers",
 }
 
 
@@ -120,6 +127,10 @@ def main() -> None:
         "trainer.validation_interval_steps": 2000,
         "trainer.skip_initial_validation": args.config_name.endswith("_skipval_smoke"),
         "dataloaders.train.batch_size": 2,
+        "dataloaders.train.num_workers": 2,
+        "dataloaders.train.pin_memory": True,
+        "dataloaders.train.persistent_workers": True,
+        "non_blocking_dataloader": True,
         "dataloaders.manual_val.batch_size": 12,
         "datasets.val.manual_val.limit": (
             12 if args.config_name.endswith("_onebatch_smoke") else

@@ -417,6 +417,33 @@ def patch_unet_attention_processors(
     identity_ca_name_set = set(identity_ca_names)
     setattr(pipeline, "_ba_identity_ca_processor_names", tuple(identity_ca_names))
 
+    identity_token_indices = None
+    if identity_ca_enabled:
+        if class_tokens_mask is None:
+            raise RuntimeError("Corrected identity CA requires class_tokens_mask")
+        token_mask = class_tokens_mask.detach().to(dtype=torch.bool)
+        if token_mask.ndim == 1:
+            token_mask = token_mask.unsqueeze(0)
+        if token_mask.ndim != 2:
+            raise RuntimeError("Identity-token mask must be a 2D tensor")
+        # 12 Aug 2026 - Training optimization: validate the tiny prompt mask
+        # once per U-Net pass, then share fixed indices across every CA layer.
+        index_rows = [
+            row.nonzero(as_tuple=False).flatten().tolist()
+            for row in token_mask.cpu()
+        ]
+        if not index_rows or not index_rows[0] or any(
+            len(row) != len(index_rows[0]) for row in index_rows
+        ):
+            raise RuntimeError(
+                "Corrected identity CA requires equal, nonzero ID-token counts"
+            )
+        identity_token_indices = torch.tensor(
+            index_rows,
+            device=class_tokens_mask.device,
+            dtype=torch.long,
+        )
+
     installed_identity_ca_names = {
         name
         for name, processor in current_procs.items()
@@ -794,7 +821,11 @@ def patch_unet_attention_processors(
                             dtype=pipeline.unet.dtype,
                         )
                     proc.set_masks(_mask, _mref)
-                    proc.set_class_tokens_mask(class_tokens_mask)
+                    proc.set_class_tokens_mask(
+                        class_tokens_mask,
+                        identity_token_indices,
+                    )
+                    _apply_runtime_flags(proc, pipeline)
                     new_procs[name] = proc
                     patched_proc_names.append(name)
                 elif disable_ca:
@@ -866,7 +897,10 @@ def patch_unet_attention_processors(
                 ):
                     # 4 Aug 2026 - ID-token membership changes with the current
                     # prompt/CFG batch and must be refreshed on every forward.
-                    proc.set_class_tokens_mask(class_tokens_mask)
+                    proc.set_class_tokens_mask(
+                        class_tokens_mask,
+                        identity_token_indices,
+                    )
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
 
     pose_adapt_ratio = float(getattr(pipeline, "pose_adapt_ratio", 0.0))

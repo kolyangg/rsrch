@@ -4,7 +4,7 @@ import hydra
 import torch
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
-from accelerate import Accelerator
+from accelerate import Accelerator, DataLoaderConfiguration
 from accelerate.utils import InitProcessGroupKwargs, DistributedDataParallelKwargs
 
 from src.datasets.data_utils import get_dataloaders
@@ -220,7 +220,16 @@ def main(config):
         broadcast_buffers=False,
         find_unused_parameters=ddp_find_unused,
     )
-    accelerator = Accelerator(kwargs_handlers=[pg_kwargs, ddp_kwargs], rng_types=[])
+    # 12 Aug 2026 - Training optimization: opt-in pinned-memory transfers may
+    # overlap with GPU work; default false preserves historical launchers.
+    dataloader_config = DataLoaderConfiguration(
+        non_blocking=bool(getattr(config, "non_blocking_dataloader", False))
+    )
+    accelerator = Accelerator(
+        kwargs_handlers=[pg_kwargs, ddp_kwargs],
+        rng_types=[],
+        dataloader_config=dataloader_config,
+    )
 
     project_config = OmegaConf.to_container(config)
     logger = None

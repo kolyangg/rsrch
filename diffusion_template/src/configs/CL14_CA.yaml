@@ -19,6 +19,14 @@ pipeline:
   pose_adapt_ratio: 0.0
   ca_mixing_for_face: false
 
+# 12 Aug 2026 - Training optimization: retain CL14's worker count while
+# overlapping pinned input transfer and keeping workers alive across epochs.
+non_blocking_dataloader: true
+dataloaders:
+  train:
+    pin_memory: true
+    persistent_workers: true
+
 expected_trainable_contract:
   enabled: true
   total_tensors: 2348

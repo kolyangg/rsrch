@@ -449,22 +449,34 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             ).float()
             active_rank = shuffle_by_rank > 0.5
 
-        # update metrics for each loss (in case of multiple losses)
-        for loss_name in self.config.writer.loss_names:
-            gathered = self.accelerator.gather(
-                batch[loss_name].detach().reshape(1)
-            ).float()
-            batch[loss_name] = gathered.mean()
-            train_metrics.update(loss_name, batch[loss_name].item())
+        # 12 Aug 2026 - Training optimization: gather every scalar in one
+        # vector and synchronize the GPU once. CL14_CA has 19 diagnostics;
+        # this prevents 19 serialized gather/item synchronization pairs.
+        loss_names = tuple(self.config.writer.loss_names)
+        local_scalars = torch.stack(
+            [batch[name].detach().reshape(()) for name in loss_names]
+        ).float()
+        gathered_matrix = self.accelerator.gather(local_scalars).reshape(
+            -1, len(loss_names)
+        )
+        mean_scalars = gathered_matrix.mean(dim=0)
+        mean_values = mean_scalars.cpu().tolist()
+        has_active_reference_rank = bool(
+            active_rank is not None and active_rank.any().item()
+        )
+        for metric_index, (loss_name, mean_value) in enumerate(
+            zip(loss_names, mean_values)
+        ):
+            batch[loss_name] = mean_scalars[metric_index]
+            train_metrics.update(loss_name, mean_value)
             conditional_name = conditional_reference_metrics.get(loss_name)
             if (
                 conditional_name is not None
-                and active_rank is not None
-                and active_rank.any().item()
+                and has_active_reference_rank
             ):
                 train_metrics.update(
                     conditional_name,
-                    gathered[active_rank].mean().item(),
+                    gathered_matrix[active_rank, metric_index].mean().item(),
                 )
         if active_rank is not None:
             train_metrics.update(

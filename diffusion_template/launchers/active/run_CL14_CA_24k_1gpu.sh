@@ -21,7 +21,8 @@ if [[ "$#" -ne 0 ]]; then
   exit 2
 fi
 case "${RUN_NAME}:${CONFIG_NAME}" in
-  CL14_CA:CL14_CA|CL14_CA_r3:CL14_CA|CL14_CA_r4:CL14_CA|CL14_CA_r5:CL14_CA|CL14_CA_r6:CL14_CA|CL14_CA_r7:CL14_CA|CL14_CA_skipval_smoke_r1:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r2:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r3:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r4:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r5:CL14_CA_skipval_smoke|CL14_CA_oneval_smoke_r1:CL14_CA_oneval_smoke|CL14_CA_onebatch_smoke_r1:CL14_CA_onebatch_smoke|CL14_CA_onebatch_smoke_r2:CL14_CA_onebatch_smoke) ;;
+  # 12 Aug 2026 - Training optimization runs preserve the CL14_CA science.
+  CL14_CA:CL14_CA|CL14_CA_r3:CL14_CA|CL14_CA_r4:CL14_CA|CL14_CA_r5:CL14_CA|CL14_CA_r6:CL14_CA|CL14_CA_r7:CL14_CA|CL14_CA_optimized_r1:CL14_CA|CL14_CA_optimized_speed_smoke_r1:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r1:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r2:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r3:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r4:CL14_CA_skipval_smoke|CL14_CA_skipval_smoke_r5:CL14_CA_skipval_smoke|CL14_CA_oneval_smoke_r1:CL14_CA_oneval_smoke|CL14_CA_onebatch_smoke_r1:CL14_CA_onebatch_smoke|CL14_CA_onebatch_smoke_r2:CL14_CA_onebatch_smoke) ;;
   *) echo "Unexpected CL14_CA run/config pair" >&2; exit 2 ;;
 esac
 
