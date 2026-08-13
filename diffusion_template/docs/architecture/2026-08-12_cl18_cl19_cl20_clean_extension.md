@@ -388,11 +388,12 @@ one name and do not reuse an existing `saved/<run_name>` or preflight directory.
 ### 4. MLS/Serv submission
 
 Before submission, inspect this project's Running and Pending MLS jobs and
-respect the normal six-A100 ceiling. Copy
-`serv_run_packages/e13_family_1gpu.yaml.example`, replace every `REPLACE_*`
-value, review the generated YAML, then submit it with the Serv CLI. The YAML
-delegates to `launchers/serv/start_e13_family_1gpu.sh`, which activates the
-existing environment and then calls the same audited launcher.
+respect the normal six-A100 ceiling. Use the exact CL18, CL19 or CL20 YAML
+linked from `serv_run_packages/README.md`, review its clean-checkout paths and
+unique run identity, then submit it with the Serv CLI. Each YAML delegates to
+`launchers/serv/start_e13_family_1gpu.sh`, which activates the existing
+environment and then calls the same audited launcher. The generic template
+remains available only for an intentionally new package identity.
 
 Do not submit as part of this implementation handoff. Submission requires an
 intentional later action after resource inspection.

@@ -1,1 +1,0 @@
-from src.model.ip_adapter.model import IPMaker

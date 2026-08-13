@@ -1,1 +1,0 @@
-from src.model.ipmakerbgbody.model import IPMakerBGBody

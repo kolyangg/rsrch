@@ -57,8 +57,22 @@ CL18 `f6530436bf22472c9fb7731d1696c5ab`, CL19
 Do not port the remaining E14-E24 identity auxiliaries,
 residual/anchored/query-adaptive BA, multireference, dropout, or full-body
 balancing into the shared contract. Use
-`launchers/active/run_e13_family_24k_1gpu.sh`; no clean-family training job was
-submitted as part of this update.
+`launchers/active/run_e13_family_24k_1gpu.sh`. Exact one-A100 clean Serv YAMLs
+for all six recipes are indexed in `serv_run_packages/README.md`;
+each rejects a dirty/wrong branch and records its source commit before startup.
+No clean-family training job was submitted as part of this update.
+
+The approved clean-branch Batch A cleanup removed 573 tracked legacy paths:
+the parent PhotoMaker/PuLID/PersonaGen/ClearML copies, old Slurm and pre-clean
+Serv launchers, explicit `_old`/`_backup` source copies, old setup residue, and
+checked-in debug outputs. Before deletion, every path was confirmed on
+`origin/main_clean` commit `19a812f9c842153f412b88182f9beae2b4b9c7aa`;
+58 also exist on `origin/test` commit
+`ad194a026ab701dd979712d415c487dd536a4645`. The conditional cleanup group
+(`compare/`, superseded reporting utilities, old narrative READMEs and broader
+config pruning) remains intentionally untouched. The exact scope and recovery
+evidence are recorded in
+`docs/cleanup/2026-08-12_clean_branch_removal_candidates.md`.
 
 ## Read this first
 

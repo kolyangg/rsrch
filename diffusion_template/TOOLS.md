@@ -35,7 +35,10 @@ bash -n launchers/serv/start_e13_family_1gpu.sh
   schedule, validation and trainable contract.
 - `launchers/active/run_e13_family_24k_1gpu.sh` is the only training launcher
   for all six supported recipes.
-- `serv_run_packages/e13_family_1gpu.yaml.example` is the one-GPU MLS template.
+- `serv_run_packages/README.md` is the concise architecture matrix and points
+  to exact E13/BC_E13/CL14/CL18/CL19/CL20 one-A100 Serv YAMLs.
+- `serv_run_packages/e13_family_1gpu.yaml.example` remains the generic template
+  for a deliberately new run identity.
 
 ## Dataset preflights and measurement
 

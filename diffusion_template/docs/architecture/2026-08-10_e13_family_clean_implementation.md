@@ -374,8 +374,9 @@ The active launcher repeats the config/parity checks and then requires ORT-GPU
 
 ### 7.4 Prepare one MLS request
 
-Copy `serv_run_packages/e13_family_1gpu.yaml.example` to a run-specific path and
-replace every `REPLACE_*` value:
+Use the exact E13, BC_E13 or CL14 clean YAML linked from
+`serv_run_packages/README.md`. The generic template remains available only for
+an intentionally new run identity; replace every `REPLACE_*` value if using it:
 
 - project root is the absolute `diffusion_template` checkout;
 - Conda path is the existing Serv `photomaker_NS` environment;
@@ -396,7 +397,7 @@ exceed it. The current task authorizes preparation only, not submission.
 When separately approved, the submission command is:
 
 ```bash
-mls job submit --config /absolute/path/to/run_e13_family_1gpu.yaml
+mls job submit --config /absolute/path/to/run_<run_name>_1gpu.yaml
 ```
 
 ### 7.5 Startup and completion checks
