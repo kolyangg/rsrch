@@ -65,6 +65,11 @@ The port follows latest test production `CL14_CA_optimized_r11` (Comet
 `fafd7a61b06c4114b9dec2c21d29ca38`) and carries the subject-v2 Eddie repair
 and execution-only fused-CA/scalar-sync optimizations separately from that one
 scientific delta. No clean CL14_CA job has been submitted.
+The formula-level description of every supported recipe—including the shared
+hard-replacement SA equation, CL14_CA residual CA, CL18 objective, CL19 cosine
+router, CL20 curriculum, dataset contracts, ownership totals, and direct code
+references—is
+[`2026-08-13_e13_family_architecture_reference.md`](../architecture/2026-08-13_e13_family_architecture_reference.md).
 Do not port the remaining E14-E24 identity auxiliaries,
 residual/anchored/query-adaptive BA, multireference, dropout, or full-body
 balancing into the shared contract. Use

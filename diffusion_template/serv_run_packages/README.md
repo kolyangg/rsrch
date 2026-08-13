@@ -7,6 +7,10 @@ BA, effective generic/default adapters, `pose_adapt_ratio=0`, and the fixed-96
 DDIM50/CFG5/RealVis validation contract. CL14_CA alone adds corrected residual
 identity-token cross-attention over the intact native CA path.
 
+For equations, trainable ownership, data policies, and symbol-level code
+references for every recipe, see
+[`E13-family architecture reference`](../docs/architecture/2026-08-13_e13_family_architecture_reference.md).
+
 | Recipe | Concise architecture or data delta | Exact config | Serv YAML |
 |---|---|---|---|
 | E13 | Shared architecture trained on Large Dataset. | `E13_large_ds_joint_shadow_sa128_24k` | [`E13...clean_r1 YAML`](E13_large_ds_joint_shadow_sa128_24k_full96_clean_r1/run_E13_large_ds_joint_shadow_sa128_24k_full96_clean_r1_1gpu.yaml) |
