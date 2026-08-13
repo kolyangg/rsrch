@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "CL14_CA_optimized_speed_smoke_r12",
   "plan": {
-    "status": "prepared_speed_smoke",
+    "status": "stopped_after_speed_confirmation",
     "machine": "serv",
     "gpus": 1,
     "objective": "Measure fused residual-CA throughput after the minimum proven 12-image startup validation.",
@@ -17,5 +17,27 @@
     "primary_metric": "Median seconds/iteration after warmup over at least 100 consecutive optimizer steps.",
     "risk": "Stop after throughput and finite-step proof.",
     "expected_trainable_contract": "2348 tensors / 224624676 parameters"
+  },
+  "result": {
+    "job_name": "lm-mpi-job-b3db33aa-5b8e-45fd-a48e-e7fe7d7ab9af",
+    "comet_experiment_key": "75ab71fc2d4c44a5b4b625ebf20b89ed",
+    "runtime_series": "runtime_sources_cl14_ca_v23",
+    "source_revision": "live-r7-v8+a65ffcb2c95f+ca-optimization+cl20-validation",
+    "source_manifest_sha256": "8d03af06bcc32b306ce3cbf83d56180573cac709467b02512b3cf817ef7999d5",
+    "validation_images": 12,
+    "last_observed_optimizer_step": 126,
+    "finite_losses": {
+      "step_0": 0.064709,
+      "step_50": 0.003792,
+      "step_100": 0.366708
+    },
+    "speed_window": {
+      "first_step_exclusive": 20,
+      "last_step_inclusive": 120,
+      "samples": 100,
+      "median_displayed_seconds_per_iteration": 3.23,
+      "wall_seconds_per_iteration": 3.23
+    },
+    "final_job_status": "stopped"
   }
 }

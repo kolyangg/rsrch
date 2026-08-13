@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "CL14_CA_optimized_r11",
   "plan": {
-    "status": "prepared",
+    "status": "running_after_validation_and_training_start",
     "machine": "serv",
     "gpus": 1,
     "objective": "Run full CL14_CA with fused native CA, scalar logging optimization, and CL20's corrected Eddie validation.",
@@ -17,5 +17,22 @@
     "primary_metric": "Mean subject-v2 ID similarity at matched step 24000; throughput is secondary.",
     "risk": "Retain telemetry and all standard validation gates.",
     "expected_trainable_contract": "2348 tensors / 224624676 parameters"
+  },
+  "result": {
+    "job_name": "lm-mpi-job-26dc8f54-1b96-4129-9151-a4fb066a7ff7",
+    "comet_experiment_key": "fafd7a61b06c4114b9dec2c21d29ca38",
+    "runtime_series": "runtime_sources_cl14_ca_v23",
+    "source_revision": "live-r7-v8+a65ffcb2c95f+ca-optimization+cl20-validation",
+    "source_manifest_sha256": "8d03af06bcc32b306ce3cbf83d56180573cac709467b02512b3cf817ef7999d5",
+    "startup_contract": "exact 2348 tensors / 224624676 parameters",
+    "validation_images": 96,
+    "validation_batches": 8,
+    "validation_elapsed_seconds": 1518,
+    "first_finite_loss": 0.064709,
+    "last_observed_optimizer_step": 10,
+    "last_observed_seconds_per_iteration": 3.23,
+    "eddie_step_zero_rows": 12,
+    "eddie_step_zero_mean_subject_v2": 0.243213819,
+    "last_observed_state": "running after full step-zero validation and finite training startup"
   }
 }

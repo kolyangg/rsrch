@@ -2992,3 +2992,65 @@ Stopped. The scientific `CL14_CA_r7` job remained Running.
 The detailed failure analysis, exact code, reproduction gates, and live run
 ledger are in
 `analysis/2026-08-12_CL14_CA_startup_failure_fix_and_relaunch.md`.
+
+### CL14_CA throughput optimization and corrected-Eddie relaunch — 13 August 2026
+
+The original scientific `CL14_CA_r7` remains active and untouched: Serv job
+`lm-mpi-job-244ef7b2-3943-4998-a82e-ae1be2208169`, immutable Comet key
+`4d96dc8e776b4039b1116acc5cdcf706`. Its recent 100-sample training-rate median
+was `3.480 s/it`; its matched first-epoch steps 21--120 median was
+`3.590 s/it`. Historical CL14 key `6fe0028be92242c38056b3d36665fdd6`
+has median `2.190 s/it` over the same 100-step window across all 12 epochs
+(`1,200` samples).
+
+Safe execution-only optimizations were implemented with the user-requested
+`12 Aug 2026 - Training optimization` comments: all 19 telemetry scalars are
+stacked for one synchronization with a one-GPU collective bypass; fixed
+identity-token indices are built once per U-Net call and shared by the CA
+processors; and independent native target/reference CA rows are fused on the
+batch axis before being split. Q/K/V ownership, residual-CA coverage and gates,
+loss, loader, optimizer, and exact `2,348 / 224,624,676` contract remain
+unchanged. Pinned/persistent workers, nonblocking transfers, and speculative
+manual device re-homing were removed.
+
+Speed smoke `CL14_CA_optimized_speed_smoke_r12`, Serv job
+`lm-mpi-job-b3db33aa-5b8e-45fd-a48e-e7fe7d7ab9af`, immutable Comet key
+`75ab71fc2d4c44a5b4b625ebf20b89ed`, completed one unchanged 12-image startup
+validation batch and finite optimizer steps. Steps 21--120 have median displayed
+rate `3.230 s/it`; step-20 to step-120 elapsed time independently gives
+`3.23 s/it`. This is `7.2%` lower latency than r7's latest median and `10.0%`
+lower than its matched first-epoch window, but still `47.5%` slower than CL14
+because the residual identity CA is real additional compute. The smoke was
+stopped deliberately after observing step 126.
+
+Do not use a completely skipped step-zero validation as the normal startup
+smoke. Multiple cold attempts, including an exact healthy-r7-derived source
+(job `lm-mpi-job-60b5e876-20d8-44f9-b7f3-4baa7a1c1c20`, Comet
+`cc096b408f184faf9f1618afc4eb9588`), segfaulted on the first native autograd
+backward. A single standard 12-image validation batch safely initializes the
+established CL14 validation/offload/reinstall lifecycle. The exact lower-level
+CUDA cause is not established.
+
+The new scientific production run is `CL14_CA_optimized_r11`: Serv job
+`lm-mpi-job-26dc8f54-1b96-4129-9151-a4fb066a7ff7`, immutable Comet key
+`fafd7a61b06c4114b9dec2c21d29ca38`. It uses one A100 and runtime
+`runtime_sources_cl14_ca_v23`, revision
+`live-r7-v8+a65ffcb2c95f+ca-optimization+cl20-validation`, manifest SHA-256
+`8d03af06bcc32b306ce3cbf83d56180573cac709467b02512b3cf817ef7999d5`.
+It completed the canonical step-zero `96/96` panel in `25:18`, wrote the 96-row
+ID table, staged 96 face-quality inputs, restored the training base, logged
+finite loss `0.064709`, and advanced through at least optimizer step 10 at
+`3.23 s/it`. Monitoring then stopped as requested; the job remains Running.
+
+This production run also ports CL20's validation-only Eddie repair:
+`bbox_overlap_v2` selection in both dataset and pipeline, subject-v2 metrics,
+and sealed embedding SHA-256
+`e0d36212ad350db8252c4805acf46aa4c90289603d460584dc7692066712b465`.
+The selector audit chooses Eddie detector index 1 with IoU `0.896066`; all other
+identities use index 0. The production step-zero Eddie rows have mean subject-v2
+similarity `0.243214`, versus `0.097842` under r7's historical wrong-face
+contract. This is a contract sanity check, not a model-quality comparison,
+because the correction intentionally changes both generation conditioning and
+the scoring target. `pose_adapt_ratio=0` and `ca_mixing_for_face=false` remain
+fixed. Full details are in
+`analysis/2026-08-13_CL14_CA_training_throughput_optimization.md`.
