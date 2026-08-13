@@ -1,6 +1,6 @@
 # Current project handoff
 
-**Last updated:** 12 August 2026
+**Last updated:** 13 August 2026
 
 **Repository:** clean worktree `/home/kolyangg/rsrch_e13_family_clean`
 
@@ -21,11 +21,12 @@ the linked reports.
 
 This branch is the concise implementation line for E13, BC_E13, CL14 and the
 isolated CL18-CL20 corrected-r2 extension. It contains one shared fail-closed
-architecture contract and six leaf recipes:
+architecture contract and seven leaf recipes:
 
 - `E13_large_ds_joint_shadow_sa128_24k`
 - `BC_E13_big_celebs_joint_shadow_sa128_24k`
 - `CL14_cosmic_joint_shadow_sa128_softmask_24k`
+- `CL14_CA_cosmic_residual_identity_ca_24k`
 - `CL18_cosmic_crossview_spatial_consistency_24k`
 - `CL19_cosmic_true_soft_fullquery_router_24k`
 - `CL20_cosmic_bigcelebs_hardcase_curriculum_24k`
@@ -54,11 +55,21 @@ default. The corrected-r2 source records are
 CL18 `f6530436bf22472c9fb7731d1696c5ab`, CL19
 `cfeda7b55c174b3c83e8d40537ebb6dd`, and CL20
 `b05488e2cce94476acc92bcaa21d7362`.
+CL14_CA is the single model extension to CL14: native CA remains intact while
+target queries attend active PhotoMaker ID-token K/V through a rank-64,
+zero-initialized output delta, face mask, and gate initialized at 0.02 and
+bounded by 0.20 in `up_blocks.0/1`. Its detailed clean-port ledger and Serv
+runbook are in
+[`2026-08-13_cl14_ca_clean_extension.md`](../architecture/2026-08-13_cl14_ca_clean_extension.md).
+The port follows latest test production `CL14_CA_optimized_r11` (Comet
+`fafd7a61b06c4114b9dec2c21d29ca38`) and carries the subject-v2 Eddie repair
+and execution-only fused-CA/scalar-sync optimizations separately from that one
+scientific delta. No clean CL14_CA job has been submitted.
 Do not port the remaining E14-E24 identity auxiliaries,
 residual/anchored/query-adaptive BA, multireference, dropout, or full-body
 balancing into the shared contract. Use
 `launchers/active/run_e13_family_24k_1gpu.sh`. Exact one-A100 clean Serv YAMLs
-for all six recipes are indexed in `serv_run_packages/README.md`;
+for all seven recipes are indexed in `serv_run_packages/README.md`;
 each rejects a dirty/wrong branch and records its source commit before startup.
 No clean-family training job was submitted as part of this update.
 

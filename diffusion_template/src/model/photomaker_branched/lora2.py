@@ -23,6 +23,7 @@ from src.model.sdxl.original import SDXL
 """Import branched-attention forward/patch helpers and PMv2 face-ID dependencies used by training."""
 from .insightface_package import create_face_analyzer
 from .lora2_helpers import (
+    collect_identity_ca_telemetry,
     install_branched_processors_for_training,
     prepare_branched_training_inputs,
     run_branched_forward_pass,
@@ -101,6 +102,12 @@ class PhotomakerBranchedLora(SDXL):
         ba_crossview_consistency_enabled: bool = False,
         ba_crossview_consistency_probability: float = 0.25,
         ba_crossview_consistency_weight: float = 0.05,
+        # 13 Aug 2026 - CL14_CA-CORE-01: exact defaults-off residual-CA diff.
+        ba_residual_identity_ca_v3_enabled: bool = False,
+        ba_residual_identity_ca_v3_groups: Optional[Sequence[str]] = None,
+        ba_residual_identity_ca_v3_rank: int = 64,
+        ba_residual_identity_ca_v3_gate_init: float = 0.02,
+        ba_residual_identity_ca_v3_gate_max: float = 0.20,
         ##### BRANCHED ATTENTION - NEW PARAMS 1 #####
     ):
         """NEW PARAMS 1: define BA training controls (strategy, processor variant, ID mixing, and BA-only toggles)."""
@@ -282,6 +289,19 @@ class PhotomakerBranchedLora(SDXL):
                     ba_crossview_consistency_probability
                 ),
                 ba_crossview_consistency_weight=ba_crossview_consistency_weight,
+                ba_residual_identity_ca_v3_enabled=(
+                    ba_residual_identity_ca_v3_enabled
+                ),
+                ba_residual_identity_ca_v3_groups=(
+                    ba_residual_identity_ca_v3_groups
+                ),
+                ba_residual_identity_ca_v3_rank=ba_residual_identity_ca_v3_rank,
+                ba_residual_identity_ca_v3_gate_init=(
+                    ba_residual_identity_ca_v3_gate_init
+                ),
+                ba_residual_identity_ca_v3_gate_max=(
+                    ba_residual_identity_ca_v3_gate_max
+                ),
             )
         ##### BRANCHED ATTENTION - NEW PARAMS 3 #####
 
@@ -681,6 +701,9 @@ class PhotomakerBranchedLora(SDXL):
         return {
             'model_pred': noise_pred,
             'target': noise,
+            # 13 Aug 2026 - CL14_CA-OBS-01: diagnostics are detached model
+            # outputs; they do not alter CL14's masked training objective.
+            'ba_telemetry': collect_identity_ca_telemetry(self),
             'ba_aux_loss': ba_aux_loss,
             'ba_ownership_loss': noise_pred.float().new_tensor(0.0),
             'ba_crossview_loss': crossview_loss.detach(),

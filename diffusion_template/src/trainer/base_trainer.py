@@ -667,6 +667,14 @@ class BaseTrainer:
                         ("disable_branched_ca", False),
                         ("cache_prepared_masks", False),
                         ("compute_branch_debug_outputs", True),
+                        # 13 Aug 2026 - CL14_CA-PIPE-01: copy the checkpoint's
+                        # exact defaults-off selector into alternate-base validation.
+                        ("e13_family_contract", False),
+                        ("ba_residual_identity_ca_v3_enabled", False),
+                        ("ba_residual_identity_ca_v3_groups", ()),
+                        ("ba_residual_identity_ca_v3_rank", 64),
+                        ("ba_residual_identity_ca_v3_gate_init", 0.02),
+                        ("ba_residual_identity_ca_v3_gate_max", 0.20),
                     ):
                         setattr(
                             self.pipe,

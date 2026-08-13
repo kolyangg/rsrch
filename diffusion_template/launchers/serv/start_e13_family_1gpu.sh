@@ -6,7 +6,7 @@ set -euo pipefail
 
 : "${PROJECT_ROOT:?Absolute Serv path to this diffusion_template checkout}"
 : "${RUN_NAME:?Unique run name}"
-: "${CONFIG_NAME:?E13, BC_E13, CL14, CL18, CL19 or CL20 config name}"
+: "${CONFIG_NAME:?E13, BC_E13, CL14, CL14_CA, CL18, CL19 or CL20 config name}"
 : "${CONDA_ENV_PATH:?Absolute path to the existing photomaker_NS environment}"
 
 if command -v conda >/dev/null 2>&1; then

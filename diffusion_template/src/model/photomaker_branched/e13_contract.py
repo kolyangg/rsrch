@@ -31,7 +31,12 @@ def initialise_e13_contract(model, *, ba_hard_v1_lora_rank: int = 128,
                             ba_hardcase_transition_cells: int = 2,
                             ba_crossview_consistency_enabled: bool = False,
                             ba_crossview_consistency_probability: float = 0.25,
-                            ba_crossview_consistency_weight: float = 0.05) -> None:
+                            ba_crossview_consistency_weight: float = 0.05,
+                            ba_residual_identity_ca_v3_enabled: bool = False,
+                            ba_residual_identity_ca_v3_groups: Sequence[str] | None = None,
+                            ba_residual_identity_ca_v3_rank: int = 64,
+                            ba_residual_identity_ca_v3_gate_init: float = 0.02,
+                            ba_residual_identity_ca_v3_gate_max: float = 0.20) -> None:
     """Persist the deliberately small set of E13-family runtime controls."""
     # 10 Aug 2026 - E13C-CORE-01/02: E13 is one fail-closed hard-v1 route with
     # rank-128 branch LoRA. Rejecting other values prevents a failed installer
@@ -64,6 +69,18 @@ def initialise_e13_contract(model, *, ba_hard_v1_lora_rank: int = 128,
         0.0 < crossview_probability <= 1.0 and crossview_weight > 0.0
     ):
         raise ValueError("CL18 cross-view probability/weight must be positive")
+    identity_groups = tuple(
+        str(group) for group in (ba_residual_identity_ca_v3_groups or ())
+    )
+    if bool(ba_residual_identity_ca_v3_enabled) and (
+        identity_groups != ("up_blocks.0", "up_blocks.1")
+        or int(ba_residual_identity_ca_v3_rank) != 64
+        or float(ba_residual_identity_ca_v3_gate_init) != 0.02
+        or float(ba_residual_identity_ca_v3_gate_max) != 0.20
+        or hardcase_mode != "off"
+        or bool(ba_crossview_consistency_enabled)
+    ):
+        raise ValueError("CL14_CA residual identity-CA contract drifted")
 
     model.ba_architecture_version = ARCHITECTURE
     model.ba_hard_v1_lora_rank = 128
@@ -95,6 +112,18 @@ def initialise_e13_contract(model, *, ba_hard_v1_lora_rank: int = 128,
     )
     model.ba_crossview_consistency_probability = crossview_probability
     model.ba_crossview_consistency_weight = crossview_weight
+    # 13 Aug 2026 - CL14_CA-CORE-01: defaults-off, exact one-delta extension.
+    model.ba_residual_identity_ca_v3_enabled = bool(
+        ba_residual_identity_ca_v3_enabled
+    )
+    model.ba_residual_identity_ca_v3_groups = identity_groups
+    model.ba_residual_identity_ca_v3_rank = int(ba_residual_identity_ca_v3_rank)
+    model.ba_residual_identity_ca_v3_gate_init = float(
+        ba_residual_identity_ca_v3_gate_init
+    )
+    model.ba_residual_identity_ca_v3_gate_max = float(
+        ba_residual_identity_ca_v3_gate_max
+    )
 
 
 def _is_lora_parameter(name: str) -> bool:
@@ -109,8 +138,17 @@ def _processor_prefixes(model) -> tuple[str, ...]:
     return tuple(f"{name}." for name in selected)
 
 
-def trainable_role(name: str, processor_prefixes: tuple[str, ...]) -> str | None:
+def trainable_role(
+    name: str,
+    processor_prefixes: tuple[str, ...],
+    identity_prefixes: tuple[str, ...],
+) -> str | None:
     """Map a U-Net tensor to one and only one E13 optimizer role."""
+    if name.startswith(identity_prefixes) and (
+        ".attn2.processor.id_delta_out." in name
+        or name.endswith(".attn2.processor.gate_logit")
+    ):
+        return "residual_identity_ca_r64"
     if not _is_lora_parameter(name):
         return None
     in_processor = name.startswith(processor_prefixes)
@@ -134,9 +172,12 @@ def trainable_role(name: str, processor_prefixes: tuple[str, ...]) -> str | None
 
 def expected_trainable_names(model) -> tuple[str, ...]:
     prefixes = _processor_prefixes(model)
+    identity_prefixes = tuple(
+        f"{name}." for name in getattr(model, "_ba_identity_ca_processor_names", ())
+    )
     return tuple(sorted(
         name for name, _ in model.unet.named_parameters()
-        if trainable_role(name, prefixes) is not None
+        if trainable_role(name, prefixes, identity_prefixes) is not None
     ))
 
 
@@ -178,9 +219,14 @@ def assert_trainable_contract(model, optimizer=None) -> dict:
 
     named = dict(model.unet.named_parameters())
     prefixes = _processor_prefixes(model)
+    identity_prefixes = tuple(
+        f"{name}." for name in getattr(model, "_ba_identity_ca_processor_names", ())
+    )
     grouped: dict[str, list[torch.nn.Parameter]] = {}
     for name in sorted(expected):
-        grouped.setdefault(trainable_role(name, prefixes), []).append(named[name])
+        grouped.setdefault(
+            trainable_role(name, prefixes, identity_prefixes), []
+        ).append(named[name])
     summary = {role: _summary(params) for role, params in grouped.items()}
     summary["total"] = _summary(named[name] for name in sorted(expected))
 
@@ -199,11 +245,19 @@ def assert_trainable_contract(model, optimizer=None) -> dict:
 def optimizer_groups(model, config) -> list[dict]:
     named = dict(model.unet.named_parameters())
     prefixes = _processor_prefixes(model)
+    identity_prefixes = tuple(
+        f"{name}." for name in getattr(model, "_ba_identity_ca_processor_names", ())
+    )
     grouped: dict[str, list[torch.nn.Parameter]] = {}
     for name in expected_trainable_names(model):
-        grouped.setdefault(trainable_role(name, prefixes), []).append(named[name])
+        grouped.setdefault(
+            trainable_role(name, prefixes, identity_prefixes), []
+        ).append(named[name])
     lr_by_role = {
         "branched_sa_r128": float(getattr(config, "ba_lr", config.lr_for_lora)),
+        "residual_identity_ca_r64": float(
+            getattr(config, "ba_lr", config.lr_for_lora)
+        ),
         "generic_effective_adapter_r32": float(
             getattr(config, "generic_adapter_lr", config.lr_for_lora)
         ),
@@ -241,10 +295,23 @@ def architecture_manifest(model) -> dict:
             "weight": float(model.ba_crossview_consistency_weight),
             "teacher_stop_gradient": True,
         }
+    if bool(getattr(model, "ba_residual_identity_ca_v3_enabled", False)):
+        hard_v1_extensions["residual_identity_ca_v3"] = {
+            "groups": list(model.ba_residual_identity_ca_v3_groups),
+            "rank": int(model.ba_residual_identity_ca_v3_rank),
+            "gate_init": float(model.ba_residual_identity_ca_v3_gate_init),
+            "gate_max": float(model.ba_residual_identity_ca_v3_gate_max),
+            "routing": "target_q_active_photomaker_id_kv",
+            "merge": "native_plus_face_mask_times_bounded_rms_delta",
+            "zero_init_output": True,
+        }
     return {
         "format": "photomaker_branched_trainable_unet_v2",
         "ba_architecture_version": ARCHITECTURE,
-        "processor_code_version": 2,
+        "processor_code_version": (
+            3 if bool(getattr(model, "ba_residual_identity_ca_v3_enabled", False))
+            else 2
+        ),
         "branched_attn_lora_rank": int(model.branched_attn_lora_rank),
         "branched_attn_weight_mode": "noise_and_ref",
         "branched_attn_new_weight_kind": "lora",
@@ -331,7 +398,9 @@ def _validate_compatible_manifest(saved: dict, current: dict) -> None:
         )
     # 12 Aug 2026 - Unlike the inert E14-E24 fields tolerated above, CL19's
     # router affects generation and CL18's objective affects trained weights.
-    for key in ("hardcase_route", "crossview_consistency"):
+    for key in (
+        "hardcase_route", "crossview_consistency", "residual_identity_ca_v3"
+    ):
         saved_value = saved_extensions.get(key)
         current_value = current_extensions.get(key)
         if key == "hardcase_route" and saved_value is not None:

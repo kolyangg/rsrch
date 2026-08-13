@@ -19,7 +19,7 @@ if [[ -f .env ]]; then
 fi
 
 : "${RUN_NAME:?Set a unique RUN_NAME}"
-: "${CONFIG_NAME:?Set CONFIG_NAME to E13, BC_E13, CL14, CL18, CL19 or CL20}"
+: "${CONFIG_NAME:?Set CONFIG_NAME to E13, BC_E13, CL14, CL14_CA, CL18, CL19 or CL20}"
 : "${COMET_API_KEY:?Set COMET_API_KEY in diffusion_template/.env}"
 : "${FACE_QUALITY_SCORER_PYTHON:?Set the PyIQA 0.1.15 Python interpreter}"
 
@@ -110,6 +110,13 @@ case "${CONFIG_NAME}" in
       "${COSMIC_LARGE_MANIFEST}" "${COSMIC_LARGE_EXPECTED_MANIFEST_SHA256}"
     EXPERIMENT_COMMENT="CL14 replay: exact E13 architecture, corrected Cosmic scale/pose policy, and training-only two-cell target-mask feather."
     ;;
+  # 13 Aug 2026 - CL14_CA uses corrected-r2 Cosmic/subject-v2 inputs while
+  # retaining the shared fail-closed 24k training and validation launch path.
+  CL14_CA_cosmic_residual_identity_ca_24k)
+    verify_corrected_r2_cosmic
+    verify_subject_v2
+    EXPERIMENT_COMMENT="CL14_CA clean replay: CL14 plus bounded rank-64 target-Q/PhotoMaker-ID-KV residual CA in up_blocks.0/1."
+    ;;
   CL18_cosmic_crossview_spatial_consistency_24k)
     verify_corrected_r2_cosmic
     verify_subject_v2
@@ -146,6 +153,9 @@ test ! -e "saved/${RUN_NAME}" || {
 python tools/validate_e13_family_config.py
 python tools/verify_cl14_generation_parity.py
 case "${CONFIG_NAME}" in
+  CL14_CA_cosmic_residual_identity_ca_24k)
+    python tools/validate_cl14_ca_config.py
+    ;;
   CL18_*|CL19_*|CL20_*)
     python tools/validate_cl18_cl20_config.py --config-name "${CONFIG_NAME}"
     ;;
@@ -177,6 +187,7 @@ case "${CONFIG_NAME}" in
       --output "${PREFLIGHT_DIR}/big_celebs.json"
     ;;
   CL14_cosmic_joint_shadow_sa128_softmask_24k|\
+  CL14_CA_cosmic_residual_identity_ca_24k|\
   CL18_cosmic_crossview_spatial_consistency_24k|\
   CL19_cosmic_true_soft_fullquery_router_24k)
     python tools/datasets/preflight_cosmic_cl.py \

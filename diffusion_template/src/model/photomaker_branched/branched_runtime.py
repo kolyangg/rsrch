@@ -55,6 +55,9 @@ def patch_unet_attention_processors(
     del ba_denoise_progress  # hard_replace_v1 has no timestep gate
     disable_sa = bool(getattr(pipeline, "disable_branched_sa", False))
     disable_ca = bool(getattr(pipeline, "disable_branched_ca", False))
+    residual_identity_ca = bool(
+        getattr(pipeline, "ba_residual_identity_ca_v3_enabled", False)
+    )
     hardcase_mode = str(
         getattr(pipeline, "ba_hardcase_mode", "off") or "off"
     ).lower()
@@ -89,6 +92,9 @@ def patch_unet_attention_processors(
     #     # from .attn_processor_clean import BranchedAttnProcessor, BranchedCrossAttnProcessor
 
     from .attn_processor_cleanest import BranchedAttnProcessor, BranchedCrossAttnProcessor # New ver 25 Feb
+    from .residual_identity_ca_processor_v3 import (
+        ResidualIdentityCrossAttnProcessorV3,
+    )
 
     # print(f'[TEMP DEBUG] mask in patch_unet_attention_processors: {mask}')
     
@@ -101,7 +107,11 @@ def patch_unet_attention_processors(
     # Check if already patched
     current_procs = pipeline.unet.attn_processors
     has_branched = any(
-        isinstance(p, (BranchedAttnProcessor, BranchedCrossAttnProcessor)) 
+        isinstance(p, (
+            BranchedAttnProcessor,
+            BranchedCrossAttnProcessor,
+            ResidualIdentityCrossAttnProcessorV3,
+        ))
         for p in current_procs.values()
     )
 
@@ -151,6 +161,54 @@ def patch_unet_attention_processors(
         param_name="ba_patch_top_k",
     )
     patchable_sa_name_set = set(patchable_sa_names)
+
+    identity_ca_names: list[str] = []
+    if residual_identity_ca:
+        groups = tuple(str(group) for group in (
+            getattr(pipeline, "ba_residual_identity_ca_v3_groups", None) or ()
+        ))
+        # 13 Aug 2026 - CL14_CA-CORE-01: this is a corrected residual over
+        # native CA, never a revival of the legacy reference-query CA route.
+        if not disable_ca or groups != ("up_blocks.0", "up_blocks.1"):
+            raise RuntimeError(
+                "CL14_CA requires legacy CA off and residual CA only in up_blocks.0/1"
+            )
+        identity_ca_names = [
+            name for name in pipeline.unet.attn_processors
+            if name.endswith("attn2.processor")
+            and any(name.startswith(f"{group}.") for group in groups)
+        ]
+        if not identity_ca_names:
+            raise RuntimeError("CL14_CA selected zero residual identity-CA processors")
+    identity_ca_name_set = set(identity_ca_names)
+    setattr(pipeline, "_ba_identity_ca_processor_names", tuple(identity_ca_names))
+
+    identity_token_indices = None
+    if residual_identity_ca and class_tokens_mask is not None:
+        token_mask = class_tokens_mask.detach().to(dtype=torch.bool)
+        if token_mask.ndim == 1:
+            token_mask = token_mask.unsqueeze(0)
+        if token_mask.ndim != 2:
+            raise RuntimeError("CL14_CA identity-token mask must be 2D")
+        rows = [row.nonzero(as_tuple=False).flatten().tolist() for row in token_mask.cpu()]
+        if not rows or not rows[0] or any(len(row) != len(rows[0]) for row in rows):
+            raise RuntimeError("CL14_CA requires equal, nonzero ID-token counts")
+        # 13 Aug 2026 - CL14_CA-PERF-02: validate/index the prompt once per
+        # U-Net call instead of synchronizing independently in every CA layer.
+        identity_token_indices = torch.tensor(
+            rows, device=class_tokens_mask.device, dtype=torch.long
+        )
+
+    installed_identity_names = {
+        name for name, processor in current_procs.items()
+        if isinstance(processor, ResidualIdentityCrossAttnProcessorV3)
+    }
+    if has_branched and installed_identity_names != identity_ca_name_set:
+        raise RuntimeError(
+            "Installed residual identity-CA map differs from CL14_CA config: "
+            f"installed={sorted(installed_identity_names)}, "
+            f"expected={sorted(identity_ca_name_set)}"
+        )
 
     if not has_branched:
         # Create new processors
@@ -219,7 +277,29 @@ def patch_unet_attention_processors(
                     patched_proc_names.append(name)
                 
             elif name.endswith("attn2.processor"):
-                if disable_ca:
+                if name in identity_ca_name_set:
+                    proc = ResidualIdentityCrossAttnProcessorV3(
+                        hidden_size=hidden_size,
+                        cross_attention_dim=int(cross_attention_dim),
+                        rank=int(getattr(
+                            pipeline, "ba_residual_identity_ca_v3_rank", 64
+                        )),
+                        gate_init=float(getattr(
+                            pipeline, "ba_residual_identity_ca_v3_gate_init", 0.02
+                        )),
+                        gate_max=float(getattr(
+                            pipeline, "ba_residual_identity_ca_v3_gate_max", 0.20
+                        )),
+                        trainable_dtype=torch.float32,
+                    ).to(pipeline.device)
+                    proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
+                    proc.set_masks(_mask, _mref)
+                    proc.set_class_tokens_mask(
+                        class_tokens_mask, identity_token_indices
+                    )
+                    new_procs[name] = proc
+                    patched_proc_names.append(name)
+                elif disable_ca:
                     # Keep original cross-attn processor; no branched CA.
                     new_procs[name] = pipeline._original_attn_processors[name]
                 else:
@@ -262,7 +342,11 @@ def patch_unet_attention_processors(
         patched_proc_names: list[str] = []
         # Update masks on existing processors
         for name, proc in pipeline.unet.attn_processors.items():
-            if isinstance(proc, (BranchedAttnProcessor, BranchedCrossAttnProcessor)):
+            if isinstance(proc, (
+                BranchedAttnProcessor,
+                BranchedCrossAttnProcessor,
+                ResidualIdentityCrossAttnProcessorV3,
+            )):
                 patched_proc_names.append(name)
                 # proc.set_masks(mask, mask_ref)
                 proc.set_masks(_mask, _mref)
@@ -271,7 +355,11 @@ def patch_unet_attention_processors(
                 # (Re)apply id_embeds (zeros if missing); actual usage is gated by use_id_embeds
                 if hasattr(proc, "id_embeds"):
                     proc.id_embeds = _idem
-                if hasattr(proc, "class_tokens_mask"):
+                if isinstance(proc, ResidualIdentityCrossAttnProcessorV3):
+                    proc.set_class_tokens_mask(
+                        class_tokens_mask, identity_token_indices
+                    )
+                elif hasattr(proc, "class_tokens_mask"):
                     proc.class_tokens_mask = class_tokens_mask
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
 

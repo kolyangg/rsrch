@@ -133,6 +133,14 @@ class PhotomakerBranchedCL18CL20Pipeline:
             "ba_hardcase_mode",
             "ba_hardcase_groups",
             "ba_hardcase_transition_cells",
+            # 13 Aug 2026 - CL14_CA-PIPE-01: the isolated corrected-validation
+            # wrapper must reproduce the training/checkpoint CA selector.
+            "e13_family_contract",
+            "ba_residual_identity_ca_v3_enabled",
+            "ba_residual_identity_ca_v3_groups",
+            "ba_residual_identity_ca_v3_rank",
+            "ba_residual_identity_ca_v3_gate_init",
+            "ba_residual_identity_ca_v3_gate_max",
         ):
             setattr(pipeline, name, getattr(unwrapped, name))
         return pipeline

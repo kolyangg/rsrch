@@ -1,0 +1,25 @@
+# Exact clean-branch CL14_CA production recipe; prepared but not submitted.
+# Submit only after checking this project's Running/Pending A100 requests.
+job:
+  description: "CL14_CA clean: residual PhotoMaker-ID CA, 24k/full96 #nasilaev"
+  environment:
+    image: cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36
+  resource:
+    instance_type: a100.1gpu.8C.243G
+    processes: 1
+    workers: 1
+  script: >-
+    mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL14_CA_cosmic_residual_identity_ca_24k_full96_clean_r1 &&
+    test "$(git -C /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_e13_family_clean branch --show-current)" = "kit/e13-family-clean" &&
+    test -z "$(git -C /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_e13_family_clean status --porcelain)" &&
+    git -C /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_e13_family_clean rev-parse HEAD > /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL14_CA_cosmic_residual_identity_ca_24k_full96_clean_r1/source_commit.txt &&
+    env
+    PROJECT_ROOT=/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_e13_family_clean/diffusion_template
+    CONDA_ENV_PATH=/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/conda_env/photomaker_NS
+    RUN_NAME=CL14_CA_cosmic_residual_identity_ca_24k_full96_clean_r1
+    TORCH_SHOW_CPP_STACKTRACES=1
+    NCCL_ASYNC_ERROR_HANDLING=1
+    bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_e13_family_clean/diffusion_template/launchers/serv/start_cl14_ca_1gpu.sh
+    >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL14_CA_cosmic_residual_identity_ca_24k_full96_clean_r1/stdout_1gpu.log
+    2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL14_CA_cosmic_residual_identity_ca_24k_full96_clean_r1/stderr_1gpu.log
+  type: binary

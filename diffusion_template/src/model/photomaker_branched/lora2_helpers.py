@@ -15,6 +15,35 @@ from .e13_contract import (
 from copy import deepcopy
 
 
+# 13 Aug 2026 - CL14_CA-OBS-01: report route health without adding a loss edge.
+def collect_identity_ca_telemetry(model) -> dict[str, torch.Tensor]:
+    """Aggregate detached CL14_CA diagnostics by selected U-Net group."""
+    grouped: dict[str, list[dict[str, torch.Tensor]]] = {}
+    for name in getattr(model, "_ba_identity_ca_processor_names", ()):
+        processor = model.unet.attn_processors.get(name)
+        getter = getattr(processor, "latest_ba_telemetry", None)
+        values = getter() if getter is not None else {}
+        if not values:
+            continue
+        group = name.split(".", 2)[:2]
+        group = f"up{group[1]}" if group[0] == "up_blocks" else "other"
+        grouped.setdefault(group, []).append(values)
+    if not grouped:
+        return {}
+
+    grouped["all"] = [entry for entries in grouped.values() for entry in entries]
+    output: dict[str, torch.Tensor] = {}
+    for group, entries in grouped.items():
+        metric_names = set(entries[0])
+        if any(set(entry) != metric_names for entry in entries):
+            raise RuntimeError(f"Inconsistent CL14_CA telemetry in {group}")
+        for metric_name in sorted(metric_names):
+            output[f"ba/{metric_name}/{group}"] = torch.stack([
+                entry[metric_name].detach().float() for entry in entries
+            ]).mean()
+    return output
+
+
 def configure_branched_trainables(model) -> None:
     if not getattr(model, "train_ba_only", False):
         return
