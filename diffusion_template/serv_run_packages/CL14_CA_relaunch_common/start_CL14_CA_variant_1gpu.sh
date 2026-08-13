@@ -5,6 +5,8 @@ set -euo pipefail
 : "${CONFIG_ID:?Set the Hydra config identity}"
 OWNER_ROOT="/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev"
 case "${RUN_ID}" in
+  # 12 Aug 2026 - Training optimization pair with the complete smoke config.
+  CL14_CA_optimized_r11|CL14_CA_optimized_speed_smoke_r12) RUNTIME_SERIES="runtime_sources_cl14_ca_v23" ;;
   # 12 Aug 2026 - Training optimization pair using the proven one-batch warmup.
   CL14_CA_optimized_r10|CL14_CA_optimized_speed_smoke_r11) RUNTIME_SERIES="runtime_sources_cl14_ca_v22" ;;
   # 12 Aug 2026 - Training optimization with fused CA and skip-val CUDA rehome.
