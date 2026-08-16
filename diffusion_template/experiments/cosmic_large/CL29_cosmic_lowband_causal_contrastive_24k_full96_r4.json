@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "CL29_cosmic_lowband_causal_contrastive_24k_full96_r4",
   "plan": {
-    "status": "implementation_ready",
+    "status": "stopped_before_training",
     "priority": 1,
     "machine": "serv",
     "gpus": 1,
@@ -17,6 +17,9 @@
   },
   "runtime": {
     "source_revision": "cl29-throughput-speedopt-20260816-v1; exact Git commit is sealed in the runtime source manifest",
-    "qualification_gate": "After warmup, compare batches 20-80 with CL29 r3 median 7.37 seconds/iteration; stop and revise if improvement is not material."
+    "qualification_gate": "After warmup, compare batches 20-80 with CL29 r3 median 7.37 seconds/iteration; stop and revise if improvement is not material.",
+    "serv_job": "lm-mpi-job-21052a15-2089-4215-9442-7e6c80eb2066",
+    "comet_experiment_key": "92ca4b49bfb24af997093a9de7278b3b",
+    "terminal_reason": "Stopped after 35 minutes with zero training records, 0% GPU utilization, and 0.8 GB GPU memory; cold model load never reached GPU placement."
   }
 }
