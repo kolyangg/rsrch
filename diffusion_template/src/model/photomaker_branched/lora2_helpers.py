@@ -399,9 +399,12 @@ def collect_branched_telemetry(model) -> dict[str, torch.Tensor]:
         if architecture_version == "hard_replace_v1" and identity_ca_enabled
         else getattr(model, "_ba_patched_processor_names", ())
     )
+    # 16 Aug 2026 - AICODE-NOTE: This property recursively rebuilds the full
+    # Diffusers processor map; resolve it once before any per-layer collector.
+    processors = model.unet.attn_processors
     grouped: dict[str, list[dict[str, torch.Tensor]]] = {}
     for processor_name in processor_names:
-        processor = model.unet.attn_processors.get(processor_name)
+        processor = processors.get(processor_name)
         getter = getattr(processor, "latest_ba_telemetry", None)
         if getter is None:
             continue

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "ex_CL29_auxlookup_fix_speedcheck_r3",
   "plan": {
-    "status": "implementation_ready",
+    "status": "completed_speed_qualification",
     "machine": "serv",
     "gpus": 1,
     "objective": "Verify that cached Diffusers attention-processor lookup improves the active CL29 low-band pipeline at the expected magnitude.",
@@ -19,5 +19,28 @@
     "primary_metric": "Median displayed seconds/iteration over optimizer steps 21-99.",
     "decision_gate": "Pass if the improvement against r6's 6.21 seconds/iteration is consistent with the approximately 1.50-second CL14 lookup-overhead removal; otherwise profile another bounded ex_ run.",
     "risk": "Operational speed qualification only; no scientific quality claim."
+  },
+  "runtime": {
+    "job_id": "lm-mpi-job-95cbbe65-b312-40ef-863b-a513c87be257",
+    "status": "completed",
+    "started_at_utc": "2026-08-16T15:22:22Z",
+    "completed_at_utc": "2026-08-16T15:31:00Z",
+    "comet_experiment_key": "1d2766f1a95648bbb55ce9822ee953cb",
+    "source_verification": "revision f40ecb2; 1490 files verified",
+    "initial_validation": "intentionally omitted",
+    "trainable_contract": "exact match: 2240 tensors / 219217920 parameters",
+    "throughput": {
+      "warm_window": "optimizer steps 21-99 inclusive; first progress observation per step",
+      "samples": 79,
+      "stderr_sha256": "22752955b1d7e5046ba366def94fd28fd354484cf59168f99eddef65d9d655c4",
+      "displayed_seconds_per_iteration_median": 3.21,
+      "displayed_seconds_per_iteration_mean": 3.300253164556962,
+      "elapsed_seconds_per_iteration": 3.2948717948717947,
+      "pre_fix_cl29_r6_median": 6.21,
+      "absolute_seconds_removed": 3.0,
+      "latency_improvement_percent": 48.3,
+      "throughput_speedup_factor": 1.93
+    },
+    "qualification_gate": "Passed; the measured gain exceeds the approximately 1.50-second minimum expected from the CL14 intervention because CL29 exercises multiple affected collectors."
   }
 }

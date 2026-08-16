@@ -135,6 +135,25 @@ be found with `rg`.
 
 # Experiment documentation
 
+## Required optimized training pipeline
+
+All new training experiments must use the optimized pipeline documented in
+`diffusion_template/analysis/2026-08-16_training_pipeline_processor_lookup_fix.md`.
+In particular, never resolve Diffusers `unet.attn_processors` inside a
+per-layer loop; skip disabled auxiliary collectors; request active-gradient
+norms only when the experiment consumes them; and disable full-activation BA
+telemetry unless it is a declared experimental measurement. CL29-derived runs
+must also sample the low-band auxiliary gate on CPU. These controls are
+pipeline optimizations, not scientific changes, and must preserve the model,
+loss, trainable ownership, data, and validation contracts.
+
+Keep historical replay configurations unchanged for reproducibility. If a new
+experiment requires changing or bypassing any optimized-pipeline invariant,
+explain the required difference and obtain explicit user confirmation before
+editing its config or launching it. The standard step-zero and every-2,000-step
+validation contract still applies to scientific runs; validation may be
+omitted only for an explicitly requested bounded throughput experiment.
+
 When asked to analyse results, compare runs, diagnose a failure, propose next
 experiments, or produce a report/writeup/PDF, follow the `research-report`
 skill at `.claude/skills/research-report/SKILL.md`. It is the house style for
