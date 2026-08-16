@@ -3374,3 +3374,45 @@ ancestor is `c04970f342a186d1092f07f9a08d7d8a797383e8` plus the sealed
 overlay. CL23 and later revision labels are not Git SHAs; their exact source is
 the per-file SHA-256 manifest. Future runtime packaging should record Git HEAD
 and dirty-overlay identity in addition to the existing manifest.
+
+### CL29 throughput implementation and active qualification — 16 August 2026
+
+The throughput plan's pipeline-neutral changes are implemented and pushed on
+branch `test`. Commit `20d32369f35521460689e6adf9b87bae099a607d` adds an
+opt-in CL29 speed configuration and launcher. It skips the unused 219M-parameter
+active-gradient scan, suppresses unrequested hard-case activation telemetry,
+removes CL26's discarded legacy attention result, tensorizes CL27 eligibility,
+and moves CL29 sampling/permutation decisions off the active CUDA stream. The
+CL29 objective, two-pass sampled auxiliary, trainable contract
+`2240/219217920`, batch 2, 24k budget, fixed manual-val-96 every 2k, DDIM50,
+`pose_adapt_ratio=0`, and `ca_mixing_for_face=false` remain unchanged. Per the
+user's explicit request, only initial step-0 validation is omitted.
+
+Retain two non-scientific startup records. R4, Serv
+`lm-mpi-job-21052a15-2089-4215-9442-7e6c80eb2066`, Comet
+`92ca4b49bfb24af997093a9de7278b3b`, was stopped before GPU placement after a
+35-minute cold initialization stall. R5, Serv
+`lm-mpi-job-24402a1d-f1cb-4e61-92e1-83328a75320e`, Comet
+`8aac42e2e7334c8e82f9665d35cbd6a8`, populated a persistent Hugging Face cache
+but exited on a native SIGSEGV at its first training batch before yielding a
+timing sample.
+
+The active exact retry is
+`CL29_cosmic_lowband_causal_contrastive_24k_full96_r6`, Serv
+`lm-mpi-job-f92ed6b8-cf48-4885-a7f0-648f0689b825`, immutable Comet key
+`2c5d2e18558249138e5edf7b6be0b01f`, and sealed source commit
+`8dec793afcd78d5b550960f91908a443578f4bd1`. It passed source, config, dataset,
+Comet-record, and exact trainable-ownership gates; no step-0 validation ran.
+Warm-cache base preparation fell from R5's `31.016 s` to `5.903 s` and
+processor installation completed at `19.226 s`.
+
+At the early qualification cutoff, batches 21-80 had a displayed-rate median
+of **6.21 s/iteration** over 60 samples and mean integer wall-clock deltas of
+`6.35 s/iteration`. The matched CL29 r3 warmed median is `7.37 s/iteration`,
+so the requested run-rate check passes with an approximately **15.7%** median
+improvement. Ordinary steps settle near 6 seconds; sampled contrastive steps
+remain slower because the unchanged CL29 objective performs its second
+branched U-Net pass. R6 was finite and still Running after batch 80; leave it
+active, then verify sustained throughput plus the fixed 2k validation gate
+before any scientific promotion claim. Recheck live MLS state rather than
+treating this snapshot as permanent.

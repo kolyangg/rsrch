@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "CL29_cosmic_lowband_causal_contrastive_24k_full96_r6",
   "plan": {
-    "status": "implementation_ready",
+    "status": "training_verified_active",
     "priority": 1,
     "machine": "serv",
     "gpus": 1,
@@ -17,8 +17,23 @@
   },
   "runtime": {
     "retry_of": "CL29_cosmic_lowband_causal_contrastive_24k_full96_r5",
-    "source_revision": "cl29-throughput-speedopt-persistent-cache-20260816-v3; exact Git commit is sealed in the runtime source manifest",
+    "source_revision": "8dec793afcd78d5b550960f91908a443578f4bd1",
     "startup_change": "Reuse the populated owner-scoped HF_HOME; no code/config change from r5.",
-    "qualification_gate": "After warmup, compare batches 20-80 with CL29 r3 median 7.37 seconds/iteration; if first-batch SIGSEGV repeats, run a bounded synchronous diagnostic before another production retry."
+    "serv_job_id": "lm-mpi-job-f92ed6b8-cf48-4885-a7f0-648f0689b825",
+    "comet_experiment_key": "2c5d2e18558249138e5edf7b6be0b01f",
+    "initial_validation": "intentionally skipped by the speed-optimized config; training began without a step-0 validation event",
+    "startup_observation": "Warm persistent cache reduced BA base preparation from r5's 31.016 seconds to 5.903 seconds; processor installation completed at 19.226 seconds.",
+    "throughput_observation": {
+      "cutoff_optimizer_batch": 80,
+      "warm_window": "batches 21-80 inclusive",
+      "samples": 60,
+      "displayed_seconds_per_iteration_median": 6.21,
+      "elapsed_second_deltas_mean": 6.35,
+      "elapsed_second_deltas_median": 6.0,
+      "baseline_cl29_r3_median_seconds_per_iteration": 7.37,
+      "matched_displayed_rate_improvement_percent": 15.7,
+      "status": "passed; finite training continued after the observation cutoff"
+    },
+    "qualification_gate": "Passed the requested early run-rate check. Leave the full 24k run active and evaluate sustained throughput and fixed-panel quality at later gates."
   }
 }
