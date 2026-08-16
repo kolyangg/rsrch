@@ -2,9 +2,9 @@
 
 **Date:** 16 August 2026  
 **Repository:** /home/kolyangg/rsrch_apr_test/diffusion_template  
-**Evidence cutoff:** 16 August 2026, 12:25 Europe/London  
-**Scope:** training throughput only; no training, validation, checkpoint, or
-production-job change was made for this report
+**Evidence cutoff:** 16 August 2026, 16:44 Europe/London
+**Scope:** diagnosis, implementation, and bounded throughput qualification;
+scientific model/loss/data/validation contracts were not changed
 
 > **16 August correction after matched CL14 replay inspection:** the Git
 > ancestor `c04970f...` lacks `_record_active_gradient_norms`, but the exact
@@ -12,6 +12,15 @@ production-job change was made for this report
 > it every step. The scan is still removable dead work when its metrics are not
 > requested, but it cannot explain the CL14-to-CL19 regression. The causal
 > contribution previously assigned to that scan is withdrawn. **[code]**
+
+> **Implementation result:** the causal regression was repeated reconstruction
+> of Diffusers' full `unet.attn_processors` dictionary inside per-layer runtime
+> collectors. The final code skips disabled collectors and resolves the map
+> once per active collector. Current CL14 recovered from `3.56` to `2.06 s/it`
+> against an immutable historical replay at `2.15 s/it`; matched CL29 improved
+> from `6.21` to **`1.72 s/it`**. See
+> `analysis/2026-08-16_training_pipeline_processor_lookup_fix.md`. **[measured]
+> [code]**
 
 ## Executive conclusion
 
@@ -494,7 +503,7 @@ Running/Pending Serv allocations immediately before any authorized submission.
 | CL23 filter/telemetry materially contributes to +1.56 s over CL19 | Medium-high | unavoidable fp32 convolution/reductions at 70 sites; no trace yet |
 | CL28 schedule alone explains its full +1.52 s over CL23 | Low-medium | code adds 70-site work; concurrent/resource effects not excluded |
 | CL29's sampled second pass is avoidable | High | direct two-pass control flow and explicit 0.125 probability |
-| A common Serv regression is the primary cause | Low | contemporary runs separate by mechanism; matched replay still needed |
+| A common Serv regression is the primary cause | Disproved | immutable CL14 replay reproduced `2.15 s/it` on current Serv |
 
 Not established by this audit:
 
@@ -504,8 +513,9 @@ Not established by this audit:
 - whether CL27-CL29's concurrent execution contributes a smaller common tax;
 - final CL27-CL29 scientific quality, because they were still running at the
   evidence cutoff;
-- end-to-end speed after proposed fixes, because no code was changed or job
-  launched.
+- end-to-end speed across a full scientific 2k-step epoch, checkpoint, and
+  manual-val-96 boundary; the implemented fix is measured over bounded
+  100-step qualifications.
 
 ## 8. Reproduction checklist
 
@@ -541,10 +551,10 @@ reports do not rely on display-name or first-screen estimates.
 
 ## Decision
 
-Proceed with the phase-0 timing harness and the pipeline-neutral P0 changes in
-separate branches/toggles. Retain the unused-gradient-scan bypass as dead-work
-removal, but do not use it as the explanation for CL14-to-CL19. The first
-causal speed smoke should replay exact CL14 source on the current A100, then
-profile the remaining source delta. Do not alter the fixed
-validation contract or launch a production experiment until the parity and
-performance gates above pass.
+The processor-map fix and pipeline-neutral P0 controls passed. Use the final
+default documented in
+`analysis/2026-08-16_training_pipeline_processor_lookup_fix.md` for new
+experiments. Preserve historical configs for replay and obtain explicit user
+approval before deviating from the optimized pipeline. Retain the standard
+fixed validation contract for scientific runs; the no-validation `ex_` configs
+remain bounded throughput tools only.

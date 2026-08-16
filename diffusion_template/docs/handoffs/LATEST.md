@@ -3397,7 +3397,7 @@ Retain two non-scientific startup records. R4, Serv
 but exited on a native SIGSEGV at its first training batch before yielding a
 timing sample.
 
-The active exact retry is
+The exact retry was
 `CL29_cosmic_lowband_causal_contrastive_24k_full96_r6`, Serv
 `lm-mpi-job-f92ed6b8-cf48-4885-a7f0-648f0689b825`, immutable Comet key
 `2c5d2e18558249138e5edf7b6be0b01f`, and sealed source commit
@@ -3410,9 +3410,57 @@ At the early qualification cutoff, batches 21-80 had a displayed-rate median
 of **6.21 s/iteration** over 60 samples and mean integer wall-clock deltas of
 `6.35 s/iteration`. The matched CL29 r3 warmed median is `7.37 s/iteration`,
 so the requested run-rate check passes with an approximately **15.7%** median
-improvement. Ordinary steps settle near 6 seconds; sampled contrastive steps
-remain slower because the unchanged CL29 objective performs its second
-branched U-Net pass. R6 was finite and still Running after batch 80; leave it
-active, then verify sustained throughput plus the fixed 2k validation gate
-before any scientific promotion claim. Recheck live MLS state rather than
-treating this snapshot as permanent.
+improvement. Ordinary steps settled near 6 seconds; sampled contrastive steps
+were slower because the unchanged CL29 objective performs its second branched
+U-Net pass. Per the user's instruction, R6 was stopped once this result was
+clear; its final MLS status is `Stopped` at Unix time `1786889858`.
+
+### CL14/CL29 processor-map root cause, final speed, and required default — 16 August 2026
+
+The exact current-source regression was repeated evaluation of Diffusers'
+`unet.attn_processors` property inside per-layer collection loops. Each access
+recursively rebuilds the full U-Net processor dictionary. CL14 therefore did
+about 70 full U-Net traversals per step in a disabled hard-case collector;
+CL29 exercised the pattern in multiple auxiliary, telemetry, and cleanup
+collectors. The fix in commits `65ba4a9` and `66536d2` returns early from
+disabled collectors and resolves the map once per active collector. It also
+avoids the disabled `1024x1024` fp32 occlusion-mask allocation. The change does
+not alter Q/K/V routing, model activations, losses, gradients, trainable
+ownership, data, or validation.
+
+The immutable historical CL14 source replay
+`ex_CL14_oldsource_speedcheck_r1`, Serv
+`lm-mpi-job-9bc65482-031c-418b-a687-ef89bb5c9896`, Comet
+`92b86b61d701479d85a66733a14c0262`, reproduced `2.15 s/it`. Current CL14 before
+the fix, Serv `lm-mpi-job-aa6a3791-7b96-4939-93b8-cc6ceff439ec`, Comet
+`e17cbf2df1e245f1a4685acd34db072d`, measured `3.56 s/it`. The fixed bounded run
+`ex_CL14_current_auxlookup_fix_r1`, Serv
+`lm-mpi-job-b38ecd25-526f-40d2-88ee-a6e64d9f5842`, Comet
+`02adf5c00410448898240da572a3ba25`, measured **`2.06 s/it`** over steps 21-99:
+`42.1%` lower latency than current pre-fix and `4.2%` faster than the historical
+replay. All used batch 2, one A100, and the exact `2240/219217920` trainable
+contract. The historical production commit is
+`c04970f342a186d1092f07f9a08d7d8a797383e8` plus sealed overlay
+`cl12-cl14-snapshot-v1-20260809`; Git ancestry alone is insufficient.
+
+The final CL29 qualification is `ex_CL29_auxlookup_fix_speedcheck_r4`, Serv
+`lm-mpi-job-8ce8438c-742d-4349-b206-a0fca710abd4`, immutable Comet key
+`890f149000a14993ac93daff260f39f4`, sealed commit
+`ed83c538025b13d2c3c90b0f9c5f07af883130c2`. It completed exactly 100 steps,
+omitted step-zero validation as requested, and passed the exact
+`2240/219217920` contract. Steps 21-99 had median **`1.72 s/it`**, mean displayed
+`1.8054`, and elapsed `1.7949 s/it`: `72.3%` lower latency and `3.61x` throughput
+versus CL29 r6's `6.21 s/it`. The intermediate r3 key
+`1d2766f1a95648bbb55ce9822ee953cb` measured `3.21 s/it`; caching the last
+telemetry collector removed the remaining `1.49 s/it`.
+
+`AGENTS.md` now requires the optimized pipeline documented in
+`analysis/2026-08-16_training_pipeline_processor_lookup_fix.md` for every new
+experiment and requires explicit user confirmation before deviating. Preserve
+historical configs for replay. Scientific runs still require step zero plus
+manual-val-96 every 2k; only explicitly requested bounded throughput runs may
+omit validation. The optimized pipeline retains
+`trainer.active_grad_norm_mode=requested_only`, disables full-activation BA
+telemetry unless scientifically requested, uses CPU low-band gate sampling for
+CL29-derived runs, never resolves `unet.attn_processors` inside a per-layer
+loop, and keeps `pose_adapt_ratio=0` plus `ca_mixing_for_face=false`.

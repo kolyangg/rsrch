@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "ex_CL29_auxlookup_fix_speedcheck_r4",
   "plan": {
-    "status": "implementation_ready",
+    "status": "completed_speed_qualification",
     "machine": "serv",
     "gpus": 1,
     "objective": "Measure the final default pipeline after caching the remaining branched-telemetry processor-map lookup.",
@@ -14,10 +14,34 @@
     "launcher": "launchers/active/run_CL29_speedcheck_1gpu.sh",
     "serv_yaml": "serv_run_packages/ex_CL29_auxlookup_fix_speedcheck_r4/run_ex_CL29_auxlookup_fix_speedcheck_r4_1gpu.yaml",
     "comet_project": "aug-large-ds",
-    "source_revision": "66536d2",
+    "source_revision": "ed83c538025b13d2c3c90b0f9c5f07af883130c2",
     "fixed_contract": "CL29 model/data/loss/optimizer, batch 2, one A100, pose_adapt_ratio=0, ca_mixing_for_face=false, 2240/219217920 trainable contract; step-zero validation omitted; 100 optimizer steps.",
     "primary_metric": "Median displayed seconds/iteration over optimizer steps 21-99.",
     "decision_gate": "Pass if no slower than r3's 3.21 seconds/iteration; retain the final cache fix as the default because it is output-preserving.",
     "risk": "Operational speed qualification only; no scientific quality claim."
+  },
+  "runtime": {
+    "job_id": "lm-mpi-job-8ce8438c-742d-4349-b206-a0fca710abd4",
+    "status": "completed",
+    "started_at_utc": "2026-08-16T15:37:29Z",
+    "completed_at_utc": "2026-08-16T15:43:30Z",
+    "comet_experiment_key": "890f149000a14993ac93daff260f39f4",
+    "source_verification": "revision ed83c538025b13d2c3c90b0f9c5f07af883130c2; 1496 files verified",
+    "initial_validation": "intentionally omitted",
+    "trainable_contract": "exact match: 2240 tensors / 219217920 parameters",
+    "throughput": {
+      "warm_window": "optimizer steps 21-99 inclusive; first progress observation per step",
+      "samples": 79,
+      "stderr_sha256": "6efc95757aafd8f7ccdcb4010fa75719bdc3f0173cf5f5d27606da8690f5abfd",
+      "displayed_seconds_per_iteration_median": 1.72,
+      "displayed_seconds_per_iteration_mean": 1.8054430379746835,
+      "elapsed_seconds_per_iteration": 1.794871794871795,
+      "pre_fix_cl29_r6_median": 6.21,
+      "intermediate_r3_median": 3.21,
+      "latency_improvement_vs_r6_percent": 72.3,
+      "latency_improvement_vs_r3_percent": 46.4,
+      "throughput_speedup_vs_r6_factor": 3.61
+    },
+    "qualification_gate": "Passed; the final committed pipeline is faster than r3 and removes 72.3% of r6 iteration latency without changing the CL29 scientific contract."
   }
 }

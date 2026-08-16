@@ -12,37 +12,59 @@ The current pipeline slowdown was caused by repeated evaluation of Diffusers'
 recursively walks the U-Net and rebuilds the complete processor dictionary on
 every access. A disabled CL14 auxiliary therefore performed about `70` complete
 U-Net traversals per optimizer step. CL29 repeated the same pattern in multiple
-enabled and cleanup collectors. **[code]**
+enabled, telemetry, and cleanup collectors. **[code]**
 
 The code-level fix skips collectors whose owning modes are disabled and caches
 the processor map once before every per-layer loop. It does not change Q/K/V
 routing, activations, losses, gradients, optimizer ownership, data, or
 validation. **[code]** Current-source CL14 improved from **`3.56` to `2.06
-s/it`**, recovering the immutable historical control's `2.15 s/it`. The first
-fixed CL29 qualification improved from **`6.21` to `3.21 s/it`**. **[measured]**
+s/it`**, recovering the immutable historical control's `2.15 s/it`. The final
+fixed CL29 qualification improved from **`6.21` to `1.72 s/it`**. **[measured]**
 
 ## 1. Controlled results
 
-| Arm | Immutable Comet key | Source | Warm window | Median s/it |
-|---|---|---|---:|---:|
-| Historical CL14 production | `6fe0028be92242c38056b3d36665fdd6` | `c04970f...` + sealed CL14 overlay | `21–100` | `2.21` |
-| Historical CL14 replay | `92b86b61d701479d85a66733a14c0262` | exact sealed historical source | `21–99` | `2.15` |
-| Current CL14 before lookup fix | `e17cbf2df1e245f1a4685acd34db072d` | `0aa7abb` | `21–100` | `3.56` |
-| Current CL14 after lookup fix | `02adf5c00410448898240da572a3ba25` | `65ba4a9` | `21–99` | **`2.06`** |
-| CL29 speed pipeline before lookup fix | `2c5d2e18558249138e5edf7b6be0b01f` | `8dec793` | `21–80` | `6.21` |
-| CL29 after lookup fix, first confirmation | `1d2766f1a95648bbb55ce9822ee953cb` | `f40ecb2` | `21–99` | **`3.21`** |
+| Arm | Median s/it |
+|---|---:|
+| Historical CL14 production | `2.21` |
+| Historical CL14 replay | `2.15` |
+| Current CL14 before lookup fix | `3.56` |
+| Current CL14 after lookup fix | **`2.06`** |
+| CL29 speed pipeline before lookup fix | `6.21` |
+| CL29 after lookup fix, first confirmation | **`3.21`** |
+| CL29 final default pipeline | **`1.72`** |
+
+Immutable run ledger:
+
+- Historical CL14 production
+  - Comet: `6fe0028be92242c38056b3d36665fdd6`
+  - Source/window: `c04970f...` plus sealed CL14 overlay; `21–100`
+- Historical CL14 replay
+  - Comet: `92b86b61d701479d85a66733a14c0262`
+  - Source/window: exact sealed historical source; `21–99`
+- Current CL14 before/after
+  - Comet: `e17cbf2df1e245f1a4685acd34db072d` / `0aa7abb`
+  - Comet: `02adf5c00410448898240da572a3ba25` / `65ba4a9`
+  - Windows: `21–100` / `21–99`
+- CL29 before/intermediate/final
+  - Comet: `2c5d2e18558249138e5edf7b6be0b01f` / `8dec793`
+  - Comet: `1d2766f1a95648bbb55ce9822ee953cb` / `f40ecb2`
+  - Comet: `890f149000a14993ac93daff260f39f4` / `ed83c53`
+  - Windows: `21–80` / `21–99` / `21–99`
 
 The CL14 intervention removes `1.50 s/it` (`42.1%`) and is `4.2%` faster than
 the historical-source replay on the same current infrastructure. The first
-CL29 confirmation removes `3.00 s/it` (`48.3%`, `1.93x` throughput). Its larger
-gain is consistent with CL29 exercising more than one affected processor
-collector per step. **[measured] [code]**
+CL29 confirmation removed `3.00 s/it`; caching the remaining telemetry
+collector removed another `1.49 s/it`. The final result is `4.49 s/it` lower
+latency (`72.3%`) and `3.61x` throughput versus r6. Its larger gain is
+consistent with CL29 exercising multiple affected processor collectors per
+step. **[measured] [code]**
 
 ## 2. Exact fix and required defaults
 
-The implementation is in
-`src/model/photomaker_branched/lora2_helpers.py` and
-`src/datasets/cosmic_large_adapted.py`:
+The implementation is in these two files:
+
+- `src/model/photomaker_branched/lora2_helpers.py`
+- `src/datasets/cosmic_large_adapted.py`
 
 1. Return immediately from hard-case auxiliary collection unless semantic
    ownership or visibility-order supervision owns that loss.
@@ -76,7 +98,7 @@ to the user and explicitly approved before configuration or launch.
 |---|---|---|
 | Repeated processor-map reconstruction caused the current CL14 regression | High | Direct control intervention recovers historical speed; exact source inspection identifies the per-step recursive lookup |
 | The fix preserves scientific computation | High | Only disabled-path guards, dictionary lookup reuse, and disabled-mask allocation changed |
-| The fix materially accelerates CL29 | High | Same CL29 contract and bounded warm window improve `6.21 → 3.21 s/it` |
+| The fix materially accelerates CL29 | High | Same CL29 contract and bounded warm window improve `6.21 → 1.72 s/it` |
 | Every remaining CL19–CL29 cost has been eliminated | Not established | Later arms still contain real frequency routing, diagnostic, and auxiliary compute |
 
 ## 5. Remaining high-impact work
@@ -94,10 +116,12 @@ loss/gradient behavior or be treated as a user-approved experiment change.
 cd /home/kolyangg/rsrch_apr_test/diffusion_template
 
 python tools/validate_CL14_speedcheck_config.py \
-  --config-name CL14_cosmic_joint_shadow_sa128_softmask_24k_speedcheck
+  --run-name ex_CL14_current_auxlookup_fix_r1 \
+  --experiment-spec experiments/cosmic_large/ex_CL14_current_auxlookup_fix_r1.json
 
 python tools/validate_CL29_speedcheck_config.py \
-  --config-name CL29_cosmic_lowband_causal_contrastive_24k_speedcheck
+  --run-name ex_CL29_auxlookup_fix_speedcheck_r4 \
+  --experiment-spec experiments/cosmic_large/ex_CL29_auxlookup_fix_speedcheck_r4.json
 
 rg -n 'unet\.attn_processors\.get' \
   src/model/photomaker_branched/lora2_helpers.py
@@ -113,3 +137,4 @@ the training hot path.
 - `docs/handoffs/LATEST.md`
 - `experiments/cosmic_large/ex_CL14_current_auxlookup_fix_r1.json`
 - `experiments/cosmic_large/ex_CL29_auxlookup_fix_speedcheck_r3.json`
+- `experiments/cosmic_large/ex_CL29_auxlookup_fix_speedcheck_r4.json`
