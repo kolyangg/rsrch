@@ -122,6 +122,7 @@ class BranchedAttnProcessor(nn.Module):
         hardcase_frequency_low_late: float = 0.85,
         hardcase_frequency_high_early: float = 0.75,
         hardcase_frequency_high_late: float = 1.25,
+        hardcase_telemetry_enabled: bool = True,
         frequency_surface_experiment_enabled: bool = False,
         frequency_surface_loss_enabled: bool = False,
         frequency_surface_top_low_band_factor: float = 0.25,
@@ -183,6 +184,7 @@ class BranchedAttnProcessor(nn.Module):
         self.hardcase_frequency_low_late = float(hardcase_frequency_low_late)
         self.hardcase_frequency_high_early = float(hardcase_frequency_high_early)
         self.hardcase_frequency_high_late = float(hardcase_frequency_high_late)
+        self.hardcase_telemetry_enabled = bool(hardcase_telemetry_enabled)
         self.frequency_surface_experiment_enabled = bool(
             frequency_surface_experiment_enabled
         )
@@ -499,6 +501,9 @@ class BranchedAttnProcessor(nn.Module):
     def latest_ba_telemetry(self) -> Optional[dict[str, torch.Tensor]]:
         return self._latest_ba_telemetry
 
+    def set_hardcase_telemetry_enabled(self, enabled: bool) -> None:
+        self.hardcase_telemetry_enabled = bool(enabled)
+
     @staticmethod
     def _reshape_heads(tensor: torch.Tensor, heads: int) -> torch.Tensor:
         batch, length, channels = tensor.shape
@@ -694,9 +699,9 @@ class BranchedAttnProcessor(nn.Module):
         eligible = (top.sum(dim=(1, 2)) > 0.0) & (
             visible.sum(dim=(1, 2)) > 0.0
         )
-        metrics["applied_fraction"] = eligible.float().mean()
-        if not bool(eligible.any()):
-            return metrics
+        eligible_float = eligible.float()
+        metrics["applied_fraction"] = eligible_float.mean()
+        eligible_count = eligible_float.sum().clamp_min(1.0)
         top_high = self._masked_mean_square(high_component, top)
         top_low = self._masked_mean_square(low_component, top)
         routed_rms = self._masked_mean_square(routed_delta, visible).clamp_min(
@@ -706,18 +711,23 @@ class BranchedAttnProcessor(nn.Module):
             1.0e-12
         ).sqrt()
         ratio = routed_rms / native_rms.detach().clamp_min(1.0e-6)
+        # 16 Aug 2026 - Keep eligibility on-device; the previous Python bool
+        # forced a CUDA-to-host synchronization at every CL27 processor.
         top_loss = (
-            top_high
-            + self.frequency_surface_top_low_band_factor * top_low
-        )[eligible].mean()
-        floor_loss = F.relu(
-            ratio.new_tensor(self.frequency_surface_visible_floor_ratio) - ratio
-        ).square()[eligible].mean()
+            (top_high + self.frequency_surface_top_low_band_factor * top_low)
+            * eligible_float
+        ).sum() / eligible_count
+        floor_loss = (
+            F.relu(
+                ratio.new_tensor(self.frequency_surface_visible_floor_ratio) - ratio
+            ).square()
+            * eligible_float
+        ).sum() / eligible_count
         self._frequency_surface_aux_loss = (top_loss, floor_loss)
         metrics.update(
-            top_high_rms=top_high[eligible].mean().sqrt().detach(),
-            top_low_rms=top_low[eligible].mean().sqrt().detach(),
-            visible_ratio=ratio[eligible].mean().detach(),
+            top_high_rms=(top_high * eligible_float).sum().div(eligible_count).sqrt().detach(),
+            top_low_rms=(top_low * eligible_float).sum().div(eligible_count).sqrt().detach(),
+            visible_ratio=(ratio * eligible_float).sum().div(eligible_count).detach(),
         )
         return metrics
 
@@ -968,12 +978,11 @@ class BranchedAttnProcessor(nn.Module):
 
         mode = self.hardcase_mode
         if mode in {"highres_roi", "anchored_roi", "clean_memory"}:
-            baseline = self._call_legacy(attn, hidden_states, temb=temb)
             batch = target.shape[0]
             if mode == "anchored_roi":
-                # 13 Aug 2026 - AICODE-NOTE: CL26 is an additive experiment on
-                # CL19; its native/reference soft-router baseline must remain
-                # active before the late bounded ROI residual is added.
+                # 16 Aug 2026 - AICODE-NOTE: CL26 reconstructs the CL19
+                # soft-router baseline directly; do not compute and discard a
+                # full legacy attention pass first.
                 native_out, reference_out, _ = self._full_target_lanes(
                     attn, target, reference
                 )
@@ -989,6 +998,8 @@ class BranchedAttnProcessor(nn.Module):
                     input_ndim,
                     spatial,
                 )
+            else:
+                baseline = self._call_legacy(attn, hidden_states, temb=temb)
             if mode in {"highres_roi", "anchored_roi"}:
                 addition = self._highres_roi_residual(attn, target, reference)
             else:
@@ -1127,17 +1138,21 @@ class BranchedAttnProcessor(nn.Module):
             high_component = router * high_scale * high
             routed_delta = low_component + high_component
             target_out = native_out + routed_delta
-            self._latest_ba_telemetry = {
-                "frequency_low_scale": low_scale.detach().float().mean(),
-                "frequency_high_scale": high_scale.detach().float().mean(),
-                "frequency_low_delta_rms": low.detach().float().square().mean().clamp_min(1e-12).sqrt(),
-                "frequency_high_delta_rms": high.detach().float().square().mean().clamp_min(1e-12).sqrt(),
-                "frequency_merged_native_ratio": (
-                    target_out.detach().float().square().mean().clamp_min(1e-12).sqrt()
-                    / native_out.detach().float().square().mean().clamp_min(1e-12).sqrt()
-                ),
-            }
-            if self.frequency_learnable_schedule_enabled:
+            self._latest_ba_telemetry = None
+            if self.hardcase_telemetry_enabled:
+                # 16 Aug 2026 - Full-activation fp32 reductions are optional;
+                # objectives and routed activations remain unchanged.
+                self._latest_ba_telemetry = {
+                    "frequency_low_scale": low_scale.detach().float().mean(),
+                    "frequency_high_scale": high_scale.detach().float().mean(),
+                    "frequency_low_delta_rms": low.detach().float().square().mean().clamp_min(1e-12).sqrt(),
+                    "frequency_high_delta_rms": high.detach().float().square().mean().clamp_min(1e-12).sqrt(),
+                    "frequency_merged_native_ratio": (
+                        target_out.detach().float().square().mean().clamp_min(1e-12).sqrt()
+                        / native_out.detach().float().square().mean().clamp_min(1e-12).sqrt()
+                    ),
+                }
+            if self.frequency_learnable_schedule_enabled and self._latest_ba_telemetry is not None:
                 raw_abs = self.frequency_schedule_raw.detach().float().abs()
                 self._latest_ba_telemetry.update(
                     frequency_schedule_raw_abs_mean=raw_abs.mean(),
@@ -1150,6 +1165,8 @@ class BranchedAttnProcessor(nn.Module):
                     high_component,
                     routed_delta,
                 )
+                if self._latest_ba_telemetry is None:
+                    self._latest_ba_telemetry = {}
                 self._latest_ba_telemetry.update(
                     frequency_surface_top_high_rms=surface["top_high_rms"],
                     frequency_surface_top_low_rms=surface["top_low_rms"],

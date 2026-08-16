@@ -389,6 +389,21 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             "generic_adapter": "active_grad_norm_generic_adapter",
             "photomaker_default": "active_grad_norm_photomaker_default",
         }
+        mode = self.active_grad_norm_mode
+        if mode == "off":
+            return
+        if mode == "requested_only":
+            requested = set(self.config.writer.loss_names)
+            role_to_metric = {
+                role: metric
+                for role, metric in role_to_metric.items()
+                if metric in requested
+            }
+            # 16 Aug 2026 - AICODE-NOTE: CL19+ scanned every trainable gradient
+            # tensor after every backward even when no active-norm metric was
+            # requested. This opt-in mode is bit-preserving for the loss/update.
+            if not role_to_metric:
+                return
         for metric in role_to_metric.values():
             batch[metric] = zero
         for group in self.optimizer.param_groups:

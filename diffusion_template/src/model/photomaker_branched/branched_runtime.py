@@ -114,6 +114,9 @@ def patch_unet_attention_processors(
             getattr(pipeline, "ba_frequency_lowband_contrastive_groups", None) or ()
         )
     )
+    hardcase_telemetry_enabled = bool(
+        getattr(pipeline, "ba_hardcase_telemetry_enabled", True)
+    )
 
     if configured_architecture_version is None:
         # Validation pipelines reuse the already-installed training U-Net but
@@ -353,6 +356,8 @@ def patch_unet_attention_processors(
         )
         if hasattr(proc, "set_denoise_progress"):
             proc.set_denoise_progress(ba_denoise_progress)
+        if hasattr(proc, "set_hardcase_telemetry_enabled"):
+            proc.set_hardcase_telemetry_enabled(hardcase_telemetry_enabled)
         if hasattr(proc, "set_ownership_target_mask"):
             proc.set_ownership_target_mask(
                 getattr(pipe, "_ba_ownership_target_mask", None)
@@ -810,6 +815,7 @@ def patch_unet_attention_processors(
                             hardcase_frequency_high_late=float(
                                 getattr(pipeline, "ba_hardcase_frequency_high_late", 1.25)
                             ),
+                            hardcase_telemetry_enabled=hardcase_telemetry_enabled,
                             frequency_surface_experiment_enabled=frequency_surface_enabled,
                             frequency_surface_loss_enabled=(
                                 frequency_surface_enabled

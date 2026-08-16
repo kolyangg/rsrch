@@ -1,0 +1,19 @@
+defaults:
+  - CL29_cosmic_lowband_causal_contrastive_24k
+  - _self_
+
+# 16 Aug 2026 - Throughput-only controls preserve CL29's loss and update math.
+model:
+  ba_hardcase_telemetry_enabled: false
+  ba_frequency_lowband_sample_on_cpu: true
+
+trainer:
+  active_grad_norm_mode: requested_only
+  skip_initial_validation: true
+
+writer:
+  experiment_comment: >-
+    CL29 r4 throughput correction: omit unrequested active-gradient and
+    temporal-frequency diagnostics, sample the auxiliary gate on CPU, and skip
+    step-zero validation. The CL29 objective and fixed post-step-0 validation
+    contract are unchanged.

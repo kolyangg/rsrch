@@ -150,6 +150,7 @@ class PhotomakerBranchedLora(SDXL):
         ba_hardcase_frequency_low_late: float = 0.85,
         ba_hardcase_frequency_high_early: float = 0.75,
         ba_hardcase_frequency_high_late: float = 1.25,
+        ba_hardcase_telemetry_enabled: bool = True,
         ba_frequency_surface_loss_enabled: bool = False,
         ba_frequency_surface_loss_groups: Optional[Sequence[str]] = None,
         ba_frequency_surface_top_weight: float = 0.02,
@@ -173,6 +174,7 @@ class PhotomakerBranchedLora(SDXL):
         ba_frequency_lowband_contrastive_ramp_start_step: int = 2000,
         ba_frequency_lowband_contrastive_ramp_end_step: int = 6000,
         ba_frequency_lowband_contrastive_detach_target_query: bool = True,
+        ba_frequency_lowband_sample_on_cpu: bool = False,
         ba_frequency_lowband_contrastive_negative_mode: str = (
             "in_batch_different_identity"
         ),
@@ -578,6 +580,7 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_hardcase_frequency_high_late = float(
             ba_hardcase_frequency_high_late
         )
+        self.ba_hardcase_telemetry_enabled = bool(ba_hardcase_telemetry_enabled)
         self.ba_frequency_surface_loss_enabled = bool(
             ba_frequency_surface_loss_enabled
         )
@@ -645,6 +648,9 @@ class PhotomakerBranchedLora(SDXL):
         )
         self.ba_frequency_lowband_contrastive_detach_target_query = bool(
             ba_frequency_lowband_contrastive_detach_target_query
+        )
+        self.ba_frequency_lowband_sample_on_cpu = bool(
+            ba_frequency_lowband_sample_on_cpu
         )
         self.ba_frequency_lowband_contrastive_negative_mode = str(
             ba_frequency_lowband_contrastive_negative_mode
@@ -2477,9 +2483,11 @@ class PhotomakerBranchedLora(SDXL):
         ):
             if spatial_ref_images_alt is None or face_bbox_ref_alt is None:
                 raise RuntimeError("CL29 requires distinct same-ID alternate references")
-            lowband_sampled = (
-                torch.rand((), device=latents.device).item()
-                < self.ba_frequency_lowband_contrastive_probability
+            sample_device = "cpu" if self.ba_frequency_lowband_sample_on_cpu else latents.device
+            # 16 Aug 2026 - CPU sampling is opt-in for throughput runs and
+            # avoids synchronizing the active CUDA stream before every step.
+            lowband_sampled = torch.rand((), device=sample_device).item() < (
+                self.ba_frequency_lowband_contrastive_probability
             )
             if lowband_sampled and batch_size > 1:
                 if identity_id is None:
@@ -2492,16 +2500,18 @@ class PhotomakerBranchedLora(SDXL):
                 if len(identities) != batch_size:
                     raise RuntimeError("CL29 identity_id batch mismatch")
                 for shift in range(1, batch_size):
-                    candidate = torch.roll(
-                        torch.arange(batch_size, device=latents.device),
-                        shifts=shift,
-                    )
+                    candidate_indices = [
+                        (index - shift) % batch_size for index in range(batch_size)
+                    ]
                     if all(
-                        identities[index]
-                        != identities[int(candidate[index].item())]
+                        identities[index] != identities[candidate_indices[index]]
                         for index in range(batch_size)
                     ):
-                        lowband_permutation = candidate
+                        lowband_permutation = torch.tensor(
+                            candidate_indices,
+                            device=latents.device,
+                            dtype=torch.long,
+                        )
                         break
                 lowband_skipped_same_identity = lowband_permutation is None
             elif lowband_sampled:

@@ -130,6 +130,7 @@ class BaseTrainer:
         seed,
         post_backward_parameter_touch=True,
         grad_norm_log_only=False,
+        active_grad_norm_mode="every_step",
         validation_pose_adapt_ratio=None,
         validation_interval_steps=2000,
         face_quality=None,
@@ -209,6 +210,11 @@ class BaseTrainer:
         self.cfg_step = cfg_step
         self.post_backward_parameter_touch = bool(post_backward_parameter_touch)
         self.grad_norm_log_only = bool(grad_norm_log_only)
+        self.active_grad_norm_mode = str(active_grad_norm_mode).lower()
+        if self.active_grad_norm_mode not in {"every_step", "requested_only", "off"}:
+            raise ValueError(
+                "active_grad_norm_mode must be every_step, requested_only, or off"
+            )
         self.validation_pose_adapt_ratio = validation_pose_adapt_ratio
         self.validation_interval_steps = (
             None
