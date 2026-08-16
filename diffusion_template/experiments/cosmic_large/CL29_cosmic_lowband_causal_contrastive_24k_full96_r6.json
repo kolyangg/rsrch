@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "run_name": "CL29_cosmic_lowband_causal_contrastive_24k_full96_r6",
+  "plan": {
+    "status": "implementation_ready",
+    "priority": 1,
+    "machine": "serv",
+    "gpus": 1,
+    "baseline": "CL29_cosmic_lowband_causal_contrastive_24k_full96_r3",
+    "baseline_comet_key": "2981820837564d01b1cefbf52c4dabd0",
+    "single_scientific_change": "None: exact r5 retry against the now-populated persistent model cache after a first-batch native-process failure.",
+    "config": "src/configs/CL29_cosmic_lowband_causal_contrastive_24k_speedopt.yaml",
+    "launcher": "launchers/active/run_CL29_speedopt_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL29_cosmic_lowband_causal_contrastive_24k_full96_r6/run_CL29_cosmic_lowband_causal_contrastive_24k_full96_r6_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "fixed_contract": "Cold 24k, batch 2, fixed manual_val 96 every 2k after explicit omission of step 0, DDIM50, unchanged CL29 objective"
+  },
+  "runtime": {
+    "retry_of": "CL29_cosmic_lowband_causal_contrastive_24k_full96_r5",
+    "source_revision": "cl29-throughput-speedopt-persistent-cache-20260816-v3; exact Git commit is sealed in the runtime source manifest",
+    "startup_change": "Reuse the populated owner-scoped HF_HOME; no code/config change from r5.",
+    "qualification_gate": "After warmup, compare batches 20-80 with CL29 r3 median 7.37 seconds/iteration; if first-batch SIGSEGV repeats, run a bounded synchronous diagnostic before another production retry."
+  }
+}
