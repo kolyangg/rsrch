@@ -1,0 +1,21 @@
+defaults:
+  - CL14_cosmic_joint_shadow_sa128_softmask_24k
+  - _self_
+
+# Operational throughput smoke: retain one unchanged validation batch because
+# CL14-family no-validation starts have intermittently failed on first backward.
+datasets:
+  val:
+    manual_val:
+      limit: 12
+
+trainer:
+  active_grad_norm_mode: requested_only
+  face_quality:
+    expected_images: 12
+
+writer:
+  experiment_comment: >-
+    CL14 current-pipeline throughput smoke. Scientific training is unchanged;
+    unused active-gradient diagnostics are skipped and startup validation is
+    limited to one unchanged 12-image batch. Stop after warmed steps 21-120.

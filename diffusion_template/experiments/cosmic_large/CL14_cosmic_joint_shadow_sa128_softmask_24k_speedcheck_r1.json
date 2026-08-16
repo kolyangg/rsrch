@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "run_name": "CL14_cosmic_joint_shadow_sa128_softmask_24k_speedcheck_r1",
+  "plan": {
+    "status": "implementation_ready",
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Measure CL14 throughput on the current optimized training pipeline.",
+    "baseline": "CL14_cosmic_joint_shadow_sa128_softmask_24k_full96_r1",
+    "baseline_comet_key": "6fe0028be92242c38056b3d36665fdd6",
+    "single_scientific_change": "None. Skip only unrequested active-gradient diagnostics; limit startup validation to one unchanged batch for a bounded operational smoke.",
+    "config": "src/configs/CL14_cosmic_joint_shadow_sa128_softmask_24k_speedcheck.yaml",
+    "launcher": "launchers/active/run_CL14_speedcheck_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL14_cosmic_joint_shadow_sa128_softmask_24k_speedcheck_r1/run_CL14_cosmic_joint_shadow_sa128_softmask_24k_speedcheck_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "fixed_contract": "CL14 model/data/loss/optimizer/schedule, batch 2, one A100, pose_adapt_ratio=0, ca_mixing_for_face=false, 2240/219217920 trainable contract; one 12-image startup validation batch.",
+    "primary_metric": "Median displayed seconds/iteration over optimizer steps 21-120; historical matched CL14 reference is 2.19 seconds/iteration.",
+    "decision_gate": "If the current median exceeds 2.30 seconds/iteration, diagnose current-stack overhead, implement a pipeline-neutral correction, and rerun. Otherwise stop after step 120 and record the result.",
+    "risk": "Operational smoke only; stop after the timing window and do not use its partial validation for scientific quality comparison."
+  }
+}
