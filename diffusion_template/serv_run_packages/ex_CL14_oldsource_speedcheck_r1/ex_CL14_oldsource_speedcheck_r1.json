@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "run_name": "ex_CL14_oldsource_speedcheck_r1",
+  "plan": {
+    "status": "implementation_ready",
+    "objective": "Immutable-old-source 100-step CL14 throughput control.",
+    "baseline": "CL14_cosmic_joint_shadow_sa128_softmask_24k_full96_r1"
+  }
+}

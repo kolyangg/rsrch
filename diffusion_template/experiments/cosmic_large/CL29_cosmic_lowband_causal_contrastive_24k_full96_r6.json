@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_name": "CL29_cosmic_lowband_causal_contrastive_24k_full96_r6",
   "plan": {
-    "status": "training_verified_active",
+    "status": "stopped_after_clear_speed_result",
     "priority": 1,
     "machine": "serv",
     "gpus": 1,
@@ -34,6 +34,8 @@
       "matched_displayed_rate_improvement_percent": 15.7,
       "status": "passed; finite training continued after the observation cutoff"
     },
-    "qualification_gate": "Passed the requested early run-rate check. Leave the full 24k run active and evaluate sustained throughput and fixed-panel quality at later gates."
+    "qualification_gate": "Passed the requested early run-rate check; stopped on user instruction once the result was clear.",
+    "stopped_at_unix": 1786889858,
+    "final_job_status": "stopped"
   }
 }

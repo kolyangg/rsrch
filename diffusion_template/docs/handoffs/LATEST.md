@@ -3346,11 +3346,11 @@ CL27–CL29 were still running at the 16 August 12:25 Europe/London evidence
 cutoff. No training job was launched and no training implementation was
 changed for the diagnosis.
 
-The highest-priority common regression is an every-step post-backward
-`_record_active_gradient_norms()` pass introduced in the CL19 source era. It
-casts, squares, and reduces all `219,217,920` trainable gradients even though
-CL19/CL23/CL26–CL29 do not request the `active_grad_norm_*` metrics and
-`max_grad_norm=null`. The exact CL14 clean-port source has no such pass. Other
+Correction from exact sealed-source inspection on 16 August: Git ancestor
+`c04970f...` lacks `_record_active_gradient_norms()`, but the sealed CL14
+overlay that produced the 2.19 s/iteration run contains and calls it every
+step. The scan remains removable dead work when its metrics are unrequested,
+but it does not explain the CL14-to-CL19 regression. Other
 definite costs are CL26's discarded `_call_legacy()` result before rebuilding
 its CL19 baseline; CL27's Python `bool(eligible.any())` CUDA synchronization at
 each of 36 up0/up1 processors; CL23+ full-fp32 5x5 Gaussian filtering and

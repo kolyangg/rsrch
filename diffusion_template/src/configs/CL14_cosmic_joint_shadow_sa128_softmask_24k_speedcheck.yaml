@@ -11,11 +11,17 @@ datasets:
 
 trainer:
   active_grad_norm_mode: requested_only
+  epoch_len: 100
+  n_epochs: 1
+  validation_interval_steps: 0
+  save_period: 999
   face_quality:
     expected_images: 12
+
+weights_only_save_period: 0
 
 writer:
   experiment_comment: >-
     CL14 current-pipeline throughput smoke. Scientific training is unchanged;
     unused active-gradient diagnostics are skipped and startup validation is
-    limited to one unchanged 12-image batch. Stop after warmed steps 21-120.
+    limited to one unchanged 12-image batch. The run ends after 100 steps.

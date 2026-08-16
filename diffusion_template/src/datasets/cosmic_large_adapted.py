@@ -469,8 +469,9 @@ class CosmicLargeAdaptedTrain(BaseDataset):
             x0, y0, x1, y1 = target_bbox
             target_bbox = [1024 - x1, y0, 1024 - x0, y1]
 
-        occluder_mask = np.zeros((1024, 1024), dtype=np.float32)
+        occluder_mask = None
         if self.semantic_occlusion_probability > 0.0:
+            occluder_mask = np.zeros((1024, 1024), dtype=np.float32)
             rng = random.Random(self.semantic_occlusion_seed + int(ind))
             if rng.random() < self.semantic_occlusion_probability:
                 # 11 Aug 2026 - Deterministic synthetic ownership labels teach
@@ -695,6 +696,8 @@ class CosmicLargeAdaptedTrain(BaseDataset):
         if self.num_identity_refs > 1:
             instance_data["identity_face_bboxes_ref"] = identity_reference_bboxes
         if self.semantic_occlusion_probability > 0.0:
+            if occluder_mask is None:
+                raise RuntimeError("Semantic occlusion mask was not initialized")
             instance_data["ba_occluder_mask"] = occluder_mask[None]
         if self.same_identity_dual_reference:
             instance_data["spatial_ref_images_alt"] = [alternate_reference]

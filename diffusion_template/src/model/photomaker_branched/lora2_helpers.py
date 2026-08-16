@@ -428,9 +428,17 @@ def collect_branched_telemetry(model) -> dict[str, torch.Tensor]:
 
 def collect_hardcase_aux_loss(model) -> torch.Tensor | None:
     """Return the live semantic-ownership supervision graph, if present."""
+    if str(getattr(model, "ba_hardcase_mode", "off")).lower() not in {
+        "semantic_ownership",
+        "visibility_order",
+    }:
+        return None
+    # 16 Aug 2026 - AICODE-NOTE: Diffusers rebuilds attn_processors by
+    # recursively walking the U-Net. Resolve it once, never once per BA layer.
+    processors = model.unet.attn_processors
     losses = []
     for processor_name in getattr(model, "_ba_patched_processor_names", ()):
-        processor = model.unet.attn_processors.get(processor_name)
+        processor = processors.get(processor_name)
         getter = getattr(processor, "ownership_aux_loss", None)
         if getter is None:
             continue
@@ -444,11 +452,12 @@ def collect_hardcase_aux_loss(model) -> torch.Tensor | None:
 
 def collect_frequency_surface_aux_loss(model):
     """Aggregate CL27's live top-object and visible-floor graphs."""
+    processors = model.unet.attn_processors
     top_losses = []
     floor_losses = []
     applied = []
     for processor_name in getattr(model, "_ba_patched_processor_names", ()):
-        processor = model.unet.attn_processors.get(processor_name)
+        processor = processors.get(processor_name)
         if not bool(getattr(processor, "frequency_surface_loss_enabled", False)):
             continue
         getter = getattr(processor, "frequency_surface_aux_loss", None)
@@ -472,9 +481,10 @@ def collect_frequency_surface_aux_loss(model):
 
 def collect_frequency_schedule_anchor_loss(model) -> torch.Tensor | None:
     """Return the mean squared bounded-endpoint correction for CL28."""
+    processors = model.unet.attn_processors
     losses = []
     for processor_name in getattr(model, "_ba_patched_processor_names", ()):
-        processor = model.unet.attn_processors.get(processor_name)
+        processor = processors.get(processor_name)
         getter = getattr(processor, "frequency_schedule_anchor_loss", None)
         value = None if getter is None else getter()
         if value is not None:
@@ -492,11 +502,12 @@ def collect_lowband_contrastive_loss(model, *, temperature: float):
     ]
     if not names:
         raise RuntimeError("Low-band contrastive groups selected zero processors")
+    processors = model.unet.attn_processors
     losses = []
     positives = []
     negatives = []
     for name in names:
-        processor = model.unet.attn_processors.get(name)
+        processor = processors.get(name)
         getter = getattr(processor, "lowband_contrastive_embeddings", None)
         values = None if getter is None else getter()
         if values is None:
@@ -521,8 +532,9 @@ def collect_lowband_contrastive_loss(model, *, temperature: float):
 
 
 def clear_lowband_contrastive_state(model) -> None:
+    processors = model.unet.attn_processors
     for processor_name in getattr(model, "_ba_patched_processor_names", ()):
-        processor = model.unet.attn_processors.get(processor_name)
+        processor = processors.get(processor_name)
         if bool(getattr(processor, "frequency_lowband_contrastive_enabled", False)):
             processor.set_lowband_contrastive("off")
 

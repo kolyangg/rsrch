@@ -6,6 +6,13 @@
 **Scope:** training throughput only; no training, validation, checkpoint, or
 production-job change was made for this report
 
+> **16 August correction after matched CL14 replay inspection:** the Git
+> ancestor `c04970f...` lacks `_record_active_gradient_norms`, but the exact
+> sealed CL14 overlay that produced the 2.19 s/iteration run contains and calls
+> it every step. The scan is still removable dead work when its metrics are not
+> requested, but it cannot explain the CL14-to-CL19 regression. The causal
+> contribution previously assigned to that scan is withdrawn. **[code]**
+
 ## Executive conclusion
 
 The slowdown is real, stable within runs, and cumulative. After discarding the
@@ -18,13 +25,11 @@ to a 24k-step run before validation time. **[measured]**
 This is not one unexplained Serv-wide regression. The evidence resolves into
 three cumulative bands:
 
-1. **CL14 to CL19: 2.19 -> 3.94 s/iteration.** A post-backward diagnostic was
-   added that casts, squares, and reduces gradients for all **219,217,920**
-   trainable parameters on every optimizer step. CL19 and its descendants do
-   this even though their writer configs do not request the three
-   active_grad_norm_* metrics. CL14's sealed Git ancestor has no such pass.
-   This is definite dead pipeline work; its exact contribution still requires
-   a controlled A/B timing run. **[code]**
+1. **CL14 to CL19: 2.19 -> 3.94 s/iteration.** The exact sealed CL14 overlay
+   already performs the every-step 219M-parameter active-gradient scan. The
+   scan is unused and removable, but it is common to both sides and therefore
+   does not explain this band. The remaining cause is **not established**;
+   matched source replay and component timing are required. **[code]**
 2. **CL19 to CL23/CL26: 3.94 -> 5.50/6.12 s/iteration.** CL23 performs a full
    fp32 5x5 depthwise Gaussian convolution and multiple full-activation fp32
    diagnostic reductions at all 70 BA self-attention processors on every
@@ -41,7 +46,7 @@ three cumulative bands:
    paths. **[code]**
 
 The first implementation priority is therefore not a broad rewrite. It is to
-remove the unused all-parameter gradient scan, eliminate CL26's discarded
+retain the already implemented unused-gradient-scan bypass, eliminate CL26's discarded
 legacy path, tensorize CL27's eligibility reduction without host
 synchronization, and separate scientific losses from diagnostic telemetry.
 These changes can be placed behind explicit compatibility toggles and tested
@@ -192,7 +197,7 @@ analysis/2026-08-13_cl21_cl26_training_throughput_diagnosis.md.
 
 ## 4. Exact pipeline differences and likely cost
 
-### 4.1 P0: unused all-parameter active-gradient scan, CL19 onward
+### 4.1 P0: unused all-parameter active-gradient scan, including sealed CL14
 
 PhotomakerLoraTrainer.process_batch() calls
 _record_active_gradient_norms(batch) after every backward and before every
@@ -207,12 +212,13 @@ writer.loss_names. The result is not used for clipping
 (trainer.max_grad_norm=null), loss construction, or the optimizer. It is
 discarded. **[code]**
 
-The method and call are absent from Git ancestor c04970f... and present in
-ad194a0...; the ordinary _get_grad_norms() path is already gated by
-trainer.grad_norm_log_only=true and log_step=50 in both relevant base configs.
-This is the strongest pipeline-level explanation for a substantial part of
-the 2.19 -> 3.94 s/iteration step. The exact recovered time is
-**not established** until the scan is disabled in a matched speed smoke.
+The method and call are absent from Git ancestor c04970f..., but they are
+present in the exact sealed `cl12-cl14-snapshot-v1-20260809` overlay used by
+CL14 and remain present later. The ordinary _get_grad_norms() path is already
+gated by trainer.grad_norm_log_only=true and log_step=50. The scan is definite
+dead work when unrequested, but its presence in the 2.19 s/iteration CL14 run
+rules it out as the cause of the CL14-to-CL19 step. Its exact recoverable time
+remains **not established** without a matched A/B. **[code]**
 
 **Fix:** add an explicit trainer.active_grad_norm_mode with backward-compatible
 every_step, plus requested_log_steps and off. Resolve whether any active metric
@@ -482,7 +488,7 @@ Running/Pending Serv allocations immediately before any authorized submission.
 |---|---|---|
 | CL26-CL29 are 2.79x-3.37x slower than CL14 | High | hundreds of warmed stderr samples across many epochs |
 | The active-gradient scan is dead work in CL19-CL29 | High | exact config/source; metrics unrequested; clipping disabled |
-| The scan explains a large fraction of CL14 -> CL19 | Medium-high | introduced in source interval and touches all 219.2M trainables; no A/B yet |
+| The scan explains a large fraction of CL14 -> CL19 | Disproved | exact sealed CL14 overlay already contains and calls the scan |
 | CL26 contains a discarded legacy attention result | High | direct control-flow inspection |
 | CL27 creates repeated device-host synchronization | High | Python bool() on CUDA reductions at 36 processors |
 | CL23 filter/telemetry materially contributes to +1.56 s over CL19 | Medium-high | unavoidable fp32 convolution/reductions at 70 sites; no trace yet |
@@ -511,7 +517,7 @@ where required.
       c04970f342a186d1092f07f9a08d7d8a797383e8 \
       ad194a026ab701dd979712d415c487dd536a4645
 
-    # The every-step gradient scan was introduced after CL14
+    # Git ancestry alone is insufficient: verify the sealed CL14 overlay too
     git show c04970f342a186d1092f07f9a08d7d8a797383e8:\
     diffusion_template/src/trainer/sdxl_trainers.py | \
       rg 'record_active_gradient_norms|active_grad_norm'
@@ -535,9 +541,10 @@ reports do not rely on display-name or first-screen estimates.
 
 ## Decision
 
-Proceed with the phase-0 timing harness and the four pipeline-neutral P0
-changes in separate branches/toggles. The first speed smoke should isolate the
-unused active-gradient scan because it is common to all slow CL19+ runs,
-scientifically detached, and absent from CL14. Do not alter the fixed
+Proceed with the phase-0 timing harness and the pipeline-neutral P0 changes in
+separate branches/toggles. Retain the unused-gradient-scan bypass as dead-work
+removal, but do not use it as the explanation for CL14-to-CL19. The first
+causal speed smoke should replay exact CL14 source on the current A100, then
+profile the remaining source delta. Do not alter the fixed
 validation contract or launch a production experiment until the parity and
 performance gates above pass.

@@ -49,7 +49,12 @@ def main() -> None:
     allowed = {
         "datasets.val.manual_val.limit",
         "trainer.active_grad_norm_mode",
+        "trainer.epoch_len",
         "trainer.face_quality.expected_images",
+        "trainer.n_epochs",
+        "trainer.save_period",
+        "trainer.validation_interval_steps",
+        "weights_only_save_period",
         "writer.experiment_comment",
     }
     if changed != allowed:
@@ -59,8 +64,11 @@ def main() -> None:
         "datasets.val.manual_val.limit": 12,
         "trainer.active_grad_norm_mode": "requested_only",
         "trainer.face_quality.expected_images": 12,
-        "trainer.epoch_len": 2000,
-        "trainer.n_epochs": 12,
+        "trainer.epoch_len": 100,
+        "trainer.n_epochs": 1,
+        "trainer.save_period": 999,
+        "trainer.validation_interval_steps": 0,
+        "weights_only_save_period": 0,
         "expected_trainable_contract.total_tensors": 2240,
         "expected_trainable_contract.total_parameters": 219217920,
         "pipeline.pose_adapt_ratio": 0.0,
