@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "run_name": "CL26_cosmic_anchored_highres_roi_ba_24k_full96_r3",
+  "plan": {
+    "status": "training_started",
+    "priority": 6,
+    "machine": "serv",
+    "gpus": 1,
+    "baseline": "CL19_cosmic_true_soft_fullquery_router_24k_full96_r2",
+    "baseline_comet_key": "cfeda7b55c174b3c83e8d40537ebb6dd",
+    "single_scientific_change": "Late bounded 32x32 ROI target-Q/reference-KV residual for small faces, added over the CL19 soft-router baseline.",
+    "config": "src/configs/CL26_cosmic_anchored_highres_roi_ba_24k.yaml",
+    "launcher": "launchers/active/run_CL21_CL26_cl19_followups_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL26_cosmic_anchored_highres_roi_ba_24k_full96_r3/run_CL26_cosmic_anchored_highres_roi_ba_24k_full96_r3_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "fixed_contract": "24k steps, batch 2, fixed manual_val 96 at step 0/every 2k, DDIM50, unchanged prompts/seeds/refs/boxes/metrics, pose_adapt_ratio=0, ca_mixing_for_face=false",
+    "supersedes": "CL26_cosmic_anchored_highres_roi_ba_24k_full96_r2",
+    "startup_fix": "Cast the fp32-gated ROI residual back to the frozen UNet activation dtype before rejoining; no scientific configuration changed."
+  },
+  "runtime": {
+    "serv_job": "lm-mpi-job-e07a2b02-6f5b-4ad8-bf80-e1f36c24cd4b",
+    "comet_experiment_key": "e9c0a9b505f041a68a183ca3cb4ca0af",
+    "monitoring_terminal": "fixed-96 step-0 validation complete; repaired anchored-ROI path observed through batch 9"
+  }
+}

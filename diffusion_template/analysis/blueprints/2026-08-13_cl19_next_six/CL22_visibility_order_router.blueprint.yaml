@@ -1,0 +1,109 @@
+blueprint:
+  status: design_only_non_runnable
+  priority: 2
+  proposed_config: CL22_cosmic_visibility_order_router_24k
+  proposed_run: CL22_cosmic_visibility_order_router_24k_full96_r1
+  control_run: CL19_cosmic_true_soft_fullquery_router_24k_full96_r1
+  control_comet_key: cfeda7b55c174b3c83e8d40537ebb6dd
+  single_delta: >-
+    Replace CL19's purely geometric blend with an explicit three-state
+    visibility-order correction inside the same native/reference SA lanes:
+    top object, visible identity face, and background.
+  rationale: >-
+    CL19 fixes mask boundaries but cannot represent which surface owns an
+    overlapping pixel. CL17 learned a binary occluder label, yet its routed
+    output remained below one percent and it sometimes improved Skiing ID by
+    deleting goggles. This arm makes topology and object retention explicit.
+
+hydra_child:
+  defaults:
+    - CL19_cosmic_true_soft_fullquery_router_24k
+    - _self_
+  model:
+    ba_visibility_order_enabled: true
+    ba_visibility_order_groups: [up_blocks.0, up_blocks.1]
+    ba_visibility_order_hidden_dim: 128
+    ba_visibility_order_states: [top_object, visible_face, background]
+    ba_visibility_order_top_native_floor: 0.95
+    ba_visibility_order_visible_reference_floor: 0.50
+    ba_visibility_order_boundary_width_cells: 2
+    ba_visibility_order_loss_weight: 0.05
+    ba_visibility_order_object_retention_weight: 0.02
+    ba_visibility_order_router_delta_max: 0.50
+    ba_visibility_order_router_delta_init: 0.0
+  datasets:
+    train:
+      cosmic_large_adapted:
+        semantic_occlusion_probability: 0.25
+        semantic_occlusion_seed: 150017
+        semantic_occlusion_labels: visibility_order_v2
+  pipeline:
+    pose_adapt_ratio: 0.0
+    ca_mixing_for_face: false
+  expected_trainable_contract:
+    enabled: true
+    total_tensors: TO_COMPUTE
+    total_parameters: TO_COMPUTE
+
+router_equations:
+  base: r0 = CL19_soft_router
+  ownership: p = softmax(head(target_hidden, native_minus_reference, timestep))
+  top_object: output = native when p_top is high
+  visible_face: output = blend(native, reference, max(r0, visible_reference_floor))
+  background: output = native outside face support
+  boundary: >-
+    Supervise top/visible/background attention mass separately in a two-cell
+    boundary band. Do not multiply a learned near-zero scalar onto the routed
+    message; the probabilities directly own the convex blend.
+
+implementation:
+  code_delta: >-
+    Version the CL17 ownership head into a three-logit visibility-order head.
+    Reuse its deterministic synthetic eyewear/goggle/hair/hand/tear generator,
+    but return top-object, visible-face, background, and object-presence labels.
+    Add class-balanced CE plus VODiff-style overlap/visible/background terms.
+    Keep full target Q and binary reference K/V support from CL19 unchanged.
+  modify:
+    - src/datasets/cosmic_large_adapted.py
+    - src/model/photomaker_branched/attn_processor_cleanest.py
+    - src/model/photomaker_branched/branched_runtime.py
+    - src/model/photomaker_branched/lora2.py
+    - src/loss/diffusion_loss.py
+  startup_gates:
+    - disabling the new flag reproduces CL19 exactly
+    - one synthetic batch contains all three labels and nonempty boundary pixels
+    - top-object pixels have at least 0.95 native weight in the forced-label smoke
+    - routed/native RMS ratio is logged per group and is not hidden by loss averaging
+
+telemetry_required:
+  - ba/visibility_order_ce
+  - ba/visibility_order_iou_top
+  - ba/visibility_order_iou_visible
+  - ba/visibility_order_iou_background
+  - ba/visibility_order_top_object_retention
+  - ba/visibility_order_router_delta_rms/up0
+  - ba/visibility_order_router_delta_rms/up1
+  - ba/visibility_order_routed_native_ratio/up0
+  - ba/visibility_order_routed_native_ratio/up1
+
+serv_plan:
+  gpus: 1
+  accelerator: A100
+  optimizer_steps: 24000
+  epoch_len: 2000
+  validation_interval_steps: 2000
+  data_policy: >-
+    Cosmic remains the base distribution. The sealed index-seeded synthetic
+    family is supervision for this mechanism, not a BigCelebs mixture.
+
+promotion_gate:
+  primary: >-
+    Blinded review reduces CL19's three clear Skiing topology failures and one
+    clear Crying failure while retaining the prompted goggles/hands.
+  identity: >-
+    Full-96 subject-v2 ID must not regress; prefer a positive paired delta and
+    specifically check Jennie/Jisoo, which have the largest CL19-to-PhotoMaker gaps.
+  reject_if: >-
+    Any apparent Skiing gain is explained by missing goggles, or auxiliary IoU
+    improves while routed/native output remains below one percent.
+

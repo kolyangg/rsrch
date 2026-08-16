@@ -1,0 +1,40 @@
+defaults:
+  - CL19_cosmic_true_soft_fullquery_router_24k
+  - _self_
+
+# CL21 = CL19 + bounded residual target-Q/PhotoMaker-ID-KV cross-attention.
+model:
+  ba_identity_ca_v2_enabled: false
+  ba_residual_identity_ca_v3_enabled: true
+  ba_residual_identity_ca_v3_groups: [up_blocks.0, up_blocks.1]
+  ba_residual_identity_ca_v3_rank: 64
+  ba_residual_identity_ca_v3_gate_init: 0.02
+  ba_residual_identity_ca_v3_gate_max: 0.20
+
+disable_branched_ca: true
+train_branched_ca_lora: false
+
+expected_trainable_contract:
+  enabled: true
+  total_tensors: 2348
+  total_parameters: 224624676
+  optimizer_tensors: 2348
+  optimizer_parameters: 224624676
+  categories:
+    branched_sa_r128: {name_substring: ".attn1.processor.", tensors: 840, parameters: 127795200}
+    residual_identity_ca_r64: {name_substring: ".attn2.processor.", tensors: 108, parameters: 5406756}
+    generic_effective_adapter_r32: {name_substring: ".lora_adapter.", tensors: 700, parameters: 30474240}
+    photomaker_default_effective_adapter_r64: {name_substring: ".default.", tensors: 700, parameters: 60948480}
+
+writer:
+  loss_names:
+    - loss
+    - ba/identity_ca_token_count/up0
+    - ba/identity_ca_token_count/up1
+    - ba/identity_ca_gate/up0
+    - ba/identity_ca_gate/up1
+    - ba/identity_ca_delta_rms/up0
+    - ba/identity_ca_delta_rms/up1
+    - ba/identity_ca_residual_native_ratio/up0
+    - ba/identity_ca_residual_native_ratio/up1
+  experiment_comment: CL21 adds only corrected bounded residual identity-token CA v3 at up0/up1 to CL19.

@@ -117,6 +117,27 @@ class BranchedAttnProcessor(nn.Module):
         hardcase_transition_cells: int = 2,
         hardcase_ownership_hidden_dim: int = 128,
         hardcase_visible_face_floor: float = 0.20,
+        hardcase_top_native_floor: float = 0.95,
+        hardcase_frequency_low_early: float = 0.50,
+        hardcase_frequency_low_late: float = 0.85,
+        hardcase_frequency_high_early: float = 0.75,
+        hardcase_frequency_high_late: float = 1.25,
+        frequency_surface_experiment_enabled: bool = False,
+        frequency_surface_loss_enabled: bool = False,
+        frequency_surface_top_low_band_factor: float = 0.25,
+        frequency_surface_visible_floor_ratio: float = 0.35,
+        frequency_learnable_schedule_enabled: bool = False,
+        frequency_low_late_center: float = 0.85,
+        frequency_low_late_half_range: float = 0.15,
+        frequency_high_early_center: float = 0.75,
+        frequency_high_early_half_range: float = 0.15,
+        frequency_high_late_center: float = 1.25,
+        frequency_high_late_half_range: float = 0.15,
+        frequency_lowband_contrastive_enabled: bool = False,
+        hardcase_roi_gate_init: float = 0.10,
+        hardcase_roi_gate_min: float = 0.05,
+        hardcase_roi_progress_min: float = 0.60,
+        hardcase_roi_rms_cap: float = 0.25,
     ):
         super().__init__()
 
@@ -146,6 +167,9 @@ class BranchedAttnProcessor(nn.Module):
             "clean_memory",
             "semantic_ownership",
             "soft_router",
+            "visibility_order",
+            "temporal_frequency",
+            "anchored_roi",
         }:
             raise ValueError(f"Unknown hardcase_mode={hardcase_mode!r}")
         self.hardcase_rank = int(hardcase_rank)
@@ -154,6 +178,39 @@ class BranchedAttnProcessor(nn.Module):
         self.hardcase_face_threshold_px = int(hardcase_face_threshold_px)
         self.hardcase_transition_cells = int(hardcase_transition_cells)
         self.hardcase_visible_face_floor = float(hardcase_visible_face_floor)
+        self.hardcase_top_native_floor = float(hardcase_top_native_floor)
+        self.hardcase_frequency_low_early = float(hardcase_frequency_low_early)
+        self.hardcase_frequency_low_late = float(hardcase_frequency_low_late)
+        self.hardcase_frequency_high_early = float(hardcase_frequency_high_early)
+        self.hardcase_frequency_high_late = float(hardcase_frequency_high_late)
+        self.frequency_surface_experiment_enabled = bool(
+            frequency_surface_experiment_enabled
+        )
+        self.frequency_surface_loss_enabled = bool(frequency_surface_loss_enabled)
+        self.frequency_surface_top_low_band_factor = float(
+            frequency_surface_top_low_band_factor
+        )
+        self.frequency_surface_visible_floor_ratio = float(
+            frequency_surface_visible_floor_ratio
+        )
+        self.frequency_learnable_schedule_enabled = bool(
+            frequency_learnable_schedule_enabled
+        )
+        self.frequency_low_late_center = float(frequency_low_late_center)
+        self.frequency_low_late_half_range = float(frequency_low_late_half_range)
+        self.frequency_high_early_center = float(frequency_high_early_center)
+        self.frequency_high_early_half_range = float(
+            frequency_high_early_half_range
+        )
+        self.frequency_high_late_center = float(frequency_high_late_center)
+        self.frequency_high_late_half_range = float(frequency_high_late_half_range)
+        self.frequency_lowband_contrastive_enabled = bool(
+            frequency_lowband_contrastive_enabled
+        )
+        self.hardcase_roi_gate_init = float(hardcase_roi_gate_init)
+        self.hardcase_roi_gate_min = float(hardcase_roi_gate_min)
+        self.hardcase_roi_progress_min = float(hardcase_roi_progress_min)
+        self.hardcase_roi_rms_cap = float(hardcase_roi_rms_cap)
         if self.hardcase_rank <= 0 or self.hardcase_roi_size <= 1:
             raise ValueError("Hard-case rank and ROI size must be positive")
         if not 0.0 < self.hardcase_gate_max <= 1.0:
@@ -162,6 +219,35 @@ class BranchedAttnProcessor(nn.Module):
             raise ValueError("hardcase_transition_cells must be positive")
         if not 0.0 <= self.hardcase_visible_face_floor <= 1.0:
             raise ValueError("hardcase_visible_face_floor must be in [0, 1]")
+        if not 0.0 < self.hardcase_top_native_floor <= 1.0:
+            raise ValueError("hardcase_top_native_floor must be in (0, 1]")
+        if min(
+            self.hardcase_frequency_low_early,
+            self.hardcase_frequency_low_late,
+            self.hardcase_frequency_high_early,
+            self.hardcase_frequency_high_late,
+        ) < 0.50:
+            raise ValueError("Temporal-frequency reference scales require a 0.50 floor")
+        if not 0.0 <= self.frequency_surface_top_low_band_factor <= 1.0:
+            raise ValueError("frequency_surface_top_low_band_factor must be in [0, 1]")
+        if not 0.0 < self.frequency_surface_visible_floor_ratio < 1.0:
+            raise ValueError("frequency_surface_visible_floor_ratio must be in (0, 1)")
+        if min(
+            self.frequency_low_late_half_range,
+            self.frequency_high_early_half_range,
+            self.frequency_high_late_half_range,
+        ) <= 0.0:
+            raise ValueError("Learnable frequency half-ranges must be positive")
+        if not (
+            0.0 < self.hardcase_roi_gate_min
+            < self.hardcase_roi_gate_init
+            < self.hardcase_gate_max <= 1.0
+        ):
+            raise ValueError("Anchored ROI gate bounds must satisfy 0 < min < init < max")
+        if not 0.0 <= self.hardcase_roi_progress_min < 1.0:
+            raise ValueError("hardcase_roi_progress_min must be in [0, 1)")
+        if self.hardcase_roi_rms_cap <= 0.0:
+            raise ValueError("hardcase_roi_rms_cap must be positive")
 
         self.roi_gate_raw = None
         self.memory_to_k = None
@@ -171,28 +257,66 @@ class BranchedAttnProcessor(nn.Module):
         self.ownership_norm = None
         self.ownership_mlp = None
         self.ownership_scale_raw = None
+        self.frequency_schedule_raw = None
         if self.hardcase_mode == "highres_roi":
             self.roi_gate_raw = nn.Parameter(torch.zeros((), dtype=trainable_dtype))
+        elif self.hardcase_mode == "anchored_roi":
+            unit = (
+                self.hardcase_roi_gate_init - self.hardcase_roi_gate_min
+            ) / (self.hardcase_gate_max - self.hardcase_roi_gate_min)
+            self.roi_gate_raw = nn.Parameter(
+                torch.tensor(math.log(unit / (1.0 - unit)), dtype=trainable_dtype)
+            )
         elif self.hardcase_mode == "clean_memory":
             self.memory_gate_raw = nn.Parameter(torch.zeros((), dtype=trainable_dtype))
-        elif self.hardcase_mode == "semantic_ownership":
+        elif self.hardcase_mode in {"semantic_ownership", "visibility_order"}:
             ownership_hidden = int(hardcase_ownership_hidden_dim)
             if ownership_hidden <= 0:
                 raise ValueError("hardcase_ownership_hidden_dim must be positive")
             self.ownership_norm = nn.LayerNorm(hidden_size, elementwise_affine=False)
+            output_dim = 3 if self.hardcase_mode == "visibility_order" else 1
             self.ownership_mlp = nn.Sequential(
                 nn.Linear(hidden_size + 2, ownership_hidden),
                 nn.SiLU(),
-                nn.Linear(ownership_hidden, 1),
+                nn.Linear(ownership_hidden, output_dim),
             )
             nn.init.zeros_(self.ownership_mlp[-1].weight)
             nn.init.zeros_(self.ownership_mlp[-1].bias)
-            self.ownership_scale_raw = nn.Parameter(torch.zeros((), dtype=trainable_dtype))
+            if self.hardcase_mode == "semantic_ownership":
+                self.ownership_scale_raw = nn.Parameter(torch.zeros((), dtype=trainable_dtype))
+            else:
+                # 13 Aug 2026 - AICODE-NOTE: visibility routing starts as the
+                # CL19 visible-face route, but the three probabilities directly
+                # own generation and cannot hide behind a collapsible output gate.
+                with torch.no_grad():
+                    self.ownership_mlp[-1].bias.copy_(
+                        torch.tensor([-4.0, 4.0, -4.0], dtype=self.ownership_mlp[-1].bias.dtype)
+                    )
+        if self.frequency_learnable_schedule_enabled:
+            if self.hardcase_mode != "temporal_frequency":
+                raise ValueError("Learnable frequency endpoints require temporal_frequency")
+            self.frequency_schedule_raw = nn.Parameter(
+                torch.zeros(3, dtype=trainable_dtype or torch.float32)
+            )
+        if (
+            self.frequency_surface_experiment_enabled
+            or self.frequency_lowband_contrastive_enabled
+        ) and self.hardcase_mode != "temporal_frequency":
+            raise ValueError("Frequency auxiliaries require temporal_frequency")
         self.clean_reference_memory = None
         self.capture_clean_memory = False
         self.ownership_target_mask = None
         self._ownership_aux_loss = None
+        self._frequency_surface_aux_loss = None
+        self._lowband_contrastive_mode = "off"
+        self._lowband_negative_permutation = None
+        self._lowband_anchor_q = None
+        self._lowband_anchor_native_out = None
+        self._lowband_anchor_embedding = None
+        self._lowband_positive_embedding = None
+        self._lowband_negative_embedding = None
         self.ba_denoise_progress = None
+        self._latest_ba_telemetry = None
         
         self.mask = None
         self.mask_ref = None
@@ -329,6 +453,52 @@ class BranchedAttnProcessor(nn.Module):
     def ownership_aux_loss(self) -> Optional[torch.Tensor]:
         return self._ownership_aux_loss
 
+    def frequency_surface_aux_loss(self):
+        return self._frequency_surface_aux_loss
+
+    def frequency_schedule_anchor_loss(self) -> Optional[torch.Tensor]:
+        if self.frequency_schedule_raw is None:
+            return None
+        return self.frequency_schedule_raw.float().square().mean()
+
+    def set_lowband_contrastive(
+        self,
+        mode: str,
+        negative_permutation: Optional[torch.Tensor] = None,
+    ) -> None:
+        mode = str(mode or "off").lower()
+        if mode not in {"off", "anchor", "contrast"}:
+            raise ValueError(f"Unknown low-band contrastive mode {mode!r}")
+        if mode != "off" and not self.frequency_lowband_contrastive_enabled:
+            raise RuntimeError("Low-band capture enabled on an unselected processor")
+        if mode == "off":
+            self._lowband_anchor_q = None
+            self._lowband_anchor_native_out = None
+            self._lowband_anchor_embedding = None
+            self._lowband_positive_embedding = None
+            self._lowband_negative_embedding = None
+        elif mode == "anchor":
+            self._lowband_anchor_q = None
+            self._lowband_anchor_native_out = None
+            self._lowband_anchor_embedding = None
+            self._lowband_positive_embedding = None
+            self._lowband_negative_embedding = None
+        elif self._lowband_anchor_q is None or self._lowband_anchor_native_out is None:
+            raise RuntimeError("Low-band contrast pass has no matched anchor query")
+        self._lowband_contrastive_mode = mode
+        self._lowband_negative_permutation = negative_permutation
+
+    def lowband_contrastive_embeddings(self):
+        values = (
+            self._lowband_anchor_embedding,
+            self._lowband_positive_embedding,
+            self._lowband_negative_embedding,
+        )
+        return values if all(value is not None for value in values) else None
+
+    def latest_ba_telemetry(self) -> Optional[dict[str, torch.Tensor]]:
+        return self._latest_ba_telemetry
+
     @staticmethod
     def _reshape_heads(tensor: torch.Tensor, heads: int) -> torch.Tensor:
         batch, length, channels = tensor.shape
@@ -395,10 +565,39 @@ class BranchedAttnProcessor(nn.Module):
         energy = (tensor.float().square() * mask.float()).sum(dim=(1, 2)) / denom
         return energy.clamp_min(1.0e-12).sqrt().view(-1, 1, 1)
 
+    def _reference_target_out(self, attn, q, reference, mask_ref=None):
+        batch, length, _ = reference.shape
+        heads = int(attn.heads)
+        ref_mask = self._binary_mask(
+            self.mask_ref if mask_ref is None else mask_ref,
+            length,
+            batch,
+            reference.dtype,
+        )
+        reference_face = reference * ref_mask
+        message = F.scaled_dot_product_attention(
+            q,
+            self._reshape_heads(self._k_ref(attn, reference_face), heads),
+            self._reshape_heads(self._v_ref(attn, reference_face), heads),
+            dropout_p=0.0,
+            is_causal=False,
+        )
+        message = self._merge_heads(message)
+        return (
+            self.face_to_out(message)
+            if self.face_to_out is not None
+            else attn.to_out[0](message)
+        )
+
     def _full_target_lanes(self, attn, target, reference):
         batch, length, _ = target.shape
         heads = int(attn.heads)
         q = self._reshape_heads(self._q_noise(attn, target), heads)
+        if self._lowband_contrastive_mode == "contrast":
+            cached_q = self._lowband_anchor_q
+            if cached_q is None or cached_q.shape != q.shape:
+                raise RuntimeError("Low-band contrastive query cache mismatch")
+            q = cached_q
         native = F.scaled_dot_product_attention(
             q,
             self._reshape_heads(self._k_noise(attn, target), heads),
@@ -406,24 +605,121 @@ class BranchedAttnProcessor(nn.Module):
             dropout_p=0.0,
             is_causal=False,
         )
-        ref_mask = self._binary_mask(self.mask_ref, length, batch, reference.dtype)
-        reference_face = reference * ref_mask
-        reference_message = F.scaled_dot_product_attention(
-            q,
-            self._reshape_heads(self._k_ref(attn, reference_face), heads),
-            self._reshape_heads(self._v_ref(attn, reference_face), heads),
-            dropout_p=0.0,
-            is_causal=False,
-        )
         native_message = self._merge_heads(native)
-        reference_message = self._merge_heads(reference_message)
         native_out = attn.to_out[0](native_message)
-        reference_out = (
-            self.face_to_out(reference_message)
-            if self.face_to_out is not None
-            else attn.to_out[0](reference_message)
-        )
+        reference_out = self._reference_target_out(attn, q, reference)
+        if self._lowband_contrastive_mode == "anchor":
+            self._lowband_anchor_q = q.detach()
+            self._lowband_anchor_native_out = native_out.detach()
         return native_out, reference_out, q
+
+    @staticmethod
+    def _masked_mean_square(
+        tensor: torch.Tensor, mask: torch.Tensor
+    ) -> torch.Tensor:
+        denom = (mask.float().sum(dim=(1, 2)) * tensor.shape[-1]).clamp_min(1.0)
+        return (tensor.float().square() * mask.float()).sum(dim=(1, 2)) / denom
+
+    @staticmethod
+    def _masked_pool(tensor: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        denom = mask.float().sum(dim=1).clamp_min(1.0)
+        return (tensor.float() * mask.float()).sum(dim=1) / denom
+
+    def _capture_lowband_contrastive(
+        self,
+        attn,
+        reference: torch.Tensor,
+        q: torch.Tensor,
+        router: torch.Tensor,
+        reference_out: torch.Tensor,
+    ) -> None:
+        mode = self._lowband_contrastive_mode
+        if not self.frequency_lowband_contrastive_enabled or mode == "off":
+            return
+        native_anchor = self._lowband_anchor_native_out
+        if native_anchor is None:
+            raise RuntimeError("Low-band contrastive native anchor is missing")
+        if mode == "anchor":
+            # 14 Aug 2026 - AICODE-NOTE: CL29's auxiliary representation must
+            # not encode target pixels through Q. Recompute only the reference
+            # message under detached target queries; production routing is unchanged.
+            reference_aux = self._reference_target_out(attn, q.detach(), reference)
+            low, _ = self._gaussian_split(reference_aux - native_anchor)
+            self._lowband_anchor_embedding = self._masked_pool(low, router)
+            return
+
+        permutation = self._lowband_negative_permutation
+        if permutation is None or permutation.numel() != reference.shape[0]:
+            raise RuntimeError("Low-band negative permutation is missing")
+        low_positive, _ = self._gaussian_split(reference_out - native_anchor)
+        wrong_reference = reference.index_select(0, permutation)
+        wrong_mask = self.mask_ref.index_select(0, permutation)
+        wrong_out = self._reference_target_out(
+            attn, q, wrong_reference, mask_ref=wrong_mask
+        )
+        low_negative, _ = self._gaussian_split(wrong_out - native_anchor)
+        self._lowband_positive_embedding = self._masked_pool(low_positive, router)
+        self._lowband_negative_embedding = self._masked_pool(low_negative, router)
+
+    def _frequency_surface_loss(
+        self,
+        native_out: torch.Tensor,
+        low_component: torch.Tensor,
+        high_component: torch.Tensor,
+        routed_delta: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        zero = native_out.float().new_tensor(0.0)
+        metrics = {
+            "top_high_rms": zero,
+            "top_low_rms": zero,
+            "visible_ratio": zero,
+            "applied_fraction": zero,
+        }
+        self._frequency_surface_aux_loss = None
+        # 14 Aug 2026 - Alternate-base validation does not call Module.eval();
+        # gradient mode is the reliable boundary for this training-only loss.
+        if (
+            not self.frequency_surface_loss_enabled
+            or not self.training
+            or not torch.is_grad_enabled()
+        ):
+            return metrics
+        supervision = self.ownership_target_mask
+        if supervision is None:
+            raise RuntimeError("Frequency-surface loss requires an ownership mask")
+        batch, length, _ = native_out.shape
+        face = self._binary_mask(self.mask, length, batch, torch.float32)
+        top = self._binary_mask(supervision, length, batch, torch.float32) * face
+        visible = (face - top).clamp(0.0, 1.0)
+        eligible = (top.sum(dim=(1, 2)) > 0.0) & (
+            visible.sum(dim=(1, 2)) > 0.0
+        )
+        metrics["applied_fraction"] = eligible.float().mean()
+        if not bool(eligible.any()):
+            return metrics
+        top_high = self._masked_mean_square(high_component, top)
+        top_low = self._masked_mean_square(low_component, top)
+        routed_rms = self._masked_mean_square(routed_delta, visible).clamp_min(
+            1.0e-12
+        ).sqrt()
+        native_rms = self._masked_mean_square(native_out, visible).clamp_min(
+            1.0e-12
+        ).sqrt()
+        ratio = routed_rms / native_rms.detach().clamp_min(1.0e-6)
+        top_loss = (
+            top_high
+            + self.frequency_surface_top_low_band_factor * top_low
+        )[eligible].mean()
+        floor_loss = F.relu(
+            ratio.new_tensor(self.frequency_surface_visible_floor_ratio) - ratio
+        ).square()[eligible].mean()
+        self._frequency_surface_aux_loss = (top_loss, floor_loss)
+        metrics.update(
+            top_high_rms=top_high[eligible].mean().sqrt().detach(),
+            top_low_rms=top_low[eligible].mean().sqrt().detach(),
+            visible_ratio=ratio[eligible].mean().detach(),
+        )
+        return metrics
 
     def _finish_full_router(
         self, attn, residual, target_out, reference, input_ndim, spatial
@@ -497,6 +793,76 @@ class BranchedAttnProcessor(nn.Module):
             ).sum() / denom
         return routed_probability
 
+    def _visibility_weights(
+        self,
+        target: torch.Tensor,
+        native_out: torch.Tensor,
+        reference_out: torch.Tensor,
+    ) -> torch.Tensor:
+        disagreement = (reference_out.float() - native_out.float()).square().mean(
+            dim=-1, keepdim=True
+        ).clamp_min(0.0).sqrt().to(dtype=target.dtype)
+        progress = getattr(self, "ba_denoise_progress", None)
+        if progress is None:
+            progress_feature = target.new_zeros(target.shape[0], 1, 1)
+        else:
+            progress_feature = torch.as_tensor(
+                progress, device=target.device, dtype=target.dtype
+            ).reshape(-1, 1, 1)
+            if progress_feature.shape[0] == 1:
+                progress_feature = progress_feature.expand(target.shape[0], -1, -1)
+        progress_feature = progress_feature.expand(-1, target.shape[1], -1)
+        features = torch.cat(
+            [self.ownership_norm(target), disagreement, progress_feature], dim=-1
+        )
+        logits = self.ownership_mlp(features)
+        probabilities = torch.softmax(logits.float(), dim=-1).to(target.dtype)
+
+        face = self._binary_mask(
+            self.mask, target.shape[1], target.shape[0], torch.float32
+        )
+        top = self.ownership_target_mask
+        self._ownership_aux_loss = None
+        if top is not None:
+            top = self._binary_mask(
+                top, target.shape[1], target.shape[0], torch.float32
+            ) * face
+            visible = (face - top).clamp(0.0, 1.0)
+            background = (1.0 - face).clamp(0.0, 1.0)
+            labels = torch.cat([top, visible, background], dim=-1).argmax(dim=-1)
+            counts = torch.bincount(labels.flatten(), minlength=3).float().clamp_min(1.0)
+            class_weights = counts.sum() / (3.0 * counts)
+            self._ownership_aux_loss = F.cross_entropy(
+                logits.float().reshape(-1, 3),
+                labels.reshape(-1),
+                weight=class_weights.to(logits.device),
+            )
+        return probabilities
+
+    @staticmethod
+    def _gaussian_split(delta: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        batch, length, channels = delta.shape
+        side = int(math.isqrt(length))
+        if side * side != length:
+            raise RuntimeError("Temporal-frequency BA requires square token grids")
+        image = delta.float().transpose(1, 2).reshape(batch, channels, side, side)
+        kernel_1d = image.new_tensor([1.0, 4.0, 6.0, 4.0, 1.0]) / 16.0
+        kernel = (kernel_1d[:, None] * kernel_1d[None, :]).view(1, 1, 5, 5)
+        kernel = kernel.expand(channels, 1, -1, -1)
+        low = F.conv2d(image, kernel, padding=2, groups=channels)
+        low = low.flatten(2).transpose(1, 2)
+        return low.to(delta.dtype), (delta.float() - low).to(delta.dtype)
+
+    def _progress(self, target: torch.Tensor) -> torch.Tensor:
+        progress = getattr(self, "ba_denoise_progress", None)
+        if progress is None:
+            return target.new_zeros(target.shape[0], 1, 1)
+        value = torch.as_tensor(progress, device=target.device, dtype=target.dtype)
+        value = value.reshape(-1, 1, 1)
+        if value.shape[0] == 1:
+            value = value.expand(target.shape[0], -1, -1)
+        return value.clamp(0.0, 1.0)
+
     @staticmethod
     def _roi_bounds(mask: torch.Tensor) -> tuple[torch.Tensor, ...]:
         image = mask.squeeze(-1) > 0.5
@@ -565,6 +931,29 @@ class BranchedAttnProcessor(nn.Module):
         )
         roi_out = attn.to_out[0](self._merge_heads(roi_message))
         scattered = self._scatter_roi(roi_out, target_mask, length) * target_mask
+        if self.hardcase_mode == "anchored_roi":
+            gate = self.hardcase_roi_gate_min + (
+                self.hardcase_gate_max - self.hardcase_roi_gate_min
+            ) * torch.sigmoid(self.roi_gate_raw)
+            progress_active = (
+                self._progress(target) >= self.hardcase_roi_progress_min
+            ).to(target.dtype)
+            native_roi = self._sample_roi(target, target_mask)
+            ratio = self._masked_rms(native_roi, torch.ones_like(native_roi[..., :1]))
+            delta_rms = self._masked_rms(roi_out, torch.ones_like(roi_out[..., :1]))
+            cap = (self.hardcase_roi_rms_cap * ratio / delta_rms).clamp(max=1.0)
+            scattered = scattered * cap
+            active = active.view(batch, 1, 1) * progress_active
+            self._latest_ba_telemetry = {
+                "anchored_roi_gate": gate.detach().float(),
+                "anchored_roi_eligible_fraction": active.detach().float().mean(),
+                "anchored_roi_delta_rms": delta_rms.detach().float().mean(),
+                "anchored_roi_residual_native_ratio": (
+                    gate.detach().float() * delta_rms.detach().float()
+                    / ratio.detach().float().clamp_min(1.0e-6)
+                ).mean(),
+            }
+            return scattered * gate * active
         gate = self.hardcase_gate_max * torch.tanh(self.roi_gate_raw)
         return scattered * gate * active.view(batch, 1, 1)
 
@@ -578,10 +967,29 @@ class BranchedAttnProcessor(nn.Module):
             return self._call_legacy(attn, hidden_states, temb=temb)
 
         mode = self.hardcase_mode
-        if mode in {"highres_roi", "clean_memory"}:
+        if mode in {"highres_roi", "anchored_roi", "clean_memory"}:
             baseline = self._call_legacy(attn, hidden_states, temb=temb)
             batch = target.shape[0]
-            if mode == "highres_roi":
+            if mode == "anchored_roi":
+                # 13 Aug 2026 - AICODE-NOTE: CL26 is an additive experiment on
+                # CL19; its native/reference soft-router baseline must remain
+                # active before the late bounded ROI residual is added.
+                native_out, reference_out, _ = self._full_target_lanes(
+                    attn, target, reference
+                )
+                router = self._soft_router_mask(
+                    self.mask, target.shape[1], batch, native_out.dtype
+                )
+                soft_target = native_out + router * (reference_out - native_out)
+                baseline = self._finish_full_router(
+                    attn,
+                    residual,
+                    soft_target,
+                    reference,
+                    input_ndim,
+                    spatial,
+                )
+            if mode in {"highres_roi", "anchored_roi"}:
                 addition = self._highres_roi_residual(attn, target, reference)
             else:
                 memory = self.clean_reference_memory
@@ -612,6 +1020,10 @@ class BranchedAttnProcessor(nn.Module):
                 ratio = self._masked_rms(target_base, face) / self._masked_rms(memory_out, face)
                 gate = self.hardcase_gate_max * torch.tanh(self.memory_gate_raw)
                 addition = memory_out * ratio.to(memory_out.dtype) * face * gate
+            # 13 Aug 2026 - AICODE-NOTE: bounded gates are kept in fp32 for
+            # stable optimization, but every residual branch must rejoin the
+            # frozen UNet in its activation dtype (normally bf16 on Serv).
+            addition = addition.to(device=baseline.device, dtype=baseline.dtype)
             if input_ndim == 4:
                 channels, height, width = spatial
                 addition = addition.transpose(-1, -2).reshape(
@@ -620,7 +1032,137 @@ class BranchedAttnProcessor(nn.Module):
             target_out = baseline[:batch] + addition / attn.rescale_output_factor
             return torch.cat([target_out, baseline[batch:]], dim=0)
 
-        native_out, reference_out, _ = self._full_target_lanes(attn, target, reference)
+        native_out, reference_out, q = self._full_target_lanes(attn, target, reference)
+        if mode == "visibility_order":
+            probabilities = self._visibility_weights(
+                target, native_out, reference_out
+            ).to(dtype=native_out.dtype)
+            base_router = self._soft_router_mask(
+                self.mask, target.shape[1], target.shape[0], native_out.dtype
+            )
+            top_probability = probabilities[..., 0:1]
+            visible_probability = probabilities[..., 1:2]
+            reference_weight = visible_probability * torch.maximum(
+                base_router,
+                base_router.new_tensor(self.hardcase_visible_face_floor),
+            )
+            face = self._binary_mask(
+                self.mask, target.shape[1], target.shape[0], native_out.dtype
+            )
+            reference_weight = (
+                reference_weight
+                * face
+                * (1.0 - self.hardcase_top_native_floor * top_probability)
+            )
+            reference_weight = reference_weight.clamp(0.0, 1.0)
+            target_out = native_out + reference_weight * (reference_out - native_out)
+            delta = target_out.float() - (
+                native_out.float() * (1.0 - base_router.float())
+                + reference_out.float() * base_router.float()
+            )
+            self._latest_ba_telemetry = {
+                "visibility_order_router_delta_rms": delta.square().mean().clamp_min(1e-12).sqrt().detach(),
+                "visibility_order_routed_native_ratio": (
+                    target_out.float().square().mean().clamp_min(1e-12).sqrt()
+                    / native_out.float().square().mean().clamp_min(1e-12).sqrt()
+                ).detach(),
+                "visibility_order_top_probability": top_probability.detach().float().mean(),
+            }
+            return self._finish_full_router(
+                attn, residual, target_out, reference, input_ndim, spatial
+            )
+
+        if mode == "temporal_frequency":
+            router = self._soft_router_mask(
+                self.mask, target.shape[1], target.shape[0], native_out.dtype
+            )
+            low, high = self._gaussian_split(reference_out - native_out)
+            progress = self._progress(target)
+            if self.frequency_learnable_schedule_enabled:
+                raw = torch.tanh(self.frequency_schedule_raw).to(progress.dtype)
+                low_scale = self.hardcase_frequency_low_early + progress * (
+                    self.hardcase_frequency_low_late
+                    - self.hardcase_frequency_low_early
+                )
+                high_scale = self.hardcase_frequency_high_early + progress * (
+                    self.hardcase_frequency_high_late
+                    - self.hardcase_frequency_high_early
+                )
+                # Zero raw vectors reproduce CL23 exactly; only bounded endpoint
+                # corrections are new, and low-early remains fixed at 0.50.
+                low_scale = low_scale + progress * (
+                    progress.new_tensor(
+                        self.frequency_low_late_center
+                        - self.hardcase_frequency_low_late
+                    )
+                    + self.frequency_low_late_half_range * raw[0]
+                )
+                high_early_correction = (
+                    progress.new_tensor(
+                        self.frequency_high_early_center
+                        - self.hardcase_frequency_high_early
+                    )
+                    + self.frequency_high_early_half_range * raw[1]
+                )
+                high_late_correction = (
+                    progress.new_tensor(
+                        self.frequency_high_late_center
+                        - self.hardcase_frequency_high_late
+                    )
+                    + self.frequency_high_late_half_range * raw[2]
+                )
+                high_scale = high_scale + high_early_correction + progress * (
+                    high_late_correction - high_early_correction
+                )
+            else:
+                low_scale = self.hardcase_frequency_low_early + progress * (
+                    self.hardcase_frequency_low_late
+                    - self.hardcase_frequency_low_early
+                )
+                high_scale = self.hardcase_frequency_high_early + progress * (
+                    self.hardcase_frequency_high_late
+                    - self.hardcase_frequency_high_early
+                )
+            low_component = router * low_scale * low
+            high_component = router * high_scale * high
+            routed_delta = low_component + high_component
+            target_out = native_out + routed_delta
+            self._latest_ba_telemetry = {
+                "frequency_low_scale": low_scale.detach().float().mean(),
+                "frequency_high_scale": high_scale.detach().float().mean(),
+                "frequency_low_delta_rms": low.detach().float().square().mean().clamp_min(1e-12).sqrt(),
+                "frequency_high_delta_rms": high.detach().float().square().mean().clamp_min(1e-12).sqrt(),
+                "frequency_merged_native_ratio": (
+                    target_out.detach().float().square().mean().clamp_min(1e-12).sqrt()
+                    / native_out.detach().float().square().mean().clamp_min(1e-12).sqrt()
+                ),
+            }
+            if self.frequency_learnable_schedule_enabled:
+                raw_abs = self.frequency_schedule_raw.detach().float().abs()
+                self._latest_ba_telemetry.update(
+                    frequency_schedule_raw_abs_mean=raw_abs.mean(),
+                    frequency_schedule_raw_abs_max=raw_abs.max(),
+                )
+            if self.frequency_surface_experiment_enabled:
+                surface = self._frequency_surface_loss(
+                    native_out,
+                    low_component,
+                    high_component,
+                    routed_delta,
+                )
+                self._latest_ba_telemetry.update(
+                    frequency_surface_top_high_rms=surface["top_high_rms"],
+                    frequency_surface_top_low_rms=surface["top_low_rms"],
+                    frequency_surface_visible_ratio=surface["visible_ratio"],
+                    frequency_surface_applied_fraction=surface["applied_fraction"],
+                )
+            self._capture_lowband_contrastive(
+                attn, reference, q, router, reference_out
+            )
+            return self._finish_full_router(
+                attn, residual, target_out, reference, input_ndim, spatial
+            )
+
         if mode == "semantic_ownership":
             p_occluder = self._ownership_probability(
                 target, native_out, reference_out

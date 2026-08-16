@@ -1,0 +1,94 @@
+blueprint:
+  status: design_only_non_runnable
+  priority: 3
+  proposed_config: CL23_cosmic_temporal_frequency_router_24k
+  proposed_run: CL23_cosmic_temporal_frequency_router_24k_full96_r1
+  control_run: CL19_cosmic_true_soft_fullquery_router_24k_full96_r1
+  control_comet_key: cfeda7b55c174b3c83e8d40537ebb6dd
+  single_delta: >-
+    Decompose CL19's reference-minus-native SA message into low/high spatial
+    frequency bands and apply a fixed monotone timestep schedule: native owns
+    early layout; reference identity is strongest in late detail.
+  rationale: >-
+    Early denoising determines layout and layer order, whereas late denoising
+    carries identity texture. CL19 currently applies the same branch relation
+    across the trajectory and frequency spectrum.
+
+hydra_child:
+  defaults:
+    - CL19_cosmic_true_soft_fullquery_router_24k
+    - _self_
+  model:
+    ba_temporal_frequency_enabled: true
+    ba_temporal_frequency_groups:
+      - down_blocks.0
+      - down_blocks.1
+      - down_blocks.2
+      - mid_block
+      - up_blocks.0
+      - up_blocks.1
+      - up_blocks.2
+    ba_temporal_frequency_blur_kernel: 5
+    ba_temporal_frequency_blur_sigma: 1.0
+    ba_temporal_frequency_schedule: cosine_snr
+    ba_temporal_frequency_transition_snr: 1.0
+    ba_temporal_frequency_low_scale_early: 0.50
+    ba_temporal_frequency_low_scale_late: 0.85
+    ba_temporal_frequency_high_scale_early: 0.75
+    ba_temporal_frequency_high_scale_late: 1.25
+    ba_temporal_frequency_reference_floor: 0.50
+  pipeline:
+    pose_adapt_ratio: 0.0
+    ca_mixing_for_face: false
+  expected_trainable_contract:
+    enabled: true
+    total_tensors: 2240
+    total_parameters: 219217920
+
+router_equations:
+  delta: d = reference_message - native_message
+  split: d_low = gaussian_blur(d); d_high = d - d_low
+  merge: output = native + CL19_router * (g_low(t) * d_low + g_high(t) * d_high)
+  invariant: >-
+    No extra trainable branch is introduced and reference contribution never
+    falls below 0.50. At all scales equal to one the implementation must be
+    numerically equivalent to CL19.
+
+implementation:
+  code_delta: >-
+    Add a deterministic, FP32-scaled split/merge immediately after CL19 forms
+    native and reference messages. Use normalized diffusion progress/SNR from
+    the existing processor state. Do not frequency-filter target hidden states,
+    Q, K, or V separately.
+  modify:
+    - src/model/photomaker_branched/attn_processor_cleanest.py
+    - src/model/photomaker_branched/branched_runtime.py
+    - src/model/photomaker_branched/lora2.py
+  startup_gates:
+    - all-one scales reproduce CL19 within the configured numerical tolerance
+    - low plus high reconstructs the original delta before scaling
+    - early and late scale telemetry matches the closed-form schedule
+    - trainable ownership stays exactly 2240 tensors and 219217920 parameters
+
+telemetry_required:
+  - ba/frequency/low_scale
+  - ba/frequency/high_scale
+  - ba/frequency/low_delta_rms
+  - ba/frequency/high_delta_rms
+  - ba/frequency/merged_native_ratio
+
+serv_plan:
+  gpus: 1
+  accelerator: A100
+  optimizer_steps: 24000
+  epoch_len: 2000
+  validation_interval_steps: 2000
+
+promotion_gate:
+  primary: >-
+    Positive paired ID delta over CL19 and fewer Skiing/Crying boundary failures,
+    with no broad prompt, pose, or face-quality loss.
+  reject_if: >-
+    The schedule merely suppresses the reference branch, as shown by wrong-ID
+    causality or reference-shuffle diagnostics approaching the native output.
+

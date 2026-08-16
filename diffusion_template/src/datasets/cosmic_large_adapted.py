@@ -672,13 +672,15 @@ class CosmicLargeAdaptedTrain(BaseDataset):
             f"{resolved_reference_path}::{policy_descriptor}::"
             f"hflip={int(reference_flipped)}"
         )
+        identity_extra_images = [self._open(extra["path"]) for extra in identity_extra]
+        identity_reference_bboxes = [deepcopy(reference_bbox)] + [
+            deepcopy(extra["bbox"]) for extra in identity_extra
+        ]
         instance_data = {
             "pixel_values": target,
             "face_bbox": target_bbox,
             "bbox": deepcopy(target_bbox),
-            "ref_images": [reference] + [
-                self._open(extra["path"]) for extra in identity_extra
-            ],
+            "ref_images": [reference] + identity_extra_images,
             "face_bbox_ref": reference_bbox,
             "prompts": prompt,
             "prompt": prompt,
@@ -690,6 +692,8 @@ class CosmicLargeAdaptedTrain(BaseDataset):
             "reference_path": resolved_reference_path,
             "reference_cache_key": cache_key,
         }
+        if self.num_identity_refs > 1:
+            instance_data["identity_face_bboxes_ref"] = identity_reference_bboxes
         if self.semantic_occlusion_probability > 0.0:
             instance_data["ba_occluder_mask"] = occluder_mask[None]
         if self.same_identity_dual_reference:

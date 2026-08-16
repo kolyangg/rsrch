@@ -87,8 +87,32 @@ def patch_unet_attention_processors(
         raise RuntimeError("Hard and residual identity CA cannot both be enabled")
 
     hardcase_mode = str(getattr(pipeline, "ba_hardcase_mode", "off") or "off").lower()
+    hardcase_fallback_mode = str(
+        getattr(pipeline, "ba_hardcase_fallback_mode", "off") or "off"
+    ).lower()
     hardcase_groups = tuple(
         str(group) for group in (getattr(pipeline, "ba_hardcase_groups", None) or ())
+    )
+    frequency_surface_enabled = bool(
+        getattr(pipeline, "ba_frequency_surface_loss_enabled", False)
+    )
+    frequency_surface_groups = tuple(
+        str(group)
+        for group in (
+            getattr(pipeline, "ba_frequency_surface_loss_groups", None) or ()
+        )
+    )
+    frequency_learnable_schedule_enabled = bool(
+        getattr(pipeline, "ba_frequency_learnable_schedule_enabled", False)
+    )
+    frequency_lowband_contrastive_enabled = bool(
+        getattr(pipeline, "ba_frequency_lowband_contrastive_enabled", False)
+    )
+    frequency_lowband_contrastive_groups = tuple(
+        str(group)
+        for group in (
+            getattr(pipeline, "ba_frequency_lowband_contrastive_groups", None) or ()
+        )
     )
 
     if configured_architecture_version is None:
@@ -244,7 +268,7 @@ def patch_unet_attention_processors(
             expected_mode = (
                 hardcase_mode
                 if any(name.startswith(f"{group}.") for group in hardcase_groups)
-                else "off"
+                else hardcase_fallback_mode
             )
             if processor.hardcase_mode != expected_mode:
                 mismatched_hardcase_routes.append(
@@ -256,6 +280,34 @@ def patch_unet_attention_processors(
             raise RuntimeError(
                 "Installed hard-case processor map does not match configuration: "
                 f"{mismatched_hardcase_routes[:5]}"
+            )
+        mismatched_frequency_extensions = []
+        for name, processor in current_procs.items():
+            if type(processor) is not HardReplaceBranchedAttnProcessor:
+                continue
+            expected_surface = frequency_surface_enabled and any(
+                name.startswith(f"{group}.") for group in frequency_surface_groups
+            )
+            expected_contrastive = frequency_lowband_contrastive_enabled and any(
+                name.startswith(f"{group}.")
+                for group in frequency_lowband_contrastive_groups
+            )
+            actual = (
+                bool(processor.frequency_surface_loss_enabled),
+                bool(processor.frequency_learnable_schedule_enabled),
+                bool(processor.frequency_lowband_contrastive_enabled),
+            )
+            expected = (
+                expected_surface,
+                frequency_learnable_schedule_enabled,
+                expected_contrastive,
+            )
+            if actual != expected:
+                mismatched_frequency_extensions.append((name, actual, expected))
+        if mismatched_frequency_extensions:
+            raise RuntimeError(
+                "Installed temporal-frequency extension map does not match "
+                f"configuration: {mismatched_frequency_extensions[:5]}"
             )
 
     def _resolve_attn_module(unet, proc_name):
@@ -304,6 +356,16 @@ def patch_unet_attention_processors(
         if hasattr(proc, "set_ownership_target_mask"):
             proc.set_ownership_target_mask(
                 getattr(pipe, "_ba_ownership_target_mask", None)
+            )
+        if hasattr(proc, "set_lowband_contrastive"):
+            mode = (
+                getattr(pipe, "_ba_lowband_capture_mode", "off")
+                if bool(getattr(proc, "frequency_lowband_contrastive_enabled", False))
+                else "off"
+            )
+            proc.set_lowband_contrastive(
+                mode,
+                getattr(pipe, "_ba_lowband_negative_permutation", None),
             )
         if hasattr(proc, "set_mix_override"):
             proc.set_mix_override(getattr(pipe, "ba_mix_override", None))
@@ -694,7 +756,7 @@ def patch_unet_attention_processors(
                                     name.startswith(f"{group}.")
                                     for group in hardcase_groups
                                 )
-                                else "off"
+                                else hardcase_fallback_mode
                             ),
                             hardcase_rank=int(
                                 getattr(pipeline, "ba_hardcase_rank", 64)
@@ -732,6 +794,107 @@ def patch_unet_attention_processors(
                                     "ba_hardcase_visible_face_floor",
                                     0.20,
                                 )
+                            ),
+                            hardcase_top_native_floor=float(
+                                getattr(pipeline, "ba_hardcase_top_native_floor", 0.95)
+                            ),
+                            hardcase_frequency_low_early=float(
+                                getattr(pipeline, "ba_hardcase_frequency_low_early", 0.50)
+                            ),
+                            hardcase_frequency_low_late=float(
+                                getattr(pipeline, "ba_hardcase_frequency_low_late", 0.85)
+                            ),
+                            hardcase_frequency_high_early=float(
+                                getattr(pipeline, "ba_hardcase_frequency_high_early", 0.75)
+                            ),
+                            hardcase_frequency_high_late=float(
+                                getattr(pipeline, "ba_hardcase_frequency_high_late", 1.25)
+                            ),
+                            frequency_surface_experiment_enabled=frequency_surface_enabled,
+                            frequency_surface_loss_enabled=(
+                                frequency_surface_enabled
+                                and any(
+                                    name.startswith(f"{group}.")
+                                    for group in frequency_surface_groups
+                                )
+                            ),
+                            frequency_surface_top_low_band_factor=float(
+                                getattr(
+                                    pipeline,
+                                    "ba_frequency_surface_top_low_band_factor",
+                                    0.25,
+                                )
+                            ),
+                            frequency_surface_visible_floor_ratio=float(
+                                getattr(
+                                    pipeline,
+                                    "ba_frequency_surface_visible_floor_ratio",
+                                    0.35,
+                                )
+                            ),
+                            frequency_learnable_schedule_enabled=(
+                                frequency_learnable_schedule_enabled
+                            ),
+                            frequency_low_late_center=float(
+                                getattr(
+                                    pipeline,
+                                    "ba_frequency_low_late_center",
+                                    0.85,
+                                )
+                            ),
+                            frequency_low_late_half_range=float(
+                                getattr(
+                                    pipeline,
+                                    "ba_frequency_low_late_half_range",
+                                    0.15,
+                                )
+                            ),
+                            frequency_high_early_center=float(
+                                getattr(
+                                    pipeline,
+                                    "ba_frequency_high_early_center",
+                                    0.75,
+                                )
+                            ),
+                            frequency_high_early_half_range=float(
+                                getattr(
+                                    pipeline,
+                                    "ba_frequency_high_early_half_range",
+                                    0.15,
+                                )
+                            ),
+                            frequency_high_late_center=float(
+                                getattr(
+                                    pipeline,
+                                    "ba_frequency_high_late_center",
+                                    1.25,
+                                )
+                            ),
+                            frequency_high_late_half_range=float(
+                                getattr(
+                                    pipeline,
+                                    "ba_frequency_high_late_half_range",
+                                    0.15,
+                                )
+                            ),
+                            frequency_lowband_contrastive_enabled=(
+                                frequency_lowband_contrastive_enabled
+                                and any(
+                                    name.startswith(f"{group}.")
+                                    for group in frequency_lowband_contrastive_groups
+                                )
+                            ),
+                            hardcase_roi_gate_init=float(
+                                getattr(pipeline, "ba_hardcase_roi_gate_init", 0.10)
+                            ),
+                            hardcase_roi_gate_min=float(
+                                getattr(pipeline, "ba_hardcase_roi_gate_min", 0.05)
+                            ),
+                            hardcase_roi_progress_min=float(
+                                getattr(pipeline, "ba_hardcase_roi_progress_min", 0.60)
+                            ),
+                            hardcase_roi_rms_cap=float(
+                                getattr(pipeline, "ba_hardcase_roi_rms_cap", 0.25)
                             ),
                         )
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))

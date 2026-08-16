@@ -1,6 +1,6 @@
 # Current project handoff
 
-**Last updated:** 12 August 2026
+**Last updated:** 16 August 2026
 
 **Repository:** `/home/kolyangg/rsrch_apr_test`
 
@@ -43,6 +43,64 @@ base, scheduler, inference steps, CFG, or metrics silently. Exact
 comparability is part of correctness.
 
 ## Executive state
+
+### CL15-CL20 final results and CL19 next architecture plan - completed, 13 August 2026
+
+The audited report
+`analysis/2026-08-13_cl15_cl20_results_cl19_next_architecture.md` supersedes
+the earlier unmatched CL19/CL20 snapshot and the provisional 11 August CL15-
+CL20 ranking. A fresh immutable-key Comet export contains exact, table-sealed
+96-image 24k panels for CL14 through CL20 and step 0 for controlled PhotoMaker,
+with no exporter errors:
+
+- CL15 `d57604dc77334e0f9874ddd049e85a17`: ID `0.451067`;
+- CL16 `7b71eb3dbb3a492e8fa9bb0d87343c28`: ID `0.453810`;
+- CL17 `e05ce586c9364678a8370a774773341c`: ID `0.439219`;
+- CL18 `f6530436bf22472c9fb7731d1696c5ab`: ID `0.451972`;
+- CL19 `cfeda7b55c174b3c83e8d40537ebb6dd`: ID `0.506823`, text
+  `26.370605`, mask IoU `0.914185`, peak ID `0.507105 @22k`;
+- CL20 `b05488e2cce94476acc92bcaa21d7362`: ID `0.450064`;
+- controlled PhotoMaker `74efd227d3f8488a98e83d815c77c07c`: ID
+  `0.556580`.
+
+CL19 is the only CL15-CL20 arm with a clear positive paired ID delta over
+CL14: `+0.050707`, `74/96` wins, cell-bootstrap interval
+`[+0.03730,+0.06464]`. It still trails controlled PhotoMaker by `-0.049757`,
+wins `18/96`, interval `[-0.06483,-0.03531]`, and has lower face-quality
+means. CL19 improves all twelve prompt means over CL14; Crying improves most
+(`+0.0935`) and is largely visually repaired. Skiing remains the main
+visibility-topology failure: one-reviewer inspection records CL19 as four
+passes, one minor, and three clear failures versus eight PhotoMaker passes.
+Future review must reject goggle/hand deletion as a fake identity improvement.
+
+Read-only final-checkpoint inspection changes the interpretation of the failed
+arms. CL15's ROI scale averaged about `0.00218`, CL16's clean-memory scale
+about `0.00167`, and CL17 learned its synthetic ownership labels while its
+routed effect stayed below `0.85%` of native. These runs do not prove that
+their mechanisms are intrinsically useless; they prove that zero-retreat
+gates/auxiliary labels can be optimized without materially controlling the
+denoiser. New learned branches require a centered or floored contribution and
+per-group `RMS(delta)/RMS(native)` telemetry.
+
+The priority-ordered independent CL19 arms are now: (1) corrected bounded
+residual identity-token CA v3; (2) explicit top-object/visible-face/background
+visibility-order routing; (3) temporal-frequency routing of CL19's
+reference-minus-native message; (4) sparse controlled-PhotoMaker boundary
+distillation; (5) a four-step low-noise ArcFace reward continuation anchored
+to frozen CL19; and (6) CL15's high-resolution ROI with a guaranteed active
+gate. Design-only, non-runnable YAMLs and implementation gates are under
+`analysis/blueprints/2026-08-13_cl19_next_six/`. Generic BigCelebs mixing is
+not prioritized: CL20 and the historical BigCelebs arms are negative/neutral
+for identity. No new training job was submitted for this report.
+
+An additional immutable-key refresh found a complete interim 10k panel for
+the corrected active `CL14_CA_optimized_r11`, key
+`fafd7a61b06c4114b9dec2c21d29ca38`: ID `0.445238` versus matched CL14
+`0.423661`, delta `+0.021577`, `58/96` wins, cell-bootstrap interval
+`[+0.00800,+0.03521]`. This strengthens the first CL19-based CA experiment but
+is not a final endpoint; full face-quality aggregates were not yet present at
+the export cutoff. Recheck its immutable record before implementing or
+launching CL21.
 
 ### PM0 / CL14 / CL19 / CL20 visual comparison snapshot — 12 August 2026
 
@@ -3054,3 +3112,265 @@ because the correction intentionally changes both generation conditioning and
 the scoring target. `pose_adapt_ratio=0` and `ca_mixing_for_face=false` remain
 fixed. Full details are in
 `analysis/2026-08-13_CL14_CA_training_throughput_optimization.md`.
+
+### CL21-CL26 CL19 follow-ups: implementation and Serv training startup — 13 August 2026
+
+The six priority experiments from the CL15-CL20/CL19 follow-up report are now
+implemented as localized, defaults-off additions over CL19. The configs are
+`src/configs/CL21_cosmic_true_soft_router_resididca_v3_24k.yaml` through
+`src/configs/CL26_cosmic_anchored_highres_roi_ba_24k.yaml`; the fail-closed
+launcher is `launchers/active/run_CL21_CL26_cl19_followups_1gpu.sh`, and
+`tools/validate_CL21_CL26_config.py` locks the fixed 96-image validation,
+optimizer-step budgets, trainable ownership, `pose_adapt_ratio=0`, and
+`ca_mixing_for_face=false`.
+
+The one-delta arms are: CL21 rank-64 bounded residual identity CA at up0/up1;
+CL22 three-state top-object/visible-face/background visibility routing with
+deterministic synthetic supervision; CL23 deterministic denoising-progress
+low/high-frequency routing; CL24 training-only native-PhotoMaker boundary
+distillation; CL25 a 4k weights-only CL19 continuation with sparse low-noise
+ArcFace three-reference-centroid reward plus a frozen CL19 prediction anchor;
+and CL26 a late bounded 32x32 small-face ROI residual added over the CL19 soft
+router. The exact trainable contracts are respectively
+`2348/224624676`, `2384/224652396`, `2240/219217920`,
+`2240/219217920`, `2240/219217920`, and `2276/219217956`
+(tensors/parameters). CL25 pins CL19 `weights-epoch12.pth` at SHA-256
+`707cff809414414c0c85e6fcdf52845d3655284a68d54ecb0d657236634492d5`.
+
+The active scientific run ledger at the requested monitoring terminal is:
+
+- CL21 r2: job `lm-mpi-job-fba7a7ca-ce8f-4b65-a7e5-f139cb3187af`, Comet
+  `6670db89c44a489388b8f09b91423b0d`, observed through training batch 104;
+- CL22 r2: job `lm-mpi-job-84855e01-da1a-4066-b2b3-e71d4904f66e`, Comet
+  `b181feb6c54644e69fb7e8709a59f32e`, observed through batch 185;
+- CL23 r1: job `lm-mpi-job-f9160c9d-2b18-401d-844c-1e1116f17c3e`, Comet
+  `a9ec9c59d1624c68acb98737dcd65298`, observed through batch 300;
+- CL24 r1: job `lm-mpi-job-caae3dad-99ab-40ac-80f2-6ebb106f813a`, Comet
+  `a18e22ae9f0e4a24b6252f6b392fab62`, observed through batch 428;
+- CL25 r2: job `lm-mpi-job-893096da-e633-40cc-9a28-cde68fd4e813`, Comet
+  `120b72df8134474ca094e6162d085eb0`, observed through batch 268;
+- CL26 r3: job `lm-mpi-job-e07a2b02-6f5b-4ad8-bf80-e1f36c24cd4b`, Comet
+  `e9c0a9b505f041a68a183ca3cb4ca0af`, observed through batch 9.
+
+All six completed the canonical step-zero manual-val-96 run, entered training,
+and produced finite losses without a post-validation traceback. Monitoring
+then stopped as requested. Six project A100s were active, within the explicit
+ten-GPU exception for this submission set.
+
+Retain the superseded records as non-scientific startup evidence. CL21 r1
+failed before validation on an old one-argument ID-token-mask setter; CL22 r1
+and CL26 r1 failed before validation on inherited optimizer category labels;
+CL25 r1 failed before validation on a defaults-off strict-manifest field; and
+CL26 r2 exposed an fp32-gated ROI residual rejoining a bf16 UNet on its first
+validation batch. The replacements change no scientific YAML setting. CL21
+r2 seals the compatible two-argument setter. CL26 r3 casts the bounded
+residual back to the UNet activation dtype and passed a focused bf16 Serv
+processor smoke before submission. Sealed replacement source revisions are
+`cl19-cfeda7b5+cl21-cl26-20260813-r2-identity-mask-fix` and
+`cl19-cfeda7b5+cl21-cl26-20260813-r3-activation-dtype-fix`.
+
+One submission-loop output interruption also created duplicate CL24/CL25/CL26
+requests. The CL25/CL26 duplicates were killed immediately; the CL24 duplicate
+failed closed on its non-empty output directory. Peak requested capacity was
+nine A100s, below the authorized ten, and the final scientific set is the six
+runs above.
+
+Serv NFS had only about 25 GB free at launch and 19 GB at the monitoring stop.
+The historical every-epoch
+checkpoint semantics were deliberately not changed, so six complete runs can
+outgrow that space. Before their first 2k checkpoint boundary, inspect storage
+and obtain explicit approval for any old-run cleanup or checkpoint-retention
+change; do not silently delete data or change checkpoint comparability.
+
+### Serv checkpoint-retention cleanup — 13 August 2026
+
+The user approved the exact policy “keep the newest full checkpoint and newest
+weights-only file in every finished/inactive run directory.” The sealed local
+manifest is
+`analysis/2026-08-13_serv_checkpoint_deletion_manifest_keep_last_full_and_weights.md`;
+its canonical deletion-list SHA-256 is
+`a6bc07d632d0a75a16194746616381479ff505ba42566525ae7411485c8f9cfa`.
+
+A fail-closed guard at
+`tools/storage/guarded_delete_pth_list.sh` was deployed read-only-equivalent to
+Serv as `nasilaev/tmp/guarded_delete_pth_list_20260813.sh` (SHA-256
+`c6de32a40f630bb04ae8cf34c0d2ee626d8e32fe39aaae6f2492e3072a5f8838`).
+It rejects any candidate outside `nasilaev/`, any non-`.pth`, symlink,
+non-regular/missing file, size mismatch, duplicate, count/byte-total mismatch,
+or list-hash mismatch. A deliberate non-`.pth` input exited `64`; the sealed
+list then passed a complete dry run before execution.
+
+The guard deleted exactly `2,149` approved `.pth` files with logical size
+`1,145,599,523,788` bytes and reported `GUARD_DELETE_OK`. Post-delete checks
+found zero listed candidates remaining and exactly `120` inactive run
+directories retaining `239` endpoint files / `113,501,316,764` bytes. Every
+directory has exactly one full checkpoint and at most one weights-only file;
+the one documented historical run never had a weights-only endpoint. No
+validation images or non-`.pth` files were deleted.
+
+All eight CL14_CA and CL21-CL26 scientific roots were excluded; their MLS jobs
+were rechecked as Running immediately before deletion. NFS available space
+rose from `12,477,792,256` bytes immediately before cleanup to
+`1,153,820,524,544` bytes after reclamation, a net observed increase of
+`1,141,342,732,288` bytes while active jobs continued writing. Recheck live
+state rather than treating this free-space figure as permanent.
+
+### CL21–CL26 interim result and CL23 successor decision — 14 August 2026
+
+The current-results report is
+`analysis/2026-08-14_cl21_cl26_current_results_cl23_fairness_and_next_experiments.md`.
+Its reproducible Comet snapshot and hard-case sheets are under
+`analysis/assets/cl21_cl26_20260814_current/`; the evidence cutoff is 11:34 UTC
+on 14 August 2026. CL21, CL22, CL23, CL24, and CL26 were still running; CL25
+had completed its intended 4k continuation. Treat later complete validation
+gates as new evidence.
+
+CL23 (`a9ec9c59d1624c68acb98737dcd65298`) is the only CL21–CL26 arm with a
+clear persistent matched-step ID gain over CL19. Its current peak is
+`0.525002` at 10k. The newly complete 12k gate is `0.518674`, versus matched
+CL19 `0.480898`: paired delta `+0.037776`, 73/96 wins, 95% bootstrap interval
+`[+0.026193,+0.049563]`. CL23 12k also exceeds CL19 24k by `+0.011851`, but
+remains below controlled PhotoMaker step zero (`0.556580`) by `-0.037906`.
+Text softens to `26.2713` at 12k, about `0.200` below matched CL19, so the 10k
+ID peak is not evidence of monotonic improvement.
+
+The latest one-reviewer hard-case rubric marks CL23 12k Skiing as 5 pass / 1
+minor / 2 fail and Crying as 8 / 0 / 0. Skiing mean ID is `0.367513`, below
+CL19 final `0.379294` and PhotoMaker `0.464005`; Jisoo and Lex remain the clear
+topology failures. Crying is visually resolved on this fixed seed, but its
+mean `0.546830` remains below both final CL19 and PhotoMaker.
+
+CL23 is a fair cold-start PhotoMaker+BA arm, not a checkpoint leak:
+`trainer.from_pretrained`, `trainer.resume_from`, and `saved_checkpoint` are
+all null; branched SA is enabled, branched CA disabled, pose adaptation is
+zero, and CA face mixing is false. Its high step zero comes from a deterministic
+temporal-frequency merge of nonzero reference-minus-native messages whose base
+projections clone the effective PhotoMaker/U-Net weights while branch LoRA B
+starts at zero. The absolute score is not BA-only because the generic and
+PhotoMaker-default adapters are intentionally co-trained as in CL19. No held-
+out native-endpoint/zero-spatial/shuffled-spatial panel exists yet, so causal
+attribution of the learned gain to spatial BA remains provisional. Run that
+four-arm fixed-96 diagnostic before a promotion claim.
+
+The three priority successors are design-only under
+`analysis/blueprints/2026-08-14_cl23_next_three/` and must not be submitted
+until implemented, validated, and packaged:
+
+1. CL27: a training-only top-object versus visible-face routed-frequency
+   energy loss; exact CL23 inference and ownership.
+2. CL28: zero-initialized bounded per-processor corrections to three CL23
+   schedule endpoints; predicted ownership `2310/219218130`, to be rederived
+   and pinned after implementation.
+3. CL29: same-ID positive versus wrong-ID negative contrastive supervision on
+   low-band reference messages with detached auxiliary target Q; no ArcFace or
+   final-prediction consistency.
+
+All three must cold-start for 24k on Cosmic, preserve the fixed manual-val-96
+contract and CL23 routing invariants, and change exactly one scientific
+mechanism. Do not repeat CL22's direct dense ownership router, CL24's boundary
+epsilon distillation, or CL25's global/decoded ArcFace reward. Keep BigCelebs
+out of these mechanism arms; CL20 is current negative evidence for generic
+mixing, and a curated hard-case data arm belongs only after a Cosmic mechanism
+passes.
+
+### CL27–CL29 implementation, corrected reruns, and live Serv state — 14 August 2026
+
+The three CL23 successors are now implemented behind explicit defaults-off
+toggles, with configs at `src/configs/CL27_cosmic_frequency_surface_energy_24k.yaml`
+through `CL29_cosmic_lowband_causal_contrastive_24k.yaml`. The shared fail-closed
+launcher is `launchers/active/run_CL27_CL29_cl23_followups_1gpu.sh`; the config
+gate is `tools/validate_CL27_CL29_config.py`. All retain the cold 24k Cosmic
+contract, manual-val-96 step zero/every 2k, batch 2, DDIM50,
+`pose_adapt_ratio=0`, and `ca_mixing_for_face=false`.
+
+CL27 adds the training-only top-object/high-frequency suppression and
+visible-face energy-floor objective at up0/up1, plus 0.25 deterministic
+semantic-occlusion sampling. CL28 adds three zero-initialized bounded schedule
+corrections per installed SA processor; low-early remains fixed at 0.50 and
+step zero is exactly CL23. CL29 adds a sampled branch-local low-band InfoNCE
+using a distinct same-ID spatial positive, an in-batch wrong-ID negative, and
+a detached target-query anchor. Exact trainable contracts are respectively
+`2240/219217920`, `2310/219218130`, and `2240/219217920`
+(tensors/parameters).
+
+Retain all superseded attempts as startup evidence. CL27 r1 and CL29 r1 failed
+before the first validation image because the alternate RealVis pipeline did
+not mirror the new processor-extension map. CL28 r1 failed the exact ownership
+category gate. CL27 r2 then showed that alternate-base validation keeps modules
+in train mode under `no_grad()`; its training-only surface loss incorrectly
+requested an ownership mask. CL28 r2 also retained the old validation map.
+CL28 r3 completed all 96 step-zero images but failed before its first optimizer
+batch because `writer.loss_names` requested nonexistent SDXL attention groups
+`down0` and `up2` (`KeyError: ba/frequency_low_scale/down0`). CL29 r2 was not a
+runtime failure: its sole submission attempt was rejected by the Serv
+allocation gate before job creation.
+
+The corrected shared source revision is
+`cl28-cl29-training-transition-fix-20260814-v5`. CL28 now logs only the five
+installed SDXL attention groups (`down1`, `down2`, `mid`, `up0`, `up1`), and
+the validator pins that exact set. CL29's sampled dual-reference auxiliary now
+requires both `self.training` and `torch.is_grad_enabled()`, so alternate-base
+validation cannot enter the training-only path merely because modules retain
+train mode. The validation pipeline mirrors all three extension maps.
+
+Current immutable scientific records at the live monitoring point are:
+
+- CL27 r3: Serv `lm-mpi-job-6af73e51-e281-4356-adde-767f15cc7607`, Comet
+  `dbfbf40c3bdd4f70bedc58bda3dfb9cd`; step-zero full96 completed and training
+  was observed through optimizer batch 28 with finite progress.
+- CL28 r4: Serv `lm-mpi-job-6681ed16-1d71-4175-a5a0-fca7b3a1b632`, Comet
+  `3d8aca3b4cbb4ddc9338f14952c5bd0e`; exact ownership gates and step-zero
+  full96 completed, then training was observed through optimizer batch 18 at
+  approximately 7.1 seconds per iteration with no telemetry error.
+- CL29 r3: Serv `lm-mpi-job-4977ec3e-aab0-4793-9330-116e721801f5`, Comet
+  `2981820837564d01b1cefbf52c4dabd0`; exact gates and the 64/64 alternate-ref
+  dataset preflight passed; step-zero full96 completed after a slow but
+  non-failing model-load phase, then training was observed through optimizer
+  batch 27 at approximately 7.1 seconds per iteration.
+
+The user explicitly authorized up to ten A100s for CL27–CL29. The two corrected
+reruns were submitted in priority order after a live project count of six;
+both were accepted, bringing the conservative project request count to eight.
+Monitoring stopped after all three scientific runs completed step-zero full96
+and multiple finite training batches. Recheck live MLS state rather than
+treating the resource snapshot as permanent.
+
+### CL14–CL29 training-throughput diagnosis and optimization plan — 16 August 2026
+
+The audited plan is
+`analysis/2026-08-16_cl14_cl29_training_throughput_optimization_plan.md`.
+Warmed cross-epoch Serv stderr medians are CL14 `2.19 s/it`, CL19 `3.94`,
+CL23 `5.50`, CL26 `6.12`, CL27 `7.23`, CL28 `7.02`, and CL29 `7.37`; the
+latest arms are `2.79x–3.37x` slower than CL14. CL14 and CL26 are complete;
+CL27–CL29 were still running at the 16 August 12:25 Europe/London evidence
+cutoff. No training job was launched and no training implementation was
+changed for the diagnosis.
+
+The highest-priority common regression is an every-step post-backward
+`_record_active_gradient_norms()` pass introduced in the CL19 source era. It
+casts, squares, and reduces all `219,217,920` trainable gradients even though
+CL19/CL23/CL26–CL29 do not request the `active_grad_norm_*` metrics and
+`max_grad_norm=null`. The exact CL14 clean-port source has no such pass. Other
+definite costs are CL26's discarded `_call_legacy()` result before rebuilding
+its CL19 baseline; CL27's Python `bool(eligible.any())` CUDA synchronization at
+each of 36 up0/up1 processors; CL23+ full-fp32 5x5 Gaussian filtering and
+uncadenced full-activation telemetry at all 70 BA processors; and CL29's GPU
+`.item()` sampling, unconditional alternate-reference loading, and sampled
+second branched U-Net forward.
+
+Treat seconds recovered per item as unmeasured until matched CUDA-event and
+profiler speed smokes run. Implement the four pipeline-neutral P0 changes
+behind explicit compatibility toggles: skip unrequested active-gradient
+metrics, remove CL26's dead baseline, tensorize CL27 eligibility without host
+sync, and separate loss state from telemetry while preserving historical
+metric definitions. Keep the fixed manual-val-96 contract, seeds, prompts,
+references, boxes, DDIM50, batch 2, trainable ownership,
+`pose_adapt_ratio=0`, and `ca_mixing_for_face=false` unchanged.
+
+Source provenance must not be reduced to a false single commit. CL14's Git
+ancestor is `c04970f342a186d1092f07f9a08d7d8a797383e8` plus the sealed
+`cl12-cl14-snapshot-v1-20260809` overlay; CL19's is
+`ad194a026ab701dd979712d415c487dd536a4645` plus the sealed 11 August
+overlay. CL23 and later revision labels are not Git SHAs; their exact source is
+the per-file SHA-256 manifest. Future runtime packaging should record Git HEAD
+and dirty-overlay identity in addition to the existing manifest.

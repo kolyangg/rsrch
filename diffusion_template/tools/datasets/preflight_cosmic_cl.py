@@ -184,7 +184,8 @@ def main() -> None:
             )
     elif arm in (
         "CL9", "CL10", "CL11", "CL12", "CL13", "CL14",
-        "CL15", "CL16", "CL17", "CL18", "CL19",
+        "CL15", "CL16", "CL17", "CL18", "CL19", "CL21", "CL22",
+        "CL23", "CL24", "CL25", "CL26", "CL27", "CL28", "CL29",
     ):
         if ref_sizes != {(1024, 1024)}:
             failures.append(f"{arm} canvases must be 1024x1024, saw {ref_sizes}")
@@ -234,7 +235,7 @@ def main() -> None:
             )
 
     # CL5 must emit the extra identity references while leaving the spatial lane alone.
-    if arm in ("CL5", "CL11", "CL12"):
+    if arm in ("CL5", "CL11", "CL12", "CL25"):
         expected_refs = int(dataset_config.get("num_identity_refs", 1) or 1)
         counts = {len(dataset[i]["ref_images"]) for i in picks[:8]}
         report["reference_images_per_sample"] = sorted(counts)
@@ -243,16 +244,18 @@ def main() -> None:
                 f"CL5 expects {expected_refs} reference images per sample, saw {sorted(counts)}"
             )
 
-    if arm == "CL17":
+    if arm in {"CL17", "CL22", "CL24", "CL27"}:
         report["synthetic_occluder_fraction"] = supervised_occluders / len(picks)
         if not 0.10 <= report["synthetic_occluder_fraction"] <= 0.40:
             failures.append(
-                "CL17 sampled synthetic-occluder fraction is outside [0.10, 0.40]"
+                f"{arm} sampled synthetic-occluder fraction is outside [0.10, 0.40]"
             )
-    if arm == "CL18":
+    if arm in {"CL18", "CL29"}:
         report["alternate_reference_samples"] = alternate_reference_samples
         if alternate_reference_samples != len(picks):
-            failures.append("CL18 did not emit a distinct alternate reference per sample")
+            failures.append(
+                f"{arm} did not emit a distinct alternate reference per sample"
+            )
 
     # CL0 is the deliberately unimproved baseline: uncapped legacy captions are
     # its defining property, so the truncation gate must not apply to it.

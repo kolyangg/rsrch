@@ -1,0 +1,49 @@
+# DESIGN ONLY: reuse CL18 dual-reference plumbing, but not its prediction-consistency loss.
+defaults:
+  - CL23_cosmic_temporal_frequency_router_24k
+  - _self_
+
+model:
+  ba_frequency_lowband_contrastive_enabled: true
+  ba_frequency_lowband_contrastive_groups: [mid_block, up_blocks.0, up_blocks.1]
+  ba_frequency_lowband_contrastive_probability: 0.125
+  ba_frequency_lowband_contrastive_weight: 0.02
+  ba_frequency_lowband_contrastive_temperature: 0.10
+  ba_frequency_lowband_contrastive_ramp_start_step: 2000
+  ba_frequency_lowband_contrastive_ramp_end_step: 6000
+  ba_frequency_lowband_contrastive_detach_target_query: true
+  ba_frequency_lowband_contrastive_negative_mode: in_batch_different_identity
+
+datasets:
+  train:
+    cosmic_large_adapted:
+      same_identity_dual_reference: true
+      min_reference_candidates_for_target: 3
+
+expected_trainable_contract:
+  enabled: true
+  total_tensors: 2240
+  total_parameters: 219217920
+  optimizer_tensors: 2240
+  optimizer_parameters: 219217920
+  categories:
+    branched_sa_r128: {name_substring: ".attn1.processor.", tensors: 840, parameters: 127795200}
+    generic_effective_adapter_r32: {name_substring: ".lora_adapter.", tensors: 700, parameters: 30474240}
+    photomaker_default_effective_adapter_r64: {name_substring: ".default.", tensors: 700, parameters: 60948480}
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_lowband_contrastive
+    - ba/lowband_positive_cosine/all
+    - ba/lowband_wrong_cosine/all
+    - ba/lowband_correct_wrong_margin/all
+    - ba/lowband_contrastive_applied_fraction
+    - ba/lowband_skipped_same_identity_fraction
+  experiment_comment: >-
+    CL29 vs CL23 adds only a branch-local low-frequency contrastive objective:
+    two distinct same-ID spatial references are positives and an in-batch
+    different-ID reference under the same detached target query is the negative.
+    It does not optimize ArcFace or force final predictions to be identical.
+

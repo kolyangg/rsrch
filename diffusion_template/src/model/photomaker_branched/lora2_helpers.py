@@ -5,6 +5,7 @@ from typing import Sequence
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from .branched_runtime import patch_unet_attention_processors, select_branched_processor_names, two_branch_predict
 from .insightface_package import analyze_faces
@@ -178,6 +179,7 @@ def _is_expected_branched_trainable(name: str, context: dict) -> bool:
                 ".attn1.processor.memory_gate_raw",
                 ".attn1.processor.ownership_scale_raw",
                 ".attn1.processor.ownership_mlp.",
+                ".attn1.processor.frequency_schedule_raw",
             )
             expected = any(marker in name for marker in hardcase_markers)
         if not expected and is_selected_proc and any(
@@ -380,16 +382,21 @@ def collect_branched_telemetry(model) -> dict[str, torch.Tensor]:
         getattr(model, "ba_identity_ca_v2_enabled", False)
         or getattr(model, "ba_residual_identity_ca_v3_enabled", False)
     )
+    hardcase_telemetry_enabled = str(
+        getattr(model, "ba_hardcase_mode", "off") or "off"
+    ).lower() in {"visibility_order", "temporal_frequency", "anchored_roi"}
     if architecture_version not in {
         "anchored_mix_sa_v3",
         "query_adaptive_hard_sa_v4",
     } and not (
         architecture_version == "hard_replace_v1" and identity_ca_enabled
+    ) and not (
+        architecture_version == "hard_replace_v1" and hardcase_telemetry_enabled
     ):
         return {}
     processor_names = (
         getattr(model, "_ba_identity_ca_processor_names", ())
-        if architecture_version == "hard_replace_v1"
+        if architecture_version == "hard_replace_v1" and identity_ca_enabled
         else getattr(model, "_ba_patched_processor_names", ())
     )
     grouped: dict[str, list[dict[str, torch.Tensor]]] = {}
@@ -433,6 +440,91 @@ def collect_hardcase_aux_loss(model) -> torch.Tensor | None:
     if not losses:
         return None
     return torch.stack(losses).mean()
+
+
+def collect_frequency_surface_aux_loss(model):
+    """Aggregate CL27's live top-object and visible-floor graphs."""
+    top_losses = []
+    floor_losses = []
+    applied = []
+    for processor_name in getattr(model, "_ba_patched_processor_names", ()):
+        processor = model.unet.attn_processors.get(processor_name)
+        if not bool(getattr(processor, "frequency_surface_loss_enabled", False)):
+            continue
+        getter = getattr(processor, "frequency_surface_aux_loss", None)
+        values = None if getter is None else getter()
+        telemetry_getter = getattr(processor, "latest_ba_telemetry", None)
+        telemetry = None if telemetry_getter is None else telemetry_getter()
+        if telemetry is not None:
+            applied.append(telemetry["frequency_surface_applied_fraction"].float())
+        if values is not None:
+            top, floor = values
+            top_losses.append(top.float())
+            floor_losses.append(floor.float())
+    if not top_losses:
+        return None
+    return (
+        torch.stack(top_losses).mean(),
+        torch.stack(floor_losses).mean(),
+        torch.stack(applied).mean() if applied else top_losses[0].new_tensor(0.0),
+    )
+
+
+def collect_frequency_schedule_anchor_loss(model) -> torch.Tensor | None:
+    """Return the mean squared bounded-endpoint correction for CL28."""
+    losses = []
+    for processor_name in getattr(model, "_ba_patched_processor_names", ()):
+        processor = model.unet.attn_processors.get(processor_name)
+        getter = getattr(processor, "frequency_schedule_anchor_loss", None)
+        value = None if getter is None else getter()
+        if value is not None:
+            losses.append(value.float())
+    return None if not losses else torch.stack(losses).mean()
+
+
+def collect_lowband_contrastive_loss(model, *, temperature: float):
+    """Compute CL29 InfoNCE from processor-local matched-query embeddings."""
+    groups = tuple(getattr(model, "ba_frequency_lowband_contrastive_groups", ()))
+    names = [
+        name
+        for name in getattr(model, "_ba_patched_processor_names", ())
+        if any(name.startswith(f"{group}.") for group in groups)
+    ]
+    if not names:
+        raise RuntimeError("Low-band contrastive groups selected zero processors")
+    losses = []
+    positives = []
+    negatives = []
+    for name in names:
+        processor = model.unet.attn_processors.get(name)
+        getter = getattr(processor, "lowband_contrastive_embeddings", None)
+        values = None if getter is None else getter()
+        if values is None:
+            raise RuntimeError(f"Missing low-band contrastive capture for {name}")
+        anchor, positive, negative = (
+            F.normalize(value.float(), dim=-1) for value in values
+        )
+        positive_cosine = (anchor * positive).sum(dim=-1)
+        negative_cosine = (anchor * negative).sum(dim=-1)
+        logits = torch.stack([positive_cosine, negative_cosine], dim=-1)
+        labels = torch.zeros(logits.shape[0], dtype=torch.long, device=logits.device)
+        losses.append(F.cross_entropy(logits / float(temperature), labels))
+        positives.append(positive_cosine.detach().mean())
+        negatives.append(negative_cosine.detach().mean())
+    positive = torch.stack(positives).mean()
+    negative = torch.stack(negatives).mean()
+    return torch.stack(losses).mean(), {
+        "ba/lowband_positive_cosine/all": positive,
+        "ba/lowband_wrong_cosine/all": negative,
+        "ba/lowband_correct_wrong_margin/all": positive - negative,
+    }
+
+
+def clear_lowband_contrastive_state(model) -> None:
+    for processor_name in getattr(model, "_ba_patched_processor_names", ()):
+        processor = model.unet.attn_processors.get(processor_name)
+        if bool(getattr(processor, "frequency_lowband_contrastive_enabled", False)):
+            processor.set_lowband_contrastive("off")
 
 
 def configure_branched_trainables(model) -> None:

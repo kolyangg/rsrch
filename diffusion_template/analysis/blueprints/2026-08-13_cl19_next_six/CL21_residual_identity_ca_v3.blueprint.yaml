@@ -1,0 +1,86 @@
+blueprint:
+  status: design_only_non_runnable
+  priority: 1
+  proposed_config: CL21_cosmic_true_soft_router_resididca_v3_24k
+  proposed_run: CL21_cosmic_true_soft_router_resididca_v3_24k_full96_r1
+  control_run: CL19_cosmic_true_soft_fullquery_router_24k_full96_r1
+  control_comet_key: cfeda7b55c174b3c83e8d40537ebb6dd
+  single_delta: >-
+    Add corrected bounded residual cross-attention from target queries to the
+    active PhotoMaker identity-token K/V at up0/up1; keep native text and
+    PhotoMaker cross-attention unchanged.
+  rationale: >-
+    This is the lowest-implementation-risk direct identity path. The corrected
+    processor and telemetry already exist for CL14_CA, while historical E12
+    rejects hard replacement rather than this bounded residual design.
+
+hydra_child:
+  defaults:
+    - CL19_cosmic_true_soft_fullquery_router_24k
+    - _self_
+  model:
+    ba_identity_ca_v2_enabled: false
+    ba_residual_identity_ca_v3_enabled: true
+    ba_residual_identity_ca_v3_groups: [up_blocks.0, up_blocks.1]
+    ba_residual_identity_ca_v3_rank: 64
+    ba_residual_identity_ca_v3_gate_init: 0.02
+    ba_residual_identity_ca_v3_gate_max: 0.20
+  disable_branched_ca: true
+  train_branched_ca_lora: false
+  pipeline:
+    pose_adapt_ratio: 0.0
+    ca_mixing_for_face: false
+  expected_trainable_contract:
+    enabled: true
+    total_tensors: 2348
+    total_parameters: 224624676
+    optimizer_tensors: 2348
+    optimizer_parameters: 224624676
+
+telemetry_required:
+  - ba/identity_ca_token_count/up0
+  - ba/identity_ca_token_count/up1
+  - ba/identity_ca_gate/up0
+  - ba/identity_ca_gate/up1
+  - ba/identity_ca_delta_rms/up0
+  - ba/identity_ca_delta_rms/up1
+  - ba/identity_ca_residual_native_ratio/up0
+  - ba/identity_ca_residual_native_ratio/up1
+
+implementation:
+  code_delta: >-
+    Reuse residual_identity_ca_processor_v3.py and the CL14_CA runtime wiring;
+    add only the CL19 child config, exact ownership validator, launcher,
+    experiment JSON, and Serv package. Do not copy the legacy branched CA.
+  inspect_first:
+    - src/model/photomaker_branched/residual_identity_ca_processor_v3.py
+    - src/model/photomaker_branched/branched_runtime.py
+    - src/configs/CL14_CA.yaml
+    - src/configs/CL19_cosmic_true_soft_fullquery_router_24k.yaml
+  startup_gates:
+    - exactly two active PhotoMaker identity tokens per installed group
+    - native CA output is bitwise identical when the residual output projection is zero
+    - gate starts at 0.02 and every residual/native telemetry value is finite
+    - startup ownership is exactly 2348 tensors and 224624676 parameters
+
+serv_plan:
+  gpus: 1
+  accelerator: A100
+  optimizer_steps: 24000
+  epoch_len: 2000
+  validation_interval_steps: 2000
+  submit_after: >-
+    Prefer reading the active CL14_CA result first; do not duplicate a proven
+    harmful mechanism. A safe or positive CL14 result strengthens this arm but
+    is not a substitute for the CL19-controlled test.
+
+promotion_gate:
+  primary: >-
+    Paired full-96 subject-v2 ID improvement over CL19 with a 95% bootstrap
+    interval excluding zero, without lower text similarity, mask IoU, or
+    TOPIQ-Face p10 beyond ordinary run noise.
+  hard_cases: >-
+    No increase in clear Skiing/Crying topology failures and no reduction in
+    required goggles/hand visibility.
+  stretch_target: subject-v2 ID at or above PhotoMaker 0.5565802762
+

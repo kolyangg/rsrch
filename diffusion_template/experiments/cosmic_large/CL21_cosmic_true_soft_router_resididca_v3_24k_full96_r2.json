@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "run_name": "CL21_cosmic_true_soft_router_resididca_v3_24k_full96_r2",
+  "plan": {
+    "status": "training_started",
+    "priority": 1,
+    "machine": "serv",
+    "gpus": 1,
+    "baseline": "CL19_cosmic_true_soft_fullquery_router_24k_full96_r2",
+    "baseline_comet_key": "cfeda7b55c174b3c83e8d40537ebb6dd",
+    "single_scientific_change": "Bounded rank64 residual target-Q/active-PhotoMaker-ID-KV cross-attention at up0/up1.",
+    "config": "src/configs/CL21_cosmic_true_soft_router_resididca_v3_24k.yaml",
+    "launcher": "launchers/active/run_CL21_CL26_cl19_followups_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL21_cosmic_true_soft_router_resididca_v3_24k_full96_r2/run_CL21_cosmic_true_soft_router_resididca_v3_24k_full96_r2_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "fixed_contract": "24k steps, batch 2, fixed manual_val 96 at step 0/every 2k, DDIM50, unchanged prompts/seeds/refs/boxes/metrics, pose_adapt_ratio=0, ca_mixing_for_face=false",
+    "supersedes": "CL21_cosmic_true_soft_router_resididca_v3_24k_full96_r1",
+    "startup_fix": "Seal the current two-argument identity-token mask setter required by residual identity CA; no scientific configuration changed."
+  },
+  "runtime": {
+    "serv_job": "lm-mpi-job-fba7a7ca-ce8f-4b65-a7e5-f139cb3187af",
+    "comet_experiment_key": "6670db89c44a489388b8f09b91423b0d",
+    "monitoring_terminal": "fixed-96 step-0 validation complete; training observed through batch 104"
+  }
+}

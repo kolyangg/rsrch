@@ -1,0 +1,56 @@
+defaults:
+  - CL19_cosmic_true_soft_fullquery_router_24k
+  - _self_
+
+loss_kind: masked_identity_aux
+
+trainer:
+  from_pretrained: ${oc.env:CL25_SOURCE_CHECKPOINT}
+  epoch_len: 2000
+  n_epochs: 2
+  validation_interval_steps: 2000
+
+lr_scheduler:
+  _target_: src.lr_schedulers.lr_schedulers.WarmupHoldCosineLR
+  warmup_steps: 20
+  hold_steps: 2000
+  total_steps: 4000
+  min_factor: 0.1
+
+datasets:
+  train:
+    cosmic_large_adapted:
+      num_identity_refs: 3
+
+model:
+  batched_conditioning_preparation: false
+  identity_aux_enabled: true
+  identity_aux_backend: arcface_torch_v2
+  identity_aux_model_path: ${oc.env:ARCFACE_ONNX_PATH,/home/jovyan/.insightface/models/buffalo_l/w600k_r50.onnx}
+  identity_aux_model_sha256: 4c06341c33c2ca1f86781dab0e829f88ad5b64be9fba56e56bc9ebdefc619e43
+  identity_aux_cadence: 16
+  identity_aux_max_timestep: 300
+  identity_aux_ramp_start_step: 0
+  identity_aux_ramp_end_step: 100
+  identity_aux_max_weight: 0.05
+  identity_aux_crop_padding: 0.25
+  identity_aux_dynamic_weight: true
+  identity_aux_grad_target_ratio: 0.075
+  identity_aux_grad_norm_interval: 200
+  ba_low_noise_id_reward_enabled: true
+  ba_low_noise_id_reward_last_steps: 4
+  ba_low_noise_id_reward_kl_weight: 1.0
+  ba_allow_objective_only_checkpoint_init: true
+
+writer:
+  loss_names:
+    - loss
+    - loss_face
+    - loss_ba_id_reward
+    - loss_ba_id_reward_kl
+    - identity_aux_cosine
+    - identity_aux_applied
+    - identity_aux_weight
+    - identity_aux_weighted
+    - ba/id_reward_trajectory_divergence
+  experiment_comment: CL25 continues immutable CL19-24k for 4k local steps with sparse final-DDIM ArcFace reward and frozen-source trajectory anchoring.

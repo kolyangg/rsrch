@@ -1,0 +1,44 @@
+{
+  "runs": [
+    {
+      "run_id": "74efd227d3f8488a98e83d815c77c07c",
+      "run_name": "PM0_original_photomaker_CL19_full96_r1",
+      "step_number": 0
+    },
+    {
+      "run_id": "6fe0028be92242c38056b3d36665fdd6",
+      "run_name": "CL14_cosmic_joint_shadow_sa128_softmask_24k_full96_r1",
+      "step_number": 24000
+    },
+    {
+      "run_id": "d57604dc77334e0f9874ddd049e85a17",
+      "run_name": "CL15_cosmic_shared_highres_roi_ba_24k_full96_r2",
+      "step_number": 24000
+    },
+    {
+      "run_id": "7b71eb3dbb3a492e8fa9bb0d87343c28",
+      "run_name": "CL16_cosmic_clean_multiscale_ref_memory_24k_full96_r2",
+      "step_number": 24000
+    },
+    {
+      "run_id": "e05ce586c9364678a8370a774773341c",
+      "run_name": "CL17_cosmic_semantic_visibility_ownership_24k_full96_r2",
+      "step_number": 24000
+    },
+    {
+      "run_id": "f6530436bf22472c9fb7731d1696c5ab",
+      "run_name": "CL18_cosmic_crossview_spatial_consistency_24k_full96_r2",
+      "step_number": 24000
+    },
+    {
+      "run_id": "cfeda7b55c174b3c83e8d40537ebb6dd",
+      "run_name": "CL19_cosmic_true_soft_fullquery_router_24k_full96_r2",
+      "step_number": 24000
+    },
+    {
+      "run_id": "b05488e2cce94476acc92bcaa21d7362",
+      "run_name": "CL20_cosmic_bigcelebs_hardcase_curriculum_24k_full96_r2",
+      "step_number": 24000
+    }
+  ]
+}

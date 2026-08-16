@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import copy
 import time
 from typing import Optional, Sequence
 
@@ -29,7 +30,11 @@ from .lora2_helpers import (
     assert_branched_trainable_contract,
     branched_trainable_role_groups,
     collect_branched_telemetry,
+    clear_lowband_contrastive_state,
+    collect_frequency_schedule_anchor_loss,
+    collect_frequency_surface_aux_loss,
     collect_hardcase_aux_loss,
+    collect_lowband_contrastive_loss,
     install_branched_processors_for_training,
     prepare_branched_training_inputs,
     run_branched_forward_pass,
@@ -132,6 +137,7 @@ class PhotomakerBranchedLora(SDXL):
         # 11 Aug 2026 - CL15-CL19 hard-case routes. Defaults preserve CL14.
         ba_hardcase_mode: str = "off",
         ba_hardcase_groups: Optional[Sequence[str]] = None,
+        ba_hardcase_fallback_mode: str = "off",
         ba_hardcase_rank: int = 64,
         ba_hardcase_gate_max: float = 0.20,
         ba_hardcase_roi_size: int = 32,
@@ -139,6 +145,41 @@ class PhotomakerBranchedLora(SDXL):
         ba_hardcase_transition_cells: int = 2,
         ba_hardcase_ownership_hidden_dim: int = 128,
         ba_hardcase_visible_face_floor: float = 0.20,
+        ba_hardcase_top_native_floor: float = 0.95,
+        ba_hardcase_frequency_low_early: float = 0.50,
+        ba_hardcase_frequency_low_late: float = 0.85,
+        ba_hardcase_frequency_high_early: float = 0.75,
+        ba_hardcase_frequency_high_late: float = 1.25,
+        ba_frequency_surface_loss_enabled: bool = False,
+        ba_frequency_surface_loss_groups: Optional[Sequence[str]] = None,
+        ba_frequency_surface_top_weight: float = 0.02,
+        ba_frequency_surface_top_low_band_factor: float = 0.25,
+        ba_frequency_surface_visible_floor_weight: float = 0.005,
+        ba_frequency_surface_visible_floor_ratio: float = 0.35,
+        ba_frequency_learnable_schedule_enabled: bool = False,
+        ba_frequency_learnable_low_early: bool = False,
+        ba_frequency_low_late_center: float = 0.85,
+        ba_frequency_low_late_half_range: float = 0.15,
+        ba_frequency_high_early_center: float = 0.75,
+        ba_frequency_high_early_half_range: float = 0.15,
+        ba_frequency_high_late_center: float = 1.25,
+        ba_frequency_high_late_half_range: float = 0.15,
+        ba_frequency_schedule_anchor_weight: float = 0.0001,
+        ba_frequency_lowband_contrastive_enabled: bool = False,
+        ba_frequency_lowband_contrastive_groups: Optional[Sequence[str]] = None,
+        ba_frequency_lowband_contrastive_probability: float = 0.125,
+        ba_frequency_lowband_contrastive_weight: float = 0.02,
+        ba_frequency_lowband_contrastive_temperature: float = 0.10,
+        ba_frequency_lowband_contrastive_ramp_start_step: int = 2000,
+        ba_frequency_lowband_contrastive_ramp_end_step: int = 6000,
+        ba_frequency_lowband_contrastive_detach_target_query: bool = True,
+        ba_frequency_lowband_contrastive_negative_mode: str = (
+            "in_batch_different_identity"
+        ),
+        ba_hardcase_roi_gate_init: float = 0.10,
+        ba_hardcase_roi_gate_min: float = 0.05,
+        ba_hardcase_roi_progress_min: float = 0.60,
+        ba_hardcase_roi_rms_cap: float = 0.25,
         ba_semantic_ownership_loss_weight: float = 0.05,
         ba_crossview_consistency_enabled: bool = False,
         ba_crossview_consistency_probability: float = 0.25,
@@ -167,6 +208,15 @@ class PhotomakerBranchedLora(SDXL):
         identity_aux_dynamic_weight: bool = False,
         identity_aux_grad_target_ratio: float = 0.075,
         identity_aux_grad_norm_interval: int = 200,
+        ba_pm_boundary_distill_enabled: bool = False,
+        ba_pm_boundary_distill_probability: float = 0.25,
+        ba_pm_boundary_distill_weight: float = 0.05,
+        ba_pm_boundary_distill_top_weight: float = 0.02,
+        ba_pm_boundary_distill_width: int = 2,
+        ba_low_noise_id_reward_enabled: bool = False,
+        ba_low_noise_id_reward_last_steps: int = 4,
+        ba_low_noise_id_reward_kl_weight: float = 1.0,
+        ba_allow_objective_only_checkpoint_init: bool = False,
         ##### BRANCHED ATTENTION - NEW PARAMS 1 #####
     ):
         """NEW PARAMS 1: define BA training controls (strategy, processor variant, ID mixing, and BA-only toggles)."""
@@ -501,6 +551,9 @@ class PhotomakerBranchedLora(SDXL):
             if ba_hardcase_groups is None
             else tuple(str(group) for group in ba_hardcase_groups)
         )
+        self.ba_hardcase_fallback_mode = str(
+            ba_hardcase_fallback_mode or "off"
+        ).lower()
         self.ba_hardcase_rank = int(ba_hardcase_rank)
         self.ba_hardcase_gate_max = float(ba_hardcase_gate_max)
         self.ba_hardcase_roi_size = int(ba_hardcase_roi_size)
@@ -512,6 +565,96 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_hardcase_visible_face_floor = float(
             ba_hardcase_visible_face_floor
         )
+        self.ba_hardcase_top_native_floor = float(ba_hardcase_top_native_floor)
+        self.ba_hardcase_frequency_low_early = float(
+            ba_hardcase_frequency_low_early
+        )
+        self.ba_hardcase_frequency_low_late = float(
+            ba_hardcase_frequency_low_late
+        )
+        self.ba_hardcase_frequency_high_early = float(
+            ba_hardcase_frequency_high_early
+        )
+        self.ba_hardcase_frequency_high_late = float(
+            ba_hardcase_frequency_high_late
+        )
+        self.ba_frequency_surface_loss_enabled = bool(
+            ba_frequency_surface_loss_enabled
+        )
+        self.ba_frequency_surface_loss_groups = tuple(
+            str(group) for group in (ba_frequency_surface_loss_groups or ())
+        )
+        self.ba_frequency_surface_top_weight = float(
+            ba_frequency_surface_top_weight
+        )
+        self.ba_frequency_surface_top_low_band_factor = float(
+            ba_frequency_surface_top_low_band_factor
+        )
+        self.ba_frequency_surface_visible_floor_weight = float(
+            ba_frequency_surface_visible_floor_weight
+        )
+        self.ba_frequency_surface_visible_floor_ratio = float(
+            ba_frequency_surface_visible_floor_ratio
+        )
+        self.ba_frequency_learnable_schedule_enabled = bool(
+            ba_frequency_learnable_schedule_enabled
+        )
+        self.ba_frequency_learnable_low_early = bool(
+            ba_frequency_learnable_low_early
+        )
+        self.ba_frequency_low_late_center = float(ba_frequency_low_late_center)
+        self.ba_frequency_low_late_half_range = float(
+            ba_frequency_low_late_half_range
+        )
+        self.ba_frequency_high_early_center = float(
+            ba_frequency_high_early_center
+        )
+        self.ba_frequency_high_early_half_range = float(
+            ba_frequency_high_early_half_range
+        )
+        self.ba_frequency_high_late_center = float(
+            ba_frequency_high_late_center
+        )
+        self.ba_frequency_high_late_half_range = float(
+            ba_frequency_high_late_half_range
+        )
+        self.ba_frequency_schedule_anchor_weight = float(
+            ba_frequency_schedule_anchor_weight
+        )
+        self.ba_frequency_lowband_contrastive_enabled = bool(
+            ba_frequency_lowband_contrastive_enabled
+        )
+        self.ba_frequency_lowband_contrastive_groups = tuple(
+            str(group)
+            for group in (ba_frequency_lowband_contrastive_groups or ())
+        )
+        self.ba_frequency_lowband_contrastive_probability = float(
+            ba_frequency_lowband_contrastive_probability
+        )
+        self.ba_frequency_lowband_contrastive_weight = float(
+            ba_frequency_lowband_contrastive_weight
+        )
+        self.ba_frequency_lowband_contrastive_temperature = float(
+            ba_frequency_lowband_contrastive_temperature
+        )
+        self.ba_frequency_lowband_contrastive_ramp_start_step = int(
+            ba_frequency_lowband_contrastive_ramp_start_step
+        )
+        self.ba_frequency_lowband_contrastive_ramp_end_step = int(
+            ba_frequency_lowband_contrastive_ramp_end_step
+        )
+        self.ba_frequency_lowband_contrastive_detach_target_query = bool(
+            ba_frequency_lowband_contrastive_detach_target_query
+        )
+        self.ba_frequency_lowband_contrastive_negative_mode = str(
+            ba_frequency_lowband_contrastive_negative_mode
+        ).lower()
+        self._ba_lowband_capture_mode = "off"
+        self._ba_lowband_negative_permutation = None
+        self.ba_hardcase_roi_gate_init = float(ba_hardcase_roi_gate_init)
+        self.ba_hardcase_roi_gate_min = float(ba_hardcase_roi_gate_min)
+        self.ba_hardcase_roi_progress_min = float(ba_hardcase_roi_progress_min)
+        self.ba_hardcase_roi_rms_cap = float(ba_hardcase_roi_rms_cap)
         self.ba_semantic_ownership_loss_weight = float(
             ba_semantic_ownership_loss_weight
         )
@@ -521,10 +664,24 @@ class PhotomakerBranchedLora(SDXL):
             "clean_memory",
             "semantic_ownership",
             "soft_router",
+            "visibility_order",
+            "temporal_frequency",
+            "anchored_roi",
         }
         if self.ba_hardcase_mode not in allowed_hardcase_modes:
             raise ValueError(
                 f"ba_hardcase_mode must be one of {sorted(allowed_hardcase_modes)}"
+            )
+        if self.ba_hardcase_fallback_mode not in {"off", "soft_router"}:
+            raise ValueError(
+                "ba_hardcase_fallback_mode must be 'off' or 'soft_router'"
+            )
+        if self.ba_hardcase_fallback_mode != "off" and (
+            self.ba_hardcase_mode not in {"visibility_order", "anchored_roi"}
+            or self.ba_hardcase_mode == self.ba_hardcase_fallback_mode
+        ):
+            raise ValueError(
+                "A non-off fallback is only valid for CL19-derived specialized routes"
             )
         if self.ba_hardcase_mode != "off" and not all(
             (
@@ -553,8 +710,71 @@ class PhotomakerBranchedLora(SDXL):
             raise ValueError("ba_hardcase_gate_max must be in (0, 1]")
         if not 0.0 <= self.ba_hardcase_visible_face_floor <= 1.0:
             raise ValueError("ba_hardcase_visible_face_floor must be in [0, 1]")
+        if not 0.0 < self.ba_hardcase_top_native_floor <= 1.0:
+            raise ValueError("ba_hardcase_top_native_floor must be in (0, 1]")
+        if not (
+            0.0 < self.ba_hardcase_roi_gate_min
+            < self.ba_hardcase_roi_gate_init
+            < self.ba_hardcase_gate_max
+        ):
+            raise ValueError("Anchored ROI gate bounds must satisfy min < init < max")
         if self.ba_semantic_ownership_loss_weight < 0.0:
             raise ValueError("ba_semantic_ownership_loss_weight must be non-negative")
+        hardcase_group_set = set(self.ba_hardcase_groups or ())
+        if self.ba_frequency_surface_loss_enabled:
+            if not (
+                self.ba_hardcase_mode == "temporal_frequency"
+                and self.ba_frequency_surface_loss_groups
+                and set(self.ba_frequency_surface_loss_groups) <= hardcase_group_set
+                and self.ba_frequency_surface_top_weight > 0.0
+                and self.ba_frequency_surface_visible_floor_weight > 0.0
+                and 0.0
+                <= self.ba_frequency_surface_top_low_band_factor
+                <= 1.0
+                and 0.0 < self.ba_frequency_surface_visible_floor_ratio < 1.0
+            ):
+                raise ValueError("Invalid frequency-surface loss configuration")
+        if self.ba_frequency_learnable_schedule_enabled:
+            if not (
+                self.ba_hardcase_mode == "temporal_frequency"
+                and not self.ba_frequency_learnable_low_early
+                and min(
+                    self.ba_frequency_low_late_half_range,
+                    self.ba_frequency_high_early_half_range,
+                    self.ba_frequency_high_late_half_range,
+                )
+                > 0.0
+                and min(
+                    self.ba_frequency_low_late_center
+                    - self.ba_frequency_low_late_half_range,
+                    self.ba_frequency_high_early_center
+                    - self.ba_frequency_high_early_half_range,
+                    self.ba_frequency_high_late_center
+                    - self.ba_frequency_high_late_half_range,
+                )
+                >= 0.50
+                and self.ba_frequency_schedule_anchor_weight >= 0.0
+            ):
+                raise ValueError("Invalid learnable frequency schedule configuration")
+        if self.ba_frequency_lowband_contrastive_enabled:
+            if not (
+                self.ba_hardcase_mode == "temporal_frequency"
+                and self.ba_frequency_lowband_contrastive_groups
+                and set(self.ba_frequency_lowband_contrastive_groups)
+                <= hardcase_group_set
+                and 0.0
+                < self.ba_frequency_lowband_contrastive_probability
+                <= 1.0
+                and self.ba_frequency_lowband_contrastive_weight > 0.0
+                and self.ba_frequency_lowband_contrastive_temperature > 0.0
+                and 0
+                <= self.ba_frequency_lowband_contrastive_ramp_start_step
+                < self.ba_frequency_lowband_contrastive_ramp_end_step
+                and self.ba_frequency_lowband_contrastive_detach_target_query
+                and self.ba_frequency_lowband_contrastive_negative_mode
+                == "in_batch_different_identity"
+            ):
+                raise ValueError("Invalid low-band contrastive configuration")
         self.ba_crossview_consistency_enabled = bool(
             ba_crossview_consistency_enabled
         )
@@ -571,6 +791,11 @@ class PhotomakerBranchedLora(SDXL):
             and not self.ca_mixing_for_face
         ):
             raise ValueError("Invalid cross-view BA consistency configuration")
+        if (
+            self.ba_crossview_consistency_enabled
+            and self.ba_frequency_lowband_contrastive_enabled
+        ):
+            raise ValueError("CL29 cannot also enable final-prediction consistency")
         self.ba_hard_v1_reference_roi_warp = bool(
             ba_hard_v1_reference_roi_warp
         )
@@ -728,6 +953,44 @@ class PhotomakerBranchedLora(SDXL):
                 self.identity_aux_model_path,
                 expected_sha256=self.identity_aux_model_sha256,
             )
+        self.ba_pm_boundary_distill_enabled = bool(ba_pm_boundary_distill_enabled)
+        self.ba_pm_boundary_distill_probability = float(
+            ba_pm_boundary_distill_probability
+        )
+        self.ba_pm_boundary_distill_weight = float(ba_pm_boundary_distill_weight)
+        self.ba_pm_boundary_distill_top_weight = float(
+            ba_pm_boundary_distill_top_weight
+        )
+        self.ba_pm_boundary_distill_width = int(ba_pm_boundary_distill_width)
+        if self.ba_pm_boundary_distill_enabled and not (
+            0.0 < self.ba_pm_boundary_distill_probability <= 1.0
+            and self.ba_pm_boundary_distill_weight > 0.0
+            and self.ba_pm_boundary_distill_top_weight >= 0.0
+            and self.ba_pm_boundary_distill_width > 0
+        ):
+            raise ValueError("Invalid PhotoMaker boundary-distillation controls")
+        self.ba_low_noise_id_reward_enabled = bool(
+            ba_low_noise_id_reward_enabled
+        )
+        self.ba_low_noise_id_reward_last_steps = int(
+            ba_low_noise_id_reward_last_steps
+        )
+        self.ba_low_noise_id_reward_kl_weight = float(
+            ba_low_noise_id_reward_kl_weight
+        )
+        self.ba_allow_objective_only_checkpoint_init = bool(
+            ba_allow_objective_only_checkpoint_init
+        )
+        if self.ba_low_noise_id_reward_enabled and not (
+            self.identity_aux_enabled
+            and self.identity_aux_backend == "arcface_torch_v2"
+            and self.ba_low_noise_id_reward_last_steps > 0
+            and self.ba_low_noise_id_reward_kl_weight > 0.0
+            and self.ba_allow_objective_only_checkpoint_init
+        ):
+            raise ValueError("Low-noise ID reward requires ArcFace, KL anchor, and explicit checkpoint init")
+        self._ba_frozen_teacher_unet = None
+        self._ba_frozen_teacher_original_processors = None
         if self.ba_architecture_version != "hard_replace_v1" and any(
             (
                 self.ba_enforce_reference_only_hard_route,
@@ -1157,7 +1420,7 @@ class PhotomakerBranchedLora(SDXL):
                     "legacy_branched_ca": False,
                 }
             if self.ba_hardcase_mode != "off":
-                hard_v1_extensions["hardcase_route"] = {
+                hardcase_route = {
                     "mode": self.ba_hardcase_mode,
                     "groups": list(self.ba_hardcase_groups or ()),
                     "rank": int(self.ba_hardcase_rank),
@@ -1179,6 +1442,82 @@ class PhotomakerBranchedLora(SDXL):
                         self.ba_semantic_ownership_loss_weight
                     ),
                 }
+                if self.ba_hardcase_fallback_mode != "off":
+                    hardcase_route["fallback_mode"] = self.ba_hardcase_fallback_mode
+                if self.ba_hardcase_mode == "visibility_order":
+                    hardcase_route["top_native_floor"] = float(
+                        self.ba_hardcase_top_native_floor
+                    )
+                if self.ba_hardcase_mode == "temporal_frequency":
+                    hardcase_route["frequency_scales"] = [
+                        float(self.ba_hardcase_frequency_low_early),
+                        float(self.ba_hardcase_frequency_low_late),
+                        float(self.ba_hardcase_frequency_high_early),
+                        float(self.ba_hardcase_frequency_high_late),
+                    ]
+                    if self.ba_frequency_surface_loss_enabled:
+                        hardcase_route["frequency_surface_loss"] = {
+                            "groups": list(self.ba_frequency_surface_loss_groups),
+                            "top_weight": self.ba_frequency_surface_top_weight,
+                            "top_low_band_factor": (
+                                self.ba_frequency_surface_top_low_band_factor
+                            ),
+                            "visible_floor_weight": (
+                                self.ba_frequency_surface_visible_floor_weight
+                            ),
+                            "visible_floor_ratio": (
+                                self.ba_frequency_surface_visible_floor_ratio
+                            ),
+                        }
+                    if self.ba_frequency_learnable_schedule_enabled:
+                        hardcase_route["learnable_frequency_schedule"] = {
+                            "low_early_fixed": self.ba_hardcase_frequency_low_early,
+                            "low_late": [
+                                self.ba_frequency_low_late_center,
+                                self.ba_frequency_low_late_half_range,
+                            ],
+                            "high_early": [
+                                self.ba_frequency_high_early_center,
+                                self.ba_frequency_high_early_half_range,
+                            ],
+                            "high_late": [
+                                self.ba_frequency_high_late_center,
+                                self.ba_frequency_high_late_half_range,
+                            ],
+                            "anchor_weight": self.ba_frequency_schedule_anchor_weight,
+                        }
+                    if self.ba_frequency_lowband_contrastive_enabled:
+                        hardcase_route["lowband_contrastive"] = {
+                            "groups": list(
+                                self.ba_frequency_lowband_contrastive_groups
+                            ),
+                            "probability": (
+                                self.ba_frequency_lowband_contrastive_probability
+                            ),
+                            "weight": self.ba_frequency_lowband_contrastive_weight,
+                            "temperature": (
+                                self.ba_frequency_lowband_contrastive_temperature
+                            ),
+                            "ramp_steps": [
+                                self.ba_frequency_lowband_contrastive_ramp_start_step,
+                                self.ba_frequency_lowband_contrastive_ramp_end_step,
+                            ],
+                            "negative": "in_batch_different_identity",
+                            "target_query_detached": True,
+                        }
+                if self.ba_hardcase_mode == "anchored_roi":
+                    hardcase_route["roi_gate"] = [
+                        float(self.ba_hardcase_roi_gate_min),
+                        float(self.ba_hardcase_roi_gate_init),
+                        float(self.ba_hardcase_gate_max),
+                    ]
+                    hardcase_route["roi_progress_min"] = float(
+                        self.ba_hardcase_roi_progress_min
+                    )
+                    hardcase_route["roi_rms_cap"] = float(
+                        self.ba_hardcase_roi_rms_cap
+                    )
+                hard_v1_extensions["hardcase_route"] = hardcase_route
             if self.ba_crossview_consistency_enabled:
                 hard_v1_extensions["crossview_consistency"] = {
                     "probability": float(
@@ -1221,6 +1560,20 @@ class PhotomakerBranchedLora(SDXL):
                     "grad_target_ratio": self.identity_aux_grad_target_ratio,
                     "grad_norm_interval": self.identity_aux_grad_norm_interval,
                 }
+        if self.ba_pm_boundary_distill_enabled:
+            manifest["pm_boundary_distillation"] = {
+                "probability": self.ba_pm_boundary_distill_probability,
+                "boundary_weight": self.ba_pm_boundary_distill_weight,
+                "top_weight": self.ba_pm_boundary_distill_top_weight,
+                "width": self.ba_pm_boundary_distill_width,
+                "teacher": "frozen_step0_native_photomaker",
+            }
+        if self.ba_low_noise_id_reward_enabled:
+            manifest["low_noise_id_reward"] = {
+                "last_ddim_steps": self.ba_low_noise_id_reward_last_steps,
+                "trajectory_anchor_weight": self.ba_low_noise_id_reward_kl_weight,
+                "source": "frozen_loaded_cl19",
+            }
         if self.ba_architecture_version == "anchored_mix_sa_v3":
             manifest.update(
                 {
@@ -1324,7 +1677,23 @@ class PhotomakerBranchedLora(SDXL):
             )
         saved_manifest = state_dict.get("architecture")
         current_manifest = self._branched_architecture_manifest()
-        if saved_manifest != current_manifest:
+        manifests_match = saved_manifest == current_manifest
+        if (
+            not manifests_match
+            and self.ba_allow_objective_only_checkpoint_init
+            and isinstance(saved_manifest, dict)
+        ):
+            # 13 Aug 2026 - CL25 is a weights-only continuation from CL19.
+            # Permit only training-objective metadata to differ; routing,
+            # tensor names/shapes, validation semantics, and ownership remain
+            # protected by the complete residual manifest comparison below.
+            saved_comparable = dict(saved_manifest)
+            current_comparable = dict(current_manifest)
+            for key in ("identity_auxiliary", "low_noise_id_reward"):
+                saved_comparable.pop(key, None)
+                current_comparable.pop(key, None)
+            manifests_match = saved_comparable == current_comparable
+        if not manifests_match:
             raise RuntimeError(
                 "Branched checkpoint architecture mismatch: "
                 f"saved={saved_manifest!r}, current={current_manifest!r}"
@@ -1355,6 +1724,16 @@ class PhotomakerBranchedLora(SDXL):
                         f"saved={tuple(value.shape)}, current={tuple(parameter.shape)}"
                     )
                 parameter.copy_(value.to(device=parameter.device, dtype=parameter.dtype))
+        if self.ba_low_noise_id_reward_enabled:
+            frozen = {
+                name: copy.deepcopy(processor)
+                for name, processor in self.unet.attn_processors.items()
+            }
+            for processor in frozen.values():
+                if isinstance(processor, torch.nn.Module):
+                    processor.requires_grad_(False)
+                    processor.eval()
+            self._ba_frozen_teacher_unet = frozen
         self.assert_trainable_contract()
 
     def load_state_dict_(self, state_dict):
@@ -1384,6 +1763,18 @@ class PhotomakerBranchedLora(SDXL):
         device: torch.device,
     ) -> torch.Tensor:
         num_train_timesteps = int(self.noise_scheduler.config.num_train_timesteps)
+        if (
+            self.ba_low_noise_id_reward_enabled
+            and int(getattr(self, "_ba_current_global_step", -1))
+            % self.identity_aux_cadence == 0
+        ):
+            scheduler = DDIMScheduler.from_config(self.noise_scheduler.config)
+            scheduler.set_timesteps(self.num_inference_steps, device=device)
+            active = scheduler.timesteps[-self.ba_low_noise_id_reward_last_steps :]
+            if active.numel() != self.ba_low_noise_id_reward_last_steps:
+                raise RuntimeError("Low-noise reward DDIM suffix is incomplete")
+            indices = torch.randint(0, active.numel(), (batch_size,), device=device)
+            return active.index_select(0, indices).long()
         if self.ba_training_timestep_policy == "uniform_all":
             # Preserve the exact historical scalar-per-batch behavior.
             scalar = torch.randint(
@@ -1419,6 +1810,133 @@ class PhotomakerBranchedLora(SDXL):
             device=device,
         )
         return active.index_select(0, indices).long()
+
+    def _swap_unet_processors(self, processors) -> None:
+        """Install a processor map without allowing Diffusers to consume it."""
+        self.unet.set_attn_processor(dict(processors))
+
+    def _frozen_cl19_prediction(
+        self,
+        *,
+        noisy_latents,
+        timesteps,
+        prompt_embeds,
+        added_cond_kwargs,
+        mask4,
+        mask4_ref,
+        reference_latents,
+        face_prompt_embeds,
+        class_tokens_mask,
+        id_features,
+    ):
+        current = dict(self.unet.attn_processors)
+        if self._ba_frozen_teacher_unet is None:
+            frozen = {name: copy.deepcopy(proc) for name, proc in current.items()}
+            for processor in frozen.values():
+                if isinstance(processor, torch.nn.Module):
+                    processor.requires_grad_(False)
+                    processor.eval()
+            # Training-only snapshot; deliberately outside the module tree so
+            # the anchor cannot enter optimizer or checkpoint ownership.
+            self._ba_frozen_teacher_unet = frozen
+        previous_suppression = bool(getattr(self, "_ba_suppress_telemetry", False))
+        self._ba_suppress_telemetry = True
+        try:
+            self._swap_unet_processors(self._ba_frozen_teacher_unet)
+            with torch.no_grad():
+                return run_branched_forward_pass(
+                    self,
+                    noisy_latents=noisy_latents,
+                    timesteps=timesteps,
+                    prompt_embeds=prompt_embeds,
+                    added_cond_kwargs=added_cond_kwargs,
+                    mask4=mask4,
+                    mask4_ref=mask4_ref,
+                    reference_latents=reference_latents,
+                    face_prompt_embeds=face_prompt_embeds,
+                    class_tokens_mask=class_tokens_mask,
+                    id_features=id_features,
+                    reference_noise=getattr(self, "_ref_noise", None),
+                ).detach()
+        finally:
+            self._swap_unet_processors(current)
+            self._ba_suppress_telemetry = previous_suppression
+
+    def _native_photomaker_prediction(
+        self,
+        *,
+        noisy_latents,
+        timesteps,
+        prompt_embeds,
+        added_cond_kwargs,
+    ):
+        original = getattr(self, "_original_attn_processors", None)
+        if not original:
+            raise RuntimeError("Native PhotoMaker teacher processors were not retained")
+        current = dict(self.unet.attn_processors)
+        try:
+            self._swap_unet_processors(original)
+            with torch.no_grad():
+                return self.unet(
+                    noisy_latents,
+                    timesteps,
+                    encoder_hidden_states=prompt_embeds,
+                    added_cond_kwargs=added_cond_kwargs,
+                    return_dict=False,
+                )[0].detach()
+        finally:
+            self._swap_unet_processors(current)
+
+    def _pm_boundary_distillation(
+        self,
+        *,
+        student,
+        noisy_latents,
+        timesteps,
+        prompt_embeds,
+        added_cond_kwargs,
+        face_mask,
+    ):
+        zero = student.float().new_tensor(0.0)
+        top = getattr(self, "_ba_ownership_target_mask", None)
+        if (
+            not self.training
+            or not self.ba_pm_boundary_distill_enabled
+            or top is None
+            or float(top.detach().sum()) <= 0.0
+            or torch.rand((), device=student.device).item()
+            >= self.ba_pm_boundary_distill_probability
+        ):
+            return zero, zero, zero, zero, zero
+        top = F.interpolate(top.float(), size=student.shape[-2:], mode="nearest")
+        face = F.interpolate(face_mask.float(), size=student.shape[-2:], mode="nearest")
+        top = top.clamp(0.0, 1.0) * (F.max_pool2d(face, 3, 1, 1) > 0).float()
+        width = self.ba_pm_boundary_distill_width
+        kernel = 2 * width + 1
+        dilated = F.max_pool2d(top, kernel, 1, width)
+        eroded = 1.0 - F.max_pool2d(1.0 - top, kernel, 1, width)
+        boundary = (dilated - eroded).clamp(0.0, 1.0) * face
+        teacher = self._native_photomaker_prediction(
+            noisy_latents=noisy_latents,
+            timesteps=timesteps,
+            prompt_embeds=prompt_embeds,
+            added_cond_kwargs=added_cond_kwargs,
+        )
+        charbonnier = ((student.float() - teacher.float()).square() + 1.0e-6).sqrt()
+
+        def masked_mean(mask):
+            return (charbonnier * mask).sum() / (
+                mask.sum() * charbonnier.shape[1]
+            ).clamp_min(1.0)
+
+        boundary_loss = masked_mean(boundary)
+        top_loss = masked_mean(top)
+        weighted = (
+            self.ba_pm_boundary_distill_weight * boundary_loss
+            + self.ba_pm_boundary_distill_top_weight * top_loss
+        )
+        divergence = ((student.float() - teacher.float()).square().mean()).sqrt()
+        return weighted, boundary_loss, top_loss, boundary.mean(), divergence
 
     @staticmethod
     def _reference_prediction_delta_ratio(
@@ -1642,6 +2160,7 @@ class PhotomakerBranchedLora(SDXL):
         face_bbox: Sequence[Sequence[float]],
         ref_images: Sequence[Sequence[Image.Image]],
         face_bbox_ref: Sequence[Sequence[float]] | None,
+        identity_face_bboxes_ref: Sequence[Sequence[Sequence[float]]] | None,
         global_step: int,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         zero = noise_pred.float().new_tensor(0.0)
@@ -1689,14 +2208,25 @@ class PhotomakerBranchedLora(SDXL):
             refs = [refs]
         if not refs:
             raise RuntimeError("ArcFace identity auxiliary received no reference image")
-        reference_rgb = self._pil_to_normalized_rgb(
-            refs[0],
-            device=decoded.device,
+        reference_boxes = (
+            identity_face_bboxes_ref[index]
+            if identity_face_bboxes_ref is not None
+            else [face_bbox_ref[index]]
         )
-        reference_face = self._arcface_roi_crop(
-            reference_rgb,
-            face_bbox_ref[index],
-        )
+        if len(reference_boxes) != len(refs):
+            raise RuntimeError(
+                "ArcFace centroid requires one bbox per distinct reference: "
+                f"refs={len(refs)}, boxes={len(reference_boxes)}"
+            )
+        reference_faces = []
+        for reference_image, reference_box in zip(refs, reference_boxes):
+            reference_rgb = self._pil_to_normalized_rgb(
+                reference_image,
+                device=decoded.device,
+            )
+            reference_faces.append(
+                self._arcface_roi_crop(reference_rgb, reference_box)
+            )
         target_face = self._arcface_roi_crop(
             pixel_values[index : index + 1].float(),
             face_bbox[index],
@@ -1708,10 +2238,8 @@ class PhotomakerBranchedLora(SDXL):
         with torch.no_grad():
             target_raw = self.identity_aux_recognizer(
                 torch.cat(
-                    [
-                        target_face.float().clamp(-1.0, 1.0),
-                        reference_face.float().clamp(-1.0, 1.0),
-                    ],
+                    [target_face.float().clamp(-1.0, 1.0)]
+                    + [face.float().clamp(-1.0, 1.0) for face in reference_faces],
                     dim=0,
                 )
             )
@@ -1750,6 +2278,7 @@ class PhotomakerBranchedLora(SDXL):
         face_bbox: Sequence[Sequence[float]],
         ref_images: Sequence[Sequence[Image.Image]],
         face_bbox_ref: Sequence[Sequence[float]] | None,
+        identity_face_bboxes_ref: Sequence[Sequence[Sequence[float]]] | None,
         global_step: int,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         zero = noise_pred.float().new_tensor(0.0)
@@ -1762,6 +2291,7 @@ class PhotomakerBranchedLora(SDXL):
                 face_bbox=face_bbox,
                 ref_images=ref_images,
                 face_bbox_ref=face_bbox_ref,
+                identity_face_bboxes_ref=identity_face_bboxes_ref,
                 global_step=global_step,
             )
         loss, weight, applied = self._predicted_x0_photomaker_clip_auxiliary(
@@ -1788,6 +2318,7 @@ class PhotomakerBranchedLora(SDXL):
         crop_top_lefts: Sequence[Sequence[int]],
         face_bbox: Sequence[Sequence[float]],
         face_bbox_ref: Sequence[Sequence[float]] | None = None,
+        identity_face_bboxes_ref: Sequence[Sequence[Sequence[float]]] | None = None,
         reference_cache_key: Sequence[str] | None = None,
         identity_id: Sequence[str] | None = None,
         ba_occluder_mask: Sequence[torch.Tensor] | None = None,
@@ -1800,6 +2331,7 @@ class PhotomakerBranchedLora(SDXL):
     ):
         del do_cfg  # classifier-free guidance is not used during training
 
+        self._ba_current_global_step = int(global_step)
         pixel_values = pixel_values.to(self.device, self.vae.dtype)
         with torch.no_grad(): ### TO CHECK - torch.no_grad() only here now
             latents = self.vae.encode(pixel_values).latent_dist.sample() ### latents are caled model_input in lora v1
@@ -1932,6 +2464,53 @@ class PhotomakerBranchedLora(SDXL):
                 device=self.device, dtype=self.unet.dtype
             )
 
+        lowband_permutation = None
+        lowband_sampled = False
+        lowband_skipped_same_identity = False
+        # 14 Aug 2026 - AICODE-NOTE: alternate-base validation deliberately
+        # keeps modules in train mode under no_grad; CL29's sampled auxiliary
+        # path must remain training-only and must never require dual refs there.
+        if (
+            self.training
+            and torch.is_grad_enabled()
+            and self.ba_frequency_lowband_contrastive_enabled
+        ):
+            if spatial_ref_images_alt is None or face_bbox_ref_alt is None:
+                raise RuntimeError("CL29 requires distinct same-ID alternate references")
+            lowband_sampled = (
+                torch.rand((), device=latents.device).item()
+                < self.ba_frequency_lowband_contrastive_probability
+            )
+            if lowband_sampled and batch_size > 1:
+                if identity_id is None:
+                    raise RuntimeError("CL29 requires identity_id for wrong-ID negatives")
+                identities = (
+                    [str(identity_id)]
+                    if isinstance(identity_id, str)
+                    else [str(value) for value in identity_id]
+                )
+                if len(identities) != batch_size:
+                    raise RuntimeError("CL29 identity_id batch mismatch")
+                for shift in range(1, batch_size):
+                    candidate = torch.roll(
+                        torch.arange(batch_size, device=latents.device),
+                        shifts=shift,
+                    )
+                    if all(
+                        identities[index]
+                        != identities[int(candidate[index].item())]
+                        for index in range(batch_size)
+                    ):
+                        lowband_permutation = candidate
+                        break
+                lowband_skipped_same_identity = lowband_permutation is None
+            elif lowband_sampled:
+                lowband_skipped_same_identity = True
+        self._ba_lowband_capture_mode = (
+            "anchor" if lowband_permutation is not None else "off"
+        )
+        self._ba_lowband_negative_permutation = None
+
         # 09 Aug 2026 - CL13: occasionally take the plain PhotoMaker path so the
         # native route stays a coherent fallback. The branch has never been
         # trained to defer, which is why it paints a full face onto goggles and
@@ -2012,6 +2591,139 @@ class PhotomakerBranchedLora(SDXL):
         hardcase_aux_loss = (
             self.ba_semantic_ownership_loss_weight * ownership_loss
         )
+
+        if self.ba_frequency_surface_loss_enabled:
+            surface = collect_frequency_surface_aux_loss(self)
+            surface_loss = noise_pred.float().new_tensor(0.0)
+            surface_applied = surface_loss
+            if surface is not None:
+                top_loss, floor_loss, surface_applied = surface
+                surface_loss = (
+                    self.ba_frequency_surface_top_weight * top_loss
+                    + self.ba_frequency_surface_visible_floor_weight * floor_loss
+                )
+                hardcase_aux_loss = hardcase_aux_loss + surface_loss
+            ba_telemetry.update(
+                {
+                    "loss_ba_frequency_surface": surface_loss.detach(),
+                    "ba/frequency_surface_applied_fraction": (
+                        surface_applied.detach()
+                    ),
+                }
+            )
+
+        if self.ba_frequency_learnable_schedule_enabled:
+            schedule_anchor = collect_frequency_schedule_anchor_loss(self)
+            if schedule_anchor is None:
+                raise RuntimeError("CL28 schedule parameters were not installed")
+            schedule_weighted = (
+                self.ba_frequency_schedule_anchor_weight * schedule_anchor
+            )
+            hardcase_aux_loss = hardcase_aux_loss + schedule_weighted
+            ba_telemetry["loss_ba_frequency_schedule_anchor"] = (
+                schedule_weighted.detach()
+            )
+
+        lowband_loss = noise_pred.float().new_tensor(0.0)
+        lowband_metrics = {
+            "ba/lowband_positive_cosine/all": lowband_loss,
+            "ba/lowband_wrong_cosine/all": lowband_loss,
+            "ba/lowband_correct_wrong_margin/all": lowband_loss,
+        }
+        if lowband_permutation is not None:
+            alternate_refs = []
+            alternate_masks = []
+            for refs, bbox in zip(spatial_ref_images_alt, face_bbox_ref_alt):
+                refs = refs if isinstance(refs, (list, tuple)) else [refs]
+                if len(refs) != 1:
+                    raise RuntimeError("CL29 requires one alternate spatial reference")
+                ref = refs[0]
+                alternate_refs.append(ref)
+                ref_size = (
+                    tuple(ref.shape[-2:])
+                    if isinstance(ref, torch.Tensor)
+                    else (ref.height, ref.width)
+                )
+                alternate_masks.append(
+                    self._bbox_to_ref_mask(
+                        bbox, noisy_latents.shape[-2:], ref_size
+                    )
+                )
+            alternate_latents = self._encode_reference_latents(
+                alternate_refs, target_shape=noisy_latents.shape[-2:]
+            ).to(dtype=noisy_latents.dtype)
+            alternate_mask4 = torch.cat(alternate_masks, dim=0).to(
+                device=self.device, dtype=noisy_latents.dtype
+            )
+            paired_reference_noise = getattr(self, "_ref_noise", None)
+            if paired_reference_noise is None:
+                raise RuntimeError("CL29 lost paired reference noise")
+            previous_suppression = bool(
+                getattr(self, "_ba_suppress_telemetry", False)
+            )
+            self._ba_suppress_telemetry = True
+            self._ba_lowband_capture_mode = "contrast"
+            self._ba_lowband_negative_permutation = lowband_permutation
+            try:
+                run_branched_forward_pass(
+                    self,
+                    noisy_latents=noisy_latents,
+                    timesteps=timesteps,
+                    prompt_embeds=prompt_embeds,
+                    added_cond_kwargs=added_cond_kwargs,
+                    mask4=mask4,
+                    mask4_ref=alternate_mask4,
+                    reference_latents=alternate_latents,
+                    face_prompt_embeds=face_prompt_embeds,
+                    class_tokens_mask=class_tokens_mask,
+                    id_features=id_features,
+                    reference_noise=paired_reference_noise,
+                )
+                lowband_loss, lowband_metrics = collect_lowband_contrastive_loss(
+                    self,
+                    temperature=self.ba_frequency_lowband_contrastive_temperature,
+                )
+            finally:
+                self._ba_suppress_telemetry = previous_suppression
+                self._ba_lowband_capture_mode = "off"
+                self._ba_lowband_negative_permutation = None
+                clear_lowband_contrastive_state(self)
+            ramp = max(
+                0.0,
+                min(
+                    1.0,
+                    (
+                        int(global_step)
+                        - self.ba_frequency_lowband_contrastive_ramp_start_step
+                    )
+                    / float(
+                        self.ba_frequency_lowband_contrastive_ramp_end_step
+                        - self.ba_frequency_lowband_contrastive_ramp_start_step
+                    ),
+                ),
+            )
+            hardcase_aux_loss = hardcase_aux_loss + (
+                ramp * self.ba_frequency_lowband_contrastive_weight * lowband_loss
+            )
+        elif self.ba_frequency_lowband_contrastive_enabled:
+            self._ba_lowband_capture_mode = "off"
+            self._ba_lowband_negative_permutation = None
+            clear_lowband_contrastive_state(self)
+        if self.ba_frequency_lowband_contrastive_enabled:
+            ba_telemetry.update(lowband_metrics)
+            ba_telemetry.update(
+                {
+                    "loss_ba_lowband_contrastive": lowband_loss.detach(),
+                    "ba/lowband_contrastive_applied_fraction": (
+                        lowband_loss.new_tensor(float(lowband_permutation is not None))
+                    ),
+                    "ba/lowband_skipped_same_identity_fraction": (
+                        lowband_loss.new_tensor(
+                            float(lowband_sampled and lowband_skipped_same_identity)
+                        )
+                    ),
+                }
+            )
 
         crossview_loss = noise_pred.float().new_tensor(0.0)
         if (
@@ -2196,9 +2908,60 @@ class PhotomakerBranchedLora(SDXL):
                 face_bbox=face_bbox,
                 ref_images=ref_images,
                 face_bbox_ref=face_bbox_ref,
+                identity_face_bboxes_ref=identity_face_bboxes_ref,
                 global_step=int(global_step),
             )
         )
+
+        (
+            boundary_weighted,
+            boundary_raw,
+            top_raw,
+            boundary_fraction,
+            boundary_teacher_rms,
+        ) = self._pm_boundary_distillation(
+            student=noise_pred,
+            noisy_latents=noisy_latents,
+            timesteps=timesteps,
+            prompt_embeds=prompt_embeds,
+            added_cond_kwargs=added_cond_kwargs,
+            face_mask=mask4,
+        )
+        hardcase_aux_loss = hardcase_aux_loss + boundary_weighted
+        if self.ba_pm_boundary_distill_enabled:
+            ba_telemetry.update(
+                {
+                    "loss_ba_pm_boundary": boundary_raw.detach(),
+                    "loss_ba_pm_top_object": top_raw.detach(),
+                    "ba/pm_boundary_fraction": boundary_fraction.detach(),
+                    "ba/pm_boundary_teacher_student_rms": boundary_teacher_rms.detach(),
+                }
+            )
+
+        anchor_loss = noise_pred.float().new_tensor(0.0)
+        if self.ba_low_noise_id_reward_enabled:
+            ba_telemetry["ba/id_reward_trajectory_divergence"] = anchor_loss.detach()
+        if (
+            self.training
+            and self.ba_low_noise_id_reward_enabled
+            and float(identity_aux_applied.detach()) > 0.0
+        ):
+            frozen_pred = self._frozen_cl19_prediction(
+                noisy_latents=noisy_latents,
+                timesteps=timesteps,
+                prompt_embeds=prompt_embeds,
+                added_cond_kwargs=added_cond_kwargs,
+                mask4=mask4,
+                mask4_ref=mask4_ref,
+                reference_latents=reference_latents,
+                face_prompt_embeds=face_prompt_embeds,
+                class_tokens_mask=class_tokens_mask,
+                id_features=id_features,
+            )
+            anchor_loss = F.mse_loss(noise_pred.float(), frozen_pred.float())
+            ba_telemetry["ba/id_reward_trajectory_divergence"] = (
+                anchor_loss.detach().sqrt()
+            )
 
         result = {
             'model_pred': noise_pred,
@@ -2210,6 +2973,12 @@ class PhotomakerBranchedLora(SDXL):
             'identity_aux_loss': identity_aux_loss,
             'identity_aux_weight': identity_aux_weight,
             'identity_aux_applied': identity_aux_applied,
+            'ba_anchor_loss': anchor_loss,
+            'ba_anchor_weight': noise_pred.new_tensor(
+                self.ba_low_noise_id_reward_kl_weight
+                if self.ba_low_noise_id_reward_enabled
+                else 0.0
+            ),
             **identity_aux_telemetry,
         }
         # 12 Aug 2026 - Training optimization: defaults-off hard-case plumbing

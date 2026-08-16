@@ -1,0 +1,81 @@
+blueprint:
+  status: design_only_non_runnable
+  priority: 6
+  proposed_config: CL26_cosmic_anchored_highres_roi_ba_24k
+  proposed_run: CL26_cosmic_anchored_highres_roi_ba_24k_full96_r1
+  control_run: CL19_cosmic_true_soft_fullquery_router_24k_full96_r1
+  control_comet_key: cfeda7b55c174b3c83e8d40537ebb6dd
+  single_delta: >-
+    Add CL15's shared-projection 32x32 target-face ROI/reference-ROI residual at
+    up0/up1, but replace the collapsible tanh-zero gate with an anchored
+    non-retreating scale.
+  rationale: >-
+    The CL9 fixed-checkpoint late ROI intervention produced a large, reproducible
+    ID gain. CL15 did not test an active version of the mechanism: its effective
+    gate stayed near 0.002. This arm tests the same idea with guaranteed causal use.
+
+hydra_child:
+  defaults:
+    - CL19_cosmic_true_soft_fullquery_router_24k
+    - _self_
+  model:
+    ba_anchored_roi_enabled: true
+    ba_anchored_roi_groups: [up_blocks.0, up_blocks.1]
+    ba_anchored_roi_size: 32
+    ba_anchored_roi_face_threshold_px: 256
+    ba_anchored_roi_gate_parameterization: anchored_sigmoid
+    ba_anchored_roi_gate_init: 0.10
+    ba_anchored_roi_gate_min: 0.05
+    ba_anchored_roi_gate_max: 0.25
+    ba_anchored_roi_apply_progress_min: 0.60
+    ba_anchored_roi_rms_cap: 0.25
+  pipeline:
+    pose_adapt_ratio: 0.0
+    ca_mixing_for_face: false
+  expected_trainable_contract:
+    enabled: true
+    total_tensors: TO_COMPUTE
+    total_parameters: TO_COMPUTE
+
+implementation:
+  code_delta: >-
+    Version CL15's highres_roi mode rather than editing it. Reuse target ROI Q,
+    reference ROI K/V, and shared projections. Parameterize each gate inside
+    [0.05, 0.25], initialize at 0.10, apply only in the final 40 percent of
+    denoising, and cap residual RMS relative to native ROI RMS.
+  inspect_first:
+    - src/configs/CL15_cosmic_shared_highres_roi_ba_24k.yaml
+    - src/model/photomaker_branched/attn_processor_cleanest.py
+  startup_gates:
+    - disabling the flag reproduces CL19 exactly
+    - configured gate initializes at 0.10 and cannot fall below 0.05
+    - forced wrong-reference ROI changes only the intended face crop
+    - outside-ROI latent output is unchanged before downstream convolution mixing
+    - exact ownership is measured and pinned before launch
+
+telemetry_required:
+  - ba/anchored_roi_eligible_fraction
+  - ba/anchored_roi_gate/up0
+  - ba/anchored_roi_gate/up1
+  - ba/anchored_roi_delta_rms/up0
+  - ba/anchored_roi_delta_rms/up1
+  - ba/anchored_roi_residual_native_ratio/up0
+  - ba/anchored_roi_residual_native_ratio/up1
+
+serv_plan:
+  gpus: 1
+  accelerator: A100
+  optimizer_steps: 24000
+  epoch_len: 2000
+  validation_interval_steps: 2000
+
+promotion_gate:
+  primary: >-
+    Positive full-96 ID delta concentrated in smaller faces without face-quality,
+    mask-IoU, or prompt regression; report results by face size.
+  hard_cases: >-
+    Skiing/Crying topology must not worsen, because the ROI path can otherwise
+    sharpen an incorrectly layered face-object composite.
+  reject_if: >-
+    The routed/native ratio is still effectively null, or identity gains come
+    with copied reference eyewear/hair or boundary artifacts.

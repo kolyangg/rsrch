@@ -373,7 +373,13 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         batch["identity_aux_weighted"] = (
             zero.new_tensor(effective_weight) * identity_raw.detach()
         )
-        batch["loss"] = diffusion + effective_weight * identity_raw
+        anchor = batch.get("ba_anchor_loss", zero)
+        anchor_weight = batch.get("ba_anchor_weight", zero)
+        # 13 Aug 2026 - CL25 calibration may change only the ArcFace weight;
+        # the frozen-source trajectory anchor remains in the optimized graph.
+        batch["loss"] = (
+            diffusion + effective_weight * identity_raw + anchor_weight * anchor
+        )
 
     def _record_active_gradient_norms(self, batch):
         reference = batch["loss"].detach()

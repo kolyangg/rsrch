@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "run_name": "CL29_cosmic_lowband_causal_contrastive_24k_full96_r1",
+  "plan": {
+    "status": "validation_failed_superseded",
+    "priority": 3,
+    "machine": "serv",
+    "gpus": 1,
+    "baseline": "CL23_cosmic_temporal_frequency_router_24k_full96_r1",
+    "baseline_comet_key": "a9ec9c59d1624c68acb98737dcd65298",
+    "single_scientific_change": "Branch-local low-band InfoNCE with distinct same-ID positives and in-batch wrong-ID spatial negatives under cached detached target queries.",
+    "config": "src/configs/CL29_cosmic_lowband_causal_contrastive_24k.yaml",
+    "launcher": "launchers/active/run_CL27_CL29_cl23_followups_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL29_cosmic_lowband_causal_contrastive_24k_full96_r1/run_CL29_cosmic_lowband_causal_contrastive_24k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "fixed_contract": "Cold 24k, batch 2, fixed manual_val 96 at step 0/every 2k, DDIM50, unchanged CL23 validation contract"
+  },
+  "runtime": {
+    "serv_job": "lm-mpi-job-c5b3859f-1914-4e96-85c6-42c3736f090f",
+    "comet_experiment_key": "043e59a5e880477c921e6deddf0201e2",
+    "source_revision": "cl23-a9ec9c59+cl27-cl29-20260814-v1",
+    "failure": "Alternate-base validation pipeline omitted the CL29 extension flags and failed closed before image 0; no training occurred.",
+    "superseded_by": "CL29_cosmic_lowband_causal_contrastive_24k_full96_r2"
+  }
+}

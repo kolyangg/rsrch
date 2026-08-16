@@ -126,6 +126,8 @@ class MetricAlignedMaskedDiffusionLoss(nn.Module):
         identity_aux_timestep=None,
         identity_aux_pred_norm=None,
         identity_aux_target_norm=None,
+        ba_anchor_loss=None,
+        ba_anchor_weight=None,
         **batch,
     ):
         del batch
@@ -139,6 +141,9 @@ class MetricAlignedMaskedDiffusionLoss(nn.Module):
         identity_aux_weight = zero if identity_aux_weight is None else identity_aux_weight
         identity_aux_applied = zero if identity_aux_applied is None else identity_aux_applied
         identity_weighted = identity_aux_weight * identity_aux_loss
+        ba_anchor_loss = zero if ba_anchor_loss is None else ba_anchor_loss
+        ba_anchor_weight = zero if ba_anchor_weight is None else ba_anchor_weight
+        anchor_weighted = ba_anchor_weight * ba_anchor_loss
 
         def detached(value):
             return zero if value is None else value.detach()
@@ -147,7 +152,7 @@ class MetricAlignedMaskedDiffusionLoss(nn.Module):
         # trainer calibrate the frozen ArcFace gradient without changing any
         # historical loss class or optimizer ownership.
         return {
-            "loss": diffusion + identity_weighted,
+            "loss": diffusion + identity_weighted + anchor_weighted,
             "loss_face": diffusion.detach(),
             "loss_identity_aux": identity_aux_loss.detach(),
             "identity_aux_weight": identity_aux_weight.detach(),
@@ -157,6 +162,9 @@ class MetricAlignedMaskedDiffusionLoss(nn.Module):
             "identity_aux_timestep": detached(identity_aux_timestep),
             "identity_aux_pred_norm": detached(identity_aux_pred_norm),
             "identity_aux_target_norm": detached(identity_aux_target_norm),
+            "loss_ba_id_reward": identity_aux_loss.detach(),
+            "loss_ba_id_reward_kl": ba_anchor_loss.detach(),
+            "ba_id_reward_kl_weight": ba_anchor_weight.detach(),
             "_loss_diffusion_graph": diffusion,
             "_loss_identity_raw_graph": identity_aux_loss,
         }

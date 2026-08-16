@@ -1,0 +1,92 @@
+blueprint:
+  status: design_only_non_runnable
+  priority: 4
+  proposed_config: CL24_cosmic_pm_boundary_distill_24k
+  proposed_run: CL24_cosmic_pm_boundary_distill_24k_full96_r1
+  control_run: CL19_cosmic_true_soft_fullquery_router_24k_full96_r1
+  control_comet_key: cfeda7b55c174b3c83e8d40537ebb6dd
+  teacher_comet_key: 74efd227d3f8488a98e83d815c77c07c
+  single_delta: >-
+    Add a sparse training-only distillation loss that matches frozen native
+    PhotoMaker at top-object/face contact boundaries; inference remains exact CL19.
+  rationale: >-
+    Controlled PhotoMaker preserves coherent goggles and hand/face boundaries
+    on all reviewed Skiing/Crying cases. Distilling only boundary and top-object
+    pixels avoids pulling CL19's visible face identity back toward PhotoMaker.
+
+hydra_child:
+  defaults:
+    - CL19_cosmic_true_soft_fullquery_router_24k
+    - _self_
+  model:
+    ba_pm_boundary_distill_enabled: true
+    ba_pm_boundary_distill_probability: 0.25
+    ba_pm_boundary_distill_weight: 0.05
+    ba_pm_boundary_distill_top_object_weight: 0.02
+    ba_pm_boundary_distill_boundary_width_cells: 2
+    ba_pm_boundary_distill_loss: charbonnier
+    ba_pm_boundary_distill_teacher: original_photomaker_v2
+    ba_pm_boundary_distill_teacher_checkpoint_sha256: TO_PIN
+    ba_pm_boundary_distill_stop_gradient_teacher: true
+  datasets:
+    train:
+      cosmic_large_adapted:
+        semantic_occlusion_probability: 0.25
+        semantic_occlusion_seed: 150017
+        semantic_occlusion_labels: boundary_v2
+  pipeline:
+    pose_adapt_ratio: 0.0
+    ca_mixing_for_face: false
+  expected_trainable_contract:
+    enabled: true
+    total_tensors: 2240
+    total_parameters: 219217920
+
+loss_definition:
+  boundary: Lb = mean(B * charbonnier(epsilon_CL19 - stopgrad(epsilon_PM)))
+  object: Lo = mean(M_top * charbonnier(epsilon_CL19 - stopgrad(epsilon_PM)))
+  total: L = L_diffusion + 0.05 * Lb + 0.02 * Lo
+  invariant: >-
+    B is a sparse two-cell ring around the top-object/face intersection. Visible
+    nonboundary face pixels receive no teacher loss.
+
+implementation:
+  code_delta: >-
+    Instantiate one frozen original-PhotoMaker teacher with shared frozen base
+    weights where safe, run it only on the deterministic 25% hard-case subset,
+    and compare noise prediction at the sampled timestep. Cache no tensor that
+    retains a graph. Inference and checkpoint processor installation stay CL19.
+  modify:
+    - src/datasets/cosmic_large_adapted.py
+    - src/model/photomaker_branched/lora2.py
+    - src/loss/diffusion_loss.py
+  startup_gates:
+    - teacher parameters are absent from optimizer and checkpoint ownership
+    - zero loss weight reproduces CL19 forward/backward
+    - boundary support is nonempty but less than 15 percent of image pixels
+    - peak memory and step time are measured before the full job is packaged
+
+telemetry_required:
+  - loss_ba_pm_boundary
+  - loss_ba_pm_top_object
+  - ba/pm_boundary_fraction
+  - ba/pm_boundary_teacher_student_rms
+
+serv_plan:
+  gpus: 1
+  accelerator: A100
+  optimizer_steps: 24000
+  epoch_len: 2000
+  validation_interval_steps: 2000
+  expected_compute: approximately 1.25 teacher forwards per normal step average
+
+promotion_gate:
+  primary: >-
+    Fewer clear Skiing/Crying topology failures with prompted occluders retained.
+  identity: >-
+    CL19 full-96 ID must not regress; visible-face ID is intentionally not
+    teacher-constrained.
+  reject_if: >-
+    Outputs converge toward PhotoMaker globally, text similarity drops, or the
+    hard-case gain disappears outside the synthetic label family.
+
