@@ -1,0 +1,18 @@
+defaults:
+  - CL29_cosmic_lowband_causal_contrastive_24k_speedopt
+  - _self_
+
+# 16 Aug 2026 - Bound operational throughput qualification to 100 steps.
+trainer:
+  epoch_len: 100
+  n_epochs: 1
+  validation_interval_steps: 0
+  save_period: 999
+
+weights_only_save_period: 0
+
+writer:
+  experiment_comment: >-
+    ex_ CL29 100-step throughput qualification for the cached attention-
+    processor lookup fix. Step-zero validation and checkpoint writes are
+    disabled; the CL29 objective and training contract are unchanged.
