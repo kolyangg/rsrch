@@ -12,6 +12,16 @@
 `2157eada14824d14019e80f9416e6d736c837306`. Inspect live worktrees because
 active jobs are pinned to their recorded launch commits.
 
+The historical baseline is the source/config pair
+`main_clean@2157eada14824d14019e80f9416e6d736c837306` plus
+`cosm_new1_vast` (immutable Comet key
+`b7602f92bca54ba5aa0c189192d17165`). That run started at 13:37:53 BST on 3
+July, before the next `main_clean` commit at 22:54:38. Comet did not store its
+Git SHA, so chronology, the byte-identical historical launcher, and the exact
+336-parameter match support the commit assignment; an unrecorded dirty edit
+cannot be excluded cryptographically. The baseline-first lineage linked below
+contains the resolved run configuration and launch provenance.
+
 This is the required starting document for a new agent. It summarizes the
 research question, experiment history, reliable results, current code and
 machine state, and the highest-value next work. Detailed evidence remains in
@@ -83,6 +93,11 @@ hard-replacement SA equation, CL14_CA residual CA, CL18 objective, CL19 cosine
 router, CL20 curriculum, CL23 frequency route, CL27 auxiliary objective,
 dataset contracts, ownership totals, and direct code references—is
 [`2026-08-13_e13_family_architecture_reference.md`](../architecture/2026-08-13_e13_family_architecture_reference.md).
+The baseline-first master lineage starts from that exact 2 June source plus
+the immutable `cosm_new1_vast` configuration, records the correctness,
+dataset, validation, and runtime repairs before any architecture claim, and
+then derives the complete recipe graph in
+[`2026-08-18_june2_to_e13_family_architecture_lineage.md`](../architecture/2026-08-18_june2_to_e13_family_architecture_lineage.md).
 Do not port the remaining E14-E24 identity auxiliaries or the
 CL21/22/24–26/28–29 framework: residual/anchored/query-adaptive BA,
 multireference, dropout,

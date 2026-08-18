@@ -1,5 +1,10 @@
 # E13-family architecture reference
 
+For the baseline-first history—starting from the exact 2 June `main_clean`
+commit, separating correctness/data/runtime repairs, and then deriving every
+supported recipe—use
+[`2026-08-18_june2_to_e13_family_architecture_lineage.md`](2026-08-18_june2_to_e13_family_architecture_lineage.md).
+
 This document is the formula-level reference for every supported experiment in
 `kit/e13-family-clean`: E13, BC_E13, CL14, CL14_CA, CL18, CL19, CL20, CL23,
 and CL27. It
