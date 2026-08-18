@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 12 Aug 2026 - One fail-closed launcher now covers the three sealed clean
-# recipes plus the isolated CL18-CL20 extension. It still rejects ad-hoc Hydra
-# overrides and performs deferred face-quality scoring only after training.
+# 18 Aug 2026 - One fail-closed launcher covers the nine clean recipes,
+# including the isolated CL23/CL27 extension. It rejects ad-hoc Hydra overrides
+# and performs deferred face-quality scoring only after training.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,7 +19,7 @@ if [[ -f .env ]]; then
 fi
 
 : "${RUN_NAME:?Set a unique RUN_NAME}"
-: "${CONFIG_NAME:?Set CONFIG_NAME to E13, BC_E13, CL14, CL14_CA, CL18, CL19 or CL20}"
+: "${CONFIG_NAME:?Set CONFIG_NAME to a supported E13-family, CL23, or CL27 leaf}"
 : "${COMET_API_KEY:?Set COMET_API_KEY in diffusion_template/.env}"
 : "${FACE_QUALITY_SCORER_PYTHON:?Set the PyIQA 0.1.15 Python interpreter}"
 
@@ -144,6 +144,16 @@ case "${CONFIG_NAME}" in
       "${BIG_CELEBS_MANIFEST}" "${BIG_CELEBS_EXPECTED_MANIFEST_SHA256}"
     EXPERIMENT_COMMENT="CL20 corrected-r2 replay: exact CL14 model with the sealed Cosmic/BigCelebs hard-case curriculum."
     ;;
+  CL23_cosmic_temporal_frequency_router_24k)
+    verify_corrected_r2_cosmic
+    verify_subject_v2
+    EXPERIMENT_COMMENT="CL23 clean replay: CL19 plus fixed denoising-progress low/high frequency routing on the reference-minus-native message."
+    ;;
+  CL27_cosmic_frequency_surface_energy_24k)
+    verify_corrected_r2_cosmic
+    verify_subject_v2
+    EXPERIMENT_COMMENT="CL27 clean replay: exact CL23 inference plus deterministic training-only frequency-surface energy supervision."
+    ;;
   *) echo "Unsupported CONFIG_NAME=${CONFIG_NAME}" >&2; exit 2 ;;
 esac
 
@@ -158,6 +168,9 @@ case "${CONFIG_NAME}" in
     ;;
   CL18_*|CL19_*|CL20_*)
     python tools/validate_cl18_cl20_config.py --config-name "${CONFIG_NAME}"
+    ;;
+  CL23_*|CL27_*)
+    python tools/validate_cl23_cl27_config.py --config-name "${CONFIG_NAME}"
     ;;
 esac
 
@@ -189,7 +202,9 @@ case "${CONFIG_NAME}" in
   CL14_cosmic_joint_shadow_sa128_softmask_24k|\
   CL14_CA_cosmic_residual_identity_ca_24k|\
   CL18_cosmic_crossview_spatial_consistency_24k|\
-  CL19_cosmic_true_soft_fullquery_router_24k)
+  CL19_cosmic_true_soft_fullquery_router_24k|\
+  CL23_cosmic_temporal_frequency_router_24k|\
+  CL27_cosmic_frequency_surface_energy_24k)
     python tools/datasets/preflight_cosmic_cl.py \
       --config-name "${CONFIG_NAME}" \
       --sample-count 64 \

@@ -91,6 +91,10 @@ train:
         target_scale_balance_mode: reorder
         reference_scale_jitter: [0.06, 0.30]
         reference_position_jitter: 0.15
+        # 18 Aug 2026 - Defaults allocate nothing; CL27 alone enables its
+        # deterministic training-only surface supervision.
+        semantic_occlusion_probability: 0.0
+        semantic_occlusion_seed: 150017
         # 12 Aug 2026 - Defaults are inert; CL18 alone asks for a second
         # distinct same-ID spatial view for its training-only consistency pass.
         same_identity_dual_reference: false

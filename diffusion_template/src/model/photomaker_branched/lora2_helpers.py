@@ -18,9 +18,17 @@ from copy import deepcopy
 # 13 Aug 2026 - CL14_CA-OBS-01: report route health without adding a loss edge.
 def collect_identity_ca_telemetry(model) -> dict[str, torch.Tensor]:
     """Aggregate detached CL14_CA diagnostics by selected U-Net group."""
+    processor_names = tuple(
+        getattr(model, "_ba_identity_ca_processor_names", ())
+    )
+    if not processor_names:
+        return {}
     grouped: dict[str, list[dict[str, torch.Tensor]]] = {}
-    for name in getattr(model, "_ba_identity_ca_processor_names", ()):
-        processor = model.unet.attn_processors.get(name)
+    # 18 Aug 2026 - AICODE-NOTE: Diffusers rebuilds this complete map on each
+    # property access. Resolve once before any per-layer collector loop.
+    processors = model.unet.attn_processors
+    for name in processor_names:
+        processor = processors.get(name)
         getter = getattr(processor, "latest_ba_telemetry", None)
         values = getter() if getter is not None else {}
         if not values:
@@ -42,6 +50,53 @@ def collect_identity_ca_telemetry(model) -> dict[str, torch.Tensor]:
                 entry[metric_name].detach().float() for entry in entries
             ]).mean()
     return output
+
+
+def collect_frequency_surface_aux_loss(model):
+    """Return CL27's live loss graph and already-required detached metrics."""
+    if not bool(getattr(model, "ba_frequency_surface_loss_enabled", False)):
+        return None, {}
+    # 18 Aug 2026 - The fixed pipeline resolves Diffusers' recursive processor
+    # property once, never once per selected attention layer.
+    processors = model.unet.attn_processors
+    grouped: dict[str, list[dict[str, torch.Tensor]]] = {}
+    top_losses, floor_losses, applied = [], [], []
+    for name in getattr(model, "_ba_patched_processor_names", ()):
+        processor = processors.get(name)
+        if not bool(getattr(processor, "frequency_surface_loss_enabled", False)):
+            continue
+        values = processor.frequency_surface_aux_loss()
+        telemetry = processor.latest_ba_telemetry() or {}
+        if values is not None:
+            top_loss, floor_loss = values
+            top_losses.append(top_loss.float())
+            floor_losses.append(floor_loss.float())
+        if telemetry:
+            group = name.split(".", 2)[:2]
+            group = f"up{group[1]}" if group[0] == "up_blocks" else "other"
+            grouped.setdefault(group, []).append(telemetry)
+            applied.append(telemetry["frequency_surface_applied_fraction"].float())
+    if not top_losses:
+        return None, {}
+    telemetry_out: dict[str, torch.Tensor] = {}
+    for group, entries in grouped.items():
+        for metric_name in (
+            "frequency_surface_top_high_rms",
+            "frequency_surface_top_low_rms",
+            "frequency_surface_visible_ratio",
+        ):
+            telemetry_out[f"ba/{metric_name}/{group}"] = torch.stack([
+                entry[metric_name].detach().float() for entry in entries
+            ]).mean()
+    telemetry_out["ba/frequency_surface_applied_fraction"] = (
+        torch.stack(applied).mean()
+        if applied
+        else top_losses[0].new_tensor(0.0)
+    )
+    return (
+        torch.stack(top_losses).mean(),
+        torch.stack(floor_losses).mean(),
+    ), telemetry_out
 
 
 def configure_branched_trainables(model) -> None:

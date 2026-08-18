@@ -670,6 +670,20 @@ class BaseTrainer:
                         # 13 Aug 2026 - CL14_CA-PIPE-01: copy the checkpoint's
                         # exact defaults-off selector into alternate-base validation.
                         ("e13_family_contract", False),
+                        # 18 Aug 2026 - Preserve CL23's inference route and
+                        # CL27's installed processor map on the RealVis model.
+                        ("ba_hardcase_mode", "off"),
+                        ("ba_hardcase_groups", ()),
+                        ("ba_hardcase_transition_cells", 2),
+                        ("ba_hardcase_frequency_low_early", 0.50),
+                        ("ba_hardcase_frequency_low_late", 0.85),
+                        ("ba_hardcase_frequency_high_early", 0.75),
+                        ("ba_hardcase_frequency_high_late", 1.25),
+                        ("ba_hardcase_telemetry_enabled", False),
+                        ("ba_frequency_surface_loss_enabled", False),
+                        ("ba_frequency_surface_loss_groups", ()),
+                        ("ba_frequency_surface_top_low_band_factor", 0.25),
+                        ("ba_frequency_surface_visible_floor_ratio", 0.35),
                         ("ba_residual_identity_ca_v3_enabled", False),
                         ("ba_residual_identity_ca_v3_groups", ()),
                         ("ba_residual_identity_ca_v3_rank", 64),

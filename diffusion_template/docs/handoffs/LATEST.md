@@ -1,6 +1,6 @@
 # Current project handoff
 
-**Last updated:** 13 August 2026
+**Last updated:** 18 August 2026
 
 **Repository:** clean worktree `/home/kolyangg/rsrch_e13_family_clean`
 
@@ -17,11 +17,11 @@ research question, experiment history, reliable results, current code and
 machine state, and the highest-value next work. Detailed evidence remains in
 the linked reports.
 
-## Clean E13-family branch decision — updated 12 August 2026
+## Clean E13-family branch decision — updated 18 August 2026
 
-This branch is the concise implementation line for E13, BC_E13, CL14 and the
-isolated CL18-CL20 corrected-r2 extension. It contains one shared fail-closed
-architecture contract and seven leaf recipes:
+This branch is the concise implementation line for E13, BC_E13, CL14, the
+isolated CL18-CL20 corrected-r2 extension, and the minimal CL23/CL27 port. It
+contains one shared fail-closed architecture contract and nine leaf recipes:
 
 - `E13_large_ds_joint_shadow_sa128_24k`
 - `BC_E13_big_celebs_joint_shadow_sa128_24k`
@@ -30,6 +30,8 @@ architecture contract and seven leaf recipes:
 - `CL18_cosmic_crossview_spatial_consistency_24k`
 - `CL19_cosmic_true_soft_fullquery_router_24k`
 - `CL20_cosmic_bigcelebs_hardcase_curriculum_24k`
+- `CL23_cosmic_temporal_frequency_router_24k`
+- `CL27_cosmic_frequency_surface_energy_24k`
 
 BC_E13 changes only the dataset. CL14 changes the dataset policy and the
 training-only two-cell target-mask feather. The sealed CL14 inference files and
@@ -55,6 +57,17 @@ default. The corrected-r2 source records are
 CL18 `f6530436bf22472c9fb7731d1696c5ab`, CL19
 `cfeda7b55c174b3c83e8d40537ebb6dd`, and CL20
 `b05488e2cce94476acc92bcaa21d7362`.
+CL23 keeps CL19's full-query cosine router and applies the fixed Gaussian
+low/high schedule `0.50→0.85` and `0.75→1.25` over real denoising progress.
+CL27 keeps CL23 inference and ownership exactly, adding only deterministic
+25% semantic-occluder masks and the training-only frequency-surface loss in
+`up_blocks.0/1`. Their clean-port ledger, exact source provenance, Serv
+runbook, and verification status are in
+[`2026-08-18_cl23_cl27_clean_extension.md`](../architecture/2026-08-18_cl23_cl27_clean_extension.md).
+The source records are CL23 Comet `a9ec9c59d1624c68acb98737dcd65298`
+and promoted CL27 r3 Comet `dbfbf40c3bdd4f70bedc58bda3dfb9cd`;
+the latter's promoted checkpoint is 16k, while the clean YAML intentionally
+defines the complete historical 24k training recipe.
 CL14_CA is the single model extension to CL14: native CA remains intact while
 target queries attend active PhotoMaker ID-token K/V through a rank-64,
 zero-initialized output delta, face mask, and gate initialized at 0.02 and
@@ -67,16 +80,23 @@ and execution-only fused-CA/scalar-sync optimizations separately from that one
 scientific delta. No clean CL14_CA job has been submitted.
 The formula-level description of every supported recipe—including the shared
 hard-replacement SA equation, CL14_CA residual CA, CL18 objective, CL19 cosine
-router, CL20 curriculum, dataset contracts, ownership totals, and direct code
-references—is
+router, CL20 curriculum, CL23 frequency route, CL27 auxiliary objective,
+dataset contracts, ownership totals, and direct code references—is
 [`2026-08-13_e13_family_architecture_reference.md`](../architecture/2026-08-13_e13_family_architecture_reference.md).
-Do not port the remaining E14-E24 identity auxiliaries,
-residual/anchored/query-adaptive BA, multireference, dropout, or full-body
-balancing into the shared contract. Use
+Do not port the remaining E14-E24 identity auxiliaries or the
+CL21/22/24–26/28–29 framework: residual/anchored/query-adaptive BA,
+multireference, dropout,
+learnable frequency schedules, contrastive branches, or full-body balancing.
+Use
 `launchers/active/run_e13_family_24k_1gpu.sh`. Exact one-A100 clean Serv YAMLs
-for all seven recipes are indexed in `serv_run_packages/README.md`;
+for all nine recipes are indexed in `serv_run_packages/README.md`;
 each rejects a dirty/wrong branch and records its source commit before startup.
-No clean-family training job was submitted as part of this update.
+CL23/CL27 carry the 16 August fixed training-pipeline invariants: cache
+Diffusers' processor map once per collector, skip disabled collectors, keep
+CL27 eligibility on-device, and disable unconsumed full-activation telemetry.
+These are execution-only changes; routing, losses, ownership, data, and
+validation remain unchanged. No clean-family training job was submitted as
+part of this update.
 
 The approved clean-branch Batch A cleanup removed 573 tracked legacy paths:
 the parent PhotoMaker/PuLID/PersonaGen/ClearML copies, old Slurm and pre-clean

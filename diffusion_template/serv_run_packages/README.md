@@ -1,8 +1,9 @@
 # Clean E13-family architectures and Serv jobs
 
 This branch keeps one shared E13-family implementation and exposes differences
-as small, audited config leaves. All recipes retain hard target-query/reference-
-K/V branched self-attention, disabled legacy branched cross-attention, rank-128
+as small, audited config leaves. All recipes retain explicit
+target-query/reference-K/V branched self-attention, disabled legacy branched
+cross-attention, rank-128
 BA, effective generic/default adapters, `pose_adapt_ratio=0`, and the fixed-96
 DDIM50/CFG5/RealVis validation contract. CL14_CA alone adds corrected residual
 identity-token cross-attention over the intact native CA path.
@@ -20,8 +21,10 @@ references for every recipe, see
 | CL18 | CL14 plus a training-only, stop-gradient same-identity cross-view spatial-consistency loss; inference remains single-reference CL14. | `CL18_cosmic_crossview_spatial_consistency_24k` | [`CL18...clean_r1 YAML`](CL18_cosmic_crossview_spatial_consistency_24k_full96_clean_r1/run_CL18_cosmic_crossview_spatial_consistency_24k_full96_clean_r1_1gpu.yaml) |
 | CL19 | CL14 with two complete full-query BA messages blended once by a two-cell cosine target router; reference support remains binary. | `CL19_cosmic_true_soft_fullquery_router_24k` | [`CL19...clean_r1 YAML`](CL19_cosmic_true_soft_fullquery_router_24k_full96_clean_r1/run_CL19_cosmic_true_soft_fullquery_router_24k_full96_clean_r1_1gpu.yaml) |
 | CL20 | Exact CL14 model with a deterministic 20k Cosmic/BigCelebs hard-case curriculum followed by 4k Cosmic-only re-anchoring. | `CL20_cosmic_bigcelebs_hardcase_curriculum_24k` | [`CL20...clean_r1 YAML`](CL20_cosmic_bigcelebs_hardcase_curriculum_24k_full96_clean_r1/run_CL20_cosmic_bigcelebs_hardcase_curriculum_24k_full96_clean_r1_1gpu.yaml) |
+| CL23 | CL19 full-query routing plus fixed denoising-progress low/high gains; no new trainables. | `CL23_cosmic_temporal_frequency_router_24k` | [`CL23...clean_r1 YAML`](CL23_cosmic_temporal_frequency_router_24k_full96_clean_r1/run_CL23_cosmic_temporal_frequency_router_24k_full96_clean_r1_1gpu.yaml) |
+| CL27 | Exact CL23 inference plus deterministic training-only frequency-surface supervision in `up_blocks.0/1`. | `CL27_cosmic_frequency_surface_energy_24k` | [`CL27...clean_r1 YAML`](CL27_cosmic_frequency_surface_energy_24k_full96_clean_r1/run_CL27_cosmic_frequency_surface_energy_24k_full96_clean_r1_1gpu.yaml) |
 
-The seven concrete YAMLs are adapted from the matching `test`-branch packages.
+The nine concrete YAMLs are adapted from the matching `test`-branch packages.
 They retain the proven one-A100 image/resource request, but use the clean
 checkout, shared fail-closed launcher, unique `*_clean_r1` names, and a
 pre-launch clean-branch check. Each records the exact source commit in its log
@@ -38,9 +41,11 @@ The concrete YAMLs assume these existing Serv paths:
 Before submission, pull `kit/e13-family-clean`, require an empty `git status`,
 and populate the gitignored `diffusion_template/.env` from `.env.example`.
 E13 needs the sealed Large Dataset paths/hash; BC_E13 needs sealed BigCelebs.
-CL14 needs the exact Cosmic inputs/hash. CL14_CA, CL18 and CL19 additionally
-require the sealed subject-v2 embeddings. CL20 also requires sealed BigCelebs and builds
-the hash-checked curriculum before model startup.
+CL14 needs the exact Cosmic inputs/hash. CL14_CA, CL18, CL19, CL23, and CL27
+additionally require the sealed subject-v2 embeddings. CL20 also requires
+sealed BigCelebs and builds the hash-checked curriculum before model startup.
+CL27's preflight additionally verifies that deterministic semantic occlusion
+is active at the declared 25% policy.
 
 Inspect Running and Pending MLS jobs first and stay within the normal six-A100
 project ceiling. Then submit exactly one linked YAML with its absolute path:

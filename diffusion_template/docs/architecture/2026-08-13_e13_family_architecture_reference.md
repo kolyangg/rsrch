@@ -1,14 +1,15 @@
 # E13-family architecture reference
 
 This document is the formula-level reference for every supported experiment in
-`kit/e13-family-clean`: E13, BC_E13, CL14, CL14_CA, CL18, CL19, and CL20. It
+`kit/e13-family-clean`: E13, BC_E13, CL14, CL14_CA, CL18, CL19, CL20, CL23,
+and CL27. It
 separates model architecture, training objective, dataset policy, validation
 policy, and execution-only optimizations. Those categories must not be treated
 as interchangeable experimental changes.
 
 ## 1. Family map
 
-There are seven recipes, but only three inference-time attention architectures.
+There are nine recipes, but only four inference-time attention architectures.
 
 | Recipe | Inference architecture | Training-only change | Dataset change |
 |---|---|---|---|
@@ -19,6 +20,8 @@ There are seven recipes, but only three inference-time attention architectures.
 | CL18 | Exactly CL14 | Cross-view consistency loss | Cosmic with two same-ID reference candidates |
 | CL19 | Two-cell cosine-router branched SA | None beyond CL14 mask | Corrected Cosmic Large |
 | CL20 | Exactly CL14 | Deterministic curriculum order | Cosmic/BigCelebs, then Cosmic-only |
+| CL23 | CL19 plus fixed denoising-progress low/high gains | None beyond CL14 mask | Corrected Cosmic Large |
+| CL27 | Exactly CL23 | Frequency-surface auxiliary loss | CL23 data plus deterministic semantic occluders |
 
 The leaf configs are:
 
@@ -29,6 +32,8 @@ The leaf configs are:
 - [CL18](../../src/configs/CL18_cosmic_crossview_spatial_consistency_24k.yaml)
 - [CL19](../../src/configs/CL19_cosmic_true_soft_fullquery_router_24k.yaml)
 - [CL20](../../src/configs/CL20_cosmic_bigcelebs_hardcase_curriculum_24k.yaml)
+- [CL23](../../src/configs/CL23_cosmic_temporal_frequency_router_24k.yaml)
+- [CL27](../../src/configs/CL27_cosmic_frequency_surface_energy_24k.yaml)
 
 The shared configuration is
 [e13_family_24k.yaml](../../src/configs/e13_family_24k.yaml). The runtime rejects
@@ -83,7 +88,8 @@ come from the explicit spatial reference, not a blend with target features.
 ## 3. Shared hard-replacement branched self-attention
 
 E13, BC_E13, CL14, CL14_CA, CL18, and CL20 use the same self-attention equation.
-CL19 replaces only the target merge, described later.
+CL19 replaces only the target merge; CL23 and CL27 extend that CL19 merge as
+described later.
 
 ### 3.1 Target background message
 
@@ -192,8 +198,8 @@ latent grid. `lambda_face=0.1` belongs to the alternative blended loss and is
 not used by `masked_alternating`. The implementation is
 [`MaskedDiffusionLoss`](../../src/loss/diffusion_loss.py).
 
-CL18 adds an auxiliary term to this loss. All other recipes optimize
-\(L=L_{\mathrm{face}}\).
+CL18 and CL27 add the auxiliary terms defined in their sections. All other
+recipes optimize \(L=L_{\mathrm{face}}\).
 
 ### 4.2 Learning-rate trajectory
 
@@ -222,7 +228,7 @@ the same installed processors; only their activation schedule differs.
 
 ### 4.4 Exact trainable ownership
 
-For E13, BC_E13, CL14, CL18, CL19, and CL20:
+For E13, BC_E13, CL14, CL18, CL19, CL20, CL23, and CL27:
 
 | Role | Tensors | Parameters |
 |---|---:|---:|
@@ -550,15 +556,116 @@ See
 [`CL20HardcaseCurriculumTrain`](../../src/datasets/cl20_hardcase_curriculum.py),
 and the [CL20 leaf](../../src/configs/CL20_cosmic_bigcelebs_hardcase_curriculum_24k.yaml).
 
-## 12. Validation contract
+## 12. CL23
+
+CL23 keeps CL19's complete native message \(N\), reference message \(R\), and
+two-cell cosine router \(C\). It changes only the routed
+reference-minus-native message
+
+$$
+D=R-N.
+$$
+
+A fixed separable 5x5 Gaussian kernel
+\([1,4,6,4,1]/16\) splits this message into
+
+$$
+D_{\mathrm{low}}=G*D,\qquad
+D_{\mathrm{high}}=D-D_{\mathrm{low}}.
+$$
+
+For scheduler timestep \(t\) and training scheduler length \(T\), real
+denoising progress is
+
+$$
+p=1-\frac{t}{T-1}.
+$$
+
+The fixed gains are
+
+$$
+a_{\mathrm{low}}(p)=0.50+0.35p,\qquad
+a_{\mathrm{high}}(p)=0.75+0.50p.
+$$
+
+The target message is therefore
+
+$$
+Y_t=N+C\odot\left(
+a_{\mathrm{low}}D_{\mathrm{low}}+
+a_{\mathrm{high}}D_{\mathrm{high}}
+\right).
+$$
+
+There are no new parameters. Training uses progress derived from the sampled
+diffusion timestep; validation uses the matching live scheduler timestep. The
+equation is implemented in
+[`BranchedAttnProcessor._call_temporal_frequency`](../../src/model/photomaker_branched/attn_processor_cleanest.py),
+the runtime passes progress in
+[`two_branch_predict`](../../src/model/photomaker_branched/branched_runtime.py),
+and the exact leaf is
+[`CL23_cosmic_temporal_frequency_router_24k.yaml`](../../src/configs/CL23_cosmic_temporal_frequency_router_24k.yaml).
+
+## 13. CL27
+
+CL27 has exactly the CL23 inference equation and the same 2,240 trainable
+tensors. Its only model-training change is an auxiliary loss in
+`up_blocks.0/1`; its only data change is a deterministic synthetic top-object
+mask on 25% of Cosmic samples, using seed 150017.
+
+Let \(O\) be that top-object mask, \(M\) the target face mask, and
+
+$$
+M_{\mathrm{top}}=O\odot M,\qquad
+M_{\mathrm{visible}}=\max(M-M_{\mathrm{top}},0).
+$$
+
+Only samples with non-empty top and visible regions are eligible. For the
+already routed low/high components \(L=C\odot a_{\mathrm{low}}D_{\mathrm{low}}\)
+and \(H=C\odot a_{\mathrm{high}}D_{\mathrm{high}}\), the top-object penalty is
+
+$$
+E_{\mathrm{top}}
+=\operatorname{mean}_{M_{\mathrm{top}}}(H^2)
++0.25\operatorname{mean}_{M_{\mathrm{top}}}(L^2).
+$$
+
+For routed delta \(\Delta=L+H\), visible-face preservation uses
+
+$$
+r=\frac{\operatorname{RMS}_{M_{\mathrm{visible}}}(\Delta)}
+{\operatorname{stopgrad}\left(
+\operatorname{RMS}_{M_{\mathrm{visible}}}(N)\right)},
+$$
+
+and the auxiliary objective is
+
+$$
+L_{\mathrm{surface}}
+=0.02E_{\mathrm{top}}
++0.005\max(0,0.35-r)^2.
+$$
+
+The complete objective is
+\(L=L_{\mathrm{face}}+L_{\mathrm{surface}}\). The mask is supervision only:
+it is never passed to validation or inference routing. The implementation is
+in
+[`BranchedAttnProcessor._frequency_surface_loss`](../../src/model/photomaker_branched/attn_processor_cleanest.py),
+[`collect_frequency_surface_aux_loss`](../../src/model/photomaker_branched/lora2_helpers.py),
+and
+[`CosmicLargeAdaptedTrain`](../../src/datasets/cosmic_large_adapted.py). The
+exact leaf is
+[`CL27_cosmic_frequency_surface_energy_24k.yaml`](../../src/configs/CL27_cosmic_frequency_surface_energy_24k.yaml).
+
+## 14. Validation contract
 
 All recipes preserve the fixed 96-image `manual_val` panel with one image per
 item at step 0 and every 2,000 optimizer steps, RealVisXL V4.0, DDIM 50, CFG 5,
 batch 12, PhotoMaker start 10, and BA start 15. E13/BC_E13 use their sealed bbox
 cache; CL14-family runs use the sealed CL14 cache.
 
-CL14_CA, CL18, CL19, and CL20 use the isolated corrected subject-v2 validation
-wrapper:
+CL14_CA, CL18, CL19, CL20, CL23, and CL27 use the isolated corrected
+subject-v2 validation wrapper:
 
 - `bbox_overlap_v2` chooses the reference face owned by the declared box;
 - `id_sim_subject_v2` measures the generated face owned by the exact BA box;
@@ -570,7 +677,7 @@ change. See
 [`face_subject_selector.py`](../../src/face_subject_selector.py), and
 [`all_metrics_subject_v2.yaml`](../../src/configs/metrics/all_metrics_subject_v2.yaml).
 
-## 13. Execution-only optimizations
+## 15. Execution-only optimizations
 
 The following changes are intended to preserve mathematical output:
 
@@ -583,7 +690,13 @@ The following changes are intended to preserve mathematical output:
 - CL14_CA builds active identity-token indices once per U-Net call;
 - training diagnostics are stacked for one synchronization, and one-GPU runs
   bypass the unnecessary distributed gather;
-- face-quality scoring is deferred until training completes.
+- face-quality scoring is deferred until training completes;
+- Diffusers' recursive `unet.attn_processors` property is resolved once per
+  collector rather than once per selected attention layer;
+- disabled auxiliary collectors return before processor-map resolution, and
+  CL27 eligibility remains on-device rather than synchronizing a Python bool;
+- full-activation temporal-frequency telemetry is disabled for the clean CL23
+  and CL27 launches because neither objective consumes it.
 
 These optimizations must not change seeds, sampled timesteps, reference noise,
 loss terms, processor state, or generated pixels. Their controls are in
@@ -593,7 +706,7 @@ loss terms, processor state, or generated pixels. Their controls are in
 [`residual_identity_ca_processor_v3.py`](../../src/model/photomaker_branched/residual_identity_ca_processor_v3.py),
 and [`sdxl_trainers.py`](../../src/trainer/sdxl_trainers.py).
 
-## 14. Fail-closed checks and launch references
+## 16. Fail-closed checks and launch references
 
 The principal static gates are:
 
@@ -601,6 +714,7 @@ The principal static gates are:
 - [`verify_cl14_generation_parity.py`](../../tools/verify_cl14_generation_parity.py)
 - [`validate_cl14_ca_config.py`](../../tools/validate_cl14_ca_config.py)
 - [`validate_cl18_cl20_config.py`](../../tools/validate_cl18_cl20_config.py)
+- [`validate_cl23_cl27_config.py`](../../tools/validate_cl23_cl27_config.py)
 
 The shared launcher is
 [`run_e13_family_24k_1gpu.sh`](../../launchers/active/run_e13_family_24k_1gpu.sh).

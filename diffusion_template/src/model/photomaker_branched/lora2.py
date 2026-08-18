@@ -23,6 +23,7 @@ from src.model.sdxl.original import SDXL
 """Import branched-attention forward/patch helpers and PMv2 face-ID dependencies used by training."""
 from .insightface_package import create_face_analyzer
 from .lora2_helpers import (
+    collect_frequency_surface_aux_loss,
     collect_identity_ca_telemetry,
     install_branched_processors_for_training,
     prepare_branched_training_inputs,
@@ -99,6 +100,17 @@ class PhotomakerBranchedLora(SDXL):
         ba_hardcase_mode: str = "off",
         ba_hardcase_groups: Optional[Sequence[str]] = None,
         ba_hardcase_transition_cells: int = 2,
+        ba_hardcase_frequency_low_early: float = 0.50,
+        ba_hardcase_frequency_low_late: float = 0.85,
+        ba_hardcase_frequency_high_early: float = 0.75,
+        ba_hardcase_frequency_high_late: float = 1.25,
+        ba_hardcase_telemetry_enabled: bool = False,
+        ba_frequency_surface_loss_enabled: bool = False,
+        ba_frequency_surface_loss_groups: Optional[Sequence[str]] = None,
+        ba_frequency_surface_top_weight: float = 0.02,
+        ba_frequency_surface_top_low_band_factor: float = 0.25,
+        ba_frequency_surface_visible_floor_weight: float = 0.005,
+        ba_frequency_surface_visible_floor_ratio: float = 0.35,
         ba_crossview_consistency_enabled: bool = False,
         ba_crossview_consistency_probability: float = 0.25,
         ba_crossview_consistency_weight: float = 0.05,
@@ -244,6 +256,37 @@ class PhotomakerBranchedLora(SDXL):
             str(group) for group in (ba_hardcase_groups or ())
         )
         self.ba_hardcase_transition_cells = int(ba_hardcase_transition_cells)
+        self.ba_hardcase_frequency_low_early = float(
+            ba_hardcase_frequency_low_early
+        )
+        self.ba_hardcase_frequency_low_late = float(
+            ba_hardcase_frequency_low_late
+        )
+        self.ba_hardcase_frequency_high_early = float(
+            ba_hardcase_frequency_high_early
+        )
+        self.ba_hardcase_frequency_high_late = float(
+            ba_hardcase_frequency_high_late
+        )
+        self.ba_hardcase_telemetry_enabled = bool(ba_hardcase_telemetry_enabled)
+        self.ba_frequency_surface_loss_enabled = bool(
+            ba_frequency_surface_loss_enabled
+        )
+        self.ba_frequency_surface_loss_groups = tuple(
+            str(group) for group in (ba_frequency_surface_loss_groups or ())
+        )
+        self.ba_frequency_surface_top_weight = float(
+            ba_frequency_surface_top_weight
+        )
+        self.ba_frequency_surface_top_low_band_factor = float(
+            ba_frequency_surface_top_low_band_factor
+        )
+        self.ba_frequency_surface_visible_floor_weight = float(
+            ba_frequency_surface_visible_floor_weight
+        )
+        self.ba_frequency_surface_visible_floor_ratio = float(
+            ba_frequency_surface_visible_floor_ratio
+        )
         self.ba_crossview_consistency_enabled = bool(
             ba_crossview_consistency_enabled
         )
@@ -284,6 +327,25 @@ class PhotomakerBranchedLora(SDXL):
                 ba_hardcase_mode=ba_hardcase_mode,
                 ba_hardcase_groups=ba_hardcase_groups,
                 ba_hardcase_transition_cells=ba_hardcase_transition_cells,
+                ba_hardcase_frequency_low_early=ba_hardcase_frequency_low_early,
+                ba_hardcase_frequency_low_late=ba_hardcase_frequency_low_late,
+                ba_hardcase_frequency_high_early=ba_hardcase_frequency_high_early,
+                ba_hardcase_frequency_high_late=ba_hardcase_frequency_high_late,
+                ba_hardcase_telemetry_enabled=ba_hardcase_telemetry_enabled,
+                ba_frequency_surface_loss_enabled=(
+                    ba_frequency_surface_loss_enabled
+                ),
+                ba_frequency_surface_loss_groups=ba_frequency_surface_loss_groups,
+                ba_frequency_surface_top_weight=ba_frequency_surface_top_weight,
+                ba_frequency_surface_top_low_band_factor=(
+                    ba_frequency_surface_top_low_band_factor
+                ),
+                ba_frequency_surface_visible_floor_weight=(
+                    ba_frequency_surface_visible_floor_weight
+                ),
+                ba_frequency_surface_visible_floor_ratio=(
+                    ba_frequency_surface_visible_floor_ratio
+                ),
                 ba_crossview_consistency_enabled=ba_crossview_consistency_enabled,
                 ba_crossview_consistency_probability=(
                     ba_crossview_consistency_probability
@@ -451,6 +513,7 @@ class PhotomakerBranchedLora(SDXL):
         crop_top_lefts: Sequence[Sequence[int]],
         face_bbox: Sequence[Sequence[float]],
         face_bbox_ref: Sequence[Sequence[float]] | None = None,
+        ba_occluder_mask: Sequence[torch.Tensor] | None = None,
         spatial_ref_images_alt: Sequence[Sequence[Image.Image]] | None = None,
         face_bbox_ref_alt: Sequence[Sequence[float]] | None = None,
         do_cfg: bool = False,
@@ -515,6 +578,31 @@ class PhotomakerBranchedLora(SDXL):
         ##### BRANCHED ATTENTION - NEW BLOCK 6 #####
         """NEW BLOCK 6 is implemented in `lora2_helpers.prepare_branched_training_inputs`."""
         ##### BRANCHED ATTENTION - NEW BLOCK 6 #####
+
+        # 18 Aug 2026 - CL27 alone converts the dataset overlay into processor
+        # supervision; CL23 and every older leaf keep this path fully inert.
+        self._ba_ownership_target_mask = None
+        if self.ba_frequency_surface_loss_enabled:
+            if ba_occluder_mask is None:
+                raise RuntimeError("CL27 requires deterministic occluder masks")
+            prepared_occluders = []
+            for value in ba_occluder_mask:
+                tensor = torch.as_tensor(value, dtype=torch.float32)
+                if tensor.ndim == 2:
+                    tensor = tensor.unsqueeze(0)
+                if tensor.ndim != 3 or tensor.shape[0] != 1:
+                    raise ValueError(
+                        "ba_occluder_mask items must have shape HxW or 1xHxW"
+                    )
+                prepared_occluders.append(tensor)
+            ownership_mask = torch.stack(prepared_occluders).to(self.device)
+            if ownership_mask.shape[-2:] != mask4.shape[-2:]:
+                ownership_mask = F.interpolate(
+                    ownership_mask, size=mask4.shape[-2:], mode="nearest"
+                )
+            self._ba_ownership_target_mask = ownership_mask.to(
+                dtype=noisy_latents.dtype
+            )
 
         added_cond_kwargs = {
             "text_embeds": pooled_prompt_embeds,
@@ -697,13 +785,31 @@ class PhotomakerBranchedLora(SDXL):
             ).mean()
             crossview_loss = smooth + 0.10 * (1.0 - cosine)
 
-        ba_aux_loss = self.ba_crossview_consistency_weight * crossview_loss
+        # 18 Aug 2026 - Add CL27's two scalar terms after the unchanged primary
+        # forward; the processor collector retains their live gradient graphs.
+        surface_loss = noise_pred.float().new_tensor(0.0)
+        surface_telemetry = {}
+        if self.ba_frequency_surface_loss_enabled:
+            surface, surface_telemetry = collect_frequency_surface_aux_loss(self)
+            if surface is None:
+                raise RuntimeError("CL27 selected no live frequency-surface losses")
+            top_loss, floor_loss = surface
+            surface_loss = (
+                self.ba_frequency_surface_top_weight * top_loss
+                + self.ba_frequency_surface_visible_floor_weight * floor_loss
+            )
+            surface_telemetry["loss_ba_frequency_surface"] = surface_loss.detach()
+        ba_aux_loss = (
+            self.ba_crossview_consistency_weight * crossview_loss + surface_loss
+        )
+        ba_telemetry = collect_identity_ca_telemetry(self)
+        ba_telemetry.update(surface_telemetry)
         return {
             'model_pred': noise_pred,
             'target': noise,
             # 13 Aug 2026 - CL14_CA-OBS-01: diagnostics are detached model
             # outputs; they do not alter CL14's masked training objective.
-            'ba_telemetry': collect_identity_ca_telemetry(self),
+            'ba_telemetry': ba_telemetry,
             'ba_aux_loss': ba_aux_loss,
             'ba_ownership_loss': noise_pred.float().new_tensor(0.0),
             'ba_crossview_loss': crossview_loss.detach(),

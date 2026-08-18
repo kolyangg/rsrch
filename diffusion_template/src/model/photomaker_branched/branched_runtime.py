@@ -52,7 +52,6 @@ def patch_unet_attention_processors(
     """
     Patch UNet with branched attention processors for both self and cross attention.
     """
-    del ba_denoise_progress  # hard_replace_v1 has no timestep gate
     disable_sa = bool(getattr(pipeline, "disable_branched_sa", False))
     disable_ca = bool(getattr(pipeline, "disable_branched_ca", False))
     residual_identity_ca = bool(
@@ -65,10 +64,24 @@ def patch_unet_attention_processors(
         str(group)
         for group in (getattr(pipeline, "ba_hardcase_groups", None) or ())
     )
-    if hardcase_mode not in {"off", "soft_router"}:
+    if hardcase_mode not in {"off", "soft_router", "temporal_frequency"}:
         raise ValueError(f"Unsupported clean hard-case mode: {hardcase_mode}")
     if hardcase_mode != "off" and not hardcase_groups:
-        raise RuntimeError("CL19 soft_router requires explicit U-Net groups")
+        raise RuntimeError("Clean hard-case routes require explicit U-Net groups")
+    frequency_surface_enabled = bool(
+        getattr(pipeline, "ba_frequency_surface_loss_enabled", False)
+    )
+    frequency_surface_groups = tuple(
+        str(group) for group in (
+            getattr(pipeline, "ba_frequency_surface_loss_groups", None) or ()
+        )
+    )
+    # 18 Aug 2026 - CL27 reuses CL23 processors and enables its loss only in
+    # the two declared up blocks; inference receives no supervision mask.
+    if frequency_surface_enabled and (
+        hardcase_mode != "temporal_frequency" or not frequency_surface_groups
+    ):
+        raise RuntimeError("CL27 requires temporal_frequency and explicit loss groups")
     if bool(getattr(pipeline, "e13_family_contract", False)):
         # 10 Aug 2026 - E13C-CORE-01: Fail closed on the architectural
         # invariants shared by E13, BC_E13 and CL14.
@@ -139,6 +152,16 @@ def patch_unet_attention_processors(
         # 10 Aug 2026 - E13C-PERF-02: Processor-local mask caching removes
         # repeated interpolation only; it does not alter the mask tensor.
         setattr(proc, "cache_prepared_masks", bool(getattr(pipe, "cache_prepared_masks", False)))
+        if hasattr(proc, "set_denoise_progress"):
+            proc.set_denoise_progress(ba_denoise_progress)
+        if hasattr(proc, "set_hardcase_telemetry_enabled"):
+            proc.set_hardcase_telemetry_enabled(
+                bool(getattr(pipe, "ba_hardcase_telemetry_enabled", False))
+            )
+        if hasattr(proc, "set_ownership_target_mask"):
+            proc.set_ownership_target_mask(
+                getattr(pipe, "_ba_ownership_target_mask", None)
+            )
             
         
 
@@ -262,6 +285,42 @@ def patch_unet_attention_processors(
                         ),
                         hardcase_transition_cells=int(
                             getattr(pipeline, "ba_hardcase_transition_cells", 2)
+                        ),
+                        hardcase_frequency_low_early=float(
+                            getattr(pipeline, "ba_hardcase_frequency_low_early", 0.50)
+                        ),
+                        hardcase_frequency_low_late=float(
+                            getattr(pipeline, "ba_hardcase_frequency_low_late", 0.85)
+                        ),
+                        hardcase_frequency_high_early=float(
+                            getattr(pipeline, "ba_hardcase_frequency_high_early", 0.75)
+                        ),
+                        hardcase_frequency_high_late=float(
+                            getattr(pipeline, "ba_hardcase_frequency_high_late", 1.25)
+                        ),
+                        hardcase_telemetry_enabled=bool(
+                            getattr(pipeline, "ba_hardcase_telemetry_enabled", False)
+                        ),
+                        frequency_surface_loss_enabled=(
+                            frequency_surface_enabled
+                            and any(
+                                name.startswith(f"{group}.")
+                                for group in frequency_surface_groups
+                            )
+                        ),
+                        frequency_surface_top_low_band_factor=float(
+                            getattr(
+                                pipeline,
+                                "ba_frequency_surface_top_low_band_factor",
+                                0.25,
+                            )
+                        ),
+                        frequency_surface_visible_floor_ratio=float(
+                            getattr(
+                                pipeline,
+                                "ba_frequency_surface_visible_floor_ratio",
+                                0.35,
+                            )
                         ),
                     )
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))

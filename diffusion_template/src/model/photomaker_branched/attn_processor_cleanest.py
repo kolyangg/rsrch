@@ -112,6 +112,14 @@ class BranchedAttnProcessor(nn.Module):
         branched_attn_lora_rank: int = 16,
         hardcase_mode: str = "off",
         hardcase_transition_cells: int = 2,
+        hardcase_frequency_low_early: float = 0.50,
+        hardcase_frequency_low_late: float = 0.85,
+        hardcase_frequency_high_early: float = 0.75,
+        hardcase_frequency_high_late: float = 1.25,
+        hardcase_telemetry_enabled: bool = False,
+        frequency_surface_loss_enabled: bool = False,
+        frequency_surface_top_low_band_factor: float = 0.25,
+        frequency_surface_visible_floor_ratio: float = 0.35,
     ):
         super().__init__()
 
@@ -127,11 +135,36 @@ class BranchedAttnProcessor(nn.Module):
         self.branched_attn_new_weight_kind = (branched_attn_new_weight_kind or "full").lower()
         self.branched_attn_lora_rank = int(branched_attn_lora_rank)
         self.hardcase_mode = str(hardcase_mode or "off").lower()
-        if self.hardcase_mode not in {"off", "soft_router"}:
+        if self.hardcase_mode not in {"off", "soft_router", "temporal_frequency"}:
             raise ValueError(f"Unknown hardcase_mode={hardcase_mode!r}")
         self.hardcase_transition_cells = int(hardcase_transition_cells)
         if self.hardcase_transition_cells < 1:
             raise ValueError("hardcase_transition_cells must be positive")
+        self.hardcase_frequency_low_early = float(hardcase_frequency_low_early)
+        self.hardcase_frequency_low_late = float(hardcase_frequency_low_late)
+        self.hardcase_frequency_high_early = float(hardcase_frequency_high_early)
+        self.hardcase_frequency_high_late = float(hardcase_frequency_high_late)
+        if min(
+            self.hardcase_frequency_low_early,
+            self.hardcase_frequency_low_late,
+            self.hardcase_frequency_high_early,
+            self.hardcase_frequency_high_late,
+        ) < 0.50:
+            raise ValueError("Temporal-frequency reference scales require a 0.50 floor")
+        self.hardcase_telemetry_enabled = bool(hardcase_telemetry_enabled)
+        self.frequency_surface_loss_enabled = bool(frequency_surface_loss_enabled)
+        self.frequency_surface_top_low_band_factor = float(
+            frequency_surface_top_low_band_factor
+        )
+        self.frequency_surface_visible_floor_ratio = float(
+            frequency_surface_visible_floor_ratio
+        )
+        if self.frequency_surface_loss_enabled and self.hardcase_mode != "temporal_frequency":
+            raise ValueError("CL27 frequency-surface loss requires temporal_frequency")
+        if not 0.0 <= self.frequency_surface_top_low_band_factor <= 1.0:
+            raise ValueError("frequency_surface_top_low_band_factor must be in [0, 1]")
+        if not 0.0 < self.frequency_surface_visible_floor_ratio < 1.0:
+            raise ValueError("frequency_surface_visible_floor_ratio must be in (0, 1)")
         
         self.mask = None
         self.mask_ref = None
@@ -141,6 +174,10 @@ class BranchedAttnProcessor(nn.Module):
         self.noise_to_q = None
         self.noise_to_k = None
         self.noise_to_v = None
+        self.ba_denoise_progress = None
+        self.ownership_target_mask = None
+        self._frequency_surface_aux_loss = None
+        self._latest_ba_telemetry = None
         
         # If True: keep masks strictly binary after resize (avoids soft boundary blending)
         self.force_binary_masks: bool = True # False
@@ -215,6 +252,21 @@ class BranchedAttnProcessor(nn.Module):
         self.mask = mask
         self.mask_ref = mask_ref if mask_ref is not None else mask
 
+    def set_denoise_progress(self, progress: Optional[torch.Tensor]) -> None:
+        self.ba_denoise_progress = progress
+
+    def set_ownership_target_mask(self, mask: Optional[torch.Tensor]) -> None:
+        self.ownership_target_mask = mask
+
+    def set_hardcase_telemetry_enabled(self, enabled: bool) -> None:
+        self.hardcase_telemetry_enabled = bool(enabled)
+
+    def frequency_surface_aux_loss(self):
+        return self._frequency_surface_aux_loss
+
+    def latest_ba_telemetry(self):
+        return self._latest_ba_telemetry
+
     @staticmethod
     def _reshape_heads(tensor: torch.Tensor, heads: int) -> torch.Tensor:
         batch, length, channels = tensor.shape
@@ -276,6 +328,96 @@ class BranchedAttnProcessor(nn.Module):
             result = result * (1.0 - ring) + ring * weight
             remaining = eroded
         return (result * image).flatten(2).transpose(1, 2).to(dtype=dtype)
+
+    @staticmethod
+    def _gaussian_split(delta: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        batch, length, channels = delta.shape
+        side = int(math.isqrt(length))
+        if side * side != length:
+            raise RuntimeError("Temporal-frequency BA requires square token grids")
+        image = delta.float().transpose(1, 2).reshape(batch, channels, side, side)
+        kernel_1d = image.new_tensor([1.0, 4.0, 6.0, 4.0, 1.0]) / 16.0
+        kernel = (kernel_1d[:, None] * kernel_1d[None, :]).view(1, 1, 5, 5)
+        low = F.conv2d(
+            image,
+            kernel.expand(channels, 1, -1, -1),
+            padding=2,
+            groups=channels,
+        ).flatten(2).transpose(1, 2)
+        return low.to(delta.dtype), (delta.float() - low).to(delta.dtype)
+
+    def _progress(self, target: torch.Tensor) -> torch.Tensor:
+        if self.ba_denoise_progress is None:
+            return target.new_zeros(target.shape[0], 1, 1)
+        value = torch.as_tensor(
+            self.ba_denoise_progress, device=target.device, dtype=target.dtype
+        ).reshape(-1, 1, 1)
+        if value.shape[0] == 1:
+            value = value.expand(target.shape[0], -1, -1)
+        if value.shape[0] != target.shape[0]:
+            raise RuntimeError("Temporal-frequency progress batch mismatch")
+        return value.clamp(0.0, 1.0)
+
+    @staticmethod
+    def _masked_mean_square(tensor: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        denom = (mask.float().sum(dim=(1, 2)) * tensor.shape[-1]).clamp_min(1.0)
+        return (tensor.float().square() * mask.float()).sum(dim=(1, 2)) / denom
+
+    def _frequency_surface_loss(
+        self,
+        native_out: torch.Tensor,
+        low_component: torch.Tensor,
+        high_component: torch.Tensor,
+        routed_delta: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        zero = native_out.float().new_tensor(0.0)
+        metrics = {
+            "top_high_rms": zero,
+            "top_low_rms": zero,
+            "visible_ratio": zero,
+            "applied_fraction": zero,
+        }
+        self._frequency_surface_aux_loss = None
+        if (
+            not self.frequency_surface_loss_enabled
+            or not self.training
+            or not torch.is_grad_enabled()
+        ):
+            return metrics
+        if self.ownership_target_mask is None:
+            raise RuntimeError("CL27 frequency-surface loss requires an ownership mask")
+        batch, length, _ = native_out.shape
+        face = self._binary_mask(self.mask, length, batch, torch.float32)
+        top = self._binary_mask(
+            self.ownership_target_mask, length, batch, torch.float32
+        ) * face
+        visible = (face - top).clamp(0.0, 1.0)
+        eligible = (top.sum(dim=(1, 2)) > 0.0) & (visible.sum(dim=(1, 2)) > 0.0)
+        eligible_float = eligible.float()
+        eligible_count = eligible_float.sum().clamp_min(1.0)
+        top_high = self._masked_mean_square(high_component, top)
+        top_low = self._masked_mean_square(low_component, top)
+        routed_rms = self._masked_mean_square(routed_delta, visible).clamp_min(1e-12).sqrt()
+        native_rms = self._masked_mean_square(native_out, visible).clamp_min(1e-12).sqrt()
+        ratio = routed_rms / native_rms.detach().clamp_min(1e-6)
+        # 18 Aug 2026 - AICODE-NOTE: CL27 eligibility remains on-device; a
+        # Python bool here synchronizes CUDA once per selected processor.
+        top_loss = (
+            (top_high + self.frequency_surface_top_low_band_factor * top_low)
+            * eligible_float
+        ).sum() / eligible_count
+        floor_loss = (
+            F.relu(ratio.new_tensor(self.frequency_surface_visible_floor_ratio) - ratio).square()
+            * eligible_float
+        ).sum() / eligible_count
+        self._frequency_surface_aux_loss = (top_loss, floor_loss)
+        metrics.update(
+            top_high_rms=(top_high * eligible_float).sum().div(eligible_count).sqrt().detach(),
+            top_low_rms=(top_low * eligible_float).sum().div(eligible_count).sqrt().detach(),
+            visible_ratio=(ratio * eligible_float).sum().div(eligible_count).detach(),
+            applied_fraction=eligible_float.mean().detach(),
+        )
+        return metrics
 
     def _full_target_lanes(self, attn, target, reference):
         batch, length, _ = target.shape
@@ -344,6 +486,52 @@ class BranchedAttnProcessor(nn.Module):
         return self._finish_full_router(
             attn, residual, target_out, reference, input_ndim, spatial
         )
+
+    def _call_temporal_frequency(self, attn, hidden_states, temb) -> torch.Tensor:
+        # 18 Aug 2026 - CL23 keeps CL19's full native/reference messages and
+        # cosine router; only the routed reference-minus-native frequency gains
+        # vary with the real scheduler timestep.
+        residual = hidden_states
+        target, reference, input_ndim, spatial = self._normalized_halves(
+            attn, hidden_states, temb
+        )
+        native_out, reference_out = self._full_target_lanes(attn, target, reference)
+        router = self._soft_router_mask(
+            self.mask, target.shape[1], target.shape[0], native_out.dtype
+        )
+        low, high = self._gaussian_split(reference_out - native_out)
+        progress = self._progress(target)
+        low_scale = self.hardcase_frequency_low_early + progress * (
+            self.hardcase_frequency_low_late - self.hardcase_frequency_low_early
+        )
+        high_scale = self.hardcase_frequency_high_early + progress * (
+            self.hardcase_frequency_high_late - self.hardcase_frequency_high_early
+        )
+        low_component = router * low_scale * low
+        high_component = router * high_scale * high
+        routed_delta = low_component + high_component
+        target_out = native_out + routed_delta
+        self._latest_ba_telemetry = None
+        if self.hardcase_telemetry_enabled:
+            self._latest_ba_telemetry = {
+                "frequency_low_scale": low_scale.detach().float().mean(),
+                "frequency_high_scale": high_scale.detach().float().mean(),
+            }
+        if self.frequency_surface_loss_enabled:
+            surface = self._frequency_surface_loss(
+                native_out, low_component, high_component, routed_delta
+            )
+            if self._latest_ba_telemetry is None:
+                self._latest_ba_telemetry = {}
+            self._latest_ba_telemetry.update(
+                frequency_surface_top_high_rms=surface["top_high_rms"],
+                frequency_surface_top_low_rms=surface["top_low_rms"],
+                frequency_surface_visible_ratio=surface["visible_ratio"],
+                frequency_surface_applied_fraction=surface["applied_fraction"],
+            )
+        return self._finish_full_router(
+            attn, residual, target_out, reference, input_ndim, spatial
+        )
         
     def __call__(
         self,
@@ -366,6 +554,8 @@ class BranchedAttnProcessor(nn.Module):
 
         if self.hardcase_mode == "soft_router":
             return self._call_soft_router(attn, hidden_states, temb)
+        if self.hardcase_mode == "temporal_frequency":
+            return self._call_temporal_frequency(attn, hidden_states, temb)
 
         residual = hidden_states
         

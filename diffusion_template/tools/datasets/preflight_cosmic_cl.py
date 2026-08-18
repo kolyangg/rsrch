@@ -82,6 +82,7 @@ def main() -> None:
     picks = sorted(rng.sample(range(total), min(args.sample_count, total)))
 
     ratios, ref_areas, target_areas, center_offsets = [], [], [], []
+    supervised_occluders = 0
     alternate_reference_samples = 0
     ref_sizes, failures = set(), []
     for index in picks:
@@ -102,6 +103,10 @@ def main() -> None:
         center_offsets.append(max(abs(rc[0] - tc[0]), abs(rc[1] - tc[1])))
         if sample["target_path"] == sample["reference_path"]:
             failures.append(f"target/reference leakage at index {index}")
+        if "ba_occluder_mask" in sample:
+            supervised_occluders += int(
+                float(sample["ba_occluder_mask"].max()) > 0.0
+            )
         if "spatial_reference_alt_path" in sample:
             alternate_reference_samples += int(
                 "spatial_ref_images_alt" in sample
@@ -182,7 +187,8 @@ def main() -> None:
                 f"large_dataset band {SCENE_REF_AREA_BAND}"
             )
     elif arm in (
-        "CL9", "CL10", "CL11", "CL12", "CL13", "CL14", "CL18", "CL19"
+        "CL9", "CL10", "CL11", "CL12", "CL13", "CL14", "CL18", "CL19",
+        "CL23", "CL27",
     ):
         if ref_sizes != {(1024, 1024)}:
             failures.append(f"{arm} canvases must be 1024x1024, saw {ref_sizes}")
@@ -245,6 +251,13 @@ def main() -> None:
         report["alternate_reference_samples"] = alternate_reference_samples
         if alternate_reference_samples != len(picks):
             failures.append("CL18 did not emit a distinct alternate reference per sample")
+
+    if arm == "CL27":
+        report["synthetic_occluder_fraction"] = supervised_occluders / len(picks)
+        if not 0.10 <= report["synthetic_occluder_fraction"] <= 0.40:
+            failures.append(
+                "CL27 sampled synthetic-occluder fraction is outside [0.10, 0.40]"
+            )
 
     # CL0 is the deliberately unimproved baseline: uncapped legacy captions are
     # its defining property, so the truncation gate must not apply to it.

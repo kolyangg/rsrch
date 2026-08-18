@@ -1,0 +1,35 @@
+defaults:
+  - CL23_cosmic_temporal_frequency_router_24k
+  - _self_
+
+# 18 Aug 2026 - CL27 keeps CL23 inference and ownership exactly; it adds only
+# deterministic synthetic-mask training supervision at up_blocks.0/1.
+model:
+  ba_frequency_surface_loss_enabled: true
+  ba_frequency_surface_loss_groups: [up_blocks.0, up_blocks.1]
+  ba_frequency_surface_top_weight: 0.02
+  ba_frequency_surface_top_low_band_factor: 0.25
+  ba_frequency_surface_visible_floor_weight: 0.005
+  ba_frequency_surface_visible_floor_ratio: 0.35
+
+datasets:
+  train:
+    cosmic_large_adapted:
+      semantic_occlusion_probability: 0.25
+      semantic_occlusion_seed: 150017
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_frequency_surface
+    - ba/frequency_surface_top_high_rms/up0
+    - ba/frequency_surface_top_high_rms/up1
+    - ba/frequency_surface_top_low_rms/up0
+    - ba/frequency_surface_top_low_rms/up1
+    - ba/frequency_surface_visible_ratio/up0
+    - ba/frequency_surface_visible_ratio/up1
+    - ba/frequency_surface_applied_fraction
+  experiment_comment: >-
+    CL27 clean replay: exact CL23 inference plus training-only top-object
+    frequency suppression and a visible-face routed-energy floor.

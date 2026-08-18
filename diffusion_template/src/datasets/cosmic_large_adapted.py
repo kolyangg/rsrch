@@ -13,7 +13,7 @@ import re
 from typing import Sequence
 
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image, ImageDraw, ImageOps
 
 from src.datasets.base_dataset import BaseDataset
 from src.datasets.reference_frame import compose_target_frame_reference
@@ -150,6 +150,8 @@ class CosmicLargeAdaptedTrain(BaseDataset):
         target_scale_balance_mode: str = "reorder",
         reference_scale_jitter: Sequence[float] | None = None,
         reference_position_jitter: float = 0.0,
+        semantic_occlusion_probability: float = 0.0,
+        semantic_occlusion_seed: int = 150017,
         same_identity_dual_reference: bool = False,
         min_reference_candidates_for_target: int = 3,
         *args,
@@ -262,6 +264,12 @@ class CosmicLargeAdaptedTrain(BaseDataset):
         self.reference_position_jitter = float(reference_position_jitter)
         if not 0.0 <= self.reference_position_jitter <= 0.5:
             raise ValueError("reference_position_jitter must be in [0, 0.5]")
+        self.semantic_occlusion_probability = float(
+            semantic_occlusion_probability
+        )
+        self.semantic_occlusion_seed = int(semantic_occlusion_seed)
+        if not 0.0 <= self.semantic_occlusion_probability <= 0.5:
+            raise ValueError("semantic_occlusion_probability must be in [0, 0.5]")
         self.same_identity_dual_reference = bool(same_identity_dual_reference)
         self.min_reference_candidates_for_target = int(
             min_reference_candidates_for_target
@@ -463,6 +471,57 @@ class CosmicLargeAdaptedTrain(BaseDataset):
             x0, y0, x1, y1 = target_bbox
             target_bbox = [1024 - x1, y0, 1024 - x0, y1]
 
+        occluder_mask = None
+        if self.semantic_occlusion_probability > 0.0:
+            # 18 Aug 2026 - CL27 alone opts into deterministic synthetic
+            # top-object supervision. Disabled datasets allocate no mask.
+            occluder_mask = np.zeros((1024, 1024), dtype=np.float32)
+            rng = random.Random(self.semantic_occlusion_seed + int(ind))
+            if rng.random() < self.semantic_occlusion_probability:
+                overlay = Image.new("RGBA", target.size, (0, 0, 0, 0))
+                alpha = Image.new("L", target.size, 0)
+                draw = ImageDraw.Draw(overlay)
+                alpha_draw = ImageDraw.Draw(alpha)
+                x0, y0, x1, y1 = [int(value) for value in target_bbox]
+                width, height = max(4, x1 - x0), max(4, y1 - y0)
+                family = rng.choice(("eyewear", "goggles", "hair", "hand", "tears"))
+                if family in {"eyewear", "goggles"}:
+                    shapes = [(
+                        x0,
+                        y0 + int(0.28 * height),
+                        x1,
+                        y0 + int((0.52 if family == "goggles" else 0.45) * height),
+                    )]
+                elif family == "hair":
+                    strand = max(3, width // 12)
+                    shapes = [
+                        (x0 + offset, y0, x0 + offset + strand, y0 + int(0.72 * height))
+                        for offset in (width // 5, width // 2, 4 * width // 5)
+                    ]
+                elif family == "hand":
+                    shapes = [(x0 + width // 2, y0 + height // 2, x1, y1)]
+                else:
+                    tear_width = max(2, width // 18)
+                    shapes = [
+                        (x0 + width // 3, y0 + height // 2, x0 + width // 3 + tear_width, y1),
+                        (x0 + 2 * width // 3, y0 + height // 2, x0 + 2 * width // 3 + tear_width, y1),
+                    ]
+                color = {
+                    "eyewear": (28, 28, 32, 210),
+                    "goggles": (35, 90, 130, 225),
+                    "hair": (45, 28, 20, 200),
+                    "hand": (184, 130, 105, 220),
+                    "tears": (120, 190, 235, 180),
+                }[family]
+                radius = max(1, width // 30)
+                for shape in shapes:
+                    draw.rounded_rectangle(shape, radius=radius, fill=color)
+                    alpha_draw.rounded_rectangle(shape, radius=radius, fill=255)
+                target = Image.alpha_composite(
+                    target.convert("RGBA"), overlay
+                ).convert("RGB")
+                occluder_mask = np.asarray(alpha, dtype=np.float32) / 255.0
+
         candidates = record["_reference_candidates"]
         reference_record = random.choice(candidates)
         # CL5: extra distinct crops feed the PhotoMaker ID encoder only. Sampling
@@ -635,6 +694,10 @@ class CosmicLargeAdaptedTrain(BaseDataset):
             "reference_path": resolved_reference_path,
             "reference_cache_key": cache_key,
         }
+        if self.semantic_occlusion_probability > 0.0:
+            if occluder_mask is None:
+                raise RuntimeError("Semantic occlusion mask was not initialized")
+            instance_data["ba_occluder_mask"] = occluder_mask[None]
         if self.same_identity_dual_reference:
             instance_data["spatial_ref_images_alt"] = [alternate_reference]
             instance_data["face_bbox_ref_alt"] = alternate_reference_bbox

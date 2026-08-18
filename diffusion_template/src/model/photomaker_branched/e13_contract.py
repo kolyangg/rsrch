@@ -29,6 +29,17 @@ def initialise_e13_contract(model, *, ba_hard_v1_lora_rank: int = 128,
                             ba_hardcase_mode: str = "off",
                             ba_hardcase_groups: Sequence[str] | None = None,
                             ba_hardcase_transition_cells: int = 2,
+                            ba_hardcase_frequency_low_early: float = 0.50,
+                            ba_hardcase_frequency_low_late: float = 0.85,
+                            ba_hardcase_frequency_high_early: float = 0.75,
+                            ba_hardcase_frequency_high_late: float = 1.25,
+                            ba_hardcase_telemetry_enabled: bool = False,
+                            ba_frequency_surface_loss_enabled: bool = False,
+                            ba_frequency_surface_loss_groups: Sequence[str] | None = None,
+                            ba_frequency_surface_top_weight: float = 0.02,
+                            ba_frequency_surface_top_low_band_factor: float = 0.25,
+                            ba_frequency_surface_visible_floor_weight: float = 0.005,
+                            ba_frequency_surface_visible_floor_ratio: float = 0.35,
                             ba_crossview_consistency_enabled: bool = False,
                             ba_crossview_consistency_probability: float = 0.25,
                             ba_crossview_consistency_weight: float = 0.05,
@@ -57,12 +68,36 @@ def initialise_e13_contract(model, *, ba_hard_v1_lora_rank: int = 128,
         raise ValueError("E13 diverse-pair training requires conditioning cache off")
     hardcase_mode = str(ba_hardcase_mode or "off").lower()
     hardcase_groups = tuple(str(group) for group in (ba_hardcase_groups or ()))
-    if hardcase_mode not in {"off", "soft_router"}:
-        raise ValueError("The clean extension supports only CL19 soft_router")
+    if hardcase_mode not in {"off", "soft_router", "temporal_frequency"}:
+        raise ValueError("The clean extension supports CL19 or CL23 routing only")
     if hardcase_mode != "off" and not hardcase_groups:
         raise ValueError("CL19 soft_router requires explicit U-Net groups")
     if int(ba_hardcase_transition_cells) < 1:
         raise ValueError("ba_hardcase_transition_cells must be positive")
+    frequency_values = (
+        float(ba_hardcase_frequency_low_early),
+        float(ba_hardcase_frequency_low_late),
+        float(ba_hardcase_frequency_high_early),
+        float(ba_hardcase_frequency_high_late),
+    )
+    # 18 Aug 2026 - CL23/CL27 are exact clean leaves, not a general frequency
+    # experiment framework; reject schedule or objective drift at construction.
+    if hardcase_mode == "temporal_frequency" and frequency_values != (
+        0.50, 0.85, 0.75, 1.25
+    ):
+        raise ValueError("CL23 fixed temporal-frequency schedule drifted")
+    surface_groups = tuple(
+        str(group) for group in (ba_frequency_surface_loss_groups or ())
+    )
+    if bool(ba_frequency_surface_loss_enabled) and (
+        hardcase_mode != "temporal_frequency"
+        or surface_groups != ("up_blocks.0", "up_blocks.1")
+        or float(ba_frequency_surface_top_weight) != 0.02
+        or float(ba_frequency_surface_top_low_band_factor) != 0.25
+        or float(ba_frequency_surface_visible_floor_weight) != 0.005
+        or float(ba_frequency_surface_visible_floor_ratio) != 0.35
+    ):
+        raise ValueError("CL27 frequency-surface objective contract drifted")
     crossview_probability = float(ba_crossview_consistency_probability)
     crossview_weight = float(ba_crossview_consistency_weight)
     if bool(ba_crossview_consistency_enabled) and not (
@@ -107,6 +142,27 @@ def initialise_e13_contract(model, *, ba_hard_v1_lora_rank: int = 128,
     model.ba_hardcase_mode = hardcase_mode
     model.ba_hardcase_groups = hardcase_groups
     model.ba_hardcase_transition_cells = int(ba_hardcase_transition_cells)
+    model.ba_hardcase_frequency_low_early = frequency_values[0]
+    model.ba_hardcase_frequency_low_late = frequency_values[1]
+    model.ba_hardcase_frequency_high_early = frequency_values[2]
+    model.ba_hardcase_frequency_high_late = frequency_values[3]
+    model.ba_hardcase_telemetry_enabled = bool(ba_hardcase_telemetry_enabled)
+    model.ba_frequency_surface_loss_enabled = bool(
+        ba_frequency_surface_loss_enabled
+    )
+    model.ba_frequency_surface_loss_groups = surface_groups
+    model.ba_frequency_surface_top_weight = float(
+        ba_frequency_surface_top_weight
+    )
+    model.ba_frequency_surface_top_low_band_factor = float(
+        ba_frequency_surface_top_low_band_factor
+    )
+    model.ba_frequency_surface_visible_floor_weight = float(
+        ba_frequency_surface_visible_floor_weight
+    )
+    model.ba_frequency_surface_visible_floor_ratio = float(
+        ba_frequency_surface_visible_floor_ratio
+    )
     model.ba_crossview_consistency_enabled = bool(
         ba_crossview_consistency_enabled
     )
@@ -289,6 +345,27 @@ def architecture_manifest(model) -> dict:
             "groups": list(model.ba_hardcase_groups),
             "transition_cells": int(model.ba_hardcase_transition_cells),
         }
+        if str(model.ba_hardcase_mode) == "temporal_frequency":
+            hard_v1_extensions["hardcase_route"]["frequency_schedule"] = {
+                "low_early": float(model.ba_hardcase_frequency_low_early),
+                "low_late": float(model.ba_hardcase_frequency_low_late),
+                "high_early": float(model.ba_hardcase_frequency_high_early),
+                "high_late": float(model.ba_hardcase_frequency_high_late),
+            }
+    if bool(getattr(model, "ba_frequency_surface_loss_enabled", False)):
+        hard_v1_extensions["frequency_surface_loss"] = {
+            "groups": list(model.ba_frequency_surface_loss_groups),
+            "top_weight": float(model.ba_frequency_surface_top_weight),
+            "top_low_band_factor": float(
+                model.ba_frequency_surface_top_low_band_factor
+            ),
+            "visible_floor_weight": float(
+                model.ba_frequency_surface_visible_floor_weight
+            ),
+            "visible_floor_ratio": float(
+                model.ba_frequency_surface_visible_floor_ratio
+            ),
+        }
     if bool(getattr(model, "ba_crossview_consistency_enabled", False)):
         hard_v1_extensions["crossview_consistency"] = {
             "probability": float(model.ba_crossview_consistency_probability),
@@ -399,11 +476,16 @@ def _validate_compatible_manifest(saved: dict, current: dict) -> None:
     # 12 Aug 2026 - Unlike the inert E14-E24 fields tolerated above, CL19's
     # router affects generation and CL18's objective affects trained weights.
     for key in (
-        "hardcase_route", "crossview_consistency", "residual_identity_ca_v3"
+        "hardcase_route", "frequency_surface_loss", "crossview_consistency",
+        "residual_identity_ca_v3",
     ):
         saved_value = saved_extensions.get(key)
         current_value = current_extensions.get(key)
-        if key == "hardcase_route" and saved_value is not None:
+        if (
+            key == "hardcase_route"
+            and saved_value is not None
+            and saved_value.get("mode") == "soft_router"
+        ):
             # Source r2 manifests recorded inert hard-case tuning fields too;
             # project to the three values that define CL19's actual equation.
             saved_value = {

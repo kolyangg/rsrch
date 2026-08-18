@@ -133,6 +133,17 @@ class PhotomakerBranchedCL18CL20Pipeline:
             "ba_hardcase_mode",
             "ba_hardcase_groups",
             "ba_hardcase_transition_cells",
+            # 18 Aug 2026 - CL23/CL27 validation must install the same fixed
+            # frequency route while leaving CL27's training-only loss inactive.
+            "ba_hardcase_frequency_low_early",
+            "ba_hardcase_frequency_low_late",
+            "ba_hardcase_frequency_high_early",
+            "ba_hardcase_frequency_high_late",
+            "ba_hardcase_telemetry_enabled",
+            "ba_frequency_surface_loss_enabled",
+            "ba_frequency_surface_loss_groups",
+            "ba_frequency_surface_top_low_band_factor",
+            "ba_frequency_surface_visible_floor_ratio",
             # 13 Aug 2026 - CL14_CA-PIPE-01: the isolated corrected-validation
             # wrapper must reproduce the training/checkpoint CA selector.
             "e13_family_contract",
