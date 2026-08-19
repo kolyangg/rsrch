@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "run_name": "CL35_cosmic_attention_gated_patch_identity_oneval_smoke_r3",
+  "plan": {
+    "status": "failed_before_training",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 6,
+    "objective": "Verify CL35 three-reference conditioning and optimizer stepping.",
+    "baseline": "CL35_cosmic_attention_gated_patch_identity_24k_full96_r4",
+    "single_scientific_change": "None; operationally limit initial manual_val and its dataloader to one fixed item.",
+    "config": "src/configs/CL35_cosmic_attention_gated_patch_identity_oneval_smoke.yaml",
+    "launcher": "launchers/active/run_CL30_CL37_cl27_followups_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL35_cosmic_attention_gated_patch_identity_oneval_smoke_r3/run_CL35_cosmic_attention_gated_patch_identity_oneval_smoke_r3_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "operational_revision": "r3 matches validation batch size to the one-item smoke dataset.",
+    "risk": "Operational only; not scientifically comparable. Stop after several finite optimizer steps.",
+    "outcome": "The one-item validation completed, then the fixed 96-image face-quality expected count rejected the shortened smoke before training.",
+    "serv_job": "lm-mpi-job-6f63f2b9-2595-4282-b18d-58a5408de52c",
+    "comet_experiment_key": "ada114dc83644ba782e9a7a03d64b548"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "run_name": "CL31_cosmic_attention_ownership_alignment_24k_full96_r4",
+  "plan": {
+    "status": "running_startup_validation",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 2,
+    "objective": "Align routed reference attention with visible-face ownership.",
+    "baseline": "CL27_cosmic_frequency_surface_energy_24k_full96_r3",
+    "single_scientific_change": "Sampled reduced Q/K reference-mass ownership supervision.",
+    "config": "src/configs/CL31_cosmic_attention_ownership_alignment_24k.yaml",
+    "launcher": "launchers/active/run_CL30_CL37_cl27_followups_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL31_cosmic_attention_ownership_alignment_24k_full96_r4/run_CL31_cosmic_attention_ownership_alignment_24k_full96_r4_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "operational_revision": "Provide zero-valued declared ownership telemetry on unsampled steps; sampled objective unchanged.",
+    "source_revision": "cl30-cl37-v9-training-start-smoke-20260817",
+    "serv_job": "lm-mpi-job-4a16015c-dc5f-456b-8e57-59334b7e4c9f",
+    "comet_experiment_key": "ed5077fd3cfc41bd898c1234b8c3ba24"
+  }
+}

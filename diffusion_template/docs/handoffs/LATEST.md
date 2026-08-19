@@ -1,6 +1,6 @@
 # Current project handoff
 
-**Last updated:** 16 August 2026
+**Last updated:** 19 August 2026
 
 **Repository:** `/home/kolyangg/rsrch_apr_test`
 
@@ -43,6 +43,80 @@ base, scheduler, inference steps, CFG, or metrics silently. Exact
 comparability is part of correctness.
 
 ## Executive state
+
+### CL30-CL37 completed results and base decision - 19 August 2026
+
+The completed-results report is
+`analysis/2026-08-19_cl30_cl37_completed_results_and_base_decision.md`. It
+supersedes every provisional CL30-CL37 live-state note below for scientific
+interpretation. All eight final successful jobs completed with exit code zero;
+failed retries and one-item smokes remain operational evidence only.
+
+**Retain CL27 r3 at 16k as the primary base.** Its immutable Comet key is
+`dbfbf40c3bdd4f70bedc58bda3dfb9cd` and subject-v2 ID is `0.547260`. No
+CL30-CL37 arm improves aggregate ID against the correct CL27 control. The
+closest is CL33 at 16k, key `3173f3086fa344f7ad3eb6ce7b07ac1f`, ID
+`0.546311`; its paired delta is `-0.000949`, `47/96` wins, with 95% fixed-cell
+bootstrap interval `[-0.007764,+0.006280]`. CL30, CL34, CL36, and CL37 are
+clearly negative; CL31, CL32, and CL35 have negative point estimates with
+intervals crossing zero. Controlled PhotoMaker remains higher at `0.556580`.
+
+CL33 is useful only as a specialized secondary visibility-loss control. It
+raises Skiing from CL27's `0.433680` to `0.461983`, close to PhotoMaker's
+`0.464005`, but visual review finds an invalid shortcut: Elon's
+identity-defining ordinary glasses are deleted, while Marion's large goggles
+still cover the readable eye region. The Skiing topology rubric is PhotoMaker
+`8 pass / 0 minor / 0 fail`, CL27-16k `6/1/1`, and CL33-16k `6/0/2`. Crying is
+no longer the primary topology failure; its reviewed panels remain coherent.
+No new arm improves Marion's all-prompt mean over CL27.
+
+Do not interpret CL35 or CL36 as clean tests of their intended identity
+losses. CL35's DINOv2 patch-ID reward becomes exactly zero after 1k because
+observed gate mass averages about `0.111` against a configured `0.55` floor.
+CL36's ArcFace identity loss is nonzero in only `4/60` post-1k logged windows,
+and its BA auxiliary gradient ratio is always zero. Their complete recipes are
+negative, but patch identity and ArcFace remain unqualified rather than
+scientifically falsified.
+
+The base contract going forward is CL27 frequency-surface SA-only BA with the
+CL27 r3 **16k checkpoint**, target-query/reference-KV routing,
+`pose_adapt_ratio=0`, `ca_mixing_for_face=false`, the optimized pipeline, and
+the fixed 96-image subject-v2 validation. Continue 24k runs for comparability,
+but make 16k and 18k explicit checkpoint-selection gates. Do not stack a
+CL30-CL37 mechanism into the default base. Highest-value next work is a
+single-delta visibility-balanced-v2 loss with anti-deletion ownership; any
+patch-ID, ArcFace, or ROI-teacher successor must first pass fail-closed
+eligibility and active-gradient gates.
+
+### PM0 / CL14 / CL19 / CL23 / CL27 visual comparison - 18 August 2026
+
+The current exact-format Comet comparison PDF is
+`output/pdf/comet_report_PM0_CL14_CL19_CL23_CL27_18Aug2026.pdf` (22 pages,
+55,965,004 bytes, SHA-256
+`626a5fb382edb335f529ff7573d9c538d5249e459dd5cf3e53fbd9ef97c1068a`).
+It supersedes the earlier PM0/CL14/CL19/CL20 report for the requested visual
+comparison. A fresh immutable-key export found exact, table-sealed 96-image
+panels with zero warnings/errors for PhotoMaker V2 step 0
+(`74efd227d3f8488a98e83d815c77c07c`) and the 24k endpoints of CL14
+(`6fe0028be92242c38056b3d36665fdd6`), CL19
+(`cfeda7b55c174b3c83e8d40537ebb6dd`), CL23
+(`a9ec9c59d1624c68acb98737dcd65298`), and CL27
+(`dbfbf40c3bdd4f70bedc58bda3dfb9cd`). Endpoint subject-v2 ID means are
+`0.556580`, `0.456116`, `0.506823`, `0.539085`, and `0.543081`. CL27 peaks
+at `0.547260 @16k`; CL19 peaks at `0.507105 @22k`; CL14 peaks at
+`0.457096 @22k`.
+
+The image grid is explicitly controlled by JSON settings `max_columns=8` and
+`max_rows=5`, producing twelve full comparison pages for the 96 fixed cells.
+The report also includes formula and code pages for CL14, CL19, CL23, and
+CL27; the fixed references/prompts; full-history ID curves with endpoint/peak
+labels; grouped identity/prompt means; and the five-run scientific parameter
+table. Reusable inputs are
+`tools/comet/comet_runs_18Aug_PM0_CL14_CL19_CL23_CL27.json`,
+`tools/comet/comet_pdf_config_18Aug_PM0_CL14_CL19_CL23_CL27.json`, and
+`tools/comet/comet_report_pages_PM0_CL14_CL19_CL23_CL27.md`. The selected
+CL27 image panel is the requested latest 24k endpoint, while the chart makes
+its promoted 16k peak explicit.
 
 ### CL15-CL20 final results and CL19 next architecture plan - completed, 13 August 2026
 
@@ -3464,3 +3538,276 @@ omit validation. The optimized pipeline retains
 telemetry unless scientifically requested, uses CPU low-band gate sampling for
 CL29-derived runs, never resolves `unet.attn_processors` inside a per-layer
 loop, and keeps `pose_adapt_ratio=0` plus `ca_mixing_for_face=false`.
+
+### Full optimized CL29 scientific run — launched 16 August 2026
+
+The full cold-start run
+`CL29_cosmic_lowband_causal_contrastive_24k_full96_r7` is active on Serv as
+job `lm-mpi-job-4633f14d-82f0-4804-9aa7-c01b14b45f92`; immutable Comet key
+`ad8d6b4cf03f49f09cd40fbaec8dcb85`. It uses the required optimized pipeline
+with CL29's model/data/loss unchanged, 24,000 optimizer steps, batch 2, and the
+fixed manual-val-96 panel at step zero and every 2,000 steps. The sealed source
+revision is `6eb6613+cl29-fixed-full-r7-20260816` with 1,498 verified files.
+
+Startup passed the 64-sample dual-reference dataset preflight, exact
+`2240/219217920` trainable contract, and `840/840` branched-processor optimizer
+membership. Step-zero RealVisXL validation entered image `00/96`; this records
+startup only and does not imply that the initial panel or any training step has
+completed. Inspect the immutable job and Comet records before interpreting
+later state.
+
+### CL27-CL29 completed visual review and CL30-CL37 design handoff - 17 August 2026
+
+The completed matched review is
+`analysis/2026-08-17_cl27_cl29_vs_cl23_visual_results_and_next_experiments.md`.
+It compares CL23 `a9ec9c59d1624c68acb98737dcd65298`, CL27 r3
+`dbfbf40c3bdd4f70bedc58bda3dfb9cd`, CL28 r4
+`3d8aca3b4cbb4ddc9338f14952c5bd0e`, and CL29 r3
+`2981820837564d01b1cefbf52c4dabd0` on matched manual-val-96 exports. Use
+**CL27 r3 at 16k** as the sole promoted base: ID_SIM is `0.547260`, a paired
+`+0.013436` over matched CL23 with `61/96` wins and 95% interval
+`[+0.005021,+0.023271]`. It remains `0.009320` below controlled PhotoMaker
+step zero. CL28 and CL29 have no established aggregate advantage over CL23.
+
+Visual review is decisive. CL27 has the cleanest Jisoo/Skiing result and the
+best 16k Skiing, Crying, and Marion slice means, but its 24k Skiing rubric is
+still only `5 pass / 1 minor / 2 fail`, tied with CL23; it has not solved the
+hard case generally. CL28 creates severe goggle/face fusion despite some high
+automatic scores. CL29 genuinely improves some small/action faces, especially
+Keanu/Jumping, but deletes ordinary glasses or corrupts goggle boundaries in
+important cells. CL29 telemetry indicates that its contrastive margin grew
+mainly by reducing wrong-ID cosine while correct-ID cosine stayed nearly flat;
+wrong-ID repulsion is therefore a suspected shortcut, not a promoted route.
+
+Eight priority-ordered, design-only successors are under
+`analysis/blueprints/2026-08-17_cl27_next_eight/`: CL30 positive-only low-band
+same-ID attraction; CL31 attention ownership alignment; CL32 contact-ring
+frequency surface; CL33 visibility-balanced reconstruction; CL34 one shared
+bounded frequency calibration; CL35 attention-gated masked-patch identity;
+CL36 a weak BA-only ArcFace hinge 4k continuation from exact CL27-16k; and
+CL37 training-only small-face ROI-teacher distillation. Each directory-level
+handoff includes one scientific blueprint and one Serv YAML. They are parsed
+but intentionally not launchable until implementation, source sealing,
+step-zero parity, exact ownership, gradient, save/reload, and throughput gates
+pass. No training code was changed and no job was launched for this review.
+
+Every implementation must use the optimized pipeline in
+`analysis/2026-08-16_training_pipeline_processor_lookup_fix.md`: cache
+processor maps once per collector, skip disabled collectors, request active
+gradient norms only when consumed, disable undeclared full-activation BA
+telemetry, CPU-sample optional gates (including CL29-derived low-band gates),
+keep step zero plus every-2k manual-val-96, and preserve
+`pose_adapt_ratio=0` plus `ca_mixing_for_face=false`. Literal alternating
+masked/full loss is excluded because E24 already tested it negatively; CL33
+tests simultaneous region-normalized weighting instead. Compact checked
+figures, all 52 per-step metric tables, scripts, and hashes remain in
+`analysis/assets/cl27_cl29_vs_cl23_20260817/`. The multi-gigabyte transient
+Comet image cache was pruned after verification and is reconstructible from
+the immutable keys.
+
+### CL30-CL37 implementation and Serv submission - 17 August 2026
+
+All eight CL27 follow-ups are implemented behind explicit model/config toggles.
+The shared launcher is
+`launchers/active/run_CL30_CL37_cl27_followups_1gpu.sh`; the Serv wrapper is
+`launchers/active/start_CL30_CL37_serv_1gpu.sh`; the fail-closed composition
+gate is `tools/validate_CL30_CL37_config.py`. The scientific YAMLs are
+`src/configs/CL30_cosmic_positive_lowband_sameid_24k.yaml` through
+`src/configs/CL37_cosmic_smallface_roi_teacher_distill_24k.yaml`. CL30 adds a
+positive-only same-ID low-band pull; CL31 sampled reduced-Q/K ownership; CL32
+contact/interior frequency partitioning; CL33 visibility-balanced
+reconstruction; CL34 one shared bounded three-scalar schedule; CL35 sparse
+DINOv2 patch identity; CL36 a 4k BA-only ArcFace quadratic-hinge continuation;
+and CL37 a sampled no-grad ROI32 teacher. Defaults remain backward-compatible,
+and all arms keep the optimized processor-lookup pipeline, manual-val-96 at
+step zero/every 2k, batch 2, `pose_adapt_ratio=0`, and
+`ca_mixing_for_face=false`.
+
+The common final sealed correction is
+`cl30-cl37-v7-alternate-validation-parity-20260817` with 768 manifest-tracked
+files. It fixes a validation-only contract: `base_trainer.py` constructs a
+temporary RealVis model and pipeline at every validation event, so CL30-CL37
+extension flags must be copied there as well as into the initial pipeline.
+CL36 alone uses the subsequent sealed revision
+`cl30-cl37-v8-batched-multi-id-20260817` with 769 files. Its optimized batched
+conditioning now sends all same-identity reference crops through PhotoMaker's
+ID encoder while retaining `ref_images[0]` as the sole spatial BA K/V lane.
+The final active immutable records are:
+
+- CL30 r4: Serv `lm-mpi-job-ee929d56-2ad3-46d2-89dd-a5a295b2a815`, Comet
+  `db38cfb250d241cf89bf57705ff86b18`.
+- CL31 r3: Serv `lm-mpi-job-4473aae2-cdf9-43c6-9bbe-e92a963b4c9e`, Comet
+  `8e70d84ab065490bbb9d776b8470f3c0`.
+- CL32 r1: Serv `lm-mpi-job-734954b2-84f5-4641-9df7-da42519338ab`, Comet
+  `078cf231674f4fa499e160a435300511`.
+- CL33 r1: Serv `lm-mpi-job-5db6e3c0-0efb-47e4-a497-0eac2d409bee`, Comet
+  `3173f3086fa344f7ad3eb6ce7b07ac1f`.
+- CL34 r4: Serv `lm-mpi-job-ed7c4bce-edf3-40ab-948b-589e1d312a1e`, Comet
+  `577cc412ffa04e5686e5c10760186c65`.
+- CL35 r4: Serv `lm-mpi-job-e33c4d83-59dd-43b8-ac5d-234c847f8bf9`, Comet
+  `7e18d5ae3c81424d82759883a3c3d771`.
+- CL36 r2: Serv `lm-mpi-job-d49886c0-e051-49e5-ae27-7c81cfb07e5f`, Comet
+  `e53a51bcf403493d9794f3df6c09bee9`.
+- CL37 r4: Serv `lm-mpi-job-4bb0e892-ee72-4b6f-9ba7-f3a87b1081ca`, Comet
+  `f3c535315da242d78494d7df6dd1eaa3`.
+
+At the final 17 August submission audit, all eight final jobs were accepted,
+were `running`, and had immutable Comet records. CL30 r4 and CL31 r3 completed
+their first full step-zero validation batch and advanced to batch `01/96`;
+CL34 r4, CL35 r4, and CL37 r4 entered the same denoise path without the former
+processor-map exception. CL32 r1 and CL33 r1 remained live in step-zero
+validation. CL36 r2 passed source/config/dataset preflight, its exact
+three-reference dataset gate, Comet registration, and model initialization;
+it must repeat the long step-zero validation before its first optimizer batch.
+This is startup/validation evidence only; it does not imply completion of the
+96-image panel or the start of optimizer training. Live MLS state confirmed
+all eight new one-GPU jobs plus pre-existing CL29 running, for nine A100s total
+within the user's explicit ten-GPU exception.
+
+Retain the failed startup records. The first CL30-CL32 submissions failed
+before experiment startup because the package wrapper assumed
+`/opt/conda/etc/profile.d/conda.sh`; the wrapper now discovers the active Conda
+base. CL30/31/34/35/37 early scientific identities then failed before their
+first validation image because the temporary alternate-validation pipeline
+did not advertise the installed extension map. CL30 r2 additionally failed
+the dataset preflight before Comet registration because it was assembled from
+a stale local source archive. CL36 r1 completed all 96 step-zero validation
+images but then failed on its first training batch because the optimized
+conditioning helper assumed one identity crop while the continuation dataset
+supplies three. It took no optimizer step. CL36 r2 contains the narrow batching
+repair described above and uses a fresh saved directory and Comet identity.
+No failed identity reached an optimizer batch, and no saved/Comet identity was
+reused. Local experiment JSONs and Serv job audit records preserve these
+attempts. Always inspect live MLS and immutable Comet state rather than
+treating this resource snapshot as current.
+
+### CL31/CL35/CL36 training-start fixes and gated smoke retries - 17 August 2026
+
+The final CL31 r3, CL35 r4, and CL36 r2 jobs all completed their 96-image
+step-zero panels and then failed in training. CL31 indexed the sampled
+`loss_ba_attention_ownership` metric on an unsampled step; the fix emits the
+declared zero-valued metric contract when inactive. CL35 used a v7 source that
+predated the shared multi-reference batching repair; its retry uses the v8+
+helper that batches all PhotoMaker identity crops while retaining reference
+zero as the sole spatial BA lane. CL36 r2 trained through step 64 and then
+treated an exactly satisfied quadratic hinge's legitimate zero gradient as a
+calibration failure; the fix skips persistent calibration only for exact
+zero-loss quadratic-hinge no-ops and still fails on disconnected, positive-
+loss-zero-gradient, or non-finite graphs.
+
+The user requested one-item initial-validation smokes before production
+resubmission. Fresh r1 smokes were accepted but failed before model
+construction because their newly assembled runtime roots lacked the established
+adjacent `dataset_full` link. Those identities and Comet keys are preserved in
+their experiment JSONs. Fresh r2 sources use revision
+`cl30-cl37-v10-oneval-smoke-r2-20260817`, have verified 885-file manifests,
+pass remote composition/ownership gates, and restore the exact adjacent link.
+Their first submissions were rejected before job creation with
+`PROJECT_GPU_LIMIT_REACHED_ONLY_0_FREE`; no r2 Comet identity exists. Per the
+Serv retry rule, do not resubmit these rejected requests until the user
+explicitly authorizes a retry after this rejection. Full production CL31 r4,
+CL35 r5, and CL36 r3 packages are prepared and remain gated on successful
+smokes; do not submit them early.
+
+#### Superseding CL31/CL35/CL36 smoke and production state - 17 August 2026
+
+The user explicitly authorized retrying the corrected smokes after the prior
+allocation rejection. The accepted r2 smokes exposed a smoke-only validation
+contract mismatch: limiting `manual_val` to one item while retaining a
+12-image validation batch. The r3 smokes aligned the loader to one image but
+then correctly failed the strict face-quality count because it still expected
+the production total of 96. No r2/r3 smoke reached training.
+
+The final r4 smoke configuration aligns all three smoke-only counts to one:
+dataset limit, validation batch size, and `trainer.face_quality.expected_images`.
+It uses sealed revision `cl30-cl37-v12-oneval-facequality-r4-20260817`. All
+three smokes completed one-item validation and demonstrated working training:
+
+- CL31 r4: Serv `lm-mpi-job-e209b342-5cb5-44f2-bd71-904d675b02ef`, Comet
+  `b3300640b466495c9626a3541c04361e`, observed through optimizer step 10.
+- CL35 r4: Serv `lm-mpi-job-8bae000b-cc55-4c31-8d34-c292a27ab61f`, Comet
+  `684d37a13d8142499af24a1b75475ef3`, observed through optimizer step 15 with
+  all three identity references active.
+- CL36 r4: Serv `lm-mpi-job-31a67aec-9de2-4f09-919c-72db811f8939`, Comet
+  `2cd889cd13384906b635bd873bb8e14d`, observed through optimizer step 83,
+  beyond the former step-64 quadratic-hinge failure.
+
+The smokes were deliberately stopped after those gates passed. An accidental
+duplicate CL31 submission, `lm-mpi-job-54918be9-5ecc-4b48-8341-dac19aad55bf`,
+failed its source-seal check before model construction because the intended
+job had already written Hydra output into that shared source; it created no
+separate Comet experiment.
+
+Fresh full-production jobs were then submitted in priority order from sealed
+revision `cl30-cl37-v9-training-start-smoke-20260817`, preserving the standard
+96-image step-zero/every-2,000-step validation contract:
+
+- CL31 r4: Serv `lm-mpi-job-4a16015c-dc5f-456b-8e57-59334b7e4c9f`, Comet
+  `ed5077fd3cfc41bd898c1234b8c3ba24`.
+- CL35 r5: Serv `lm-mpi-job-154370c4-9108-4dbb-b9e5-ca6ea139149c`, Comet
+  `0b9dd7d5a0bf42ef82a00ddd358c39ea`.
+- CL36 r3: Serv `lm-mpi-job-536804d9-8dcd-49b7-ae9c-96c84c7ecce7`, Comet
+  `a86da77cab7848fbb49320904bd01a4f`.
+
+At submission audit time all three production jobs were accepted and Running,
+their sealed-source/config/preflight/trainable-ownership and immutable-Comet
+startup gates had passed, and they were initializing their full step-zero
+validation. Together with the six surviving project jobs, the project held
+nine A100 requests, within the user's run-scoped ten-GPU exception. Verify live
+MLS and immutable Comet state before interpreting this resource snapshot.
+
+#### Superseding CL35 production retry - 17 August 2026
+
+CL35 r5 failed before its step-zero validation panel or any optimizer step
+while constructing the `clip_ts` validation metric. Three concurrent jobs had
+downloaded OpenAI `ViT-L-14-336px.pt` into the shared default CLIP cache; r5
+observed a partially written file and failed the package's SHA-256 guard. A
+subsequent read-only audit found the completed file at 934,088,680 bytes with
+SHA-256 `3035c92b350959924f9f00213499208652fc7ea050643e8b385c2dac08641f02`,
+exactly matching the digest embedded in OpenAI CLIP's model URL. This was an
+operational cache race, not a CL35 architecture/configuration failure.
+
+The unchanged scientific run was rebuilt as fresh CL35 r6 from sealed source
+revision `cl30-cl37-v13-cl35-clip-cache-retry-20260817`; its remote composition
+gate again reported 2,240 tensors and 219,217,920 parameters. Before submission
+there were eight project A100 requests Running and none Pending. The retry was
+accepted as Serv `lm-mpi-job-1f979e72-fb79-40b7-b101-984bf076ef5d` and created
+fresh Comet key `1fd93fde332142b1966e7a2fb181b9a7`. It was Running and initializing the
+standard full-96 step-zero validation at the last audit. Preserve failed r5
+job `lm-mpi-job-154370c4-9108-4dbb-b9e5-ca6ea139149c` and Comet key
+`0b9dd7d5a0bf42ef82a00ddd358c39ea` as the immutable failed attempt.
+
+#### Superseding CL35/CL36 mixed-reference fix and retries - 17 August 2026
+
+CL35 r6 completed full step-zero and step-2k validation, saved its epoch-1
+checkpoint, and failed near local step 3,200. CL36 r3 completed full step-zero
+validation and failed at local step 242. Both hit the same fail-closed error:
+`Batched conditioning requires a uniform reference count per sample`. A full
+configured-index audit found exactly two records among the prior 22,140 whose
+candidate sets contained only two distinct valid reference paths, despite both
+arms declaring three identity references. Random 64-row preflight and early
+smokes had not sampled either record.
+
+The dataset now derives its minimum distinct-candidate requirement from
+`num_identity_refs`, filters those two records during construction, and selects
+extra references from a path-de-duplicated pool. The spatial lane remains
+`ref_images[0]`; no loss, scheduler, validation, trainable ownership, or
+reference-routing behavior changed. The existing preflight now audits the
+entire index and reports `22,138` accepted, minimum three distinct candidates,
+and zero below requirement for both arms. Remote config gates remain
+`2,240 / 219,217,920`.
+
+Both arms restarted from their original scientific initialization rather than
+from partial failed checkpoints, using sealed revision
+`cl30-cl37-v14-distinct-multiref-filter-20260817`:
+
+- CL35 r7: Serv `lm-mpi-job-a33e6659-1b1e-4e21-a718-2dfe03af254e`, Comet
+  `f3417ee9a86342cb9bc13e5eb37bb3e2`.
+- CL36 r4: Serv `lm-mpi-job-40025224-7236-44f5-952a-23f84d7c9e1a`, Comet
+  `41dcb0987d5d439bb14329052953ff6d`.
+
+At the last audit both were Running, with sealed-source, configuration,
+full-index dataset, and immutable-Comet startup gates passed, and were entering
+the standard full-96 step-zero validation. Seven project GPUs were Running and
+none Pending before these two submissions, so the resulting nine requests are
+within the user's run-scoped ten-GPU exception.

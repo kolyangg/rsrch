@@ -290,6 +290,17 @@ class CosmicLargeAdaptedTrain(BaseDataset):
             "filtered_reference_score": 0,
             "filtered_reference_accept_list": 0,
         }
+        required_reference_candidates = max(
+            self.num_identity_refs,
+            (
+                self.min_reference_candidates_for_target
+                if self.same_identity_dual_reference
+                else 1
+            ),
+        )
+        audit["required_distinct_reference_candidates"] = (
+            required_reference_candidates
+        )
         for target_path, raw_record in records.items():
             if not isinstance(raw_record, dict):
                 continue
@@ -340,10 +351,10 @@ class CosmicLargeAdaptedTrain(BaseDataset):
             if not candidates:
                 audit["filtered_no_reference"] += 1
                 continue
-            if (
-                self.same_identity_dual_reference
-                and len(candidates) < self.min_reference_candidates_for_target
-            ):
+            distinct_candidate_count = len(
+                {candidate["path"] for candidate in candidates}
+            )
+            if distinct_candidate_count < required_reference_candidates:
                 audit["filtered_no_reference"] += 1
                 continue
 
@@ -527,7 +538,16 @@ class CosmicLargeAdaptedTrain(BaseDataset):
         # them here keeps ref_images[0] — the spatial lane — exactly as it was.
         identity_extra = []
         if self.num_identity_refs > 1:
-            pool = [c for c in candidates if c["path"] != reference_record["path"]]
+            # 17 Aug 2026 - AICODE-NOTE: PhotoMaker multi-reference batches
+            # require the declared number of distinct paths for every sample.
+            # Dataset construction enforces availability; de-duplication here
+            # prevents repeated manifest entries from silently filling a slot.
+            pool_by_path = {
+                candidate["path"]: candidate
+                for candidate in candidates
+                if candidate["path"] != reference_record["path"]
+            }
+            pool = list(pool_by_path.values())
             random.shuffle(pool)
             identity_extra = pool[: self.num_identity_refs - 1]
         reference_path = reference_record["path"]

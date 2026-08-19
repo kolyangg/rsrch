@@ -1,0 +1,23 @@
+defaults:
+  - CL27_cosmic_frequency_surface_energy_24k
+  - _self_
+
+model:
+  ba_hardcase_telemetry_enabled: false
+
+loss_kind: visibility_balanced_ba
+loss_function:
+  visible_face_weight: 0.75
+  top_object_weight: 0.25
+  contact_weight: 0.05
+  contact_ring_width: 1
+  full_weight: 0.05
+  apply_partition_only_when_occluded: true
+  include_ba_aux_loss: true
+
+trainer:
+  active_grad_norm_mode: requested_only
+
+writer:
+  loss_names: [loss, loss_visible_face, loss_top_object, loss_contact, loss_full, loss_ba_aux, loss_ba_frequency_surface, visibility_partition_applied_fraction]
+  experiment_comment: CL33 vs CL27 changes only reconstruction normalization on synthetic occlusion batches.

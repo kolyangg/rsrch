@@ -1,0 +1,18 @@
+defaults:
+  - CL27_cosmic_frequency_surface_energy_24k
+  - _self_
+
+model:
+  ba_hardcase_telemetry_enabled: false
+  ba_frequency_surface_region_mode: contact_partition
+  ba_frequency_surface_contact_width: 1
+  ba_frequency_surface_top_interior_factor: 0.50
+  ba_frequency_surface_contact_factor: 2.00
+  ba_frequency_surface_normalize_partition_weights: true
+
+trainer:
+  active_grad_norm_mode: requested_only
+
+writer:
+  loss_names: [loss, loss_ba_aux, loss_ba_frequency_surface, ba/frequency_surface_contact_rms/up0, ba/frequency_surface_contact_rms/up1, ba/frequency_surface_interior_rms/up0, ba/frequency_surface_interior_rms/up1, ba/frequency_surface_applied_fraction]
+  experiment_comment: CL32 vs CL27 repartitions only the top-object frequency surface toward its one-cell contact edge.

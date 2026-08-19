@@ -288,6 +288,11 @@ def expected_branched_trainable_names(model) -> tuple[str, ...]:
         name for name, _ in model.unet.named_parameters()
         if _is_expected_branched_trainable(name, context)
     }
+    if bool(getattr(model, "ba_frequency_shared_schedule_enabled", False)):
+        shared_name = "ba_frequency_shared_schedule_raw"
+        if shared_name not in dict(model.unet.named_parameters()):
+            raise RuntimeError("Shared frequency schedule parameter is unregistered")
+        expected.add(shared_name)
     if context["identity_ca_proc_names"]:
         name_by_id = {
             id(parameter): name
@@ -532,6 +537,78 @@ def collect_lowband_contrastive_loss(model, *, temperature: float):
         "ba/lowband_wrong_cosine/all": negative,
         "ba/lowband_correct_wrong_margin/all": positive - negative,
     }
+
+
+def collect_lowband_positive_loss(model):
+    """Cosine pull between two same-ID messages under the same detached query."""
+    groups = tuple(getattr(model, "ba_frequency_positive_sameid_groups", ()))
+    processors = model.unet.attn_processors
+    losses, similarities = [], []
+    for name in getattr(model, "_ba_patched_processor_names", ()):
+        if not any(name.startswith(f"{group}.") for group in groups):
+            continue
+        getter = getattr(processors.get(name), "lowband_positive_embeddings", None)
+        values = None if getter is None else getter()
+        if values is None:
+            raise RuntimeError(f"Missing positive same-ID capture for {name}")
+        anchor = F.normalize(values[0].detach().float(), dim=-1)
+        positive = F.normalize(values[1].float(), dim=-1)
+        cosine = (anchor * positive).sum(dim=-1).mean()
+        losses.append(1.0 - cosine)
+        similarities.append(cosine.detach())
+    if not losses:
+        raise RuntimeError("Positive same-ID groups selected zero processors")
+    return torch.stack(losses).mean(), torch.stack(similarities).mean()
+
+
+def collect_attention_ownership_loss(model):
+    """Aggregate sampled chunked Q/K ownership objectives from selected layers."""
+    groups = tuple(getattr(model, "ba_attention_ownership_groups", ()))
+    processors = model.unet.attn_processors
+    losses, visible, top = [], [], []
+    for name in getattr(model, "_ba_patched_processor_names", ()):
+        if not any(name.startswith(f"{group}.") for group in groups):
+            continue
+        getter = getattr(processors.get(name), "attention_ownership_aux", None)
+        values = None if getter is None else getter()
+        if values is None:
+            raise RuntimeError(f"Missing attention ownership capture for {name}")
+        loss, visible_mass, top_mass = values
+        losses.append(loss.float())
+        visible.append(visible_mass.detach().float())
+        top.append(top_mass.detach().float())
+    if not losses:
+        raise RuntimeError("Attention ownership groups selected zero processors")
+    return (
+        torch.stack(losses).mean(),
+        torch.stack(visible).mean(),
+        torch.stack(top).mean(),
+    )
+
+
+def collect_roi_teacher_loss(model):
+    """Aggregate CL37 training-only high-resolution ROI teacher graphs."""
+    groups = tuple(getattr(model, "ba_roi_teacher_distill_groups", ()))
+    processors = model.unet.attn_processors
+    losses, cosine, eligible = [], [], []
+    for name in getattr(model, "_ba_patched_processor_names", ()):
+        if not any(name.startswith(f"{group}.") for group in groups):
+            continue
+        getter = getattr(processors.get(name), "roi_teacher_aux", None)
+        values = None if getter is None else getter()
+        if values is None:
+            raise RuntimeError(f"Missing ROI teacher capture for {name}")
+        loss, similarity, fraction = values
+        losses.append(loss.float())
+        cosine.append(similarity.detach().float())
+        eligible.append(fraction.detach().float())
+    if not losses:
+        raise RuntimeError("ROI teacher groups selected zero processors")
+    return (
+        torch.stack(losses).mean(),
+        torch.stack(cosine).mean(),
+        torch.stack(eligible).mean(),
+    )
 
 
 def clear_lowband_contrastive_state(model) -> None:
@@ -918,13 +995,19 @@ def _prepare_branched_training_inputs_batched(
         refs if isinstance(refs, (list, tuple)) else [refs]
         for refs in ref_images
     ]
-    if any(len(refs) != 1 for refs in refs_per_sample):
+    if not refs_per_sample or any(not refs for refs in refs_per_sample):
+        raise ValueError("Batched conditioning requires at least one reference")
+    num_id_images = len(refs_per_sample[0])
+    if any(len(refs) != num_id_images for refs in refs_per_sample):
         raise ValueError(
-            "batched_conditioning_preparation currently requires one reference "
-            "image per training sample"
+            "Batched conditioning requires a uniform reference count per sample"
         )
-    flat_refs = [refs[0] for refs in refs_per_sample]
-    batch_size = len(flat_refs)
+    # 17 Aug 2026 - AICODE-NOTE: Additional identity references are batched
+    # only through PhotoMaker/identity losses. refs[0] remains the sole spatial
+    # latent and reference K/V lane, preserving the CL5 dataset invariant.
+    spatial_refs = [refs[0] for refs in refs_per_sample]
+    flat_identity_refs = [ref for refs in refs_per_sample for ref in refs]
+    batch_size = len(spatial_refs)
     if not (
         len(prompts)
         == len(face_bbox)
@@ -937,7 +1020,9 @@ def _prepare_branched_training_inputs_batched(
     image_h, image_w = pixel_values.shape[-2:]
     latent_h, latent_w = noisy_latents.shape[-2:]
     prompt_embeds, pooled_prompt_embeds, class_tokens_mask = (
-        model.encode_prompts_with_trigger_word(prompts, num_id_images=1)
+        model.encode_prompts_with_trigger_word(
+            prompts, num_id_images=num_id_images
+        )
     )
 
     # 26 Jul 2026 - Full Cosmic supplies effectively unique target/reference
@@ -947,16 +1032,31 @@ def _prepare_branched_training_inputs_batched(
     # supplied boxes, PhotoMaker features, and target masks remain per sample.
     with torch.no_grad():
         id_pixel_values = model.id_image_processor(
-            flat_refs, return_tensors="pt"
-        ).pixel_values.unsqueeze(1)
+            flat_identity_refs, return_tensors="pt"
+        ).pixel_values
+        id_pixel_values = id_pixel_values.reshape(
+            batch_size, num_id_images, *id_pixel_values.shape[1:]
+        )
         id_pixel_values = id_pixel_values.to(
             model.device, dtype=model.id_encoder.dtype
         )
 
         id_embed_list = []
-        for ref, ref_bbox in zip(flat_refs, face_bbox_ref):
-            id_embed_list.append(_subject_embedding(model, ref, ref_bbox))
-        id_embeds = torch.stack(id_embed_list, dim=0).unsqueeze(1).to(
+        for refs, ref_bbox in zip(refs_per_sample, face_bbox_ref):
+            id_embed_list.append(
+                torch.stack(
+                    [
+                        _subject_embedding(
+                            model,
+                            ref,
+                            ref_bbox if ref_index == 0 else None,
+                        )
+                        for ref_index, ref in enumerate(refs)
+                    ],
+                    dim=0,
+                )
+            )
+        id_embeds = torch.stack(id_embed_list, dim=0).to(
             device=model.device, dtype=model.id_encoder.dtype
         )
 
@@ -967,7 +1067,7 @@ def _prepare_branched_training_inputs_batched(
             id_embeds,
         )
         reference_latents = model._encode_reference_latents(
-            flat_refs, target_shape=(latent_h, latent_w)
+            spatial_refs, target_shape=(latent_h, latent_w)
         )
 
         id_features = None
@@ -980,7 +1080,7 @@ def _prepare_branched_training_inputs_batched(
 
     target_masks = []
     ref_masks = []
-    for bbox, ref_bbox, ref in zip(face_bbox, face_bbox_ref, flat_refs):
+    for bbox, ref_bbox, ref in zip(face_bbox, face_bbox_ref, spatial_refs):
         ref_w, ref_h = ref.size
         target_masks.append(
             model._bbox_to_mask(

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "run_name": "CL30_cosmic_positive_lowband_sameid_24k_full96_r3",
+  "plan": {
+    "status": "failed_alternate_validation_parity",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 1,
+    "objective": "Test positive-only low-band same-ID consistency vs CL27.",
+    "baseline": "CL27_cosmic_frequency_surface_energy_24k_full96_r3",
+    "single_scientific_change": "Sampled same-ID positive low-band cosine pull without wrong-ID repulsion.",
+    "config": "src/configs/CL30_cosmic_positive_lowband_sameid_24k.yaml",
+    "launcher": "launchers/active/run_CL30_CL37_cl27_followups_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL30_cosmic_positive_lowband_sameid_24k_full96_r3/run_CL30_cosmic_positive_lowband_sameid_24k_full96_r3_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "operational_revision": "r3 uses the current-source snapshot and validation flag propagation; science is unchanged from r1"
+  },
+  "runtime": {
+    "serv_job_id": "lm-mpi-job-7b264b67-3102-460e-9eec-d19d5f28f168",
+    "comet_experiment_key": "1fd0079c8f654d989ab6edc26a8b42d1",
+    "source_revision": "cl30-cl37-v6-current-source-validation-parity-20260817"
+  }
+}

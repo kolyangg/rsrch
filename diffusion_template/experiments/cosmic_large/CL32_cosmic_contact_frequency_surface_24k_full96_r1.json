@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "run_name": "CL32_cosmic_contact_frequency_surface_24k_full96_r1",
+  "plan": {
+    "status": "submitted",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 3,
+    "objective": "Concentrate CL27 suppression at face-object contact boundaries.",
+    "baseline": "CL27_cosmic_frequency_surface_energy_24k_full96_r3",
+    "single_scientific_change": "Normalized contact/interior partition of CL27 frequency surface.",
+    "config": "src/configs/CL32_cosmic_contact_frequency_surface_24k.yaml",
+    "launcher": "launchers/active/run_CL30_CL37_cl27_followups_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL32_cosmic_contact_frequency_surface_24k_full96_r1/run_CL32_cosmic_contact_frequency_surface_24k_full96_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds"
+  },
+  "runtime": {
+    "serv_job_id": "lm-mpi-job-734954b2-84f5-4641-9df7-da42519338ab",
+    "comet_experiment_key": "078cf231674f4fa499e160a435300511",
+    "source_revision": "cl30-cl37-v3-20260817"
+  }
+}

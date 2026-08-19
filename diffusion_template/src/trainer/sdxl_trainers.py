@@ -297,27 +297,71 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         ]
         flat_parameters = [parameter for _, params in role_groups for parameter in params]
         role_sizes = [len(params) for _, params in role_groups]
+        gradient_scope = str(
+            getattr(model, "identity_aux_gradient_scope", "all_trainable")
+        ).lower()
+        identity_graph = identity_raw
+        scoped_parameters = flat_parameters
+        scoped_identity_grads = None
+        if gradient_scope == "branched_sa_only":
+            name_by_id = {
+                id(parameter): name for name, parameter in model.named_parameters()
+            }
+            scoped_parameters = [
+                parameter
+                for parameter in flat_parameters
+                if ".attn1.processor." in name_by_id.get(id(parameter), "")
+            ]
+            if not scoped_parameters:
+                raise RuntimeError("BA-only identity gradient scope selected zero tensors")
+            scoped_identity_grads = torch.autograd.grad(
+                identity_raw,
+                scoped_parameters,
+                retain_graph=True,
+                allow_unused=True,
+            )
+            surrogate = identity_raw.detach()
+            for parameter, grad in zip(scoped_parameters, scoped_identity_grads):
+                if grad is not None:
+                    surrogate = surrogate + (
+                        (parameter - parameter.detach()) * grad.detach()
+                    ).sum()
+            identity_graph = surrogate
         role_norms = {}
+        calibrated_for_step = self._identity_aux_calibrated_max_weight
         if recalibrate:
+            calibration_parameters = (
+                scoped_parameters
+                if gradient_scope == "branched_sa_only"
+                else flat_parameters
+            )
             diffusion_grads = torch.autograd.grad(
                 diffusion,
-                flat_parameters,
+                calibration_parameters,
                 retain_graph=True,
                 allow_unused=True,
             )
-            identity_grads = torch.autograd.grad(
-                identity_raw,
-                flat_parameters,
-                retain_graph=True,
-                allow_unused=True,
-            )
-            offset = 0
-            for (role, _), size in zip(role_groups, role_sizes):
-                role_norms[role] = (
-                    self._gradient_norm(diffusion_grads[offset : offset + size]),
-                    self._gradient_norm(identity_grads[offset : offset + size]),
+            identity_grads = scoped_identity_grads
+            if identity_grads is None:
+                identity_grads = torch.autograd.grad(
+                    identity_raw,
+                    calibration_parameters,
+                    retain_graph=True,
+                    allow_unused=True,
                 )
-                offset += size
+            if gradient_scope == "branched_sa_only":
+                role_norms["ba"] = (
+                    self._gradient_norm(diffusion_grads),
+                    self._gradient_norm(identity_grads),
+                )
+            else:
+                offset = 0
+                for (role, _), size in zip(role_groups, role_sizes):
+                    role_norms[role] = (
+                        self._gradient_norm(diffusion_grads[offset : offset + size]),
+                        self._gradient_norm(identity_grads[offset : offset + size]),
+                    )
+                    offset += size
             diffusion_norm = self._gradient_norm(diffusion_grads)
             identity_norm = self._gradient_norm(identity_grads)
             if (
@@ -325,29 +369,49 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 or identity_norm is None
                 or not torch.isfinite(diffusion_norm)
                 or not torch.isfinite(identity_norm)
-                or float(identity_norm.item()) <= 0.0
             ):
                 raise RuntimeError("ArcFace auxiliary gradient calibration is invalid")
-            proposed = (
-                float(model.identity_aux_grad_target_ratio)
-                * float(diffusion_norm.item())
-                / float(identity_norm.item())
-            )
-            proposed = min(max_weight, max(0.0, proposed))
-            if self._identity_aux_calibrated_max_weight is None:
-                calibrated = proposed
-            else:
-                calibrated = (
-                    0.9 * float(self._identity_aux_calibrated_max_weight)
-                    + 0.1 * proposed
+            identity_norm_value = float(identity_norm.item())
+            if identity_norm_value <= 0.0:
+                if not (
+                    str(getattr(model, "identity_aux_mode", "")).lower()
+                    == "quadratic_hinge"
+                    and float(identity_raw.detach().abs().item()) == 0.0
+                ):
+                    raise RuntimeError(
+                        "ArcFace auxiliary has zero gradient outside the inactive hinge"
+                    )
+                # 17 Aug 2026 - AICODE-NOTE: An already-satisfied quadratic
+                # hinge has exactly zero loss/gradient. It is a valid no-op,
+                # not a calibration failure; leave persistent calibration
+                # unset so the next active hinge sample calibrates normally.
+                calibrated_for_step = (
+                    max_weight
+                    if self._identity_aux_calibrated_max_weight is None
+                    else float(self._identity_aux_calibrated_max_weight)
                 )
-            self._identity_aux_calibrated_max_weight = calibrated
-            batch["identity_aux_grad_calibrated"] = zero.new_tensor(1.0)
+            else:
+                proposed = (
+                    float(model.identity_aux_grad_target_ratio)
+                    * float(diffusion_norm.item())
+                    / identity_norm_value
+                )
+                proposed = min(max_weight, max(0.0, proposed))
+                if self._identity_aux_calibrated_max_weight is None:
+                    calibrated = proposed
+                else:
+                    calibrated = (
+                        0.9 * float(self._identity_aux_calibrated_max_weight)
+                        + 0.1 * proposed
+                    )
+                self._identity_aux_calibrated_max_weight = calibrated
+                calibrated_for_step = calibrated
+                batch["identity_aux_grad_calibrated"] = zero.new_tensor(1.0)
 
             for role, (base_norm, raw_norm) in role_norms.items():
                 if base_norm is None or raw_norm is None:
                     continue
-                ratio = calibrated * float(raw_norm.item()) / max(
+                ratio = calibrated_for_step * float(raw_norm.item()) / max(
                     float(base_norm.item()), 1.0e-12
                 )
                 key = {
@@ -359,12 +423,14 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 }.get(role)
                 if key is not None:
                     batch[key] = zero.new_tensor(ratio)
-            total_ratio = calibrated * float(identity_norm.item()) / max(
+            total_ratio = calibrated_for_step * identity_norm_value / max(
                 float(diffusion_norm.item()), 1.0e-12
             )
             batch["identity_aux_grad_ratio_all"] = zero.new_tensor(total_ratio)
 
-        calibrated_max = float(self._identity_aux_calibrated_max_weight)
+        if calibrated_for_step is None:
+            raise RuntimeError("ArcFace auxiliary has no calibrated weight")
+        calibrated_max = float(calibrated_for_step)
         effective_weight = ramp_fraction * calibrated_max
         batch["identity_aux_calibrated_max_weight"] = zero.new_tensor(
             calibrated_max
@@ -378,7 +444,7 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         # 13 Aug 2026 - CL25 calibration may change only the ArcFace weight;
         # the frozen-source trajectory anchor remains in the optimized graph.
         batch["loss"] = (
-            diffusion + effective_weight * identity_raw + anchor_weight * anchor
+            diffusion + effective_weight * identity_graph + anchor_weight * anchor
         )
 
     def _record_active_gradient_norms(self, batch):

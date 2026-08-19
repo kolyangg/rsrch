@@ -1,0 +1,39 @@
+{
+  "runs": [
+    {
+      "run_id": "74efd227d3f8488a98e83d815c77c07c",
+      "run_name": "PM0_original_photomaker_CL19_full96_r1",
+      "step_number": 0
+    },
+    {
+      "run_id": "dbfbf40c3bdd4f70bedc58bda3dfb9cd",
+      "run_name": "CL27_cosmic_frequency_surface_energy_24k_full96_r3",
+      "step_number": 16000
+    },
+    {
+      "run_id": "db38cfb250d241cf89bf57705ff86b18",
+      "run_name": "CL30_cosmic_positive_lowband_sameid_24k_full96_r4",
+      "step_number": 16000
+    },
+    {
+      "run_id": "078cf231674f4fa499e160a435300511",
+      "run_name": "CL32_cosmic_contact_frequency_surface_24k_full96_r1",
+      "step_number": 18000
+    },
+    {
+      "run_id": "3173f3086fa344f7ad3eb6ce7b07ac1f",
+      "run_name": "CL33_cosmic_visibility_balanced_reconstruction_24k_full96_r1",
+      "step_number": 16000
+    },
+    {
+      "run_id": "577cc412ffa04e5686e5c10760186c65",
+      "run_name": "CL34_cosmic_shared_frequency_calibration_24k_full96_r4",
+      "step_number": 18000
+    },
+    {
+      "run_id": "f3c535315da242d78494d7df6dd1eaa3",
+      "run_name": "CL37_cosmic_smallface_roi_teacher_distill_24k_full96_r4",
+      "step_number": 18000
+    }
+  ]
+}

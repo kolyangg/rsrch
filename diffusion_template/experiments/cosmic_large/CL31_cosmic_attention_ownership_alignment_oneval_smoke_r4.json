@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "run_name": "CL31_cosmic_attention_ownership_alignment_oneval_smoke_r4",
+  "plan": {
+    "status": "passed_and_stopped",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 2,
+    "objective": "Verify CL31 unsampled ownership telemetry and optimizer stepping.",
+    "baseline": "CL31_cosmic_attention_ownership_alignment_24k_full96_r3",
+    "single_scientific_change": "None; operationally limit initial manual_val, its dataloader, and face-quality expected count to one fixed item.",
+    "config": "src/configs/CL31_cosmic_attention_ownership_alignment_oneval_smoke.yaml",
+    "launcher": "launchers/active/run_CL30_CL37_cl27_followups_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL31_cosmic_attention_ownership_alignment_oneval_smoke_r4/run_CL31_cosmic_attention_ownership_alignment_oneval_smoke_r4_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "operational_revision": "r4 aligns the face-quality expected count with the one-item smoke panel.",
+    "risk": "Operational only; not scientifically comparable. Stop after several finite optimizer steps.",
+    "serv_job": "lm-mpi-job-e209b342-5cb5-44f2-bd71-904d675b02ef",
+    "comet_experiment_key": "b3300640b466495c9626a3541c04361e",
+    "source_revision": "cl30-cl37-v12-oneval-facequality-r4-20260817",
+    "duplicate_failed_job": "lm-mpi-job-54918be9-5ecc-4b48-8341-dac19aad55bf",
+    "observed_training_step": 10
+  }
+}

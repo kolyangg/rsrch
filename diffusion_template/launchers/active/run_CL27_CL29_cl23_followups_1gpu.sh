@@ -24,7 +24,8 @@ fi
 case "${CONFIG_NAME}" in
   CL27_cosmic_frequency_surface_energy_24k|\
   CL28_cosmic_learnable_frequency_schedule_24k|\
-  CL29_cosmic_lowband_causal_contrastive_24k) ;;
+  CL29_cosmic_lowband_causal_contrastive_24k|\
+  CL29_cosmic_lowband_causal_contrastive_24k_fixed_pipeline) ;;
   *) echo "Unapproved CL27-CL29 config: ${CONFIG_NAME}" >&2; exit 2 ;;
 esac
 

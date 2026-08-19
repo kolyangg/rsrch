@@ -1,0 +1,57 @@
+# DESIGN ONLY - depends on the CL31 config and attention-derived subject mask.
+defaults:
+  - CL31_cosmic_attention_ownership_alignment_24k
+  - _self_
+
+pipeline:
+  pose_adapt_ratio: 0.0
+  ca_mixing_for_face: false
+
+trainer:
+  epoch_len: 2000
+  n_epochs: 12
+  validation_interval_steps: 2000
+  skip_initial_validation: false
+  active_grad_norm_mode: requested_only
+
+model:
+  ba_hardcase_telemetry_enabled: false
+  ba_patch_identity_enabled: true
+  ba_patch_identity_backend: dinov2_vits14
+  ba_patch_identity_cadence: 16
+  ba_patch_identity_max_timestep: 200
+  ba_patch_identity_weight: 0.01
+  ba_patch_identity_ramp_start_step: 2000
+  ba_patch_identity_ramp_end_step: 6000
+  ba_patch_identity_aggregation: masked_reference_maxcos
+  ba_patch_identity_gate: attention_visible_face
+  ba_patch_identity_min_gate_mass: 0.55
+  ba_patch_identity_reference_mode: distinct_sameid_centroid
+  ba_patch_identity_max_samples_per_step: 1
+
+datasets:
+  train:
+    cosmic_large_adapted:
+      num_identity_refs: 3
+
+expected_trainable_contract:
+  enabled: true
+  total_tensors: 2240
+  total_parameters: 219217920
+  optimizer_tensors: 2240
+  optimizer_parameters: 219217920
+  frozen_non_optimizer_modules: [dinov2_vits14]
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_attention_ownership
+    - loss_ba_patch_identity
+    - ba/patch_identity_similarity
+    - ba/patch_identity_gate_mass
+    - ba/patch_identity_applied_fraction
+  experiment_comment: >-
+    CL35 vs CL31 adds only a sparse low-noise DINO patch-maxcos reward. The
+    CL31 attention-visible mask gates the reward, and three distinct same-ID
+    references form the target; no global image similarity is optimized.

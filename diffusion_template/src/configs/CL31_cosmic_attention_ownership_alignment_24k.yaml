@@ -1,0 +1,21 @@
+defaults:
+  - CL27_cosmic_frequency_surface_energy_24k
+  - _self_
+
+model:
+  ba_hardcase_telemetry_enabled: false
+  ba_attention_ownership_loss_enabled: true
+  ba_attention_ownership_groups: [up_blocks.0, up_blocks.1]
+  ba_attention_ownership_probability: 0.25
+  ba_attention_ownership_weight: 0.02
+  ba_attention_ownership_visible_ref_mass_floor: 0.55
+  ba_attention_ownership_top_ref_mass_ceiling: 0.10
+  ba_attention_ownership_contact_width: 1
+  ba_attention_ownership_sample_on_cpu: true
+
+trainer:
+  active_grad_norm_mode: requested_only
+
+writer:
+  loss_names: [loss, loss_ba_aux, loss_ba_frequency_surface, loss_ba_attention_ownership, ba/attention_visible_ref_mass/up0, ba/attention_visible_ref_mass/up1, ba/attention_top_ref_mass/up0, ba/attention_top_ref_mass/up1, ba/attention_ownership_applied_fraction]
+  experiment_comment: CL31 vs CL27 adds only sampled chunked Q/K reference-mass ownership supervision in up0/up1.

@@ -1,0 +1,44 @@
+{
+  "runs": [
+    {
+      "run_id": "db38cfb250d241cf89bf57705ff86b18",
+      "run_name": "CL30_cosmic_positive_lowband_sameid_24k_full96_r4",
+      "step_number": 24000
+    },
+    {
+      "run_id": "ed5077fd3cfc41bd898c1234b8c3ba24",
+      "run_name": "CL31_cosmic_attention_ownership_alignment_24k_full96_r4",
+      "step_number": 24000
+    },
+    {
+      "run_id": "078cf231674f4fa499e160a435300511",
+      "run_name": "CL32_cosmic_contact_frequency_surface_24k_full96_r1",
+      "step_number": 24000
+    },
+    {
+      "run_id": "3173f3086fa344f7ad3eb6ce7b07ac1f",
+      "run_name": "CL33_cosmic_visibility_balanced_reconstruction_24k_full96_r1",
+      "step_number": 24000
+    },
+    {
+      "run_id": "577cc412ffa04e5686e5c10760186c65",
+      "run_name": "CL34_cosmic_shared_frequency_calibration_24k_full96_r4",
+      "step_number": 24000
+    },
+    {
+      "run_id": "f3417ee9a86342cb9bc13e5eb37bb3e2",
+      "run_name": "CL35_cosmic_attention_gated_patch_identity_24k_full96_r7",
+      "step_number": 24000
+    },
+    {
+      "run_id": "41dcb0987d5d439bb14329052953ff6d",
+      "run_name": "CL36_cosmic_ba_arcface_hinge_4k_full96_r4",
+      "step_number": 4000
+    },
+    {
+      "run_id": "f3c535315da242d78494d7df6dd1eaa3",
+      "run_name": "CL37_cosmic_smallface_roi_teacher_distill_24k_full96_r4",
+      "step_number": 24000
+    }
+  ]
+}

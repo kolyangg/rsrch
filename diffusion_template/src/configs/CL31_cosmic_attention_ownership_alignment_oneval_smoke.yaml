@@ -1,0 +1,20 @@
+defaults:
+  - CL31_cosmic_attention_ownership_alignment_24k
+  - _self_
+
+# Operational smoke only: one fixed validation item, then real optimizer steps.
+datasets:
+  val:
+    manual_val:
+      limit: 1
+
+dataloaders:
+  manual_val:
+    batch_size: 1
+
+trainer:
+  face_quality:
+    expected_images: 1
+
+writer:
+  experiment_comment: CL31 operational one-item validation smoke; not scientifically comparable.

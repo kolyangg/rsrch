@@ -1,0 +1,97 @@
+validation_step,partition,image_index,output_key,identity,prompt,seed,generated_image_count,id_sim,id_sim_legacy_best,id_sim_mask_iou,id_sim_face_count,id_sim_no_face,id_sim_unowned,id_sim_ambiguous
+24000,manual_val,0,Reading pa_eddie.png,eddie,"Reading paper man img, park bench, calm face, grey overcoat",0,1,0.5654452443122864,0.011501243337988853,0.9109924828412681,1.0,0.0,0.0,0.0
+24000,manual_val,1,Rushing ma_eddie.png,eddie,"Rushing man img portrait, subway platform, anxious face, swinging briefcase",0,1,0.6034400463104248,0.009410957805812359,0.8486542368398908,1.0,0.0,0.0,0.0
+24000,manual_val,2,Skiing man_eddie.png,eddie,"Skiing man img, snowy slope, fearless grin, orange goggles",0,1,0.403500497341156,0.01866111159324646,0.898126178068522,1.0,0.0,0.0,0.0
+24000,manual_val,3,Drumming m_eddie.png,eddie,"Drumming man img, rock concert in rain, passionate angry face, black t-shirt",0,1,0.5597681403160095,0.04512570798397064,0.9484474200623341,1.0,0.0,0.0,0.0
+24000,manual_val,4,Kickboxing_eddie.png,eddie,"Kickboxing man img, gym ring, fierce roar face, sweatband",0,1,0.6493727564811707,0.012909316457808018,0.8893654598208653,1.0,0.0,0.0,0.0
+24000,manual_val,5,Dancing ma_eddie.png,eddie,"Dancing man img, neon club, euphoric face, silver jumpsuit",0,1,0.3591459393501282,0.027750227600336075,0.45466750201378325,1.0,0.0,0.0,0.0
+24000,manual_val,6,Angry man _eddie.png,eddie,"Angry man img, traffic jam, scowling face, dark suit",0,1,0.5697765350341797,0.04752865433692932,0.8971386051545694,1.0,0.0,0.0,0.0
+24000,manual_val,7,Crying man_eddie.png,eddie,"Crying man img, stormy alley, tearful face, ripped jeans",0,1,0.6021270751953125,0.05748360976576805,0.9292745054875939,1.0,0.0,0.0,0.0
+24000,manual_val,8,Laughing m_eddie.png,eddie,"Laughing man img, carnival wheel, carefree laugh, polka-dot shirt",0,1,0.41663259267807007,0.054632991552352905,0.8926689857248019,1.0,0.0,0.0,0.0
+24000,manual_val,9,Jumping ma_eddie.png,eddie,"Jumping man img, beach sunset, ecstatic face, blue tank top",0,1,0.32054993510246277,0.007994246669113636,0.9389571518588532,1.0,0.0,0.0,0.0
+24000,manual_val,10,Night-ride_eddie.png,eddie,"Night-ride biker man img, neon city, excited face, reflective vest",0,1,0.5599364638328552,0.028890693560242653,0.8515219731819517,1.0,0.0,0.0,0.0
+24000,manual_val,11,Chef man i_eddie.png,eddie,"Chef man img, bustling kitchen, proud grin, tall white toque",0,1,0.5882346034049988,0.027635691687464714,0.8893534134638225,2.0,0.0,0.0,0.0
+24000,manual_val,12,Reading pa_elon.png,elon,"Reading paper man img, park bench, calm face, grey overcoat",0,1,0.668721079826355,0.668721079826355,0.9664639338280014,1.0,0.0,0.0,0.0
+24000,manual_val,13,Rushing ma_elon.png,elon,"Rushing man img portrait, subway platform, anxious face, swinging briefcase",0,1,0.6773431301116943,0.6773431301116943,0.9468512178903037,1.0,0.0,0.0,0.0
+24000,manual_val,14,Skiing man_elon.png,elon,"Skiing man img, snowy slope, fearless grin, orange goggles",0,1,0.3672786355018616,0.3672786355018616,0.9509035260576076,1.0,0.0,0.0,0.0
+24000,manual_val,15,Drumming m_elon.png,elon,"Drumming man img, rock concert in rain, passionate angry face, black t-shirt",0,1,0.5836402773857117,0.5836402773857117,0.974025974025974,1.0,0.0,0.0,0.0
+24000,manual_val,16,Kickboxing_elon.png,elon,"Kickboxing man img, gym ring, fierce roar face, sweatband",0,1,0.6034908890724182,0.6034908890724182,0.9230685940122354,1.0,0.0,0.0,0.0
+24000,manual_val,17,Dancing ma_elon.png,elon,"Dancing man img, neon club, euphoric face, silver jumpsuit",0,1,0.46398767828941345,0.46398767828941345,0.8769303498266625,1.0,0.0,0.0,0.0
+24000,manual_val,18,Angry man _elon.png,elon,"Angry man img, traffic jam, scowling face, dark suit",0,1,0.6227248311042786,0.6227248311042786,0.9413199900752626,1.0,0.0,0.0,0.0
+24000,manual_val,19,Crying man_elon.png,elon,"Crying man img, stormy alley, tearful face, ripped jeans",0,1,0.5629269480705261,0.5629269480705261,0.9689326819574398,1.0,0.0,0.0,0.0
+24000,manual_val,20,Laughing m_elon.png,elon,"Laughing man img, carnival wheel, carefree laugh, polka-dot shirt",0,1,0.5799590945243835,0.5799590945243835,0.9414920429178368,1.0,0.0,0.0,0.0
+24000,manual_val,21,Jumping ma_elon.png,elon,"Jumping man img, beach sunset, ecstatic face, blue tank top",0,1,0.4688691198825836,0.4688691198825836,0.9248684210526316,1.0,0.0,0.0,0.0
+24000,manual_val,22,Night-ride_elon.png,elon,"Night-ride biker man img, neon city, excited face, reflective vest",0,1,0.6938275694847107,0.6938275694847107,0.919045619927232,1.0,0.0,0.0,0.0
+24000,manual_val,23,Chef man i_elon.png,elon,"Chef man img, bustling kitchen, proud grin, tall white toque",0,1,0.6301676630973816,0.6301676630973816,0.9117367436440028,3.0,0.0,0.0,0.0
+24000,manual_val,24,Reading pa_jennie.png,jennie,"Reading paper woman img, park bench, calm face, grey overcoat",0,1,0.5871248245239258,0.5871248245239258,0.9008393632416787,1.0,0.0,0.0,0.0
+24000,manual_val,25,Rushing wo_jennie.png,jennie,"Rushing woman img portrait, subway platform, anxious face, swinging briefcase",0,1,0.6020716428756714,0.6020716428756714,0.9474313022700119,1.0,0.0,0.0,0.0
+24000,manual_val,26,Skiing wom_jennie.png,jennie,"Skiing woman img, snowy slope, fearless grin, orange goggles",0,1,0.6330392360687256,0.6330392360687256,0.9458457997698504,1.0,0.0,0.0,0.0
+24000,manual_val,27,Drumming w_jennie.png,jennie,"Drumming woman img, rock concert in rain, passionate angry face, black t-shirt",0,1,0.5737175941467285,0.5737175941467285,0.9607250755287009,1.0,0.0,0.0,0.0
+24000,manual_val,28,Kickboxing_jennie.png,jennie,"Kickboxing woman img, gym ring, fierce roar face, sweatband",0,1,0.6725783348083496,0.6725783348083496,0.9660546139359699,1.0,0.0,0.0,0.0
+24000,manual_val,29,Dancing wo_jennie.png,jennie,"Dancing woman img, neon club, euphoric face, silver jumpsuit",0,1,0.5080273151397705,0.5080273151397705,0.9569554775540365,1.0,0.0,0.0,0.0
+24000,manual_val,30,Angry woma_jennie.png,jennie,"Angry woman img, traffic jam, scowling face, dark suit",0,1,0.6462907791137695,0.6462907791137695,0.9183405358686257,2.0,0.0,0.0,0.0
+24000,manual_val,31,Crying wom_jennie.png,jennie,"Crying woman img, stormy alley, tearful face, ripped jeans",0,1,0.5622351765632629,0.5622351765632629,0.9644244041593816,1.0,0.0,0.0,0.0
+24000,manual_val,32,Laughing w_jennie.png,jennie,"Laughing woman img, carnival wheel, carefree laugh, polka-dot shirt",0,1,0.6116688251495361,0.6116688251495361,0.947799704379846,1.0,0.0,0.0,0.0
+24000,manual_val,33,Jumping wo_jennie.png,jennie,"Jumping woman img, beach sunset, ecstatic face, blue tank top",0,1,0.4643798768520355,0.4643798768520355,0.9610939357907253,1.0,0.0,0.0,0.0
+24000,manual_val,34,Night-ride_jennie.png,jennie,"Night-ride biker woman img, neon city, excited face, reflective vest",0,1,0.6485252976417542,0.6485252976417542,0.9593912214414351,1.0,0.0,0.0,0.0
+24000,manual_val,35,Chef woman_jennie.png,jennie,"Chef woman img, bustling kitchen, proud grin, tall white toque",0,1,0.5780208110809326,0.5780208110809326,0.8898487042492635,2.0,0.0,0.0,0.0
+24000,manual_val,36,Reading pa_jensen.png,jensen,"Reading paper man img, park bench, calm face, grey overcoat",0,1,0.6520904302597046,0.6520904302597046,0.9248719408081958,1.0,0.0,0.0,0.0
+24000,manual_val,37,Rushing ma_jensen.png,jensen,"Rushing man img portrait, subway platform, anxious face, swinging briefcase",0,1,0.6333130598068237,0.6333130598068237,0.9670796276878066,1.0,0.0,0.0,0.0
+24000,manual_val,38,Skiing man_jensen.png,jensen,"Skiing man img, snowy slope, fearless grin, orange goggles",0,1,0.4800306558609009,0.4800306558609009,0.9291403085605061,1.0,0.0,0.0,0.0
+24000,manual_val,39,Drumming m_jensen.png,jensen,"Drumming man img, rock concert in rain, passionate angry face, black t-shirt",0,1,0.6128544211387634,0.6128544211387634,0.9231124548584866,1.0,0.0,0.0,0.0
+24000,manual_val,40,Kickboxing_jensen.png,jensen,"Kickboxing man img, gym ring, fierce roar face, sweatband",0,1,0.48398280143737793,0.48398280143737793,0.9337783916513198,1.0,0.0,0.0,0.0
+24000,manual_val,41,Dancing ma_jensen.png,jensen,"Dancing man img, neon club, euphoric face, silver jumpsuit",0,1,0.5147749185562134,0.5147749185562134,0.8624971124971125,1.0,0.0,0.0,0.0
+24000,manual_val,42,Angry man _jensen.png,jensen,"Angry man img, traffic jam, scowling face, dark suit",0,1,0.630732536315918,0.630732536315918,0.9190086867654573,1.0,0.0,0.0,0.0
+24000,manual_val,43,Crying man_jensen.png,jensen,"Crying man img, stormy alley, tearful face, ripped jeans",0,1,0.6487659811973572,0.6487659811973572,0.9431410393880907,1.0,0.0,0.0,0.0
+24000,manual_val,44,Laughing m_jensen.png,jensen,"Laughing man img, carnival wheel, carefree laugh, polka-dot shirt",0,1,0.5802528858184814,0.5802528858184814,0.9138387448962805,1.0,0.0,0.0,0.0
+24000,manual_val,45,Jumping ma_jensen.png,jensen,"Jumping man img, beach sunset, ecstatic face, blue tank top",0,1,0.5519823431968689,0.5519823431968689,0.9065684468999387,1.0,0.0,0.0,0.0
+24000,manual_val,46,Night-ride_jensen.png,jensen,"Night-ride biker man img, neon city, excited face, reflective vest",0,1,0.4538668096065521,0.4538668096065521,0.9421296296296297,1.0,0.0,0.0,0.0
+24000,manual_val,47,Chef man i_jensen.png,jensen,"Chef man img, bustling kitchen, proud grin, tall white toque",0,1,0.5229246020317078,0.5229246020317078,0.8863313618701331,2.0,0.0,0.0,0.0
+24000,manual_val,48,Reading pa_jisoo.png,jisoo,"Reading paper woman img, park bench, calm face, grey overcoat",0,1,0.6042694449424744,0.6042694449424744,0.9753018108651912,1.0,0.0,0.0,0.0
+24000,manual_val,49,Rushing wo_jisoo.png,jisoo,"Rushing woman img portrait, subway platform, anxious face, swinging briefcase",0,1,0.6187580823898315,0.6187580823898315,0.9526187708847886,2.0,0.0,0.0,0.0
+24000,manual_val,50,Skiing wom_jisoo.png,jisoo,"Skiing woman img, snowy slope, fearless grin, orange goggles",0,1,0.47208085656166077,0.47208085656166077,0.9231015878769291,1.0,0.0,0.0,0.0
+24000,manual_val,51,Drumming w_jisoo.png,jisoo,"Drumming woman img, rock concert in rain, passionate angry face, black t-shirt",0,1,0.6243282556533813,0.6243282556533813,0.9879518072289156,1.0,0.0,0.0,0.0
+24000,manual_val,52,Kickboxing_jisoo.png,jisoo,"Kickboxing woman img, gym ring, fierce roar face, sweatband",0,1,0.6364728212356567,0.6364728212356567,0.9778761061946902,1.0,0.0,0.0,0.0
+24000,manual_val,53,Dancing wo_jisoo.png,jisoo,"Dancing woman img, neon club, euphoric face, silver jumpsuit",0,1,0.47259920835494995,0.47259920835494995,0.9398623197817898,1.0,0.0,0.0,0.0
+24000,manual_val,54,Angry woma_jisoo.png,jisoo,"Angry woman img, traffic jam, scowling face, dark suit",0,1,0.6495510339736938,0.6495510339736938,0.9318750381353347,1.0,0.0,0.0,0.0
+24000,manual_val,55,Crying wom_jisoo.png,jisoo,"Crying woman img, stormy alley, tearful face, ripped jeans",0,1,0.5867869853973389,0.5867869853973389,0.8817978138366488,1.0,0.0,0.0,0.0
+24000,manual_val,56,Laughing w_jisoo.png,jisoo,"Laughing woman img, carnival wheel, carefree laugh, polka-dot shirt",0,1,0.5692545771598816,0.5692545771598816,0.9426262831588577,1.0,0.0,0.0,0.0
+24000,manual_val,57,Jumping wo_jisoo.png,jisoo,"Jumping woman img, beach sunset, ecstatic face, blue tank top",0,1,0.4241268038749695,0.4241268038749695,0.940647556197154,1.0,0.0,0.0,0.0
+24000,manual_val,58,Night-ride_jisoo.png,jisoo,"Night-ride biker woman img, neon city, excited face, reflective vest",0,1,0.5892530083656311,0.5892530083656311,0.9687909997376016,1.0,0.0,0.0,0.0
+24000,manual_val,59,Chef woman_jisoo.png,jisoo,"Chef woman img, bustling kitchen, proud grin, tall white toque",0,1,0.6283295750617981,0.6283295750617981,0.9216875882508108,2.0,0.0,0.0,0.0
+24000,manual_val,60,Reading pa_keanu.png,keanu,"Reading paper man img, park bench, calm face, grey overcoat",0,1,0.6033926606178284,0.6033926606178284,0.9552890387203958,1.0,0.0,0.0,0.0
+24000,manual_val,61,Rushing ma_keanu.png,keanu,"Rushing man img portrait, subway platform, anxious face, swinging briefcase",0,1,0.6417315602302551,0.6417315602302551,0.9494276950699484,2.0,0.0,0.0,0.0
+24000,manual_val,62,Skiing man_keanu.png,keanu,"Skiing man img, snowy slope, fearless grin, orange goggles",0,1,0.3167251646518707,0.3167251646518707,0.8381202774954708,1.0,0.0,0.0,0.0
+24000,manual_val,63,Drumming m_keanu.png,keanu,"Drumming man img, rock concert in rain, passionate angry face, black t-shirt",0,1,0.5521433353424072,0.5521433353424072,0.9435513169845595,1.0,0.0,0.0,0.0
+24000,manual_val,64,Kickboxing_keanu.png,keanu,"Kickboxing man img, gym ring, fierce roar face, sweatband",0,1,0.5390691161155701,0.5390691161155701,0.8896011204180021,1.0,0.0,0.0,0.0
+24000,manual_val,65,Dancing ma_keanu.png,keanu,"Dancing man img, neon club, euphoric face, silver jumpsuit",0,1,0.3332858681678772,0.3332858681678772,0.9527810650887574,1.0,0.0,0.0,0.0
+24000,manual_val,66,Angry man _keanu.png,keanu,"Angry man img, traffic jam, scowling face, dark suit",0,1,0.6113289594650269,0.6113289594650269,0.9545250770523956,1.0,0.0,0.0,0.0
+24000,manual_val,67,Crying man_keanu.png,keanu,"Crying man img, stormy alley, tearful face, ripped jeans",0,1,0.6431850790977478,0.6431850790977478,0.9542160856555751,1.0,0.0,0.0,0.0
+24000,manual_val,68,Laughing m_keanu.png,keanu,"Laughing man img, carnival wheel, carefree laugh, polka-dot shirt",0,1,0.472247451543808,0.472247451543808,0.9804205946337926,1.0,0.0,0.0,0.0
+24000,manual_val,69,Jumping ma_keanu.png,keanu,"Jumping man img, beach sunset, ecstatic face, blue tank top",0,1,0.35427623987197876,0.35427623987197876,0.9130003307972213,1.0,0.0,0.0,0.0
+24000,manual_val,70,Night-ride_keanu.png,keanu,"Night-ride biker man img, neon city, excited face, reflective vest",0,1,0.5001406669616699,0.5001406669616699,0.9145088368269626,1.0,0.0,0.0,0.0
+24000,manual_val,71,Chef man i_keanu.png,keanu,"Chef man img, bustling kitchen, proud grin, tall white toque",0,1,0.6029947996139526,0.6029947996139526,0.9016688408078809,2.0,0.0,0.0,0.0
+24000,manual_val,72,Reading pa_lex.png,lex,"Reading paper man img, park bench, calm face, grey overcoat",0,1,0.5101897716522217,0.5101897716522217,0.9408185840707964,1.0,0.0,0.0,0.0
+24000,manual_val,73,Rushing ma_lex.png,lex,"Rushing man img portrait, subway platform, anxious face, swinging briefcase",0,1,0.6154953837394714,0.6154953837394714,0.9605661156563571,1.0,0.0,0.0,0.0
+24000,manual_val,74,Skiing man_lex.png,lex,"Skiing man img, snowy slope, fearless grin, orange goggles",0,1,0.3782896101474762,0.3782896101474762,0.9619826719566569,1.0,0.0,0.0,0.0
+24000,manual_val,75,Drumming m_lex.png,lex,"Drumming man img, rock concert in rain, passionate angry face, black t-shirt",0,1,0.4745802879333496,0.4745802879333496,0.9377462568951931,1.0,0.0,0.0,0.0
+24000,manual_val,76,Kickboxing_lex.png,lex,"Kickboxing man img, gym ring, fierce roar face, sweatband",0,1,0.5989526510238647,0.5989526510238647,0.9587506943573387,1.0,0.0,0.0,0.0
+24000,manual_val,77,Dancing ma_lex.png,lex,"Dancing man img, neon club, euphoric face, silver jumpsuit",0,1,0.2509708106517792,0.2509708106517792,0.8746031746031746,1.0,0.0,0.0,0.0
+24000,manual_val,78,Angry man _lex.png,lex,"Angry man img, traffic jam, scowling face, dark suit",0,1,0.5320144891738892,0.5320144891738892,0.9285301211616852,1.0,0.0,0.0,0.0
+24000,manual_val,79,Crying man_lex.png,lex,"Crying man img, stormy alley, tearful face, ripped jeans",0,1,0.41086888313293457,0.41086888313293457,0.9424339050213609,1.0,0.0,0.0,0.0
+24000,manual_val,80,Laughing m_lex.png,lex,"Laughing man img, carnival wheel, carefree laugh, polka-dot shirt",0,1,0.5581679940223694,0.5581679940223694,0.9196639537936466,1.0,0.0,0.0,0.0
+24000,manual_val,81,Jumping ma_lex.png,lex,"Jumping man img, beach sunset, ecstatic face, blue tank top",0,1,0.2929328382015228,0.2929328382015228,0.8950527841026703,1.0,0.0,0.0,0.0
+24000,manual_val,82,Night-ride_lex.png,lex,"Night-ride biker man img, neon city, excited face, reflective vest",0,1,0.6193446516990662,0.6193446516990662,0.9630576483535088,1.0,0.0,0.0,0.0
+24000,manual_val,83,Chef man i_lex.png,lex,"Chef man img, bustling kitchen, proud grin, tall white toque",0,1,0.4354473352432251,0.4354473352432251,0.9169178174621024,3.0,0.0,0.0,0.0
+24000,manual_val,84,Reading pa_marion.png,marion,"Reading paper woman img, park bench, calm face, grey overcoat",0,1,0.5924612879753113,0.5924612879753113,0.9760123659402313,1.0,0.0,0.0,0.0
+24000,manual_val,85,Rushing wo_marion.png,marion,"Rushing woman img portrait, subway platform, anxious face, swinging briefcase",0,1,0.5662750601768494,0.5662750601768494,0.9575843388327998,1.0,0.0,0.0,0.0
+24000,manual_val,86,Skiing wom_marion.png,marion,"Skiing woman img, snowy slope, fearless grin, orange goggles",0,1,0.27529221773147583,0.27529221773147583,0.9173976821791957,1.0,0.0,0.0,0.0
+24000,manual_val,87,Drumming w_marion.png,marion,"Drumming woman img, rock concert in rain, passionate angry face, black t-shirt",0,1,0.4939911663532257,0.4939911663532257,0.9083710904851977,1.0,0.0,0.0,0.0
+24000,manual_val,88,Kickboxing_marion.png,marion,"Kickboxing woman img, gym ring, fierce roar face, sweatband",0,1,0.5534584522247314,0.5534584522247314,0.9332690706743197,1.0,0.0,0.0,0.0
+24000,manual_val,89,Dancing wo_marion.png,marion,"Dancing woman img, neon club, euphoric face, silver jumpsuit",0,1,0.44877099990844727,0.44877099990844727,0.9252705610327885,1.0,0.0,0.0,0.0
+24000,manual_val,90,Angry woma_marion.png,marion,"Angry woman img, traffic jam, scowling face, dark suit",0,1,0.5663145184516907,0.5663145184516907,0.9038920490229504,1.0,0.0,0.0,0.0
+24000,manual_val,91,Crying wom_marion.png,marion,"Crying woman img, stormy alley, tearful face, ripped jeans",0,1,0.5392022132873535,0.5392022132873535,0.9016805953760751,1.0,0.0,0.0,0.0
+24000,manual_val,92,Laughing w_marion.png,marion,"Laughing woman img, carnival wheel, carefree laugh, polka-dot shirt",0,1,0.3545532822608948,0.3545532822608948,0.9067272375797409,1.0,0.0,0.0,0.0
+24000,manual_val,93,Jumping wo_marion.png,marion,"Jumping woman img, beach sunset, ecstatic face, blue tank top",0,1,0.4022454619407654,0.4022454619407654,0.9445023449713392,1.0,0.0,0.0,0.0
+24000,manual_val,94,Night-ride_marion.png,marion,"Night-ride biker woman img, neon city, excited face, reflective vest",0,1,0.5560869574546814,0.5560869574546814,0.9117153407183619,1.0,0.0,0.0,0.0
+24000,manual_val,95,Chef woman_marion.png,marion,"Chef woman img, bustling kitchen, proud grin, tall white toque",0,1,0.5132738351821899,0.5132738351821899,0.9241844029912072,2.0,0.0,0.0,0.0

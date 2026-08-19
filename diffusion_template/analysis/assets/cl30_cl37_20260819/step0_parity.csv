@@ -1,0 +1,9 @@
+run,comparison,step0_mean_id_sim,max_abs_per_image_id_delta,table_sha256,decision
+CL30,CL27 step 0,0.46463953074999154,0.0,fb1e96740991e28f137fd62511938cf5519d45e7c95de28d3ec1ce149ad1597b,exact per-image parity
+CL31,CL27 step 0,0.46463953074999154,0.0,fb1e96740991e28f137fd62511938cf5519d45e7c95de28d3ec1ce149ad1597b,exact per-image parity
+CL32,CL27 step 0,0.46463953074999154,0.0,fb1e96740991e28f137fd62511938cf5519d45e7c95de28d3ec1ce149ad1597b,exact per-image parity
+CL33,CL27 step 0,0.46463953074999154,0.0,fb1e96740991e28f137fd62511938cf5519d45e7c95de28d3ec1ce149ad1597b,exact per-image parity
+CL34,CL27 step 0,0.4641338586807251,0.0323714017868042,different,not exact; do not use a step-zero-adjusted causal claim
+CL35,CL27 step 0,0.46463953074999154,0.0,fb1e96740991e28f137fd62511938cf5519d45e7c95de28d3ec1ce149ad1597b,exact per-image parity
+CL36,CL27 source checkpoint at 16k,0.5472602248191833,0.0,different validation-step field; ID vector exact,exact inherited source ID vector
+CL37,CL27 step 0,0.46463953074999154,0.0,fb1e96740991e28f137fd62511938cf5519d45e7c95de28d3ec1ce149ad1597b,exact per-image parity

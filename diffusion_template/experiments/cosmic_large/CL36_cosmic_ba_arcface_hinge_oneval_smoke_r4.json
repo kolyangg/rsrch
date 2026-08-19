@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "run_name": "CL36_cosmic_ba_arcface_hinge_oneval_smoke_r4",
+  "plan": {
+    "status": "passed_and_stopped",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 7,
+    "objective": "Verify CL36 inactive-hinge calibration and optimizer stepping beyond the prior step-64 failure.",
+    "baseline": "CL36_cosmic_ba_arcface_hinge_4k_full96_r2",
+    "single_scientific_change": "None; operationally limit initial manual_val, its dataloader, and face-quality expected count to one fixed item.",
+    "config": "src/configs/CL36_cosmic_ba_arcface_hinge_oneval_smoke.yaml",
+    "launcher": "launchers/active/run_CL30_CL37_cl27_followups_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL36_cosmic_ba_arcface_hinge_oneval_smoke_r4/run_CL36_cosmic_ba_arcface_hinge_oneval_smoke_r4_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "source_checkpoint_sha256": "ba57ad1351f7e4a17ec6a5cf6ef53c34966d673ded4cf58853a0914fbec07591",
+    "operational_revision": "r4 aligns the face-quality expected count with the one-item smoke panel.",
+    "risk": "Operational only; not scientifically comparable. Stop after at least 80 finite optimizer steps.",
+    "serv_job": "lm-mpi-job-31a67aec-9de2-4f09-919c-72db811f8939",
+    "comet_experiment_key": "2cd889cd13384906b635bd873bb8e14d",
+    "source_revision": "cl30-cl37-v12-oneval-facequality-r4-20260817",
+    "observed_training_step": 83
+  }
+}

@@ -328,6 +328,9 @@ def main(config):
         ),
         "blended_masked": "src.loss.diffusion_loss.BlendedMaskedDiffusionLoss",
         "branched_reference": "src.loss.branched_reference_loss.BranchedReferenceLoss",
+        "visibility_balanced_ba": (
+            "src.loss.visibility_balanced_loss.VisibilityBalancedBranchedLoss"
+        ),
     }
     if loss_kind not in loss_target_by_kind:
         raise ValueError(
@@ -527,12 +530,34 @@ def main(config):
             "ba_frequency_lowband_contrastive_ramp_end_step",
             "ba_frequency_lowband_contrastive_detach_target_query",
             "ba_frequency_lowband_contrastive_negative_mode",
+            "ba_frequency_positive_sameid_enabled",
+            "ba_frequency_positive_sameid_groups",
+            "ba_attention_ownership_loss_enabled",
+            "ba_attention_ownership_groups",
+            "ba_frequency_surface_region_mode",
+            "ba_frequency_surface_contact_width",
+            "ba_frequency_surface_top_interior_factor",
+            "ba_frequency_surface_contact_factor",
+            "ba_frequency_shared_schedule_enabled",
+            "ba_frequency_shared_low_late_center",
+            "ba_frequency_shared_low_late_half_range",
+            "ba_frequency_shared_high_early_center",
+            "ba_frequency_shared_high_early_half_range",
+            "ba_frequency_shared_high_late_center",
+            "ba_frequency_shared_high_late_half_range",
+            "ba_roi_teacher_distill_enabled",
+            "ba_roi_teacher_distill_groups",
             "ba_hardcase_roi_gate_init",
             "ba_hardcase_roi_gate_min",
             "ba_hardcase_roi_progress_min",
             "ba_hardcase_roi_rms_cap",
         ):
-            if hasattr(pipeline_model, attribute):
+            # 17 Aug 2026 - AICODE-NOTE: Validation must use the composed experiment flags,
+            # even when Accelerate's wrapper does not expose a newly added
+            # model attribute. This keeps the reused processor map auditable.
+            if hasattr(config.model, attribute):
+                setattr(pipeline, attribute, getattr(config.model, attribute))
+            elif hasattr(pipeline_model, attribute):
                 setattr(pipeline, attribute, getattr(pipeline_model, attribute))
         ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
         if val_pretrained:

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "run_name": "CL36_cosmic_ba_arcface_hinge_oneval_smoke_r1",
+  "plan": {
+    "status": "failed_before_model_init_missing_dataset_link",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 7,
+    "objective": "Verify CL36 inactive-hinge calibration and optimizer stepping beyond the prior step-64 failure.",
+    "baseline": "CL36_cosmic_ba_arcface_hinge_4k_full96_r2",
+    "single_scientific_change": "None; operationally limit initial manual_val to one fixed item.",
+    "config": "src/configs/CL36_cosmic_ba_arcface_hinge_oneval_smoke.yaml",
+    "launcher": "launchers/active/run_CL30_CL37_cl27_followups_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL36_cosmic_ba_arcface_hinge_oneval_smoke_r1/run_CL36_cosmic_ba_arcface_hinge_oneval_smoke_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "source_checkpoint_sha256": "ba57ad1351f7e4a17ec6a5cf6ef53c34966d673ded4cf58853a0914fbec07591",
+    "risk": "Operational only; not scientifically comparable. Stop after at least 80 finite optimizer steps."
+  },
+  "runtime": {
+    "serv_job_id": "lm-mpi-job-924b7779-dd4f-4a64-912f-93a9bfddaa53",
+    "comet_experiment_key": "0a87ab4a7cf04ac9a00ba456609f7f8e",
+    "source_revision": "cl30-cl37-v9-training-start-smoke-20260817"
+  }
+}

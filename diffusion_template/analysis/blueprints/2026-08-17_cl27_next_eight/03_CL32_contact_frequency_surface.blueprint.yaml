@@ -1,0 +1,47 @@
+# DESIGN ONLY - implement and validate before copying into src/configs.
+defaults:
+  - CL27_cosmic_frequency_surface_energy_24k
+  - _self_
+
+pipeline:
+  pose_adapt_ratio: 0.0
+  ca_mixing_for_face: false
+
+trainer:
+  epoch_len: 2000
+  n_epochs: 12
+  validation_interval_steps: 2000
+  skip_initial_validation: false
+  active_grad_norm_mode: requested_only
+
+model:
+  ba_hardcase_telemetry_enabled: false
+  # Preserve CL27's total top weight but concentrate it at the contact edge.
+  ba_frequency_surface_region_mode: contact_partition
+  ba_frequency_surface_contact_width: 1
+  ba_frequency_surface_top_interior_factor: 0.50
+  ba_frequency_surface_contact_factor: 2.00
+  ba_frequency_surface_normalize_partition_weights: true
+
+expected_trainable_contract:
+  enabled: true
+  total_tensors: 2240
+  total_parameters: 219217920
+  optimizer_tensors: 2240
+  optimizer_parameters: 219217920
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_frequency_surface
+    - loss_ba_frequency_contact
+    - ba/frequency_surface_contact_rms/up0
+    - ba/frequency_surface_contact_rms/up1
+    - ba/frequency_surface_interior_rms/up0
+    - ba/frequency_surface_interior_rms/up1
+    - ba/frequency_surface_applied_fraction
+  experiment_comment: >-
+    CL32 vs CL27 changes only the synthetic top-object surface objective: a
+    one-cell contact ring receives stronger routed-reference suppression while
+    the object interior receives weaker suppression at normalized total weight.

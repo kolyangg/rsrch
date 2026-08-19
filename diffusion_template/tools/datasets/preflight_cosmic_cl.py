@@ -186,6 +186,7 @@ def main() -> None:
         "CL9", "CL10", "CL11", "CL12", "CL13", "CL14",
         "CL15", "CL16", "CL17", "CL18", "CL19", "CL21", "CL22",
         "CL23", "CL24", "CL25", "CL26", "CL27", "CL28", "CL29",
+        "CL30", "CL31", "CL32", "CL33", "CL34", "CL35", "CL36", "CL37",
     ):
         if ref_sizes != {(1024, 1024)}:
             failures.append(f"{arm} canvases must be 1024x1024, saw {ref_sizes}")
@@ -235,8 +236,21 @@ def main() -> None:
             )
 
     # CL5 must emit the extra identity references while leaving the spatial lane alone.
-    if arm in ("CL5", "CL11", "CL12", "CL25"):
+    if arm in ("CL5", "CL11", "CL12", "CL25", "CL35", "CL36"):
         expected_refs = int(dataset_config.get("num_identity_refs", 1) or 1)
+        candidate_counts = [
+            len({candidate["path"] for candidate in record["_reference_candidates"]})
+            for record in dataset._index
+        ]
+        report["distinct_reference_candidates_min"] = min(candidate_counts)
+        report["distinct_reference_candidates_below_required"] = sum(
+            count < expected_refs for count in candidate_counts
+        )
+        if report["distinct_reference_candidates_below_required"]:
+            failures.append(
+                f"{arm} has {report['distinct_reference_candidates_below_required']} "
+                f"records below the required {expected_refs} distinct references"
+            )
         counts = {len(dataset[i]["ref_images"]) for i in picks[:8]}
         report["reference_images_per_sample"] = sorted(counts)
         if counts != {expected_refs}:
@@ -244,13 +258,16 @@ def main() -> None:
                 f"CL5 expects {expected_refs} reference images per sample, saw {sorted(counts)}"
             )
 
-    if arm in {"CL17", "CL22", "CL24", "CL27"}:
+    if arm in {
+        "CL17", "CL22", "CL24", "CL27", "CL30", "CL31", "CL32",
+        "CL33", "CL34", "CL35", "CL36", "CL37",
+    }:
         report["synthetic_occluder_fraction"] = supervised_occluders / len(picks)
         if not 0.10 <= report["synthetic_occluder_fraction"] <= 0.40:
             failures.append(
                 f"{arm} sampled synthetic-occluder fraction is outside [0.10, 0.40]"
             )
-    if arm in {"CL18", "CL29"}:
+    if arm in {"CL18", "CL29", "CL30"}:
         report["alternate_reference_samples"] = alternate_reference_samples
         if alternate_reference_samples != len(picks):
             failures.append(

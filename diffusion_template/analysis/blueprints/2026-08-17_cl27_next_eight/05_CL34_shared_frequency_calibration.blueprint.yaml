@@ -1,0 +1,52 @@
+# DESIGN ONLY - implement and validate before copying into src/configs.
+defaults:
+  - CL27_cosmic_frequency_surface_energy_24k
+  - _self_
+
+pipeline:
+  pose_adapt_ratio: 0.0
+  ca_mixing_for_face: false
+
+trainer:
+  epoch_len: 2000
+  n_epochs: 12
+  validation_interval_steps: 2000
+  skip_initial_validation: false
+  active_grad_norm_mode: requested_only
+
+model:
+  ba_hardcase_telemetry_enabled: false
+  ba_frequency_learnable_schedule_enabled: false
+  ba_frequency_shared_schedule_enabled: true
+  ba_frequency_shared_low_early_fixed: 0.50
+  ba_frequency_shared_low_late_center: 0.85
+  ba_frequency_shared_low_late_half_range: 0.05
+  ba_frequency_shared_high_early_center: 0.75
+  ba_frequency_shared_high_early_half_range: 0.05
+  ba_frequency_shared_high_late_center: 1.25
+  ba_frequency_shared_high_late_half_range: 0.05
+  ba_frequency_shared_enforce_monotonic: true
+  ba_frequency_shared_anchor_weight: 0.001
+
+expected_trainable_contract:
+  enabled: true
+  total_tensors: 2241
+  total_parameters: 219217923
+  optimizer_tensors: 2241
+  optimizer_parameters: 219217923
+  added_categories:
+    shared_frequency_schedule: {tensors: 1, parameters: 3, optimizer_role: ba}
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_frequency_surface
+    - loss_ba_shared_schedule_anchor
+    - ba/shared_frequency_low_late
+    - ba/shared_frequency_high_early
+    - ba/shared_frequency_high_late
+  experiment_comment: >-
+    CL34 vs CL27 adds one zero-initialized three-scalar schedule correction
+    shared by every temporal-frequency processor, bounded to +/-0.05 and
+    monotonic. It does not repeat CL28's 70 independent schedules.

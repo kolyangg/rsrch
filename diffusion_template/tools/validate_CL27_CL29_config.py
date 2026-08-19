@@ -16,6 +16,7 @@ ARMS = {
     "CL27_cosmic_frequency_surface_energy_24k": (2240, 219217920),
     "CL28_cosmic_learnable_frequency_schedule_24k": (2310, 219218130),
     "CL29_cosmic_lowband_causal_contrastive_24k": (2240, 219217920),
+    "CL29_cosmic_lowband_causal_contrastive_24k_fixed_pipeline": (2240, 219217920),
 }
 ALL_GROUPS = [
     "down_blocks.0", "down_blocks.1", "down_blocks.2", "mid_block",
@@ -165,6 +166,20 @@ def main() -> None:
             raise RuntimeError("CL29 requires three distinct reference candidates")
         if bool(selected(config, "model.ba_crossview_consistency_enabled")):
             raise RuntimeError("CL29 must not reuse CL18 prediction consistency")
+        if args.config_name.endswith("_fixed_pipeline"):
+            optimized = {
+                "model.ba_hardcase_telemetry_enabled": False,
+                "model.ba_frequency_lowband_sample_on_cpu": True,
+                "trainer.active_grad_norm_mode": "requested_only",
+                "trainer.skip_initial_validation": False,
+            }
+            drift = {
+                key: (want, selected(config, key))
+                for key, want in optimized.items()
+                if selected(config, key) != want
+            }
+            if drift:
+                raise RuntimeError(f"CL29 optimized-pipeline drift: {drift}")
 
     baseline = flatten(OmegaConf.to_container(cl23, resolve=True))
     candidate = flatten(OmegaConf.to_container(config, resolve=True))
@@ -184,8 +199,15 @@ def main() -> None:
             "datasets.train.cosmic_large_adapted.min_reference_candidates_for_target",
         ),
     }[arm] + ("expected_trainable_contract.", "writer.")
+    allowed_exact = set()
+    if args.config_name.endswith("_fixed_pipeline"):
+        allowed_exact.update({
+            "model.ba_hardcase_telemetry_enabled",
+            "trainer.active_grad_norm_mode",
+        })
     unexpected = sorted(
-        key for key in changed if not key.startswith(allowed_prefixes)
+        key for key in changed
+        if key not in allowed_exact and not key.startswith(allowed_prefixes)
     )
     if unexpected:
         raise RuntimeError(f"Unexpected CL23 diff paths: {unexpected}")

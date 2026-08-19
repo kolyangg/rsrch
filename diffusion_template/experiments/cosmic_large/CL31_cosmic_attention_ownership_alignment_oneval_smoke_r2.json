@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "run_name": "CL31_cosmic_attention_ownership_alignment_oneval_smoke_r2",
+  "plan": {
+    "status": "failed_before_validation_batch_size_mismatch",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 2,
+    "objective": "Verify CL31 unsampled ownership telemetry and optimizer stepping.",
+    "baseline": "CL31_cosmic_attention_ownership_alignment_24k_full96_r3",
+    "single_scientific_change": "None; operationally limit initial manual_val to one fixed item.",
+    "config": "src/configs/CL31_cosmic_attention_ownership_alignment_oneval_smoke.yaml",
+    "launcher": "launchers/active/run_CL30_CL37_cl27_followups_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL31_cosmic_attention_ownership_alignment_oneval_smoke_r2/run_CL31_cosmic_attention_ownership_alignment_oneval_smoke_r2_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "operational_revision": "r2 restores the established adjacent dataset_full link; science unchanged.",
+    "risk": "Operational only; not scientifically comparable. Stop after several finite optimizer steps.",
+    "submission_error": "The earlier attempt was allocation-rejected; the user-authorized retry was accepted but exposed manual_val batch_size 12 with limit 1."
+  },
+  "runtime": {
+    "serv_job_id": "lm-mpi-job-c2f95cbc-d111-4e59-bfa8-af22b0f92f74",
+    "comet_experiment_key": "518c273ca4164d3bbdd8e87df7f39bdf",
+    "source_revision": "cl30-cl37-v10-oneval-smoke-r2-20260817"
+  }
+}

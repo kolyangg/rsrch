@@ -135,6 +135,25 @@ class BranchedAttnProcessor(nn.Module):
         frequency_high_late_center: float = 1.25,
         frequency_high_late_half_range: float = 0.15,
         frequency_lowband_contrastive_enabled: bool = False,
+        attention_ownership_enabled: bool = False,
+        attention_ownership_visible_floor: float = 0.55,
+        attention_ownership_top_ceiling: float = 0.10,
+        attention_ownership_contact_width: int = 1,
+        frequency_surface_region_mode: str = "full_top",
+        frequency_surface_contact_width: int = 1,
+        frequency_surface_top_interior_factor: float = 1.0,
+        frequency_surface_contact_factor: float = 1.0,
+        frequency_shared_schedule_enabled: bool = False,
+        frequency_shared_low_late_center: float = 0.85,
+        frequency_shared_low_late_half_range: float = 0.05,
+        frequency_shared_high_early_center: float = 0.75,
+        frequency_shared_high_early_half_range: float = 0.05,
+        frequency_shared_high_late_center: float = 1.25,
+        frequency_shared_high_late_half_range: float = 0.05,
+        roi_teacher_enabled: bool = False,
+        roi_teacher_size: int = 32,
+        roi_teacher_face_threshold_px: int = 256,
+        roi_teacher_progress_min: float = 0.60,
         hardcase_roi_gate_init: float = 0.10,
         hardcase_roi_gate_min: float = 0.05,
         hardcase_roi_progress_min: float = 0.60,
@@ -209,6 +228,48 @@ class BranchedAttnProcessor(nn.Module):
         self.frequency_lowband_contrastive_enabled = bool(
             frequency_lowband_contrastive_enabled
         )
+        self.attention_ownership_enabled = bool(attention_ownership_enabled)
+        self.attention_ownership_visible_floor = float(
+            attention_ownership_visible_floor
+        )
+        self.attention_ownership_top_ceiling = float(
+            attention_ownership_top_ceiling
+        )
+        self.attention_ownership_contact_width = int(
+            attention_ownership_contact_width
+        )
+        self.frequency_surface_region_mode = str(frequency_surface_region_mode)
+        self.frequency_surface_contact_width = int(frequency_surface_contact_width)
+        self.frequency_surface_top_interior_factor = float(
+            frequency_surface_top_interior_factor
+        )
+        self.frequency_surface_contact_factor = float(frequency_surface_contact_factor)
+        self.frequency_shared_schedule_enabled = bool(
+            frequency_shared_schedule_enabled
+        )
+        self.frequency_shared_low_late_center = float(
+            frequency_shared_low_late_center
+        )
+        self.frequency_shared_low_late_half_range = float(
+            frequency_shared_low_late_half_range
+        )
+        self.frequency_shared_high_early_center = float(
+            frequency_shared_high_early_center
+        )
+        self.frequency_shared_high_early_half_range = float(
+            frequency_shared_high_early_half_range
+        )
+        self.frequency_shared_high_late_center = float(
+            frequency_shared_high_late_center
+        )
+        self.frequency_shared_high_late_half_range = float(
+            frequency_shared_high_late_half_range
+        )
+        self._frequency_shared_schedule_raw = None
+        self.roi_teacher_enabled = bool(roi_teacher_enabled)
+        self.roi_teacher_size = int(roi_teacher_size)
+        self.roi_teacher_face_threshold_px = int(roi_teacher_face_threshold_px)
+        self.roi_teacher_progress_min = float(roi_teacher_progress_min)
         self.hardcase_roi_gate_init = float(hardcase_roi_gate_init)
         self.hardcase_roi_gate_min = float(hardcase_roi_gate_min)
         self.hardcase_roi_progress_min = float(hardcase_roi_progress_min)
@@ -310,6 +371,10 @@ class BranchedAttnProcessor(nn.Module):
         self.ownership_target_mask = None
         self._ownership_aux_loss = None
         self._frequency_surface_aux_loss = None
+        self._attention_ownership_capture = False
+        self._attention_ownership_aux = None
+        self._roi_teacher_capture = False
+        self._roi_teacher_aux = None
         self._lowband_contrastive_mode = "off"
         self._lowband_negative_permutation = None
         self._lowband_anchor_q = None
@@ -469,7 +534,7 @@ class BranchedAttnProcessor(nn.Module):
         negative_permutation: Optional[torch.Tensor] = None,
     ) -> None:
         mode = str(mode or "off").lower()
-        if mode not in {"off", "anchor", "contrast"}:
+        if mode not in {"off", "anchor", "contrast", "positive"}:
             raise ValueError(f"Unknown low-band contrastive mode {mode!r}")
         if mode != "off" and not self.frequency_lowband_contrastive_enabled:
             raise RuntimeError("Low-band capture enabled on an unselected processor")
@@ -497,6 +562,27 @@ class BranchedAttnProcessor(nn.Module):
             self._lowband_negative_embedding,
         )
         return values if all(value is not None for value in values) else None
+
+    def lowband_positive_embeddings(self):
+        values = (self._lowband_anchor_embedding, self._lowband_positive_embedding)
+        return values if all(value is not None for value in values) else None
+
+    def set_attention_ownership_capture(self, enabled: bool) -> None:
+        self._attention_ownership_capture = bool(enabled)
+        self._attention_ownership_aux = None
+
+    def attention_ownership_aux(self):
+        return self._attention_ownership_aux
+
+    def set_roi_teacher_capture(self, enabled: bool) -> None:
+        self._roi_teacher_capture = bool(enabled)
+        self._roi_teacher_aux = None
+
+    def roi_teacher_aux(self):
+        return self._roi_teacher_aux
+
+    def set_frequency_shared_schedule(self, parameter) -> None:
+        object.__setattr__(self, "_frequency_shared_schedule_raw", parameter)
 
     def latest_ba_telemetry(self) -> Optional[dict[str, torch.Tensor]]:
         return self._latest_ba_telemetry
@@ -598,7 +684,7 @@ class BranchedAttnProcessor(nn.Module):
         batch, length, _ = target.shape
         heads = int(attn.heads)
         q = self._reshape_heads(self._q_noise(attn, target), heads)
-        if self._lowband_contrastive_mode == "contrast":
+        if self._lowband_contrastive_mode in {"contrast", "positive"}:
             cached_q = self._lowband_anchor_q
             if cached_q is None or cached_q.shape != q.shape:
                 raise RuntimeError("Low-band contrastive query cache mismatch")
@@ -613,10 +699,60 @@ class BranchedAttnProcessor(nn.Module):
         native_message = self._merge_heads(native)
         native_out = attn.to_out[0](native_message)
         reference_out = self._reference_target_out(attn, q, reference)
+        if self._attention_ownership_capture:
+            self._capture_attention_ownership(attn, q, reference)
         if self._lowband_contrastive_mode == "anchor":
             self._lowband_anchor_q = q.detach()
             self._lowband_anchor_native_out = native_out.detach()
         return native_out, reference_out, q
+
+    def _capture_attention_ownership(self, attn, q, reference) -> None:
+        """Chunk Q/K probabilities so CL31 never retains a full all-layer map."""
+        if not self.attention_ownership_enabled or self.ownership_target_mask is None:
+            raise RuntimeError("Attention ownership capture lacks supervision")
+        batch, _, length, width = q.shape
+        face = self._binary_mask(self.mask, length, batch, torch.float32)
+        top = self._binary_mask(
+            self.ownership_target_mask, length, batch, torch.float32
+        ) * face
+        side = int(math.isqrt(length))
+        top_image = top.transpose(1, 2).reshape(batch, 1, side, side)
+        kernel = 2 * self.attention_ownership_contact_width + 1
+        contact = F.max_pool2d(
+            top_image, kernel, stride=1, padding=self.attention_ownership_contact_width
+        ).flatten(2).transpose(1, 2) * face
+        visible = (face - contact).clamp(0.0, 1.0)
+        ref_mask = self._binary_mask(self.mask_ref, length, batch, torch.float32)
+        reference_face = reference * ref_mask.to(reference.dtype)
+        keys = self._reshape_heads(self._k_ref(attn, reference_face), int(attn.heads))
+        key_face = ref_mask.squeeze(-1)[:, None, None, :]
+        visible_denom = visible.sum().clamp_min(1.0)
+        top_denom = contact.sum().clamp_min(1.0)
+        # Pool the two supervised query regions before QK. This preserves
+        # attention ownership while avoiding an LxL activation per layer.
+        visible_q = (
+            q.float() * visible[:, None]
+        ).sum(dim=2) / visible.sum(dim=1).clamp_min(1.0)[:, None]
+        top_q = (
+            q.float() * contact[:, None]
+        ).sum(dim=2) / contact.sum(dim=1).clamp_min(1.0)[:, None]
+        pooled_q = torch.stack((visible_q, top_q), dim=2)
+        logits = torch.matmul(pooled_q, keys.float().transpose(-1, -2)) / math.sqrt(width)
+        mass = (logits.softmax(dim=-1) * key_face).sum(dim=-1).mean(dim=1)
+        visible_mean, top_mean = mass[:, 0].mean(), mass[:, 1].mean()
+        visible_loss = F.relu(
+            mass[:, 0].new_tensor(self.attention_ownership_visible_floor) - mass[:, 0]
+        ).square().mean()
+        top_loss = F.relu(
+            mass[:, 1] - mass[:, 1].new_tensor(self.attention_ownership_top_ceiling)
+        ).square().mean()
+        eligible = (visible.sum() > 0) & (contact.sum() > 0)
+        scale = eligible.to(mass.dtype)
+        self._attention_ownership_aux = (
+            scale * (visible_loss + top_loss),
+            visible_mean,
+            scale * top_mean,
+        )
 
     @staticmethod
     def _masked_mean_square(
@@ -653,6 +789,10 @@ class BranchedAttnProcessor(nn.Module):
             self._lowband_anchor_embedding = self._masked_pool(low, router)
             return
 
+        if mode == "positive":
+            low_positive, _ = self._gaussian_split(reference_out - native_anchor)
+            self._lowband_positive_embedding = self._masked_pool(low_positive, router)
+            return
         permutation = self._lowband_negative_permutation
         if permutation is None or permutation.numel() != reference.shape[0]:
             raise RuntimeError("Low-band negative permutation is missing")
@@ -677,6 +817,8 @@ class BranchedAttnProcessor(nn.Module):
         metrics = {
             "top_high_rms": zero,
             "top_low_rms": zero,
+            "contact_rms": zero,
+            "interior_rms": zero,
             "visible_ratio": zero,
             "applied_fraction": zero,
         }
@@ -713,10 +855,41 @@ class BranchedAttnProcessor(nn.Module):
         ratio = routed_rms / native_rms.detach().clamp_min(1.0e-6)
         # 16 Aug 2026 - Keep eligibility on-device; the previous Python bool
         # forced a CUDA-to-host synchronization at every CL27 processor.
-        top_loss = (
-            (top_high + self.frequency_surface_top_low_band_factor * top_low)
-            * eligible_float
-        ).sum() / eligible_count
+        top_energy = top_high + self.frequency_surface_top_low_band_factor * top_low
+        if self.frequency_surface_region_mode == "contact_partition":
+            side = int(math.isqrt(length))
+            top_image = top.transpose(1, 2).reshape(batch, 1, side, side)
+            width = self.frequency_surface_contact_width
+            eroded = 1.0 - F.max_pool2d(
+                1.0 - top_image, 2 * width + 1, stride=1, padding=width
+            )
+            contact = (top_image - eroded).clamp(0.0, 1.0).flatten(2).transpose(1, 2)
+            interior = eroded.flatten(2).transpose(1, 2)
+            contact_energy = self._masked_mean_square(
+                high_component, contact
+            ) + self.frequency_surface_top_low_band_factor * self._masked_mean_square(
+                low_component, contact
+            )
+            interior_energy = self._masked_mean_square(
+                high_component, interior
+            ) + self.frequency_surface_top_low_band_factor * self._masked_mean_square(
+                low_component, interior
+            )
+            factor_sum = (
+                self.frequency_surface_contact_factor
+                + self.frequency_surface_top_interior_factor
+            )
+            top_energy = (
+                self.frequency_surface_contact_factor * contact_energy
+                + self.frequency_surface_top_interior_factor * interior_energy
+            ) / max(factor_sum, 1.0e-6)
+            metrics["contact_rms"] = (
+                contact_energy * eligible_float
+            ).sum().div(eligible_count).clamp_min(0.0).sqrt().detach()
+            metrics["interior_rms"] = (
+                interior_energy * eligible_float
+            ).sum().div(eligible_count).clamp_min(0.0).sqrt().detach()
+        top_loss = (top_energy * eligible_float).sum() / eligible_count
         floor_loss = (
             F.relu(
                 ratio.new_tensor(self.frequency_surface_visible_floor_ratio) - ratio
@@ -967,6 +1140,47 @@ class BranchedAttnProcessor(nn.Module):
         gate = self.hardcase_gate_max * torch.tanh(self.roi_gate_raw)
         return scattered * gate * active.view(batch, 1, 1)
 
+    def _capture_roi_teacher(self, attn, target, reference, reference_out) -> None:
+        if not self.roi_teacher_enabled:
+            raise RuntimeError("ROI teacher capture enabled on an unselected layer")
+        batch, length, _ = target.shape
+        target_mask = self._binary_mask(self.mask, length, batch, target.dtype)
+        reference_mask = self._binary_mask(
+            self.mask_ref, length, batch, reference.dtype
+        )
+        source_px = (
+            1024.0 * target_mask.sum(dim=1).sqrt().squeeze(-1) / math.sqrt(length)
+        )
+        eligible = (
+            (source_px <= float(self.roi_teacher_face_threshold_px))
+            & (self._progress(target).flatten() >= self.roi_teacher_progress_min)
+        ).float()
+        with torch.no_grad():
+            target_roi = self._sample_roi(target, target_mask)
+            reference_roi = self._sample_roi(reference, reference_mask)
+            heads = int(attn.heads)
+            teacher_message = F.scaled_dot_product_attention(
+                self._reshape_heads(self._q_noise(attn, target_roi), heads),
+                self._reshape_heads(self._k_ref(attn, reference_roi), heads),
+                self._reshape_heads(self._v_ref(attn, reference_roi), heads),
+                dropout_p=0.0,
+                is_causal=False,
+            )
+            teacher_roi = attn.to_out[0](self._merge_heads(teacher_message))
+            teacher = self._scatter_roi(teacher_roi, target_mask, length) * target_mask
+        student = reference_out * target_mask
+        per_sample = F.smooth_l1_loss(student.float(), teacher.float(), reduction="none")
+        denom = (target_mask.sum((1, 2)) * student.shape[-1]).clamp_min(1.0)
+        smooth = (per_sample * target_mask).sum((1, 2)) / denom
+        cosine = F.cosine_similarity(student.float().flatten(1), teacher.float().flatten(1))
+        count = eligible.sum().clamp_min(1.0)
+        loss = ((smooth + 0.10 * (1.0 - cosine)) * eligible).sum() / count
+        self._roi_teacher_aux = (
+            loss,
+            (cosine * eligible).sum() / count,
+            eligible.mean(),
+        )
+
     def _call_hardcase(self, attn, hidden_states, temb) -> torch.Tensor:
         residual = hidden_states
         target, reference, input_ndim, spatial = self._normalized_halves(
@@ -1089,7 +1303,28 @@ class BranchedAttnProcessor(nn.Module):
             )
             low, high = self._gaussian_split(reference_out - native_out)
             progress = self._progress(target)
-            if self.frequency_learnable_schedule_enabled:
+            if self.frequency_shared_schedule_enabled:
+                raw_parameter = self._frequency_shared_schedule_raw
+                if raw_parameter is None:
+                    raise RuntimeError("Shared frequency schedule was not attached")
+                raw = torch.tanh(raw_parameter).to(progress.dtype)
+                low_late = (
+                    self.frequency_shared_low_late_center
+                    + self.frequency_shared_low_late_half_range * raw[0]
+                )
+                high_early = (
+                    self.frequency_shared_high_early_center
+                    + self.frequency_shared_high_early_half_range * raw[1]
+                )
+                high_late = (
+                    self.frequency_shared_high_late_center
+                    + self.frequency_shared_high_late_half_range * raw[2]
+                )
+                low_scale = self.hardcase_frequency_low_early + progress * (
+                    low_late - self.hardcase_frequency_low_early
+                )
+                high_scale = high_early + progress * (high_late - high_early)
+            elif self.frequency_learnable_schedule_enabled:
                 raw = torch.tanh(self.frequency_schedule_raw).to(progress.dtype)
                 low_scale = self.hardcase_frequency_low_early + progress * (
                     self.hardcase_frequency_low_late
@@ -1170,12 +1405,16 @@ class BranchedAttnProcessor(nn.Module):
                 self._latest_ba_telemetry.update(
                     frequency_surface_top_high_rms=surface["top_high_rms"],
                     frequency_surface_top_low_rms=surface["top_low_rms"],
+                    frequency_surface_contact_rms=surface["contact_rms"],
+                    frequency_surface_interior_rms=surface["interior_rms"],
                     frequency_surface_visible_ratio=surface["visible_ratio"],
                     frequency_surface_applied_fraction=surface["applied_fraction"],
                 )
             self._capture_lowband_contrastive(
                 attn, reference, q, router, reference_out
             )
+            if self._roi_teacher_capture:
+                self._capture_roi_teacher(attn, target, reference, reference_out)
             return self._finish_full_router(
                 attn, residual, target_out, reference, input_ndim, spatial
             )

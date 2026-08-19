@@ -114,6 +114,33 @@ def patch_unet_attention_processors(
             getattr(pipeline, "ba_frequency_lowband_contrastive_groups", None) or ()
         )
     )
+    frequency_positive_enabled = bool(
+        getattr(pipeline, "ba_frequency_positive_sameid_enabled", False)
+    )
+    frequency_positive_groups = tuple(
+        str(group) for group in (
+            getattr(pipeline, "ba_frequency_positive_sameid_groups", None) or ()
+        )
+    )
+    attention_ownership_enabled = bool(
+        getattr(pipeline, "ba_attention_ownership_loss_enabled", False)
+    )
+    attention_ownership_groups = tuple(
+        str(group) for group in (
+            getattr(pipeline, "ba_attention_ownership_groups", None) or ()
+        )
+    )
+    roi_teacher_enabled = bool(
+        getattr(pipeline, "ba_roi_teacher_distill_enabled", False)
+    )
+    roi_teacher_groups = tuple(
+        str(group) for group in (
+            getattr(pipeline, "ba_roi_teacher_distill_groups", None) or ()
+        )
+    )
+    shared_schedule_enabled = bool(
+        getattr(pipeline, "ba_frequency_shared_schedule_enabled", False)
+    )
     hardcase_telemetry_enabled = bool(
         getattr(pipeline, "ba_hardcase_telemetry_enabled", True)
     )
@@ -291,19 +318,32 @@ def patch_unet_attention_processors(
             expected_surface = frequency_surface_enabled and any(
                 name.startswith(f"{group}.") for group in frequency_surface_groups
             )
-            expected_contrastive = frequency_lowband_contrastive_enabled and any(
-                name.startswith(f"{group}.")
-                for group in frequency_lowband_contrastive_groups
+            expected_contrastive = (
+                frequency_lowband_contrastive_enabled
+                and any(name.startswith(f"{group}.") for group in frequency_lowband_contrastive_groups)
+            ) or (
+                frequency_positive_enabled
+                and any(name.startswith(f"{group}.") for group in frequency_positive_groups)
             )
             actual = (
                 bool(processor.frequency_surface_loss_enabled),
                 bool(processor.frequency_learnable_schedule_enabled),
                 bool(processor.frequency_lowband_contrastive_enabled),
+                bool(processor.attention_ownership_enabled),
+                bool(processor.frequency_shared_schedule_enabled),
+                bool(processor.roi_teacher_enabled),
             )
             expected = (
                 expected_surface,
                 frequency_learnable_schedule_enabled,
                 expected_contrastive,
+                attention_ownership_enabled and any(
+                    name.startswith(f"{group}.") for group in attention_ownership_groups
+                ),
+                shared_schedule_enabled,
+                roi_teacher_enabled and any(
+                    name.startswith(f"{group}.") for group in roi_teacher_groups
+                ),
             )
             if actual != expected:
                 mismatched_frequency_extensions.append((name, actual, expected))
@@ -371,6 +411,20 @@ def patch_unet_attention_processors(
             proc.set_lowband_contrastive(
                 mode,
                 getattr(pipe, "_ba_lowband_negative_permutation", None),
+            )
+        if hasattr(proc, "set_attention_ownership_capture"):
+            proc.set_attention_ownership_capture(
+                bool(getattr(pipe, "_ba_attention_ownership_capture", False))
+                and bool(getattr(proc, "attention_ownership_enabled", False))
+            )
+        if hasattr(proc, "set_roi_teacher_capture"):
+            proc.set_roi_teacher_capture(
+                bool(getattr(pipe, "_ba_roi_teacher_capture", False))
+                and bool(getattr(proc, "roi_teacher_enabled", False))
+            )
+        if hasattr(proc, "set_frequency_shared_schedule"):
+            proc.set_frequency_shared_schedule(
+                getattr(pipe.unet, "ba_frequency_shared_schedule_raw", None)
             )
         if hasattr(proc, "set_mix_override"):
             proc.set_mix_override(getattr(pipe, "ba_mix_override", None))
@@ -884,11 +938,69 @@ def patch_unet_attention_processors(
                                 )
                             ),
                             frequency_lowband_contrastive_enabled=(
-                                frequency_lowband_contrastive_enabled
-                                and any(
-                                    name.startswith(f"{group}.")
-                                    for group in frequency_lowband_contrastive_groups
+                                (
+                                    frequency_lowband_contrastive_enabled
+                                    and any(name.startswith(f"{group}.") for group in frequency_lowband_contrastive_groups)
                                 )
+                                or (
+                                    frequency_positive_enabled
+                                    and any(name.startswith(f"{group}.") for group in frequency_positive_groups)
+                                )
+                            ),
+                            attention_ownership_enabled=(
+                                attention_ownership_enabled
+                                and any(name.startswith(f"{group}.") for group in attention_ownership_groups)
+                            ),
+                            attention_ownership_visible_floor=float(
+                                getattr(pipeline, "ba_attention_ownership_visible_ref_mass_floor", 0.55)
+                            ),
+                            attention_ownership_top_ceiling=float(
+                                getattr(pipeline, "ba_attention_ownership_top_ref_mass_ceiling", 0.10)
+                            ),
+                            attention_ownership_contact_width=int(
+                                getattr(pipeline, "ba_attention_ownership_contact_width", 1)
+                            ),
+                            frequency_surface_region_mode=str(
+                                getattr(pipeline, "ba_frequency_surface_region_mode", "full_top")
+                            ),
+                            frequency_surface_contact_width=int(
+                                getattr(pipeline, "ba_frequency_surface_contact_width", 1)
+                            ),
+                            frequency_surface_top_interior_factor=float(
+                                getattr(pipeline, "ba_frequency_surface_top_interior_factor", 1.0)
+                            ),
+                            frequency_surface_contact_factor=float(
+                                getattr(pipeline, "ba_frequency_surface_contact_factor", 1.0)
+                            ),
+                            frequency_shared_schedule_enabled=shared_schedule_enabled,
+                            frequency_shared_low_late_center=float(
+                                getattr(pipeline, "ba_frequency_shared_low_late_center", 0.85)
+                            ),
+                            frequency_shared_low_late_half_range=float(
+                                getattr(pipeline, "ba_frequency_shared_low_late_half_range", 0.05)
+                            ),
+                            frequency_shared_high_early_center=float(
+                                getattr(pipeline, "ba_frequency_shared_high_early_center", 0.75)
+                            ),
+                            frequency_shared_high_early_half_range=float(
+                                getattr(pipeline, "ba_frequency_shared_high_early_half_range", 0.05)
+                            ),
+                            frequency_shared_high_late_center=float(
+                                getattr(pipeline, "ba_frequency_shared_high_late_center", 1.25)
+                            ),
+                            frequency_shared_high_late_half_range=float(
+                                getattr(pipeline, "ba_frequency_shared_high_late_half_range", 0.05)
+                            ),
+                            roi_teacher_enabled=(
+                                roi_teacher_enabled
+                                and any(name.startswith(f"{group}.") for group in roi_teacher_groups)
+                            ),
+                            roi_teacher_size=int(getattr(pipeline, "ba_roi_teacher_size", 32)),
+                            roi_teacher_face_threshold_px=int(
+                                getattr(pipeline, "ba_roi_teacher_face_threshold_px", 256)
+                            ),
+                            roi_teacher_progress_min=float(
+                                getattr(pipeline, "ba_roi_teacher_progress_min", 0.60)
                             ),
                             hardcase_roi_gate_init=float(
                                 getattr(pipeline, "ba_hardcase_roi_gate_init", 0.10)
