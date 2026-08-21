@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed composition and fixed-pipeline gate for clean CL23/CL27."""
+"""Fail-closed composition and fixed-pipeline gate for clean CL23/CL27/CL39."""
 
 from __future__ import annotations
 
@@ -14,8 +14,9 @@ from omegaconf import OmegaConf
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = ROOT / "src" / "configs"
 ARMS = {
-    "CL23_cosmic_temporal_frequency_router_24k": False,
-    "CL27_cosmic_frequency_surface_energy_24k": True,
+    "CL23_cosmic_temporal_frequency_router_24k": (False, False),
+    "CL27_cosmic_frequency_surface_energy_24k": (True, False),
+    "CL39_cosmic_null_key_confidence_router_24k": (True, True),
 }
 GROUPS = [
     "down_blocks.0", "down_blocks.1", "down_blocks.2", "mid_block",
@@ -44,7 +45,7 @@ def main() -> None:
         config = compose(config_name=args.config_name)
         cl19 = compose(config_name="CL19_cosmic_true_soft_fullquery_router_24k")
 
-    surface_enabled = ARMS[args.config_name]
+    surface_enabled, null_key_enabled = ARMS[args.config_name]
     fixed = {
         "train_dataset_name": "cosmic_large_adapted",
         "train_ba_all_steps": True,
@@ -106,6 +107,21 @@ def main() -> None:
             0.0,
         )
 
+    if null_key_enabled:
+        require(config, "model.ba_null_key_router_enabled", True)
+        require(config, "model.ba_null_key_router_groups", [
+            "up_blocks.0", "up_blocks.1"
+        ])
+        require(config, "model.ba_null_key_entropy_threshold", 0.75)
+        require(config, "model.ba_null_key_temperature", 0.08)
+        require(config, "model.ba_null_key_max_abstention", 0.75)
+        require(config, "model.ba_null_key_min_reference_fraction", 0.25)
+        if any(
+            str(name).startswith("active_grad_norm")
+            for name in value(config, "writer.loss_names")
+        ):
+            raise RuntimeError("CL39 must not request unused active-gradient norms")
+
     helper_source = (
         ROOT / "src/model/photomaker_branched/lora2_helpers.py"
     ).read_text(encoding="utf-8")
@@ -116,6 +132,7 @@ def main() -> None:
         "status": "ok",
         "config": args.config_name,
         "surface_loss": surface_enabled,
+        "null_key_router": null_key_enabled,
         "optimizer_steps": 24000,
         "validation_images": 96,
         "trainable_tensors": 2240,

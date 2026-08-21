@@ -40,6 +40,12 @@ def initialise_e13_contract(model, *, ba_hard_v1_lora_rank: int = 128,
                             ba_frequency_surface_top_low_band_factor: float = 0.25,
                             ba_frequency_surface_visible_floor_weight: float = 0.005,
                             ba_frequency_surface_visible_floor_ratio: float = 0.35,
+                            ba_null_key_router_enabled: bool = False,
+                            ba_null_key_router_groups: Sequence[str] | None = None,
+                            ba_null_key_entropy_threshold: float = 0.75,
+                            ba_null_key_temperature: float = 0.08,
+                            ba_null_key_max_abstention: float = 0.75,
+                            ba_null_key_min_reference_fraction: float = 0.25,
                             ba_crossview_consistency_enabled: bool = False,
                             ba_crossview_consistency_probability: float = 0.25,
                             ba_crossview_consistency_weight: float = 0.05,
@@ -98,6 +104,19 @@ def initialise_e13_contract(model, *, ba_hard_v1_lora_rank: int = 128,
         or float(ba_frequency_surface_visible_floor_ratio) != 0.35
     ):
         raise ValueError("CL27 frequency-surface objective contract drifted")
+    null_key_groups = tuple(
+        str(group) for group in (ba_null_key_router_groups or ())
+    )
+    if bool(ba_null_key_router_enabled) and (
+        hardcase_mode != "temporal_frequency"
+        or not bool(ba_frequency_surface_loss_enabled)
+        or null_key_groups != ("up_blocks.0", "up_blocks.1")
+        or float(ba_null_key_entropy_threshold) != 0.75
+        or float(ba_null_key_temperature) != 0.08
+        or float(ba_null_key_max_abstention) != 0.75
+        or float(ba_null_key_min_reference_fraction) != 0.25
+    ):
+        raise ValueError("CL39 null-key router contract drifted")
     crossview_probability = float(ba_crossview_consistency_probability)
     crossview_weight = float(ba_crossview_consistency_weight)
     if bool(ba_crossview_consistency_enabled) and not (
@@ -162,6 +181,14 @@ def initialise_e13_contract(model, *, ba_hard_v1_lora_rank: int = 128,
     )
     model.ba_frequency_surface_visible_floor_ratio = float(
         ba_frequency_surface_visible_floor_ratio
+    )
+    model.ba_null_key_router_enabled = bool(ba_null_key_router_enabled)
+    model.ba_null_key_router_groups = null_key_groups
+    model.ba_null_key_entropy_threshold = float(ba_null_key_entropy_threshold)
+    model.ba_null_key_temperature = float(ba_null_key_temperature)
+    model.ba_null_key_max_abstention = float(ba_null_key_max_abstention)
+    model.ba_null_key_min_reference_fraction = float(
+        ba_null_key_min_reference_fraction
     )
     model.ba_crossview_consistency_enabled = bool(
         ba_crossview_consistency_enabled
@@ -366,6 +393,18 @@ def architecture_manifest(model) -> dict:
                 model.ba_frequency_surface_visible_floor_ratio
             ),
         }
+    if bool(getattr(model, "ba_null_key_router_enabled", False)):
+        hard_v1_extensions["null_key_router"] = {
+            "groups": list(model.ba_null_key_router_groups),
+            "entropy_threshold": float(model.ba_null_key_entropy_threshold),
+            "temperature": float(model.ba_null_key_temperature),
+            "max_abstention": float(model.ba_null_key_max_abstention),
+            "min_reference_fraction": float(
+                model.ba_null_key_min_reference_fraction
+            ),
+            "native_fallback": True,
+            "trainable_parameters": 0,
+        }
     if bool(getattr(model, "ba_crossview_consistency_enabled", False)):
         hard_v1_extensions["crossview_consistency"] = {
             "probability": float(model.ba_crossview_consistency_probability),
@@ -386,7 +425,8 @@ def architecture_manifest(model) -> dict:
         "format": "photomaker_branched_trainable_unet_v2",
         "ba_architecture_version": ARCHITECTURE,
         "processor_code_version": (
-            3 if bool(getattr(model, "ba_residual_identity_ca_v3_enabled", False))
+            4 if bool(getattr(model, "ba_null_key_router_enabled", False))
+            else 3 if bool(getattr(model, "ba_residual_identity_ca_v3_enabled", False))
             else 2
         ),
         "branched_attn_lora_rank": int(model.branched_attn_lora_rank),
@@ -477,7 +517,7 @@ def _validate_compatible_manifest(saved: dict, current: dict) -> None:
     # router affects generation and CL18's objective affects trained weights.
     for key in (
         "hardcase_route", "frequency_surface_loss", "crossview_consistency",
-        "residual_identity_ca_v3",
+        "residual_identity_ca_v3", "null_key_router",
     ):
         saved_value = saved_extensions.get(key)
         current_value = current_extensions.get(key)

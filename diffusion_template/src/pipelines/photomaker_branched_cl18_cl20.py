@@ -144,6 +144,14 @@ class PhotomakerBranchedCL18CL20Pipeline:
             "ba_frequency_surface_loss_groups",
             "ba_frequency_surface_top_low_band_factor",
             "ba_frequency_surface_visible_floor_ratio",
+            # 21 Aug 2026 - CL39 validation must apply the checkpoint's same
+            # parameter-free entropy fallback in its selected up blocks.
+            "ba_null_key_router_enabled",
+            "ba_null_key_router_groups",
+            "ba_null_key_entropy_threshold",
+            "ba_null_key_temperature",
+            "ba_null_key_max_abstention",
+            "ba_null_key_min_reference_fraction",
             # 13 Aug 2026 - CL14_CA-PIPE-01: the isolated corrected-validation
             # wrapper must reproduce the training/checkpoint CA selector.
             "e13_family_contract",

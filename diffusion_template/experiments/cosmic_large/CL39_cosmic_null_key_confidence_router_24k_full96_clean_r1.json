@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "run_name": "CL39_cosmic_null_key_confidence_router_24k_full96_clean_r1",
+  "plan": {
+    "status": "prepared_not_launched",
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Let unmatched target queries retain native self-attention without removing explicit reference-conditioned BA.",
+    "baseline": "CL27_cosmic_frequency_surface_energy_24k",
+    "single_scientific_change": "Parameter-free normalized-entropy reference confidence in up_blocks.0/1.",
+    "config": "src/configs/CL39_cosmic_null_key_confidence_router_24k.yaml",
+    "launcher": "launchers/active/run_e13_family_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/CL39_cosmic_null_key_confidence_router_24k_full96_clean_r1/run_CL39_cosmic_null_key_confidence_router_24k_full96_clean_r1_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "validation": "fixed manual_val96 at step 0 and every 2000 optimizer steps"
+  },
+  "runtime": {
+    "source_branch": "kit/e13-family-clean",
+    "source_commit": null,
+    "comet_experiment_key": null,
+    "mls_job_id": null,
+    "note": "Fill immutable identifiers only after an explicitly authorized launch."
+  },
+  "test_provenance": {
+    "source_revision": "cl38-cl45-v5-frequencycollector-scope-20260820",
+    "run_name": "CL39_cosmic_null_key_confidence_router_24k_full96_r4",
+    "comet_experiment_key": "b1ca0b3da679401c85b991f1bbdf0b2a",
+    "evidence": "One-update smoke completed; the production run record was at verified startup in the inspected handoff."
+  }
+}

@@ -76,12 +76,23 @@ def patch_unet_attention_processors(
             getattr(pipeline, "ba_frequency_surface_loss_groups", None) or ()
         )
     )
+    null_key_enabled = bool(
+        getattr(pipeline, "ba_null_key_router_enabled", False)
+    )
+    null_key_groups = tuple(
+        str(group)
+        for group in (getattr(pipeline, "ba_null_key_router_groups", None) or ())
+    )
     # 18 Aug 2026 - CL27 reuses CL23 processors and enables its loss only in
     # the two declared up blocks; inference receives no supervision mask.
     if frequency_surface_enabled and (
         hardcase_mode != "temporal_frequency" or not frequency_surface_groups
     ):
         raise RuntimeError("CL27 requires temporal_frequency and explicit loss groups")
+    if null_key_enabled and (
+        hardcase_mode != "temporal_frequency" or not null_key_groups
+    ):
+        raise RuntimeError("CL39 requires temporal_frequency and explicit router groups")
     if bool(getattr(pipeline, "e13_family_contract", False)):
         # 10 Aug 2026 - E13C-CORE-01: Fail closed on the architectural
         # invariants shared by E13, BC_E13 and CL14.
@@ -320,6 +331,29 @@ def patch_unet_attention_processors(
                                 pipeline,
                                 "ba_frequency_surface_visible_floor_ratio",
                                 0.35,
+                            )
+                        ),
+                        null_key_router_enabled=(
+                            null_key_enabled
+                            and any(
+                                name.startswith(f"{group}.")
+                                for group in null_key_groups
+                            )
+                        ),
+                        null_key_entropy_threshold=float(
+                            getattr(pipeline, "ba_null_key_entropy_threshold", 0.75)
+                        ),
+                        null_key_temperature=float(
+                            getattr(pipeline, "ba_null_key_temperature", 0.08)
+                        ),
+                        null_key_max_abstention=float(
+                            getattr(pipeline, "ba_null_key_max_abstention", 0.75)
+                        ),
+                        null_key_min_reference_fraction=float(
+                            getattr(
+                                pipeline,
+                                "ba_null_key_min_reference_fraction",
+                                0.25,
                             )
                         ),
                     )

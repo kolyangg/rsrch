@@ -1,6 +1,6 @@
 # Current project handoff
 
-**Last updated:** 18 August 2026
+**Last updated:** 21 August 2026
 
 **Repository:** clean worktree `/home/kolyangg/rsrch_e13_family_clean`
 
@@ -30,8 +30,9 @@ the linked reports.
 ## Clean E13-family branch decision — updated 18 August 2026
 
 This branch is the concise implementation line for E13, BC_E13, CL14, the
-isolated CL18-CL20 corrected-r2 extension, and the minimal CL23/CL27 port. It
-contains one shared fail-closed architecture contract and nine leaf recipes:
+isolated CL18-CL20 corrected-r2 extension, and the minimal CL23/CL27/CL39
+port. It contains one shared fail-closed architecture contract and ten leaf
+recipes:
 
 - `E13_large_ds_joint_shadow_sa128_24k`
 - `BC_E13_big_celebs_joint_shadow_sa128_24k`
@@ -42,6 +43,7 @@ contains one shared fail-closed architecture contract and nine leaf recipes:
 - `CL20_cosmic_bigcelebs_hardcase_curriculum_24k`
 - `CL23_cosmic_temporal_frequency_router_24k`
 - `CL27_cosmic_frequency_surface_energy_24k`
+- `CL39_cosmic_null_key_confidence_router_24k`
 
 BC_E13 changes only the dataset. CL14 changes the dataset policy and the
 training-only two-cell target-mask feather. The sealed CL14 inference files and
@@ -78,6 +80,15 @@ The source records are CL23 Comet `a9ec9c59d1624c68acb98737dcd65298`
 and promoted CL27 r3 Comet `dbfbf40c3bdd4f70bedc58bda3dfb9cd`;
 the latter's promoted checkpoint is 16k, while the clean YAML intentionally
 defines the complete historical 24k training recipe.
+CL39 is a parameter-free child of CL27. In `up_blocks.0/1`, normalized
+reference-attention entropy supplies a detached confidence in `[0.25,1]` that
+scales only CL27's routed reference delta; ambiguous target queries therefore
+fall back toward native target SA. It keeps CL27 data, loss, trainable
+ownership, and the optimized pipeline. The source/smoke record is test sealed
+revision `cl38-cl45-v5-frequencycollector-scope-20260820`, CL39 r4 Comet
+`b1ca0b3da679401c85b991f1bbdf0b2a`; this is provenance, not a clean-branch
+quality result. The clean-port record and Serv command are in
+[`2026-08-21_cl39_clean_extension.md`](../architecture/2026-08-21_cl39_clean_extension.md).
 CL14_CA is the single model extension to CL14: native CA remains intact while
 target queries attend active PhotoMaker ID-token K/V through a rank-64,
 zero-initialized output delta, face mask, and gate initialized at 0.02 and
@@ -90,7 +101,8 @@ and execution-only fused-CA/scalar-sync optimizations separately from that one
 scientific delta. No clean CL14_CA job has been submitted.
 The formula-level description of every supported recipe—including the shared
 hard-replacement SA equation, CL14_CA residual CA, CL18 objective, CL19 cosine
-router, CL20 curriculum, CL23 frequency route, CL27 auxiliary objective,
+router, CL20 curriculum, CL23 frequency route, CL27 auxiliary objective, CL39
+null-key confidence,
 dataset contracts, ownership totals, and direct code references—is
 [`2026-08-13_e13_family_architecture_reference.md`](../architecture/2026-08-13_e13_family_architecture_reference.md).
 The baseline-first master lineage starts from that exact 2 June source plus
@@ -104,9 +116,9 @@ multireference, dropout,
 learnable frequency schedules, contrastive branches, or full-body balancing.
 Use
 `launchers/active/run_e13_family_24k_1gpu.sh`. Exact one-A100 clean Serv YAMLs
-for all nine recipes are indexed in `serv_run_packages/README.md`;
+for all ten recipes are indexed in `serv_run_packages/README.md`;
 each rejects a dirty/wrong branch and records its source commit before startup.
-CL23/CL27 carry the 16 August fixed training-pipeline invariants: cache
+CL23/CL27/CL39 carry the 16 August fixed training-pipeline invariants: cache
 Diffusers' processor map once per collector, skip disabled collectors, keep
 CL27 eligibility on-device, and disable unconsumed full-activation telemetry.
 These are execution-only changes; routing, losses, ownership, data, and

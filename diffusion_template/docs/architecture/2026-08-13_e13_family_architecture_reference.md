@@ -7,14 +7,14 @@ supported recipe—use
 
 This document is the formula-level reference for every supported experiment in
 `kit/e13-family-clean`: E13, BC_E13, CL14, CL14_CA, CL18, CL19, CL20, CL23,
-and CL27. It
+CL27, and CL39. It
 separates model architecture, training objective, dataset policy, validation
 policy, and execution-only optimizations. Those categories must not be treated
 as interchangeable experimental changes.
 
 ## 1. Family map
 
-There are nine recipes, but only four inference-time attention architectures.
+There are ten recipes and five inference-time attention architectures.
 
 | Recipe | Inference architecture | Training-only change | Dataset change |
 |---|---|---|---|
@@ -27,6 +27,7 @@ There are nine recipes, but only four inference-time attention architectures.
 | CL20 | Exactly CL14 | Deterministic curriculum order | Cosmic/BigCelebs, then Cosmic-only |
 | CL23 | CL19 plus fixed denoising-progress low/high gains | None beyond CL14 mask | Corrected Cosmic Large |
 | CL27 | Exactly CL23 | Frequency-surface auxiliary loss | CL23 data plus deterministic semantic occluders |
+| CL39 | CL27 plus parameter-free null-key confidence | Same surface loss on the confidence-scaled route | Exactly CL27 |
 
 The leaf configs are:
 
@@ -39,6 +40,7 @@ The leaf configs are:
 - [CL20](../../src/configs/CL20_cosmic_bigcelebs_hardcase_curriculum_24k.yaml)
 - [CL23](../../src/configs/CL23_cosmic_temporal_frequency_router_24k.yaml)
 - [CL27](../../src/configs/CL27_cosmic_frequency_surface_energy_24k.yaml)
+- [CL39](../../src/configs/CL39_cosmic_null_key_confidence_router_24k.yaml)
 
 The shared configuration is
 [e13_family_24k.yaml](../../src/configs/e13_family_24k.yaml). The runtime rejects
@@ -233,7 +235,7 @@ the same installed processors; only their activation schedule differs.
 
 ### 4.4 Exact trainable ownership
 
-For E13, BC_E13, CL14, CL18, CL19, CL20, CL23, and CL27:
+For E13, BC_E13, CL14, CL18, CL19, CL20, CL23, CL27, and CL39:
 
 | Role | Tensors | Parameters |
 |---|---:|---:|
@@ -662,14 +664,53 @@ and
 exact leaf is
 [`CL27_cosmic_frequency_surface_energy_24k.yaml`](../../src/configs/CL27_cosmic_frequency_surface_energy_24k.yaml).
 
-## 14. Validation contract
+## 14. CL39
+
+CL39 keeps CL27's data, objective, masks, temporal-frequency schedule, and
+2,240 trainable tensors. Its only change is a parameter-free confidence on the
+already-routed CL27 reference delta in `up_blocks.0/1`.
+
+For target query (q_{hi}), masked reference key (k_{hj}), head width (d),
+and (L) reference tokens:
+
+$$
+p_{hij}=\operatorname{softmax}_j\left(
+\frac{q_{hi}^{\mathsf T}k_{hj}}{\sqrt d}\right),
+\qquad
+e_i=\frac{1}{H}\sum_h
+\frac{-\sum_j p_{hij}\log(p_{hij}+10^{-8})}{\log L}.
+$$
+
+The detached virtual-null mass and retained reference fraction are
+
+$$
+n_i=\sigma\left(\frac{e_i-0.75}{0.08}\right),
+\qquad
+c_i=\operatorname{clip}(1-0.75n_i,0.25,1).
+$$
+
+If Δ_CL27 is CL27's routed low/high reference-minus-native delta, selected
+blocks output
+
+$$
+Y_{CL39}=N+c\odot\Delta_{CL27}.
+$$
+
+Thus ambiguous reference matches retain more native target self-attention;
+they do not emit a zero value. Confidence is detached, so CL39 adds neither a
+predictor nor a new gradient path. Other blocks remain exact CL27. The code is
+[`BranchedAttnProcessor._null_key_confidence`](../../src/model/photomaker_branched/attn_processor_cleanest.py),
+and the leaf is
+[`CL39_cosmic_null_key_confidence_router_24k.yaml`](../../src/configs/CL39_cosmic_null_key_confidence_router_24k.yaml).
+
+## 15. Validation contract
 
 All recipes preserve the fixed 96-image `manual_val` panel with one image per
 item at step 0 and every 2,000 optimizer steps, RealVisXL V4.0, DDIM 50, CFG 5,
 batch 12, PhotoMaker start 10, and BA start 15. E13/BC_E13 use their sealed bbox
 cache; CL14-family runs use the sealed CL14 cache.
 
-CL14_CA, CL18, CL19, CL20, CL23, and CL27 use the isolated corrected
+CL14_CA, CL18, CL19, CL20, CL23, CL27, and CL39 use the isolated corrected
 subject-v2 validation wrapper:
 
 - `bbox_overlap_v2` chooses the reference face owned by the declared box;
@@ -682,7 +723,7 @@ change. See
 [`face_subject_selector.py`](../../src/face_subject_selector.py), and
 [`all_metrics_subject_v2.yaml`](../../src/configs/metrics/all_metrics_subject_v2.yaml).
 
-## 15. Execution-only optimizations
+## 16. Execution-only optimizations
 
 The following changes are intended to preserve mathematical output:
 
@@ -701,7 +742,7 @@ The following changes are intended to preserve mathematical output:
 - disabled auxiliary collectors return before processor-map resolution, and
   CL27 eligibility remains on-device rather than synchronizing a Python bool;
 - full-activation temporal-frequency telemetry is disabled for the clean CL23
-  and CL27 launches because neither objective consumes it.
+  CL27, and CL39 launches because none consumes it.
 
 These optimizations must not change seeds, sampled timesteps, reference noise,
 loss terms, processor state, or generated pixels. Their controls are in
@@ -711,7 +752,7 @@ loss terms, processor state, or generated pixels. Their controls are in
 [`residual_identity_ca_processor_v3.py`](../../src/model/photomaker_branched/residual_identity_ca_processor_v3.py),
 and [`sdxl_trainers.py`](../../src/trainer/sdxl_trainers.py).
 
-## 16. Fail-closed checks and launch references
+## 17. Fail-closed checks and launch references
 
 The principal static gates are:
 

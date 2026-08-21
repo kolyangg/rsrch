@@ -111,6 +111,12 @@ class PhotomakerBranchedLora(SDXL):
         ba_frequency_surface_top_low_band_factor: float = 0.25,
         ba_frequency_surface_visible_floor_weight: float = 0.005,
         ba_frequency_surface_visible_floor_ratio: float = 0.35,
+        ba_null_key_router_enabled: bool = False,
+        ba_null_key_router_groups: Optional[Sequence[str]] = None,
+        ba_null_key_entropy_threshold: float = 0.75,
+        ba_null_key_temperature: float = 0.08,
+        ba_null_key_max_abstention: float = 0.75,
+        ba_null_key_min_reference_fraction: float = 0.25,
         ba_crossview_consistency_enabled: bool = False,
         ba_crossview_consistency_probability: float = 0.25,
         ba_crossview_consistency_weight: float = 0.05,
@@ -287,6 +293,18 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_frequency_surface_visible_floor_ratio = float(
             ba_frequency_surface_visible_floor_ratio
         )
+        self.ba_null_key_router_enabled = bool(ba_null_key_router_enabled)
+        self.ba_null_key_router_groups = tuple(
+            str(group) for group in (ba_null_key_router_groups or ())
+        )
+        self.ba_null_key_entropy_threshold = float(
+            ba_null_key_entropy_threshold
+        )
+        self.ba_null_key_temperature = float(ba_null_key_temperature)
+        self.ba_null_key_max_abstention = float(ba_null_key_max_abstention)
+        self.ba_null_key_min_reference_fraction = float(
+            ba_null_key_min_reference_fraction
+        )
         self.ba_crossview_consistency_enabled = bool(
             ba_crossview_consistency_enabled
         )
@@ -345,6 +363,14 @@ class PhotomakerBranchedLora(SDXL):
                 ),
                 ba_frequency_surface_visible_floor_ratio=(
                     ba_frequency_surface_visible_floor_ratio
+                ),
+                ba_null_key_router_enabled=ba_null_key_router_enabled,
+                ba_null_key_router_groups=ba_null_key_router_groups,
+                ba_null_key_entropy_threshold=ba_null_key_entropy_threshold,
+                ba_null_key_temperature=ba_null_key_temperature,
+                ba_null_key_max_abstention=ba_null_key_max_abstention,
+                ba_null_key_min_reference_fraction=(
+                    ba_null_key_min_reference_fraction
                 ),
                 ba_crossview_consistency_enabled=ba_crossview_consistency_enabled,
                 ba_crossview_consistency_probability=(

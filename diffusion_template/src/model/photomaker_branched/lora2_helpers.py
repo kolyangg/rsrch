@@ -88,6 +88,25 @@ def collect_frequency_surface_aux_loss(model):
             telemetry_out[f"ba/{metric_name}/{group}"] = torch.stack([
                 entry[metric_name].detach().float() for entry in entries
             ]).mean()
+        for metric_name in (
+            "null_key/null_mass",
+            "null_key/reference_fraction",
+            "null_key/object_minus_visible_mass",
+        ):
+            if all(metric_name in entry for entry in entries):
+                telemetry_out[f"ba/{metric_name}/{group}"] = torch.stack([
+                    entry[metric_name].detach().float() for entry in entries
+                ]).mean()
+    all_entries = [entry for entries in grouped.values() for entry in entries]
+    for metric_name in (
+        "null_key/null_mass",
+        "null_key/reference_fraction",
+        "null_key/object_minus_visible_mass",
+    ):
+        if all_entries and all(metric_name in entry for entry in all_entries):
+            telemetry_out[f"ba/{metric_name}/all"] = torch.stack([
+                entry[metric_name].detach().float() for entry in all_entries
+            ]).mean()
     telemetry_out["ba/frequency_surface_applied_fraction"] = (
         torch.stack(applied).mean()
         if applied

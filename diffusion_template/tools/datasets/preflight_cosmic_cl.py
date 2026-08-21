@@ -188,7 +188,7 @@ def main() -> None:
             )
     elif arm in (
         "CL9", "CL10", "CL11", "CL12", "CL13", "CL14", "CL18", "CL19",
-        "CL23", "CL27",
+        "CL23", "CL27", "CL39",
     ):
         if ref_sizes != {(1024, 1024)}:
             failures.append(f"{arm} canvases must be 1024x1024, saw {ref_sizes}")
@@ -252,7 +252,7 @@ def main() -> None:
         if alternate_reference_samples != len(picks):
             failures.append("CL18 did not emit a distinct alternate reference per sample")
 
-    if arm == "CL27":
+    if arm in ("CL27", "CL39"):
         report["synthetic_occluder_fraction"] = supervised_occluders / len(picks)
         if not 0.10 <= report["synthetic_occluder_fraction"] <= 0.40:
             failures.append(

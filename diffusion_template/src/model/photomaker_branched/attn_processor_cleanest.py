@@ -120,6 +120,11 @@ class BranchedAttnProcessor(nn.Module):
         frequency_surface_loss_enabled: bool = False,
         frequency_surface_top_low_band_factor: float = 0.25,
         frequency_surface_visible_floor_ratio: float = 0.35,
+        null_key_router_enabled: bool = False,
+        null_key_entropy_threshold: float = 0.75,
+        null_key_temperature: float = 0.08,
+        null_key_max_abstention: float = 0.75,
+        null_key_min_reference_fraction: float = 0.25,
     ):
         super().__init__()
 
@@ -159,12 +164,24 @@ class BranchedAttnProcessor(nn.Module):
         self.frequency_surface_visible_floor_ratio = float(
             frequency_surface_visible_floor_ratio
         )
+        self.null_key_router_enabled = bool(null_key_router_enabled)
+        self.null_key_entropy_threshold = float(null_key_entropy_threshold)
+        self.null_key_temperature = float(null_key_temperature)
+        self.null_key_max_abstention = float(null_key_max_abstention)
+        self.null_key_min_reference_fraction = float(null_key_min_reference_fraction)
         if self.frequency_surface_loss_enabled and self.hardcase_mode != "temporal_frequency":
             raise ValueError("CL27 frequency-surface loss requires temporal_frequency")
         if not 0.0 <= self.frequency_surface_top_low_band_factor <= 1.0:
             raise ValueError("frequency_surface_top_low_band_factor must be in [0, 1]")
         if not 0.0 < self.frequency_surface_visible_floor_ratio < 1.0:
             raise ValueError("frequency_surface_visible_floor_ratio must be in (0, 1)")
+        if not (
+            0.0 <= self.null_key_max_abstention <= 1.0
+            and 0.0 < self.null_key_min_reference_fraction <= 1.0
+        ):
+            raise ValueError("CL39 null-key bounds are invalid")
+        if self.null_key_temperature <= 0.0:
+            raise ValueError("CL39 null-key temperature must be positive")
         
         self.mask = None
         self.mask_ref = None
@@ -444,7 +461,40 @@ class BranchedAttnProcessor(nn.Module):
         return (
             attn.to_out[0](self._merge_heads(native)),
             attn.to_out[0](self._merge_heads(reference_message)),
+            query,
         )
+
+    def _null_key_confidence(
+        self, attn, query: torch.Tensor, reference: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return CL39's detached per-query reference confidence."""
+        batch, heads, length, width = query.shape
+        ref_mask = self._binary_mask(
+            self.mask_ref, length, batch, reference.dtype
+        )
+        keys = self._reshape_heads(
+            self._k_ref(attn, reference * ref_mask), heads
+        ).detach().float()
+        entropy_chunks = []
+        with torch.no_grad():
+            for query_chunk in query.detach().float().split(256, dim=2):
+                logits = torch.matmul(
+                    query_chunk, keys.transpose(-1, -2)
+                ) / math.sqrt(width)
+                probability = logits.softmax(dim=-1)
+                entropy = -(
+                    probability * probability.clamp_min(1.0e-8).log()
+                ).sum(dim=-1) / math.log(max(length, 2))
+                entropy_chunks.append(entropy.mean(dim=1)[..., None])
+            entropy = torch.cat(entropy_chunks, dim=1)
+            null_mass = torch.sigmoid(
+                (entropy - self.null_key_entropy_threshold)
+                / self.null_key_temperature
+            )
+            confidence = (
+                1.0 - self.null_key_max_abstention * null_mass
+            ).clamp(min=self.null_key_min_reference_fraction, max=1.0)
+        return confidence.to(query.dtype), null_mass
 
     def _finish_full_router(
         self, attn, residual, target_out, reference, input_ndim, spatial
@@ -476,7 +526,7 @@ class BranchedAttnProcessor(nn.Module):
         target, reference, input_ndim, spatial = self._normalized_halves(
             attn, hidden_states, temb
         )
-        native_out, reference_out = self._full_target_lanes(
+        native_out, reference_out, _query = self._full_target_lanes(
             attn, target, reference
         )
         router = self._soft_router_mask(
@@ -495,7 +545,9 @@ class BranchedAttnProcessor(nn.Module):
         target, reference, input_ndim, spatial = self._normalized_halves(
             attn, hidden_states, temb
         )
-        native_out, reference_out = self._full_target_lanes(attn, target, reference)
+        native_out, reference_out, query = self._full_target_lanes(
+            attn, target, reference
+        )
         router = self._soft_router_mask(
             self.mask, target.shape[1], target.shape[0], native_out.dtype
         )
@@ -509,14 +561,47 @@ class BranchedAttnProcessor(nn.Module):
         )
         low_component = router * low_scale * low
         high_component = router * high_scale * high
+        null_telemetry = {}
+        if self.null_key_router_enabled:
+            # 21 Aug 2026 - AICODE-NOTE: CL39 scales only CL27's reference
+            # delta with detached confidence; native target SA stays intact.
+            confidence, null_mass = self._null_key_confidence(
+                attn, query, reference
+            )
+            low_component = low_component * confidence
+            high_component = high_component * confidence
+            object_minus_visible = null_mass.new_tensor(0.0)
+            if self.ownership_target_mask is not None:
+                face = self._binary_mask(
+                    self.mask, target.shape[1], target.shape[0], torch.float32
+                )
+                top = self._binary_mask(
+                    self.ownership_target_mask,
+                    target.shape[1],
+                    target.shape[0],
+                    torch.float32,
+                ) * face
+                visible = (face - top).clamp(0.0, 1.0)
+                object_minus_visible = (
+                    (null_mass * top).sum() / top.sum().clamp_min(1.0)
+                    - (null_mass * visible).sum()
+                    / visible.sum().clamp_min(1.0)
+                )
+            null_telemetry = {
+                "null_key/null_mass": null_mass.mean(),
+                "null_key/reference_fraction": confidence.float().mean(),
+                "null_key/object_minus_visible_mass": object_minus_visible,
+            }
         routed_delta = low_component + high_component
         target_out = native_out + routed_delta
-        self._latest_ba_telemetry = None
+        self._latest_ba_telemetry = null_telemetry or None
         if self.hardcase_telemetry_enabled:
-            self._latest_ba_telemetry = {
+            if self._latest_ba_telemetry is None:
+                self._latest_ba_telemetry = {}
+            self._latest_ba_telemetry.update({
                 "frequency_low_scale": low_scale.detach().float().mean(),
                 "frequency_high_scale": high_scale.detach().float().mean(),
-            }
+            })
         if self.frequency_surface_loss_enabled:
             surface = self._frequency_surface_loss(
                 native_out, low_component, high_component, routed_delta
