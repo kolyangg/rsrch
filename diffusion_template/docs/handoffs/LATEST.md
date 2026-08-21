@@ -89,6 +89,11 @@ revision `cl38-cl45-v5-frequencycollector-scope-20260820`, CL39 r4 Comet
 `b1ca0b3da679401c85b991f1bbdf0b2a`; this is provenance, not a clean-branch
 quality result. The clean-port record and Serv command are in
 [`2026-08-21_cl39_clean_extension.md`](../architecture/2026-08-21_cl39_clean_extension.md).
+As of 21 August 2026 11:39 UTC, that immutable test run had logged through
+optimizer step 23,950. Its aggregate null-key reference-fraction mean ranged
+from 0.2998 to 0.3693 and was 0.3183 latest, confirming that attenuation was
+active; the metric is not face-only and is not an activation or image-source
+percentage. No matched CL27 quality conclusion follows from it.
 CL14_CA is the single model extension to CL14: native CA remains intact while
 target queries attend active PhotoMaker ID-token K/V through a rank-64,
 zero-initialized output delta, face mask, and gate initialized at 0.02 and

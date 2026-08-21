@@ -47,6 +47,36 @@ optimizer role. The trainable contract remains exactly 2,240 tensors and
 `ca_mixing_for_face=false`, SA-only BA, subject-v2 fixed-96 validation, and
 CL27's deterministic 25% semantic-occluder supervision.
 
+## What the native fallback is—and is not
+
+`native` means target Q attending target K/V in the current self-attention
+layer. It is always CL39's base message; confidence scales only the added
+CL27 reference-minus-native correction. Outside the target mask the router is
+zero and the block is exactly target-only. Inside `up_blocks.0/1`, confidence
+has a declared lower bound of 0.25 and is approximately 0.282 even at maximum
+normalized entropy, so CL39 does not completely turn off the reference
+correction in the face interior. `[code]`
+
+This lane is not a call to frozen, unmodified PhotoMaker. Its target-only
+operator has the ordinary self-attention form, but it uses CL39's trained
+rank-128 target Q/K/V LoRA and trained output adapters, and its input already
+contains upstream BA and PhotoMaker cross-attention effects. The fixed
+generation schedule separately has a true unbranched PhotoMaker interval:
+steps 10–14 use the original attention processors, while steps 15–49 run
+PhotoMaker and BA together. Training uses BA at every sampled timestep.
+
+The test-source run identified above logged mean
+`ba/null_key/reference_fraction/all` between `0.2998` and `0.3693` through
+optimizer step `23,950`, with `0.3183` latest. Thus attenuation was active in
+training. `[measured]` This number is the mean correction multiplier, not the
+fraction of the final activation attributable to the reference, and it
+includes background queries where the target-mask router is zero. Face-only
+usage and quality improvement over CL27 are not established by this metric.
+See Section 14 of
+[`2026-08-13_e13_family_architecture_reference.md`](2026-08-13_e13_family_architecture_reference.md)
+for the complete equations, schedule table, code quotation, and confidence
+assessment.
+
 ## Minimal file map
 
 | Area | Change |

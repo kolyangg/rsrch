@@ -670,12 +670,42 @@ CL39 keeps CL27's data, objective, masks, temporal-frequency schedule, and
 2,240 trainable tensors. Its only change is a parameter-free confidence on the
 already-routed CL27 reference delta in `up_blocks.0/1`.
 
-For target query (q_{hi}), masked reference key (k_{hj}), head width (d),
-and (L) reference tokens:
+### 14.1 Exact computation
+
+CL39 first computes two complete target messages. The target-only, or
+"native," message is
+
+$$
+N=W_o\operatorname{Attn}(W_q^tH_t,W_k^tH_t,W_v^tH_t),
+$$
+
+and the explicit branched-reference message is
+
+$$
+R=W_o\operatorname{Attn}(W_q^tH_t,W_k^r(H_r\odot M_r),
+W_v^r(H_r\odot M_r)).
+$$
+
+Thus \(N\) uses target queries, target keys, and target values; no spatial
+reference token is used in that local message. Let \(D=R-N\), let
+\(D_{\mathrm{low}},D_{\mathrm{high}}\) be CL23's Gaussian frequency split,
+let \(C\in[0,1]\) be CL19's target-face router, and let
+\(a_{\mathrm{low}}(t),a_{\mathrm{high}}(t)\) be CL23's fixed denoising gains.
+CL27 would output
+
+$$
+Y_{\mathrm{CL27}}=N+C\odot\left(
+a_{\mathrm{low}}D_{\mathrm{low}}+
+a_{\mathrm{high}}D_{\mathrm{high}}
+\right).
+$$
+
+For target query \(q_{hi}\), masked reference key \(k_{hj}\), head width
+\(d_h\), and \(L\) reference tokens, CL39 additionally computes
 
 $$
 p_{hij}=\operatorname{softmax}_j\left(
-\frac{q_{hi}^{\mathsf T}k_{hj}}{\sqrt d}\right),
+\frac{q_{hi}^{\mathsf T}k_{hj}}{\sqrt {d_h}}\right),
 \qquad
 e_i=\frac{1}{H}\sum_h
 \frac{-\sum_j p_{hij}\log(p_{hij}+10^{-8})}{\log L}.
@@ -689,19 +719,121 @@ n_i=\sigma\left(\frac{e_i-0.75}{0.08}\right),
 c_i=\operatorname{clip}(1-0.75n_i,0.25,1).
 $$
 
-If Δ_CL27 is CL27's routed low/high reference-minus-native delta, selected
-blocks output
+Selected blocks output
 
 $$
-Y_{CL39}=N+c\odot\Delta_{CL27}.
+Y_{\mathrm{CL39}}=N+c\odot C\odot\left(
+a_{\mathrm{low}}D_{\mathrm{low}}+
+a_{\mathrm{high}}D_{\mathrm{high}}
+\right).
 $$
 
-Thus ambiguous reference matches retain more native target self-attention;
-they do not emit a zero value. Confidence is detached, so CL39 adds neither a
-predictor nor a new gradient path. Other blocks remain exact CL27. The code is
+The source makes the ordering explicit: `[code]`
+
+```python
+low, high = self._gaussian_split(reference_out - native_out)
+low_component = router * low_scale * low
+high_component = router * high_scale * high
+confidence, null_mass = self._null_key_confidence(attn, query, reference)
+low_component = low_component * confidence
+high_component = high_component * confidence
+routed_delta = low_component + high_component
+target_out = native_out + routed_delta
+```
+
+Confidence is detached, so CL39 adds neither a predictor nor a new gradient
+path. Other blocks remain exact CL27. The code is
 [`BranchedAttnProcessor._null_key_confidence`](../../src/model/photomaker_branched/attn_processor_cleanest.py),
 and the leaf is
 [`CL39_cosmic_null_key_confidence_router_24k.yaml`](../../src/configs/CL39_cosmic_null_key_confidence_router_24k.yaml).
+
+### 14.2 What "native target self-attention fallback" means
+
+"Fallback" is a soft attenuation toward \(N\), not a conditional switch to a
+second model. The native message is always computed and always forms the base
+of the selected block. CL39 changes only the size of the reference-conditioned
+correction added to it. `[code]`
+
+| Location | Exact behavior |
+|---|---|
+| Outside the target mask | \(C=0\), so the block output is exactly \(N\). |
+| Target-mask transition rings | Both \(C\) and \(c\) attenuate the CL27 correction. |
+| Face interior in `up_blocks.0/1` | \(C=1\); \(c\) attenuates, but does not disable, the explicit reference correction. |
+| Other U-Net groups | No CL39 confidence is installed; behavior remains exact CL27. |
+
+The configured clamp is \(c\in[0.25,1]\), so even its hard lower bound retains
+25% of CL27's routed correction. More strongly, normalized softmax entropy is
+mathematically in \([0,1]\). With CL39's fixed constants this gives
+\(c(0)=0.99994\), \(c(0.75)=0.625\), and \(c(1)=0.28157\). Therefore the
+ordinary mathematical range is approximately \([0.282,1.000]\); it never
+reaches zero. CL39 consequently **does not provide a pure target-only switch
+inside the selected face interior**. `[code]`
+
+### 14.3 Is the native message exactly unmodified PhotoMaker?
+
+No—not after branched attention becomes active. It has the same operator form
+as ordinary target self-attention, and its K/V are target-only, but it is a
+lane inside the trained E13/CL39 model rather than a call to a frozen,
+unmodified PhotoMaker model. `[code]`
+
+- At processor installation, the lane's Q/K/V base weights clone SDXL plus the
+  pretrained PhotoMaker `default` LoRA delta. The lane then has its own trained
+  rank-128 `noise_to_q/k/v` LoRA weights.
+- Its output projection uses the effective adapters. The generic output
+  adapter is experiment-trained; fixed validation deliberately restores the
+  PhotoMaker `default` adapter to its pretrained snapshot.
+- Its input \(H_t\) already contains effects from earlier BA layers and native
+  PhotoMaker cross-attention. Removing the local reference correction cannot
+  erase those upstream effects.
+- CL39 leaves ordinary PhotoMaker/text cross-attention active. "Native target
+  SA" means no spatial-reference K/V in this one self-attention message; it
+  does not mean no PhotoMaker identity conditioning anywhere in the U-Net.
+
+There is, separately, a genuinely unbranched PhotoMaker phase in the fixed
+50-step generation schedule. The runtime restores the original attention
+processors whenever BA is inactive: `[code]`
+
+| Zero-based denoising step | Pipeline mode |
+|---:|---|
+| `0–9` | Text-only `NO_ID`; original U-Net attention, no PhotoMaker identity and no BA. |
+| `10–14` | `PHOTOMAKER`; original U-Net attention processors with the pretrained PhotoMaker `default` adapter, no BA. |
+| `15–49` | `BOTH`; PhotoMaker prompt conditioning and branched self-attention are both active. CL39 confidence acts only in `up_blocks.0/1`. |
+
+Training differs: `train_ba_all_steps=true`, so every sampled training
+timestep uses the branched path; there is no PhotoMaker-only training phase.
+
+### 14.4 Is the fallback actually used?
+
+Yes, in the sense implemented by the code. The immutable test-source run
+`CL39_cosmic_null_key_confidence_router_24k_full96_r4`, Comet
+`b1ca0b3da679401c85b991f1bbdf0b2a`, logged the following through optimizer
+step `23,950` (evidence cutoff 21 August 2026, 11:39 UTC):
+
+| Training metric | Logged range of aggregated means | Step-23,950 value |
+|---|---:|---:|
+| `ba/null_key/null_mass/all` | `0.8410–0.9336` | `0.9089` |
+| `ba/null_key/reference_fraction/all` | `0.2998–0.3693` | `0.3183` |
+
+The second metric is exactly the mean confidence \(c\). It shows that the
+router was substantially shrinking the CL27 correction during training rather
+than remaining near \(1\). `[measured]` It does **not** mean that 31.83% of the
+final activation or image came from the reference: it averages confidence
+over selected processors and all query positions, including background
+positions where \(C=0\), and it does not measure the magnitude or direction of
+the routed delta.
+
+What is not established: the current telemetry does not provide a face-only
+distribution of \(c\), an activation-energy attribution between \(N\) and the
+reference correction, or evidence that this attenuation improves generation
+quality over CL27. Those require matched validation analysis. `[not established]`
+
+| Claim | Confidence | Basis |
+|---|---|---|
+| Native target SA is always the base of CL39's selected block | High | Direct source inspection of `target_out = native_out + routed_delta`. |
+| CL39 never fully disables the face-interior reference correction under its declared bounds | High | Exact formula and fixed config; \(c>0\). |
+| The native lane is not identical to a frozen unmodified PhotoMaker model after BA starts | High | Projection cloning, trainable ownership, runtime processor switching, and upstream conditioning paths. |
+| CL39 confidence materially attenuated the routed correction during its test training run | High | Immutable Comet telemetry through step `23,950`. |
+| CL39 improves visual quality over CL27 | Not established | No matched quality comparison is used in this architecture section. |
 
 ## 15. Validation contract
 
