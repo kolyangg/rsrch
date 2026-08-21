@@ -1,7 +1,7 @@
 # Clean E13-family implementation and Serv runbook
 
 - **Date:** 10 August 2026
-- **Branch:** `kit/e13-family-clean`
+- **Branch:** `clean`
 - **Clean base:** `2157eada14824d14019e80f9416e6d736c837306`
   (`code clean-up - restore 1 ref only`, 2 June 2026 21:58 BST)
 - **Supported recipes:** E13, BC_E13, and CL14
@@ -323,8 +323,8 @@ After this local branch is pushed or otherwise transferred, use a dedicated
 Serv checkout/worktree and pin the final commit shown by local `git log`:
 
 ```bash
-git fetch origin kit/e13-family-clean
-git switch kit/e13-family-clean
+git fetch origin clean
+git switch clean
 git pull --ff-only
 git rev-parse HEAD
 git status --short

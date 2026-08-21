@@ -1,7 +1,7 @@
 # Clean E13-family port plan: E13, BC_E13, and CL14
 
 - **Date:** 10 August 2026
-- **Status:** implemented on `kit/e13-family-clean`; see
+- **Status:** implemented on `clean`; see
   `2026-08-10_e13_family_clean_implementation.md` for the final ledger,
   verification evidence, limitations, and Serv runbook
 - **Scope:** create a concise branch based on the last 2 June `main_clean`
@@ -13,7 +13,7 @@
 
 ## Executive decision
 
-Create a new branch, recommended name `kit/e13-family-clean`, from
+Create the clean implementation branch (now named `clean`) from
 `2157eada14824d14019e80f9416e6d736c837306` (`code clean-up - restore 1 ref
 only`, 2 June 2026 21:58 BST). Do **not** merge `test`, and do not update the
 existing `main_clean` branch until the clean port passes replay gates.
@@ -682,7 +682,7 @@ Use a separate worktree so the current dirty `test` checkout is never used as
 an implementation target:
 
 ```bash
-git worktree add <sibling-path> -b kit/e13-family-clean \
+git worktree add <sibling-path> -b clean \
   2157eada14824d14019e80f9416e6d736c837306
 ```
 

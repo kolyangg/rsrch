@@ -1,7 +1,7 @@
 # CL18, CL19 and CL20 clean extension
 
 - **Date:** 12 August 2026
-- **Branch:** `kit/e13-family-clean`
+- **Branch:** `clean`
 - **Immediate parent before this extension:**
   `704d4914554cce6bd3c5b098b02df967de48dd2a`
 - **Underlying clean base:**
@@ -323,8 +323,8 @@ Run all commands from `diffusion_template/`. Do not use Neb; it is unavailable.
 
 ```bash
 git fetch origin
-git switch kit/e13-family-clean
-git pull --ff-only origin kit/e13-family-clean
+git switch clean
+git pull --ff-only origin clean
 conda activate /absolute/path/to/photomaker_NS
 ```
 

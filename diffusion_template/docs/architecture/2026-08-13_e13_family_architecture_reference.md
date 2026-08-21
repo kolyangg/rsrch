@@ -6,7 +6,7 @@ supported recipe—use
 [`2026-08-18_june2_to_e13_family_architecture_lineage.md`](2026-08-18_june2_to_e13_family_architecture_lineage.md).
 
 This document is the formula-level reference for every supported experiment in
-`kit/e13-family-clean`: E13, BC_E13, CL14, CL14_CA, CL18, CL19, CL20, CL23,
+`clean`: E13, BC_E13, CL14, CL14_CA, CL18, CL19, CL20, CL23,
 CL27, and CL39. It
 separates model architecture, training objective, dataset policy, validation
 policy, and execution-only optimizations. Those categories must not be treated

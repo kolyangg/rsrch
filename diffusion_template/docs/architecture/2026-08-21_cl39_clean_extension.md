@@ -2,7 +2,7 @@
 
 **Date:** 21 August 2026
 
-**Branch:** `kit/e13-family-clean`
+**Branch:** `clean`
 
 **Parent:** `CL27_cosmic_frequency_surface_energy_24k`
 

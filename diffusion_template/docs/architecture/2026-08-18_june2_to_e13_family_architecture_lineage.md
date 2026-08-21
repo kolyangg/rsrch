@@ -2,7 +2,7 @@
 
 **Date:** 18 August 2026
 
-**Branch:** `kit/e13-family-clean`
+**Branch:** `clean`
 
 **Evidence cutoff:** clean branch commit `7b7579bf91f378321103cf1a9d367f6906e7e0e1`
 
@@ -1112,7 +1112,7 @@ and runtime-specific fixes. **[record] [code]**
 | CL27 r3 | [`dbfbf40c...`](https://www.comet.com/nikolay-2104/jul-comet-large-testing-tr/dbfbf40c3bdd4f70bedc58bda3dfb9cd) | committed test snapshot `6eb6613` |
 
 The clean implementation itself is currently audited through
-`kit/e13-family-clean@7b7579bf91f378321103cf1a9d367f6906e7e0e1`.
+`clean@7b7579bf91f378321103cf1a9d367f6906e7e0e1`.
 
 ### 10.2 Launch provenance and supported commands
 
@@ -1171,8 +1171,8 @@ Before any submission:
 
 ```bash
 cd /absolute/path/to/diffusion_template
-git switch kit/e13-family-clean
-git pull --ff-only origin kit/e13-family-clean
+git switch clean
+git pull --ff-only origin clean
 test -z "$(git status --porcelain)"
 
 python tools/validate_e13_family_config.py
@@ -1194,7 +1194,7 @@ six-A100 project ceiling. This document does not authorize or perform a launch.
 These are deliberately short quotations of the lines that carry the important
 behavior. Historical excerpts are from
 `main_clean@2157eada14824d14019e80f9416e6d736c837306`; clean excerpts are from
-the source audited at `kit/e13-family-clean@7b7579bf91f378321103cf1a9d367f6906e7e0e1`.
+the source audited at `clean@7b7579bf91f378321103cf1a9d367f6906e7e0e1`.
 Line numbers identify those immutable snapshots. Comments, relative indentation,
 and physical line breaks inside the blocks are preserved from source; leading
 function indentation is normalized for display. The PDF renderer may wrap a
@@ -1880,10 +1880,10 @@ curl -fsS -H "Authorization: ${COMET_API_KEY}" \
   "https://www.comet.com/api/rest/v2/experiment/parameters?experimentKey=${COMET_KEY}"
 
 git log --oneline --reverse \
-  2157eada14824d14019e80f9416e6d736c837306..kit/e13-family-clean
+  2157eada14824d14019e80f9416e6d736c837306..clean
 
 git diff --numstat \
-  2157eada14824d14019e80f9416e6d736c837306..kit/e13-family-clean \
+  2157eada14824d14019e80f9416e6d736c837306..clean \
   -- diffusion_template/src diffusion_template/train.py
 
 rg -n 'E13C-|CL14_CA-|AICODE-NOTE|CL18|CL19|CL20|CL23|CL27' \

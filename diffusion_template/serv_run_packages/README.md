@@ -39,7 +39,7 @@ The concrete YAMLs assume these existing Serv paths:
 - Conda environment: `/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/conda_env/photomaker_NS`;
 - logs: `/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/<run_name>`.
 
-Before submission, pull `kit/e13-family-clean`, require an empty `git status`,
+Before submission, pull `clean`, require an empty `git status`,
 and populate the gitignored `diffusion_template/.env` from `.env.example`.
 E13 needs the sealed Large Dataset paths/hash; BC_E13 needs sealed BigCelebs.
 CL14 needs the exact Cosmic inputs/hash. CL14_CA, CL18, CL19, CL23, CL27, and

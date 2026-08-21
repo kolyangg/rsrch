@@ -100,7 +100,7 @@ or generated outputs.
 
 From the Serv checkout, populate the gitignored `diffusion_template/.env` with
 the existing PhotoMaker, Cosmic corrected-r2 manifest/root, subject-v2 asset,
-Comet, and deferred face-quality paths. Pull `kit/e13-family-clean`, require an
+Comet, and deferred face-quality paths. Pull `clean`, require an
 empty worktree, and inspect this project's Running/Pending MLS jobs so the
 normal six-A100 request ceiling is respected. Then submit the exact YAML:
 

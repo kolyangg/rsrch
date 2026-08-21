@@ -2,13 +2,13 @@
 
 **Last updated:** 21 August 2026
 
-**Repository:** clean worktree `/home/kolyangg/rsrch_e13_family_clean`
+**Repository:** clean worktree `/home/kolyangg/rsrch_clean`
 
 **Primary project:** `diffusion_template/`
 
-**Branch:** `kit/e13-family-clean`
+**Branch:** `clean`
 
-**Current branch:** `kit/e13-family-clean`; it is based on June 2 commit
+**Current branch:** `clean`; it is based on June 2 commit
 `2157eada14824d14019e80f9416e6d736c837306`. Inspect live worktrees because
 active jobs are pinned to their recorded launch commits.
 

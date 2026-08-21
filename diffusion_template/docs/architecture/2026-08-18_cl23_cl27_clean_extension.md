@@ -2,7 +2,7 @@
 
 **Date:** 18 August 2026
 
-**Branch:** `kit/e13-family-clean`
+**Branch:** `clean`
 
 **Clean parent before this extension:** `fe39dc0cc72696a0adabc13a19d16a14d9cd88d1`
 
@@ -134,7 +134,7 @@ startup gates on Serv before training.
 
 From the clean checkout on Serv:
 
-1. pull `kit/e13-family-clean` and require an empty `git status`;
+1. pull `clean` and require an empty `git status`;
 2. populate the gitignored `diffusion_template/.env` with Comet, dataset,
    subject-v2, PhotoMaker, and face-quality paths;
 3. confirm the corrected-r2 Cosmic manifest hash and sealed subject-v2 file;

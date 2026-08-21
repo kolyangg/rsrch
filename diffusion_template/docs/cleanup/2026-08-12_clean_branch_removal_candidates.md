@@ -2,7 +2,7 @@
 
 **Date:** 12 August 2026
 
-**Branch:** `kit/e13-family-clean`
+**Branch:** `clean`
 
 **Scope:** files irrelevant to E13, BC_E13, CL14, CL18, CL19 and CL20 clean
 training/validation, including their retained dataset, reporting and Serv tools
