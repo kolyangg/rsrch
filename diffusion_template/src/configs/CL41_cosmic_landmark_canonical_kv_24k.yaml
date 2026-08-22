@@ -3,11 +3,14 @@ defaults:
   - _self_
 
 model:
-  ba_hardcase_telemetry_enabled: false
-  ba_landmark_canonical_kv_enabled: true
-  ba_landmark_canonical_kv_groups: [up_blocks.0, up_blocks.1]
-  ba_landmark_canonical_kv_mix: 0.50
-  ba_landmark_canonical_kv_min_confidence: 0.80
+  clean_full_config:
+    hardcase:
+      telemetry_enabled: false
+    recent_extension:
+      kind: landmark_canonical_kv
+      groups: [up_blocks.0, up_blocks.1]
+      mix: 0.50
+      min_confidence: 0.80
 
 trainer:
   active_grad_norm_mode: requested_only

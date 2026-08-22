@@ -3,7 +3,9 @@ defaults:
   - _self_
 
 model:
-  ba_hardcase_telemetry_enabled: false
+  clean_full_config:
+    hardcase:
+      telemetry_enabled: false
 
 trainer:
   ba_pcgrad_enabled: true

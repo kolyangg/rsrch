@@ -70,6 +70,7 @@ The recent config-specific code is split as follows:
 
 | New module | Selected behavior |
 |---|---|
+| `clean_full_model_config.py` | Closed-schema expansion of one nested `clean_full_config` constructor input into shared hard-v1 attributes; excluded experiment defaults are quarantined here and cannot be selected by YAML. |
 | `clean_full_model_contract.py` | Shared training preparation, trainable-role ownership, manifest construction, and schema-v2 checkpoint save/load. |
 | `clean_full_excluded_objectives.py` | Quarantine mixin for older frozen-teacher, boundary-distillation, and predicted-x0 identity helpers; no allowlisted config enables them. |
 | `clean_full_attention_extension_config.py` | Fail-closed selection and constructor wiring for mutually exclusive CL39-CL44 arms; also contains the retained-but-forbidden CL38 wiring. |
@@ -82,6 +83,38 @@ processor/model stack. Moving that progression into subclasses without a
 fixed-batch parity harness would risk changing checkpoint parameter names or
 floating-point operation order; such parity is **not established**, so this
 revision does not claim that deeper split. [code][not established]
+
+## Model constructor input audit
+
+The previous active `PhotomakerBranchedLora.__init__()` declared 226 flat
+arguments after `num_inference_steps`. They were not all needed as independent
+inputs. Across the 17 resolved configs, only 29 differed from their historical
+Python defaults and only 18 varied between supported runs. The refactor
+replaces all 226 parameters with one `clean_full_config` mapping and reduces
+`clean_full_model.py` from 2,695 to 1,503 lines. [code]
+
+The mapping has seven closed sections: `runtime`, `contract`, `architecture`,
+`training_mask_feather`, `hardcase`, `frequency_surface`, and
+`recent_extension`. Unknown sections/settings fail before model weights load.
+The resolver recreates the same 226 flat values internally so existing runtime
+attributes, processor wiring, manifests, and checkpoint names do not change.
+All 17 pre/post resolved option maps matched exactly. [code]
+
+| Usage across supported configs | Inputs |
+|---|---|
+| Common to all 17 | optimized conditioning flags; strict install/trainable-v2 contract; hard-v1/reference-only architecture; effective generic and PhotoMaker adapters; rank-128 hard-v1 branch |
+| 12 configs (PM0 and CL14-CL45 ancestry) | two-cell training-mask feather; E13/BigCelebs arms keep zero |
+| PM0 and CL19 | `soft_router` hard-case mode |
+| CL23, CL27, CL39-CL45 | temporal-frequency hard-case mode |
+| CL27 and CL39-CL45 | frequency-surface objective |
+| CL39, CL40, CL41, CL42, CL43, or CL44 only | respectively one null-key, motion-projector, landmark-K/V, component-memory, adaptive-modulation, or semantic-window extension |
+| CL45 only | PCGrad, which remains a trainer option rather than a model constructor input |
+| No allowlisted config | identity auxiliary, boundary teacher, low-band contrastive/positive, attention ownership, shared learnable schedule, CL38 visibility ownership, alternate BA-v2/v3/v4, or identity-CA experiments |
+
+The last group remains as fixed internal compatibility defaults because
+retained inactive methods still read those attributes. It is no longer part of
+Hydra's supported model surface; reviving one requires an explicit schema and
+validator change rather than adding another constructor keyword. [code]
 
 ## Supported run allowlist
 
@@ -465,10 +498,15 @@ All eight compatibility files matched the local 2 June checkout byte-for-byte.
 The method bodies moved into the model-contract, excluded-objective, and recent
 attention mixins also matched their pre-refactor `clean_full` sources after
 normalizing trailing blank lines.
-All 17 configurations returned `status: ok`; shell syntax, active-module
-imports, and Python compilation succeeded. These checks do not download model
-weights, instantiate a full GPU U-Net, process a real dataset batch, submit an
-MLS job, or compare generated images. [code][not established]
+All 17 configurations returned `status: ok`; their resolver outputs matched
+the pre-refactor 226-option snapshots exactly (17 x 226 comparisons), and the
+resolved options passed the model-level contract checks on a lightweight
+object. The constructor signature exposes only `clean_full_config` after
+`num_inference_steps`; unknown sections and settings were also confirmed to
+fail closed. Shell syntax, active-module imports, and Python compilation
+succeeded. These checks do not download model weights, instantiate a full GPU
+U-Net, process a real dataset batch, submit an MLS job, or compare generated
+images. [code][not established]
 
 ## Confidence and limitations
 
@@ -478,6 +516,7 @@ MLS job, or compare generated images. [code][not established]
 | Resolved object targets, dataset classes, invariants, trainable counts, and validation cadence | High | all 17 configs composed and passed exact checks |
 | Current source import/syntax integrity | High | retained-tree compile plus targeted imports |
 | Traditional core files equal the 2 June local baseline | High | byte-for-byte `cmp` against `rsrch_2Jun` commit `2157eada...` |
+| Constructor/config refactor preserves supported inputs | High | exact 17 x 226 pre/post resolved-option comparison and model-contract smoke check |
 | Recent-arm selection remains mutually exclusive and config-driven | High | resolved-config validator plus separate defaults-off modules |
 | Common and config-specific call paths | High | direct source inspection and config predicates |
 | Historical sealed-snapshot numerical equivalence | Not established | no paired GPU replay was run |

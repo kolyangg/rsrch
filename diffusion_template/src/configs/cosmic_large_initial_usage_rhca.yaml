@@ -41,8 +41,6 @@ branched_attn_weight_mode: noise_and_ref
 model:
   train_branched_ca_lora: false
   branched_attn_weight_mode: noise_and_ref
-  conditioning_cache_enabled: false
-  batched_conditioning_preparation: true
 
 continue_run: false
 saved_checkpoint: null

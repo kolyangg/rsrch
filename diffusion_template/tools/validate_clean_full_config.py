@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -13,10 +14,21 @@ from typing import Any
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = PROJECT_ROOT / "src" / "configs"
 RUNS_PATH = CONFIG_DIR / "clean_full_runs.json"
+MODEL_CONFIG_PATH = (
+    PROJECT_ROOT
+    / "src/model/photomaker_branched/clean_full_model_config.py"
+)
+_MODEL_CONFIG_SPEC = importlib.util.spec_from_file_location(
+    "clean_full_model_config", MODEL_CONFIG_PATH
+)
+if _MODEL_CONFIG_SPEC is None or _MODEL_CONFIG_SPEC.loader is None:
+    raise RuntimeError(f"Cannot load clean_full model config resolver: {MODEL_CONFIG_PATH}")
+_MODEL_CONFIG_MODULE = importlib.util.module_from_spec(_MODEL_CONFIG_SPEC)
+_MODEL_CONFIG_SPEC.loader.exec_module(_MODEL_CONFIG_MODULE)
+resolve_clean_full_model_config = _MODEL_CONFIG_MODULE.resolve_clean_full_model_config
 COMMON_TARGETS = {
     "trainer._target_": "src.trainer.clean_full_trainers.PhotomakerLoraTrainer",
     "model._target_": (
@@ -32,13 +44,22 @@ COMMON_TARGETS = {
     "writer._target_": "src.logger.cometml.CometMLWriter",
 }
 COMMON_VALUES = {
-    "model.ba_architecture_version": "hard_replace_v1",
-    "model.ba_enforce_reference_only_hard_route": True,
+    "model.clean_full_config.runtime.skip_unused_text_conditioning": True,
+    "model.clean_full_config.runtime.conditioning_cache_enabled": False,
+    "model.clean_full_config.runtime.batched_conditioning_preparation": True,
+    "model.clean_full_config.runtime.cache_prepared_masks": True,
+    "model.clean_full_config.runtime.compute_branch_debug_outputs": False,
+    "model.clean_full_config.contract.strict_branched_install": True,
+    "model.clean_full_config.contract.strict_trainable_contract": True,
+    "model.clean_full_config.contract.state_dict_mode": "trainable_v2",
+    "model.clean_full_config.contract.generic_adapter_train_scope": "effective_all",
+    "model.clean_full_config.contract.photomaker_default_train_scope": "effective_all",
+    "model.clean_full_config.contract.hard_v1_lora_rank": 128,
+    "model.clean_full_config.architecture.version": "hard_replace_v1",
+    "model.clean_full_config.architecture.enforce_reference_only_hard_route": True,
+    "model.clean_full_config.architecture.training_timestep_policy": "uniform_all",
     "model.pose_adapt_ratio": 0.0,
     "model.ca_mixing_for_face": False,
-    "model.identity_aux_enabled": False,
-    "model.ba_identity_ca_v2_enabled": False,
-    "model.ba_residual_identity_ca_v3_enabled": False,
     "pipeline.pose_adapt_ratio": 0.0,
     "pipeline.ca_mixing_for_face": False,
     "pipeline.auto_mask_ref": False,
@@ -62,24 +83,27 @@ COMMON_VALUES = {
     "writer.mode": "online",
     "writer.require_online_registration": True,
 }
-RECENT_EXTENSION_PATHS = (
-    "model.ba_null_key_router_enabled",
-    "model.ba_identity_motion_projector_enabled",
-    "model.ba_landmark_canonical_kv_enabled",
-    "model.ba_component_token_memory_enabled",
-    "model.ba_id_adaptive_modulation_enabled",
-    "model.ba_semantic_window_gate_enabled",
+RECENT_EXTENSION_KINDS = (
+    "null_key_router",
+    "identity_motion_projector",
+    "landmark_canonical_kv",
+    "component_token_memory",
+    "id_adaptive_modulation",
+    "semantic_window_gate",
 )
-FORBIDDEN_TRUE_PATHS = (
-    "model.ba_visibility_ownership_v2_enabled",
-    "model.ba_frequency_learnable_schedule_enabled",
-    "model.ba_frequency_lowband_contrastive_enabled",
-    "model.ba_frequency_positive_sameid_enabled",
-    "model.ba_attention_ownership_loss_enabled",
-    "model.ba_roi_teacher_distill_enabled",
-    "model.ba_frequency_shared_schedule_enabled",
-    "model.ba_pm_boundary_distill_enabled",
-    "model.ba_patch_identity_aux_enabled",
+FORBIDDEN_INTERNAL_FLAGS = (
+    "ba_visibility_ownership_v2_enabled",
+    "ba_frequency_learnable_schedule_enabled",
+    "ba_frequency_lowband_contrastive_enabled",
+    "ba_frequency_positive_sameid_enabled",
+    "ba_attention_ownership_loss_enabled",
+    "ba_roi_teacher_distill_enabled",
+    "ba_frequency_shared_schedule_enabled",
+    "ba_pm_boundary_distill_enabled",
+    "ba_patch_identity_enabled",
+    "identity_aux_enabled",
+    "ba_identity_ca_v2_enabled",
+    "ba_residual_identity_ca_v3_enabled",
 )
 
 
@@ -110,6 +134,9 @@ def compose_and_validate(config_name: str) -> tuple[dict[str, Any], dict[str, An
 
     with initialize_config_dir(config_dir=str(CONFIG_DIR), version_base=None):
         config = compose(config_name=config_name, overrides=["writer=cometml"])
+    flat_model_options = resolve_clean_full_model_config(
+        selected(config, "model.clean_full_config")
+    )
 
     checks = dict(COMMON_TARGETS)
     checks.update(COMMON_VALUES)
@@ -117,7 +144,7 @@ def compose_and_validate(config_name: str) -> tuple[dict[str, Any], dict[str, An
         {
             "train_dataset_name": spec["dataset"],
             f"datasets.train.{spec['dataset']}._target_": spec["dataset_target"],
-            "model.ba_hardcase_mode": spec["hardcase_mode"],
+            "model.clean_full_config.hardcase.mode": spec["hardcase_mode"],
             "expected_trainable_contract.total_tensors": spec["trainable_tensors"],
             "expected_trainable_contract.total_parameters": spec["trainable_parameters"],
             "expected_trainable_contract.optimizer_tensors": spec["trainable_tensors"],
@@ -152,26 +179,39 @@ def compose_and_validate(config_name: str) -> tuple[dict[str, Any], dict[str, An
     ]:
         raise RuntimeError("clean_full metric contract drifted")
 
-    active_recent = [
-        path for path in RECENT_EXTENSION_PATHS if selected(config, path) is True
-    ]
+    recent_kind = selected(config, "model.clean_full_config.recent_extension.kind")
     expected_recent = (
-        [spec["feature_path"]]
-        if spec["feature_path"] in RECENT_EXTENSION_PATHS
-        else []
+        spec["feature_value"]
+        if spec["feature_path"]
+        == "model.clean_full_config.recent_extension.kind"
+        else "none"
     )
-    if active_recent != expected_recent:
+    if recent_kind != expected_recent:
         raise RuntimeError(
-            f"Recent independent-arm violation: expected={expected_recent}, actual={active_recent}"
+            f"Recent independent-arm violation: expected={expected_recent}, actual={recent_kind}"
+        )
+    enabled_recent = [
+        kind
+        for kind in RECENT_EXTENSION_KINDS
+        if flat_model_options[f"ba_{kind}_enabled"] is True
+    ]
+    if enabled_recent != ([] if expected_recent == "none" else [expected_recent]):
+        raise RuntimeError(
+            f"Resolved extension mismatch: expected={expected_recent}, actual={enabled_recent}"
         )
     forbidden_active = [
-        path for path in FORBIDDEN_TRUE_PATHS if selected(config, path) is True
+        name for name in FORBIDDEN_INTERNAL_FLAGS if flat_model_options[name] is True
     ]
     if forbidden_active:
         raise RuntimeError(
             f"clean_full config enables excluded experiment paths: {forbidden_active}"
         )
-    if selected(config, "model.ba_spatial_reference_shuffle_probability") != 0.0:
+    legacy_flat_keys = sorted(set(flat_model_options) & set(config.model.keys()))
+    if legacy_flat_keys:
+        raise RuntimeError(
+            f"Flat historical model options escaped clean_full_config: {legacy_flat_keys}"
+        )
+    if flat_model_options["ba_spatial_reference_shuffle_probability"] != 0.0:
         raise RuntimeError("clean_full forbids spatial-reference shuffling")
     pcgrad = selected(config, "trainer.ba_pcgrad_enabled") is True
     if pcgrad != (config_name == "CL45_cosmic_ba_pcgrad_24k"):

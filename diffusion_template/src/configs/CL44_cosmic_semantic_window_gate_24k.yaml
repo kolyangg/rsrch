@@ -3,16 +3,19 @@ defaults:
   - _self_
 
 model:
-  ba_hardcase_telemetry_enabled: false
-  ba_semantic_window_gate_enabled: true
-  ba_semantic_window_gate_groups: [up_blocks.0, up_blocks.1]
-  ba_semantic_window_gate_progress_start: 0.20
-  ba_semantic_window_gate_progress_end: 0.85
-  ba_semantic_window_gate_progress_temperature: 0.08
-  ba_semantic_window_gate_agreement_threshold: 0.15
-  ba_semantic_window_gate_agreement_temperature: 0.08
-  ba_semantic_window_gate_min_scale: 0.60
-  ba_semantic_window_gate_max_scale: 1.15
+  clean_full_config:
+    hardcase:
+      telemetry_enabled: false
+    recent_extension:
+      kind: semantic_window_gate
+      groups: [up_blocks.0, up_blocks.1]
+      progress_start: 0.20
+      progress_end: 0.85
+      progress_temperature: 0.08
+      agreement_threshold: 0.15
+      agreement_temperature: 0.08
+      min_scale: 0.60
+      max_scale: 1.15
 
 trainer:
   active_grad_norm_mode: requested_only

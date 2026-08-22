@@ -3,13 +3,16 @@ defaults:
   - _self_
 
 model:
-  ba_hardcase_telemetry_enabled: false
-  ba_identity_motion_projector_enabled: true
-  ba_identity_motion_projector_groups: [up_blocks.0, up_blocks.1]
-  ba_identity_motion_projector_rank: 32
-  ba_identity_motion_projector_gate_max: 0.35
-  ba_identity_motion_projector_ramp_start_step: 1000
-  ba_identity_motion_projector_ramp_end_step: 6000
+  clean_full_config:
+    hardcase:
+      telemetry_enabled: false
+    recent_extension:
+      kind: identity_motion_projector
+      groups: [up_blocks.0, up_blocks.1]
+      rank: 32
+      gate_max: 0.35
+      ramp_start_step: 1000
+      ramp_end_step: 6000
 
 trainer:
   active_grad_norm_mode: requested_only

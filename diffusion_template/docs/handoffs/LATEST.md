@@ -29,6 +29,18 @@ frozen-teacher/predicted-x0 objectives are quarantined in
 `clean_full_excluded_objectives.py`. Recent attention-arm helpers and CL45
 PCGrad are likewise outside the shared model/processor/trainer bodies.
 
+`PhotomakerBranchedLora.__init__()` now exposes one `clean_full_config`
+mapping after `num_inference_steps`, instead of 226 flat experiment-era
+arguments. Only 29 of those old values differed from their Python defaults in
+the support set, and only 18 varied across the 17 configs. The closed schema in
+`clean_full_model_config.py` separates common runtime/contract/architecture
+settings from mask feathering, hard-case routing, frequency surface, and one
+mutually exclusive recent extension. It recreates the retained internal
+attributes so downstream processor/checkpoint behavior stays stable; all 17 x
+226 resolved values matched the pre-refactor snapshots exactly. Do not add new
+flat constructor keywords. Add a narrowly scoped schema field and validator
+rule only when a supported config genuinely needs it.
+
 Use only:
 
 ```bash

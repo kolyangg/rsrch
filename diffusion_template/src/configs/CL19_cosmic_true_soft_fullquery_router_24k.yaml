@@ -4,19 +4,20 @@ defaults:
 
 # CL19: compute full native and target-Q/reference-KV messages, then blend once.
 model:
-  ba_hardcase_mode: soft_router
-  ba_hardcase_groups:
-    - down_blocks.0
-    - down_blocks.1
-    - down_blocks.2
-    - mid_block
-    - up_blocks.0
-    - up_blocks.1
-    - up_blocks.2
-  ba_hardcase_transition_cells: 2
+  clean_full_config:
+    hardcase:
+      mode: soft_router
+      groups:
+        - down_blocks.0
+        - down_blocks.1
+        - down_blocks.2
+        - mid_block
+        - up_blocks.0
+        - up_blocks.1
+        - up_blocks.2
+      transition_cells: 2
 
 writer:
   experiment_comment: >-
     CL19 replaces CL14's thresholded double mask with a two-cell cosine router:
     full target queries, unchanged binary zero-sink reference support, one blend.
-

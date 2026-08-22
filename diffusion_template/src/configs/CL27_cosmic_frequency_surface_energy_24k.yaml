@@ -4,12 +4,14 @@ defaults:
 
 # CL27 changes only the training objective on CL23's existing routed message.
 model:
-  ba_frequency_surface_loss_enabled: true
-  ba_frequency_surface_loss_groups: [up_blocks.0, up_blocks.1]
-  ba_frequency_surface_top_weight: 0.02
-  ba_frequency_surface_top_low_band_factor: 0.25
-  ba_frequency_surface_visible_floor_weight: 0.005
-  ba_frequency_surface_visible_floor_ratio: 0.35
+  clean_full_config:
+    frequency_surface:
+      enabled: true
+      groups: [up_blocks.0, up_blocks.1]
+      top_weight: 0.02
+      top_low_band_factor: 0.25
+      visible_floor_weight: 0.005
+      visible_floor_ratio: 0.35
 
 datasets:
   train:

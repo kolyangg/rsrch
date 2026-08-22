@@ -3,13 +3,16 @@ defaults:
   - _self_
 
 model:
-  ba_hardcase_telemetry_enabled: false
-  ba_null_key_router_enabled: true
-  ba_null_key_router_groups: [up_blocks.0, up_blocks.1]
-  ba_null_key_entropy_threshold: 0.75
-  ba_null_key_temperature: 0.08
-  ba_null_key_max_abstention: 0.75
-  ba_null_key_min_reference_fraction: 0.25
+  clean_full_config:
+    hardcase:
+      telemetry_enabled: false
+    recent_extension:
+      kind: null_key_router
+      groups: [up_blocks.0, up_blocks.1]
+      entropy_threshold: 0.75
+      temperature: 0.08
+      max_abstention: 0.75
+      min_reference_fraction: 0.25
 
 trainer:
   active_grad_norm_mode: requested_only

@@ -16,19 +16,8 @@ train_ba_all_steps: true
 strict_face_routing: false
 
 model:
-  ba_architecture_version: hard_replace_v1
-  branched_trainable_dtype: inherit
-  ba_self_attention_groups: null
-  ba_training_timestep_policy: uniform_all
-  ba_enforce_reference_only_hard_route: true
-  ba_hard_v1_true_reference_key_mask: false
-  ba_hard_v1_branch_output_rank: null
-  ba_hard_v1_reference_roi_warp: false
   branched_attn_weight_mode: noise_and_ref
   train_branched_ca_lora: false
-  strict_branched_install: true
-  strict_trainable_contract: true
-  branched_state_dict_mode: trainable_v2
 
 trainer:
   epoch_len: 2000

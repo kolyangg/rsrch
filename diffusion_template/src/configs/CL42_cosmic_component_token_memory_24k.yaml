@@ -3,12 +3,15 @@ defaults:
   - _self_
 
 model:
-  ba_hardcase_telemetry_enabled: false
-  ba_component_token_memory_enabled: true
-  ba_component_token_memory_groups: [up_blocks.0, up_blocks.1]
-  ba_component_token_memory_scale: 0.15
-  ba_component_token_memory_sigma_cells: 1.75
-  ba_component_token_memory_min_confidence: 0.80
+  clean_full_config:
+    hardcase:
+      telemetry_enabled: false
+    recent_extension:
+      kind: component_token_memory
+      groups: [up_blocks.0, up_blocks.1]
+      scale: 0.15
+      sigma_cells: 1.75
+      min_confidence: 0.80
 
 trainer:
   active_grad_norm_mode: requested_only

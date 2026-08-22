@@ -3,12 +3,14 @@ defaults:
   - _self_
 
 model:
-  ba_hardcase_mode: temporal_frequency
-  ba_hardcase_groups: [down_blocks.0, down_blocks.1, down_blocks.2, mid_block, up_blocks.0, up_blocks.1, up_blocks.2]
-  ba_hardcase_frequency_low_early: 0.50
-  ba_hardcase_frequency_low_late: 0.85
-  ba_hardcase_frequency_high_early: 0.75
-  ba_hardcase_frequency_high_late: 1.25
+  clean_full_config:
+    hardcase:
+      mode: temporal_frequency
+      groups: [down_blocks.0, down_blocks.1, down_blocks.2, mid_block, up_blocks.0, up_blocks.1, up_blocks.2]
+      frequency_low_early: 0.50
+      frequency_low_late: 0.85
+      frequency_high_early: 0.75
+      frequency_high_late: 1.25
 
 writer:
   loss_names:

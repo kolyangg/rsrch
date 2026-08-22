@@ -3,14 +3,17 @@ defaults:
   - _self_
 
 model:
-  ba_hardcase_telemetry_enabled: false
-  ba_id_adaptive_modulation_enabled: true
-  ba_id_adaptive_modulation_groups: [up_blocks.0, up_blocks.1]
-  ba_id_adaptive_modulation_embedding_dim: 512
-  ba_id_adaptive_modulation_bottleneck: 32
-  ba_id_adaptive_modulation_scale_max: 0.20
-  ba_id_adaptive_modulation_ramp_start_step: 1000
-  ba_id_adaptive_modulation_ramp_end_step: 6000
+  clean_full_config:
+    hardcase:
+      telemetry_enabled: false
+    recent_extension:
+      kind: id_adaptive_modulation
+      groups: [up_blocks.0, up_blocks.1]
+      embedding_dim: 512
+      bottleneck: 32
+      scale_max: 0.20
+      ramp_start_step: 1000
+      ramp_end_step: 6000
 
 trainer:
   active_grad_norm_mode: requested_only

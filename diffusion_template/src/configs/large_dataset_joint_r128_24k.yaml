@@ -7,9 +7,6 @@ defaults:
 # widen spatial BA, and keep every comparison on the same 24k/full-96 contract.
 model:
   rank: 32
-  ba_hard_v1_lora_rank: 128
-  generic_adapter_train_scope: effective_all
-  photomaker_default_train_scope: effective_all
 
 pipeline:
   # 09 Aug 2026 - Validation binds reference identity embeddings to the
