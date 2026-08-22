@@ -1,4 +1,4 @@
-_target_: src.trainer.sdxl_trainers.PhotomakerLoraTrainer
+_target_: src.trainer.e13_trainer.E13PhotomakerLoraTrainer
 device_tensors: ["pixel_values"]
 cfg_step: 10
 masked_loss_step: 2

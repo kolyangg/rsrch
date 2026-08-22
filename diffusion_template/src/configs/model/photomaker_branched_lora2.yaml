@@ -1,4 +1,4 @@
-_target_: src.model.photomaker_branched.lora2.PhotomakerBranchedLora ### Modified to make attn_processor trainable in branched version ###
+_target_: src.model.photomaker_branched.e13_model.PhotomakerBranchedLora
 pretrained_model_name_or_path: stabilityai/stable-diffusion-xl-base-1.0
 # pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
 photomaker_path: ${oc.env:HOME}/.cache/huggingface/hub/models--TencentARC--PhotoMaker-V2/snapshots/f5a1e5155dc02166253fa7e29d13519f5ba22eac/photomaker-v2.bin
@@ -13,20 +13,3 @@ lora_modules:
   - to_out.0
 init_lora_weights: gaussian
 trigger_word: img
-pose_adapt_ratio: ${pipeline.pose_adapt_ratio}
-ca_mixing_for_face: ${pipeline.ca_mixing_for_face}
-face_embed_strategy: ${pipeline.face_embed_strategy}
-train_branch_mode: ${pipeline.train_branch_mode}
-photomaker_start_step: 10
-merge_start_step: 10
-branched_attn_start_step: 15
-num_inference_steps: 50
-
-# 12 Aug 2026 - Defaults-off CL18/CL19 extension. CL18 changes only its
-# training objective; CL19 opts selected SA blocks into the soft router.
-ba_hardcase_mode: "off"
-ba_hardcase_groups: null
-ba_hardcase_transition_cells: 2
-ba_crossview_consistency_enabled: false
-ba_crossview_consistency_probability: 0.25
-ba_crossview_consistency_weight: 0.05

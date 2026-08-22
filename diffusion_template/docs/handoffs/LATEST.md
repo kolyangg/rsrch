@@ -1,6 +1,6 @@
 # Current project handoff
 
-**Last updated:** 21 August 2026
+**Last updated:** 22 August 2026
 
 **Repository:** clean worktree `/home/kolyangg/rsrch_clean`
 
@@ -26,6 +26,56 @@ This is the required starting document for a new agent. It summarizes the
 research question, experiment history, reliable results, current code and
 machine state, and the highest-value next work. Detailed evidence remains in
 the linked reports.
+
+## Clean source-reduction implementation — revised 22 August 2026
+
+The unused-surface cleanup and June-preserving key-file implementation are the
+current `clean` branch source state over
+`8d56caf179994dcc12a125d05361e910d6f056af`. The key-file implementation was
+revised at the user's request: shared files preserve the literal 2 June source,
+including comments and apparent historical bloat. No job was launched and no
+experiment record changed.
+
+- The supported surface is exactly the ten recipes below and 24 Hydra YAMLs.
+  The old one-ID inheritance chain and inactive config selectors are gone;
+  genuine leaf deltas are normalized once through `model.e13_settings`.
+- `lora2.py`, `lora2_helpers.py`, `attn_processor_cleanest.py`, and
+  `photomaker_branched_clean.py` are byte-identical to commit `2157eada...`.
+  Across the complete ten-file key set, the diff is only `+123/-0`: no June
+  line is deleted or rewritten.
+- Selected configs now target `e13_model.py`. Batched conditioning lives in
+  `e13_training_helpers.py`; fixed rank-128 specialization in
+  `e13_attn_processor.py`; sealed selected runtime in `e13_runtime.py`;
+  CL18/27 objectives in `e13_objectives.py`; CL19/23/27/39 equations in
+  `hardcase_attn_processor.py`; ownership/settings/schema-v2 checkpoints in
+  `e13_contract.py`; selected trainer settings in `trainer/e13_trainer.py`;
+  and alternate-base validation transfer in
+  `trainer/validation_model_helpers.py`.
+- The June runtime and pipeline retain their old generic branches. Short
+  `e13_family_contract` guards select GPU face analysis, one spatial reference,
+  direct sealed bbox masks, native CA, paired reference noise, and real
+  denoising progress for the ten recipes.
+- The worktree removes 372 tracked paths. The exact June `model.py` compatibility
+  module is retained because the unchanged pipeline imports it eagerly. Current
+  source/config scope (`train.py` plus retained Python/Hydra files under `src/`)
+  is 79 files and 16,533 logical lines; the Hydra subset is 24 files and 560
+  logical lines. This is larger than the intermediate aggressive cleanup because
+  the requested June-era key-file bloat was restored deliberately.
+- Fresh clean checkpoints require the exact schema-v2 manifest. Strict
+  alternate-base state transfer skips native stateless Diffusers processors
+  and requires 70 stateful processors for the shared SA route or 106 for
+  CL14_CA.
+
+The exact insertion map and a separate, non-actionable list of historical
+bloat are in
+`analysis/2026-08-22_june2_key_file_rebase_implementation.md`. After the
+rebase, AST/compile checks and the CL14 source/input/selected-runtime parity
+gate pass. All config validators, target imports, processor installation/counts,
+and deterministic attention fixtures had passed immediately before this
+layout rebase, but could not be rerun in the current local shell because the
+configured PhotoMaker environment is absent. A fresh A100 checkpoint/full-96
+RGB replay remains the promotion gate; these checks are not a new experiment
+result.
 
 ## Clean E13-family branch decision — updated 18 August 2026
 
@@ -138,8 +188,8 @@ checked-in debug outputs. Before deletion, every path was confirmed on
 58 also exist on `origin/test` commit
 `ad194a026ab701dd979712d415c487dd536a4645`. The conditional cleanup group
 (`compare/`, superseded reporting utilities, old narrative READMEs and broader
-config pruning) remains intentionally untouched. The exact scope and recovery
-evidence are recorded in
+config pruning) was subsequently handled by the 22 August source-reduction
+implementation above. The original Batch A scope and recovery evidence are recorded in
 `docs/cleanup/2026-08-12_clean_branch_removal_candidates.md`.
 
 ## Read this first

@@ -7,115 +7,8 @@ import torch
 
 from .branched_runtime import patch_unet_attention_processors, select_branched_processor_names, two_branch_predict
 from .insightface_package import analyze_faces
-from .e13_contract import (
-    assert_trainable_contract as assert_e13_trainable_contract,
-    configure_trainables as configure_e13_trainables,
-)
 
 from copy import deepcopy
-
-
-# 13 Aug 2026 - CL14_CA-OBS-01: report route health without adding a loss edge.
-def collect_identity_ca_telemetry(model) -> dict[str, torch.Tensor]:
-    """Aggregate detached CL14_CA diagnostics by selected U-Net group."""
-    processor_names = tuple(
-        getattr(model, "_ba_identity_ca_processor_names", ())
-    )
-    if not processor_names:
-        return {}
-    grouped: dict[str, list[dict[str, torch.Tensor]]] = {}
-    # 18 Aug 2026 - AICODE-NOTE: Diffusers rebuilds this complete map on each
-    # property access. Resolve once before any per-layer collector loop.
-    processors = model.unet.attn_processors
-    for name in processor_names:
-        processor = processors.get(name)
-        getter = getattr(processor, "latest_ba_telemetry", None)
-        values = getter() if getter is not None else {}
-        if not values:
-            continue
-        group = name.split(".", 2)[:2]
-        group = f"up{group[1]}" if group[0] == "up_blocks" else "other"
-        grouped.setdefault(group, []).append(values)
-    if not grouped:
-        return {}
-
-    grouped["all"] = [entry for entries in grouped.values() for entry in entries]
-    output: dict[str, torch.Tensor] = {}
-    for group, entries in grouped.items():
-        metric_names = set(entries[0])
-        if any(set(entry) != metric_names for entry in entries):
-            raise RuntimeError(f"Inconsistent CL14_CA telemetry in {group}")
-        for metric_name in sorted(metric_names):
-            output[f"ba/{metric_name}/{group}"] = torch.stack([
-                entry[metric_name].detach().float() for entry in entries
-            ]).mean()
-    return output
-
-
-def collect_frequency_surface_aux_loss(model):
-    """Return CL27's live loss graph and already-required detached metrics."""
-    if not bool(getattr(model, "ba_frequency_surface_loss_enabled", False)):
-        return None, {}
-    # 18 Aug 2026 - The fixed pipeline resolves Diffusers' recursive processor
-    # property once, never once per selected attention layer.
-    processors = model.unet.attn_processors
-    grouped: dict[str, list[dict[str, torch.Tensor]]] = {}
-    top_losses, floor_losses, applied = [], [], []
-    for name in getattr(model, "_ba_patched_processor_names", ()):
-        processor = processors.get(name)
-        if not bool(getattr(processor, "frequency_surface_loss_enabled", False)):
-            continue
-        values = processor.frequency_surface_aux_loss()
-        telemetry = processor.latest_ba_telemetry() or {}
-        if values is not None:
-            top_loss, floor_loss = values
-            top_losses.append(top_loss.float())
-            floor_losses.append(floor_loss.float())
-        if telemetry:
-            group = name.split(".", 2)[:2]
-            group = f"up{group[1]}" if group[0] == "up_blocks" else "other"
-            grouped.setdefault(group, []).append(telemetry)
-            applied.append(telemetry["frequency_surface_applied_fraction"].float())
-    if not top_losses:
-        return None, {}
-    telemetry_out: dict[str, torch.Tensor] = {}
-    for group, entries in grouped.items():
-        for metric_name in (
-            "frequency_surface_top_high_rms",
-            "frequency_surface_top_low_rms",
-            "frequency_surface_visible_ratio",
-        ):
-            telemetry_out[f"ba/{metric_name}/{group}"] = torch.stack([
-                entry[metric_name].detach().float() for entry in entries
-            ]).mean()
-        for metric_name in (
-            "null_key/null_mass",
-            "null_key/reference_fraction",
-            "null_key/object_minus_visible_mass",
-        ):
-            if all(metric_name in entry for entry in entries):
-                telemetry_out[f"ba/{metric_name}/{group}"] = torch.stack([
-                    entry[metric_name].detach().float() for entry in entries
-                ]).mean()
-    all_entries = [entry for entries in grouped.values() for entry in entries]
-    for metric_name in (
-        "null_key/null_mass",
-        "null_key/reference_fraction",
-        "null_key/object_minus_visible_mass",
-    ):
-        if all_entries and all(metric_name in entry for entry in all_entries):
-            telemetry_out[f"ba/{metric_name}/all"] = torch.stack([
-                entry[metric_name].detach().float() for entry in all_entries
-            ]).mean()
-    telemetry_out["ba/frequency_surface_applied_fraction"] = (
-        torch.stack(applied).mean()
-        if applied
-        else top_losses[0].new_tensor(0.0)
-    )
-    return (
-        torch.stack(top_losses).mean(),
-        torch.stack(floor_losses).mean(),
-    ), telemetry_out
 
 
 def configure_branched_trainables(model) -> None:
@@ -193,26 +86,6 @@ def configure_branched_trainables(model) -> None:
 
 def install_branched_processors_for_training(model) -> None:
     """Install branched attention processors once before optimizer creation."""
-    if bool(getattr(model, "e13_family_contract", False)):
-        # 10 Aug 2026 - E13C-CORE-01: Strict installation must propagate any
-        # processor/ownership failure. The historical warning-and-continue path
-        # could silently leave the base U-Net or the wrong adapters trainable.
-        h = model.target_size // int(model.vae_scale_factor)
-        w = model.target_size // int(model.vae_scale_factor)
-        zero_ctx = torch.zeros(
-            1, 1, h, w, device=model.unet.device, dtype=model.unet.dtype
-        )
-        patch_unet_attention_processors(
-            pipeline=model,
-            mask=zero_ctx,
-            mask_ref=zero_ctx,
-            scale=1.0,
-            id_embeds=None,
-            class_tokens_mask=None,
-        )
-        configure_e13_trainables(model)
-        assert_e13_trainable_contract(model)
-        return
     try:
         h = model.target_size // int(model.vae_scale_factor)
         w = model.target_size // int(model.vae_scale_factor)
@@ -263,16 +136,6 @@ def prepare_branched_training_inputs(
     Returns prompt embeddings, pooled embeddings, class-token mask, face-branch embeds,
     optional ID features, masks, and reference latents.
     """
-    if bool(getattr(model, "batched_conditioning_preparation", False)):
-        return _prepare_branched_training_inputs_batched(
-            model,
-            prompts=prompts,
-            ref_images=ref_images,
-            face_bbox=face_bbox,
-            face_bbox_ref=face_bbox_ref,
-            pixel_values=pixel_values,
-            noisy_latents=noisy_latents,
-        )
     prompt_embeds_list = []
     pooled_prompt_embeds_list = []
     class_tokens_mask_list = []
@@ -398,162 +261,6 @@ def prepare_branched_training_inputs(
     )
 
 
-# 10 Aug 2026 - E13C-PERF-01: Batch the frozen text, PhotoMaker and VAE
-# calls without changing per-sample prompts, boxes, masks or references.
-def _prepare_branched_training_inputs_batched(
-    model,
-    *,
-    prompts: Sequence[str],
-    ref_images: Sequence[Sequence],
-    face_bbox: Sequence[Sequence[float]],
-    face_bbox_ref: Sequence[Sequence[float]] | None,
-    pixel_values: torch.Tensor,
-    noisy_latents: torch.Tensor,
-):
-    """Batch frozen conditioning work for large datasets with unique samples."""
-    if face_bbox_ref is None:
-        raise ValueError("Training batch is missing face_bbox_ref")
-
-    refs_per_sample = [
-        refs if isinstance(refs, (list, tuple)) else [refs]
-        for refs in ref_images
-    ]
-    if any(len(refs) != 1 for refs in refs_per_sample):
-        raise ValueError(
-            "batched_conditioning_preparation currently requires one reference "
-            "image per training sample"
-        )
-    flat_refs = [refs[0] for refs in refs_per_sample]
-    batch_size = len(flat_refs)
-    if not (
-        len(prompts)
-        == len(face_bbox)
-        == len(face_bbox_ref)
-        == batch_size
-        == pixel_values.shape[0]
-    ):
-        raise ValueError("Batched conditioning inputs have inconsistent batch sizes")
-
-    image_h, image_w = pixel_values.shape[-2:]
-    latent_h, latent_w = noisy_latents.shape[-2:]
-    prompt_embeds, pooled_prompt_embeds, class_tokens_mask = (
-        model.encode_prompts_with_trigger_word(prompts, num_id_images=1)
-    )
-
-    # 26 Jul 2026 - Full Cosmic supplies effectively unique target/reference
-    # pairs. Batch all frozen encoders so throughput does not depend on cache
-    # reuse; legacy per-sample preparation remains the default.
-    # AICODE-NOTE: Batching changes only execution grouping. References,
-    # supplied boxes, PhotoMaker features, and target masks remain per sample.
-    with torch.no_grad():
-        id_pixel_values = model.id_image_processor(
-            flat_refs, return_tensors="pt"
-        ).pixel_values.unsqueeze(1)
-        id_pixel_values = id_pixel_values.to(
-            model.device, dtype=model.id_encoder.dtype
-        )
-
-        id_embed_list = []
-        for ref in flat_refs:
-            img_np = np.array(ref.convert("RGB"))[:, :, ::-1]
-            faces = analyze_faces(model.face_analyzer, img_np)
-            if faces:
-                embedding = torch.from_numpy(faces[0]["embedding"]).float()
-            else:
-                embedding = torch.zeros(512, dtype=torch.float32)
-            id_embed_list.append(embedding)
-        id_embeds = torch.stack(id_embed_list, dim=0).unsqueeze(1).to(
-            device=model.device, dtype=model.id_encoder.dtype
-        )
-
-        prompt_embeds = model.id_encoder(
-            id_pixel_values,
-            prompt_embeds.to(dtype=model.id_encoder.dtype),
-            class_tokens_mask,
-            id_embeds,
-        )
-        reference_latents = model._encode_reference_latents(
-            flat_refs, target_shape=(latent_h, latent_w)
-        )
-
-        id_features = None
-        if model.face_embed_strategy == "id_embeds":
-            id_features = model.id_encoder.extract_id_features(
-                id_pixel_values,
-                id_embeds=id_embeds,
-                class_tokens_mask=class_tokens_mask,
-            ).to(device=model.device, dtype=model.unet.dtype)
-
-    target_masks = []
-    ref_masks = []
-    for bbox, ref_bbox, ref in zip(face_bbox, face_bbox_ref, flat_refs):
-        ref_w, ref_h = ref.size
-        target_masks.append(
-            model._bbox_to_mask(
-                bbox,
-                latent_shape=(latent_h, latent_w),
-                image_shape=(image_h, image_w),
-            )
-        )
-        ref_masks.append(
-            model._bbox_to_ref_mask(
-                ref_bbox,
-                latent_shape=(latent_h, latent_w),
-                image_shape=(ref_h, ref_w),
-            )
-        )
-
-    prompt_embeds = prompt_embeds.to(device=model.device, dtype=model.unet.dtype)
-    pooled_prompt_embeds = pooled_prompt_embeds.to(
-        device=model.device, dtype=model.unet.dtype
-    )
-    class_tokens_mask = class_tokens_mask.to(device=model.device)
-
-    if model.face_embed_strategy == "face":
-        face_prompt_text = ["a close-up human face laughing hard"] * batch_size
-        face_prompt_embeds, _ = model.encode_prompt(
-            face_prompt_text, do_cfg=False
-        )
-        face_prompt_embeds = face_prompt_embeds.to(
-            device=model.device, dtype=model.unet.dtype
-        )
-    elif model.face_embed_strategy == "id_embeds":
-        seq_len = prompt_embeds.shape[1]
-        dim = prompt_embeds.shape[2]
-        face_prompt_embeds = id_features.unsqueeze(1).expand(
-            -1, seq_len, dim
-        ).contiguous()
-    else:
-        face_prompt_embeds = prompt_embeds
-
-    mask4 = torch.cat(target_masks, dim=0).to(
-        device=model.device, dtype=noisy_latents.dtype
-    )
-    mask4_ref = torch.cat(ref_masks, dim=0).to(
-        device=model.device, dtype=noisy_latents.dtype
-    )
-    reference_latents = reference_latents.to(
-        device=model.device, dtype=noisy_latents.dtype
-    )
-
-    model._ref_latents_all = reference_latents
-    model._face_prompt_embeds = prompt_embeds
-    model.do_classifier_free_guidance = False
-    if hasattr(model, "_ref_noise"):
-        delattr(model, "_ref_noise")
-
-    return (
-        prompt_embeds,
-        pooled_prompt_embeds,
-        class_tokens_mask,
-        face_prompt_embeds,
-        id_features,
-        mask4,
-        mask4_ref,
-        reference_latents,
-    )
-
-
 def run_branched_forward_pass(
     model,
     *,
@@ -567,7 +274,6 @@ def run_branched_forward_pass(
     face_prompt_embeds: torch.Tensor,
     class_tokens_mask: torch.Tensor,
     id_features: torch.Tensor | None,
-    reference_noise: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Run branched two-branch prediction and return merged noise prediction."""
     noise_pred, _, _ = two_branch_predict(
@@ -579,7 +285,6 @@ def run_branched_forward_pass(
         mask4=mask4,
         mask4_ref=mask4_ref,
         reference_latents=reference_latents,
-        reference_noise=reference_noise,
         face_prompt_embeds=face_prompt_embeds,
         class_tokens_mask=class_tokens_mask,
         face_embed_strategy=model.face_embed_strategy,

@@ -10,6 +10,8 @@ from pathlib import Path
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 
+from src.model.photomaker_branched.e13_contract import normalise_e13_settings
+
 
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "src" / "configs"
 ARMS = {
@@ -53,22 +55,13 @@ def main() -> None:
     expected_mode, expected_dataset = ARMS[args.config_name]
     fixed = {
         "train_dataset_name": expected_dataset,
-        "train_ba_all_steps": True,
-        "train_ba_only": True,
-        "disable_branched_sa": False,
-        "disable_branched_ca": True,
-        "model.e13_family_contract": True,
-        "model.ba_hard_v1_lora_rank": 128,
-        "model.ba_training_mask_feather": 2,
-        "model.ba_hardcase_mode": expected_mode,
         "pipeline._target_": (
-            "src.pipelines.photomaker_branched_cl18_cl20."
-            "PhotomakerBranchedCL18CL20Pipeline.from_pretrained"
+            "src.pipelines.photomaker_branched_subject_v2."
+            "PhotomakerBranchedSubjectV2Pipeline.from_pretrained"
         ),
         "pipeline.pose_adapt_ratio": 0.0,
         "pipeline.ca_mixing_for_face": False,
         "validation_args.face_subject_selection_policy": "bbox_overlap_v2",
-        "model.ba_training_mask_feather": 2,
         "validation_args.num_images_per_prompt": 1,
         "validation_args.num_inference_steps": 50,
         "validation_args.guidance_scale": 5,
@@ -78,10 +71,8 @@ def main() -> None:
         "dataloaders.manual_val.batch_size": 12,
         "datasets.val.manual_val.limit": 96,
         "datasets.val.manual_val.bbox_mask_gen": (
-            "../dataset_full/val_dataset/protocols/cl14/pm96_bboxes_new.json"
+            "../dataset_full/val_dataset/protocols/cl14/pm96_bboxes_new_auto.json"
         ),
-        "expected_trainable_contract.total_tensors": 2240,
-        "expected_trainable_contract.total_parameters": 219217920,
     }
     for path, expected in fixed.items():
         require(config, path, expected)
@@ -91,7 +82,7 @@ def main() -> None:
     ]:
         raise RuntimeError("Subject-v2 metric set drifted")
     if value(config, "writer.loss_names") != [
-        "loss", "loss_ba_aux", "loss_ba_ownership", "loss_ba_crossview"
+        "loss", "loss_ba_aux", "loss_ba_crossview"
     ]:
         raise RuntimeError("CL18-CL20 loss telemetry drifted")
     if value(config, "val_datasets_names") != ["manual_val"]:
@@ -103,17 +94,22 @@ def main() -> None:
         "lr_scheduler",
         "loss_function",
         "pretrained_model_for_validation_name_or_path",
-        "validation_processor_base_mode",
-        "validation_shadow_photomaker_default",
     ):
         if value(config, path) != value(cl14, path):
             raise RuntimeError(f"{path} drifted from CL14")
 
     arm = args.config_name.split("_", 1)[0]
-    crossview = bool(value(config, "model.ba_crossview_consistency_enabled"))
+    settings = normalise_e13_settings(config.model.e13_settings)
+    if settings["ba_training_mask_feather"] != 2:
+        raise RuntimeError("CL18-CL20 training-mask feather drifted")
+    if settings["ba_hardcase_mode"] != expected_mode:
+        raise RuntimeError("CL18-CL20 hard-case route drifted")
+    crossview = settings["ba_crossview_consistency_enabled"]
     if arm == "CL18":
-        require(config, "model.ba_crossview_consistency_probability", 0.25)
-        require(config, "model.ba_crossview_consistency_weight", 0.05)
+        if settings["ba_crossview_consistency_probability"] != 0.25:
+            raise RuntimeError("CL18 cross-view probability drifted")
+        if settings["ba_crossview_consistency_weight"] != 0.05:
+            raise RuntimeError("CL18 cross-view weight drifted")
         require(
             config,
             "datasets.train.cosmic_large_adapted.same_identity_dual_reference",
@@ -125,9 +121,11 @@ def main() -> None:
         raise RuntimeError(f"{arm} must not enable CL18 consistency")
 
     if arm == "CL19":
-        require(config, "model.ba_hardcase_groups", CL19_GROUPS)
-        require(config, "model.ba_hardcase_transition_cells", 2)
-    elif value(config, "model.ba_hardcase_groups") not in (None, []):
+        if list(settings["ba_hardcase_groups"]) != CL19_GROUPS:
+            raise RuntimeError("CL19 processor groups drifted")
+        if settings["ba_hardcase_transition_cells"] != 2:
+            raise RuntimeError("CL19 transition width drifted")
+    elif settings["ba_hardcase_groups"]:
         raise RuntimeError(f"{arm} unexpectedly selected hard-case groups")
 
     if arm == "CL20":

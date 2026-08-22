@@ -1,5 +1,9 @@
 # CL39 clean extension
 
+> **Source-layout update, 22 August 2026:** the null-key route is implemented
+> in `hardcase_attn_processor.py`; the shared June attention file is unchanged.
+> See the [implementation map](../../analysis/2026-08-22_june2_key_file_rebase_implementation.md).
+
 **Date:** 21 August 2026
 
 **Branch:** `clean`

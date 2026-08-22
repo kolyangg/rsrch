@@ -51,37 +51,26 @@ class MaskedDiffusionLoss(nn.Module):
     def __init__(self) -> None:
         super().__init__()
 
-    def forward(
-        self,
-        model_pred,
-        target,
-        is_masked_loss,
-        face_bbox,
-        ba_aux_loss=None,
-        ba_ownership_loss=None,
-        ba_crossview_loss=None,
-        **batch,
-    ):
+    def forward(self, model_pred, target, is_masked_loss, face_bbox, **batch):
         if is_masked_loss:
             loss = _masked_face_mse(model_pred, target, face_bbox)
         else:
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
 
-        auxiliary = loss.new_tensor(0.0) if ba_aux_loss is None else ba_aux_loss
-        return {
-            'loss': loss + auxiliary,
-            'loss_ba_aux': auxiliary.detach(),
-            'loss_ba_ownership': (
-                loss.new_tensor(0.0)
-                if ba_ownership_loss is None
-                else ba_ownership_loss.detach()
-            ),
-            'loss_ba_crossview': (
-                loss.new_tensor(0.0)
-                if ba_crossview_loss is None
-                else ba_crossview_loss.detach()
-            ),
-        }
+        if "ba_aux_loss" in batch or "ba_crossview_loss" in batch:
+            auxiliary = batch.get("ba_aux_loss")
+            if auxiliary is None:
+                auxiliary = loss.new_tensor(0.0)
+            crossview = batch.get("ba_crossview_loss")
+            if crossview is None:
+                crossview = loss.new_tensor(0.0)
+            return {
+                'loss': loss + auxiliary,
+                'loss_ba_aux': auxiliary.detach(),
+                'loss_ba_crossview': crossview.detach(),
+            }
+
+        return {'loss': loss}
 
 
 class BlendedMaskedDiffusionLoss(nn.Module):

@@ -20,9 +20,11 @@ architecture switches.
 ```bash
 python tools/validate_e13_family_config.py
 python tools/verify_cl14_generation_parity.py
+python tools/validate_cl14_ca_config.py
 python tools/validate_cl18_cl20_config.py --config-name <CL18|CL19|CL20_config>
+python tools/validate_cl23_cl27_config.py --config-name <CL23|CL27|CL39_config>
 bash -n launchers/active/run_e13_family_24k_1gpu.sh
-bash -n launchers/serv/start_e13_family_1gpu.sh
+bash -n launchers/serv/*.sh
 ```
 
 - `validate_e13_family_config.py` composes all three leaves, validates the
@@ -31,12 +33,15 @@ bash -n launchers/serv/start_e13_family_1gpu.sh
 - `verify_cl14_generation_parity.py` compares the pipeline and denoising source
   against sealed CL14 hashes and byte-seals every fixed-96 prompt, identity,
   reference, and bbox input.
-- `validate_cl18_cl20_config.py` checks each new arm against the sealed CL14
+- `validate_cl14_ca_config.py` checks the isolated residual identity-CA delta.
+- `validate_cl18_cl20_config.py` checks each named arm against the sealed CL14
   schedule, validation and trainable contract.
+- `validate_cl23_cl27_config.py` checks each named frequency/null-key arm and
+  the optimized processor-lookup contract.
 - `launchers/active/run_e13_family_24k_1gpu.sh` is the only training launcher
-  for all six supported recipes.
+  for all ten supported recipes.
 - `serv_run_packages/README.md` is the concise architecture matrix and points
-  to exact E13/BC_E13/CL14/CL18/CL19/CL20 one-A100 Serv YAMLs.
+  to the exact ten one-A100 Serv YAMLs.
 - `serv_run_packages/e13_family_1gpu.yaml.example` remains the generic template
   for a deliberately new run identity.
 
@@ -48,9 +53,9 @@ bash -n launchers/serv/start_e13_family_1gpu.sh
   identity cardinality, strict fields, trigger, bbox, and decode checks.
 - `tools/datasets/preflight_cosmic_large_adapted.py` — Cosmic filtering,
   prompts, target/reference geometry, cache-key, and decode sample audit.
-- `tools/datasets/preflight_cosmic_cl.py` — authoritative configured CL14
-  decode gate for the CL14/CL18/CL19 1024 canvas, face-area band, caption
-  budget, and CL18 distinct alternate reference.
+- `tools/datasets/preflight_cosmic_cl.py` — authoritative configured Cosmic
+  recipe decode gate for the 1024 canvas, face-area band, caption budget, and
+  CL18 distinct alternate reference.
 - `tools/datasets/build_cl20_hardcase_schedule.py` — deterministic sealed
   48k-row Cosmic/BigCelebs curriculum builder.
 - `tools/datasets/preflight_cl20_curriculum.py` — verifies CL20 phase counts

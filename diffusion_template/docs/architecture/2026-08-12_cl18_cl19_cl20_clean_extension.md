@@ -1,5 +1,10 @@
 # CL18, CL19 and CL20 clean extension
 
+> **Source-layout update, 22 August 2026:** CL18 logic is now in
+> `e13_objectives.py`, CL19 in `hardcase_attn_processor.py`, and CL20 remains
+> in its dataset module. The June shared model/attention files were restored;
+> see the [implementation map](../../analysis/2026-08-22_june2_key_file_rebase_implementation.md).
+
 - **Date:** 12 August 2026
 - **Branch:** `clean`
 - **Immediate parent before this extension:**
@@ -176,7 +181,7 @@ This boundary is intentional and should be preserved during later work.
   (`+2` lines).
 - `e13_contract.py`: records/rejects router or cross-view checkpoint drift;
   the off manifest remains the previous hard-v1 manifest.
-- `photomaker_branched_cl18_cl20.py`: isolated subject-v2 validation wrapper
+- `photomaker_branched_subject_v2.py`: isolated subject-v2 validation wrapper
   and router factory; the sealed `photomaker_branched_clean.py` and
   `br_pipeline_helpers.py` are not edited.
 

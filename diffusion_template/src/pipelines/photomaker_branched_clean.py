@@ -1,4 +1,3 @@
-# 10 Aug 2026 - E13C-PIPE-01/02: Sealed CL14 inference path; one spatial reference is prepared once and reused deterministically across each prompt batch.
 # photomaker/pipeline.py
 
 #####
@@ -580,6 +579,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         use_branched_attention: bool = False,
         photomaker_scale: float = 1.0,  # Add scale parameter for attention
         branched_attn_start_step: int = 10,
+        branched_attn_end_step: Optional[int] = None,
         face_embed_strategy: str = "face", # "face", #  "face" or "id_embeds"
         use_bbox_mask_ref: bool = False, # BBox-driven masking toggles (validation convenience)
         use_bbox_mask_gen: bool = False, # BBox-driven masking toggles (validation convenience)
@@ -860,14 +860,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         """Prepare branched runtime state once (reference latents/masks, strategy cache, and ID features)."""
         self.mask_softness = float(mask_softness)
         self.force_binary_masks = bool(float(mask_softness) <= 0.0)
-        face_bbox_ref_for_setup = face_bbox_ref
-        if (
-            per_prompt_id_images
-            and isinstance(face_bbox_ref, (list, tuple))
-            and len(face_bbox_ref) > 0
-            and isinstance(face_bbox_ref[0], (list, tuple))
-        ):
-            face_bbox_ref_for_setup = face_bbox_ref[0]
+        # ### 05 APR - FIX VALIDATION REF BATCHING ISSUE ###
         run_branched_setup_helper(
             self,
             use_branched_attention=use_branched_attention,
@@ -878,7 +871,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             id_pixel_values=id_pixel_values,
             auto_mask_ref=auto_mask_ref,
             use_bbox_mask_ref=use_bbox_mask_ref,
-            face_bbox_ref=face_bbox_ref_for_setup,
+            face_bbox_ref=face_bbox_ref,
             mask_expansion_ratio=mask_expansion_ratio,
             mask_softness=mask_softness,
             import_mask_ref=import_mask_ref,
@@ -1009,6 +1002,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
                         prev_mode=prev_mode,
                         photomaker_start_step=photomaker_start_step,
                         branched_attn_start_step=branched_attn_start_step,
+                        branched_attn_end_step=branched_attn_end_step,
                         prompt_embeds_text_only=prompt_embeds_text_only,
                         pooled_prompt_embeds_text_only=pooled_prompt_embeds_text_only,
                         prompt_embeds=prompt_embeds,
@@ -1235,6 +1229,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         i: int,
         photomaker_start_step: int,
         branched_attn_start_step: int,
+        branched_attn_end_step: Optional[int],
         prompt_embeds_text_only: torch.Tensor,
         pooled_prompt_embeds_text_only: torch.Tensor,
         prompt_embeds: torch.Tensor,
@@ -1248,6 +1243,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             i=i,
             photomaker_start_step=photomaker_start_step,
             branched_attn_start_step=branched_attn_start_step,
+            branched_attn_end_step=branched_attn_end_step,
             prompt_embeds_text_only=prompt_embeds_text_only,
             pooled_prompt_embeds_text_only=pooled_prompt_embeds_text_only,
             prompt_embeds=prompt_embeds,

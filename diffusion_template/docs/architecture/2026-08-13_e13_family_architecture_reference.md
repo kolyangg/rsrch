@@ -1,5 +1,13 @@
 # E13-family architecture reference
 
+> **Source-layout update, 22 August 2026:** the shared `lora2.py`,
+> `lora2_helpers.py`, and `attn_processor_cleanest.py` are now exact 2 June
+> files. Active E13 code is in `e13_model.py`, `e13_training_helpers.py`,
+> `e13_attn_processor.py`, and `e13_runtime.py`; later equations remain in
+> `e13_objectives.py`, `hardcase_attn_processor.py`, and
+> `residual_identity_ca_processor_v3.py`. See the
+> [exact insertion map](../../analysis/2026-08-22_june2_key_file_rebase_implementation.md).
+
 For the baseline-first history—starting from the exact 2 June `main_clean`
 commit, separating correctness/data/runtime repairs, and then deriving every
 supported recipe—use
@@ -851,7 +859,7 @@ subject-v2 validation wrapper:
 
 This is a validation identity-selection repair, not an attention-architecture
 change. See
-[`photomaker_branched_cl18_cl20.py`](../../src/pipelines/photomaker_branched_cl18_cl20.py),
+[`photomaker_branched_subject_v2.py`](../../src/pipelines/photomaker_branched_subject_v2.py),
 [`face_subject_selector.py`](../../src/face_subject_selector.py), and
 [`all_metrics_subject_v2.yaml`](../../src/configs/metrics/all_metrics_subject_v2.yaml).
 

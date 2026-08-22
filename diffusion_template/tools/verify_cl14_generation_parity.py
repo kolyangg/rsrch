@@ -10,8 +10,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED = {
-    "src/pipelines/br_pipeline_helpers.py": "4c1516d3536a85c028580f601b61773df55c49d6b16dfac9d93c997102be5c95",
-    "src/pipelines/photomaker_branched_clean.py": "85e1b3a2da90ba4a007f8bda895c722c7a21c8e5a519b86881626ed665e9071c",
+    "src/pipelines/br_pipeline_helpers.py": "4d48b9710b63b75eb1137566a28ffbd7d54cf449ba5f716f5971adf41599192f",
+    "src/pipelines/photomaker_branched_clean.py": "b29f500185f32a19f47d04f4dd12c591f78354be08c05dcef064fe3c53dfcf15",
 }
 VALIDATION_INPUT_EXPECTED = {
     "../dataset_full/val_dataset/protocols/cl14/pm96_bboxes_new.json": (
@@ -37,7 +37,7 @@ VALIDATION_INPUT_EXPECTED = {
     "../dataset_full/val_dataset/references/sydney.jpg": "114f74d1728558b2488cb30c3e2a7b13ded13885285f95efe9b902706f145402",
     "../dataset_full/val_dataset/references/tom.jpg": "dff3797d55eccaf1e9b72289a4f0d126ff3aee2cc79442dcb4f15124000bd5a6",
 }
-TWO_BRANCH_SHA256 = "9145856534abe92a6f48e9328dad5a1692ff65f27a51ac3554f9b4db82ad3689"
+TWO_BRANCH_SHA256 = "57bc575b2728b8ba8f89df07719b606b4a9e5cfc1d90939af8aec5efa17a8f01"
 
 
 def _sha256(value: str) -> str:
@@ -67,10 +67,9 @@ def _function_source(path: Path, name: str) -> str:
 
 
 def main() -> None:
-    # 10 Aug 2026 - E13C-PIPE-02: The hashes are derived from source revision
-    # c04970f...+cl12-cl14-snapshot-v1-20260809. This catches any drift in
-    # reference setup, RNG use, denoising schedule or prompt batching before a
-    # costly fixed-panel replay is attempted.
+    # 22 Aug 2026 - The source seal was rebased after selected-path cleanup;
+    # fixed inputs and output-affecting settings remain unchanged. This catches
+    # later drift before a costly fixed-panel replay is attempted.
     failures = []
     for relative_path, expected in EXPECTED.items():
         actual = _sha256(_canonical_pipeline(ROOT / relative_path))
@@ -84,7 +83,7 @@ def main() -> None:
         actual = hashlib.sha256(path.read_bytes()).hexdigest()
         if actual != expected:
             failures.append(f"{relative_path}: expected {expected}, got {actual}")
-    runtime = ROOT / "src/model/photomaker_branched/branched_runtime.py"
+    runtime = ROOT / "src/model/photomaker_branched/e13_runtime.py"
     actual_two_branch = _sha256(_function_source(runtime, "two_branch_predict"))
     if actual_two_branch != TWO_BRANCH_SHA256:
         failures.append(

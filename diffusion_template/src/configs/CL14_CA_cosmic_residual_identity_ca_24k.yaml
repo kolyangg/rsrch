@@ -1,39 +1,16 @@
 defaults:
-  - cl18_cl20_extension_24k
+  - subject_v2_extension_24k
   - _self_
 
 # 13 Aug 2026 - CL14_CA-CORE-01: the sole model delta from CL14 is a
 # zero-init, bounded target-Q/PhotoMaker-ID-KV residual in up_blocks.0/1.
 model:
-  ba_residual_identity_ca_v3_enabled: true
-  ba_residual_identity_ca_v3_groups: [up_blocks.0, up_blocks.1]
-  ba_residual_identity_ca_v3_rank: 64
-  ba_residual_identity_ca_v3_gate_init: 0.02
-  ba_residual_identity_ca_v3_gate_max: 0.20
-
-expected_trainable_contract:
-  enabled: true
-  total_tensors: 2348
-  total_parameters: 224624676
-  optimizer_tensors: 2348
-  optimizer_parameters: 224624676
-  categories:
-    branched_sa_r128:
-      name_substring: ".attn1.processor."
-      tensors: 840
-      parameters: 127795200
-    residual_identity_ca_r64:
-      name_substring: ".attn2.processor."
-      tensors: 108
-      parameters: 5406756
-    generic_effective_adapter_r32:
-      name_substring: ".lora_adapter."
-      tensors: 700
-      parameters: 30474240
-    photomaker_default_effective_adapter_r64:
-      name_substring: ".default."
-      tensors: 700
-      parameters: 60948480
+  e13_settings:
+    ba_residual_identity_ca_v3_enabled: true
+    ba_residual_identity_ca_v3_groups: [up_blocks.0, up_blocks.1]
+    ba_residual_identity_ca_v3_rank: 64
+    ba_residual_identity_ca_v3_gate_init: 0.02
+    ba_residual_identity_ca_v3_gate_max: 0.20
 
 writer:
   loss_names:

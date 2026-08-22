@@ -1,5 +1,10 @@
 # From the 2 June clean baseline to the E13-family experiments
 
+> **Source-layout update, 22 August 2026:** the formulas and lineage below are
+> unchanged, but selected implementation was moved out of the restored June
+> key files. Current locations are listed in the
+> [2 June key-file rebase record](../../analysis/2026-08-22_june2_key_file_rebase_implementation.md).
+
 **Date:** 18 August 2026
 
 **Branch:** `clean`
@@ -294,7 +299,7 @@ best-over-any-face ID remains as an audit metric. See
 [`face_subject_selector.py`](../../src/face_subject_selector.py),
 [`id_sim_metric.py`](../../src/metrics/id_sim_metric.py), and the isolated
 validation wrapper
-[`photomaker_branched_cl18_cl20.py`](../../src/pipelines/photomaker_branched_cl18_cl20.py).
+[`photomaker_branched_subject_v2.py`](../../src/pipelines/photomaker_branched_subject_v2.py).
 **[code]**
 
 ### 2.4 Pipeline corrections kept separate from datasets
@@ -1081,7 +1086,7 @@ is scientific logic.
   composition.
 - `src/pipelines/br_pipeline_helpers.py` (`+51 / -137`): concise sealed
   single-reference pipeline helpers.
-- `src/pipelines/photomaker_branched_cl18_cl20.py` (`+157 / -0`): isolated
+- `src/pipelines/photomaker_branched_subject_v2.py` (`+157 / -0`): isolated
   corrected validation and extension installation.
 
 The core remains much smaller than the experimental `test` switchboard. New
@@ -1706,7 +1711,7 @@ Source: `CL20_cosmic_bigcelebs_hardcase_curriculum_24k.yaml`, clean lines 1-7.
 
 ```yaml
 defaults:
-  - cl18_cl20_extension_24k
+  - subject_v2_extension_24k
   - _self_
 
 # 12 Aug 2026 - CL20 changes only the sealed training schedule.

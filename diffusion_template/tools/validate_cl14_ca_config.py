@@ -8,13 +8,14 @@ from pathlib import Path
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 
+from src.model.photomaker_branched.e13_contract import normalise_e13_settings
+
 
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "src/configs"
 CONFIG_NAME = "CL14_CA_cosmic_residual_identity_ca_24k"
 BASE_NAME = "CL14_cosmic_joint_shadow_sa128_softmask_24k"
 ALLOWED_ROOTS = (
-    "model.ba_residual_identity_ca_v3_",
-    "expected_trainable_contract",
+    "model.e13_settings.ba_residual_identity_ca_v3_",
     "writer.loss_names",
     "writer.experiment_comment",
     # Latest CL14_CA production used CL20's validation-only Eddie repair.
@@ -66,18 +67,6 @@ def main() -> None:
 
     fixed = {
         "train_dataset_name": "cosmic_large_adapted",
-        "disable_branched_ca": True,
-        "train_branched_ca_lora": False,
-        "model.e13_family_contract": True,
-        "model.ba_hard_v1_lora_rank": 128,
-        "model.ba_training_mask_feather": 2,
-        "model.ba_hardcase_mode": "off",
-        "model.ba_crossview_consistency_enabled": False,
-        "model.ba_residual_identity_ca_v3_enabled": True,
-        "model.ba_residual_identity_ca_v3_groups": ["up_blocks.0", "up_blocks.1"],
-        "model.ba_residual_identity_ca_v3_rank": 64,
-        "model.ba_residual_identity_ca_v3_gate_init": 0.02,
-        "model.ba_residual_identity_ca_v3_gate_max": 0.20,
         "pipeline.pose_adapt_ratio": 0.0,
         "pipeline.ca_mixing_for_face": False,
         "validation_args.face_subject_selection_policy": "bbox_overlap_v2",
@@ -87,16 +76,31 @@ def main() -> None:
         "trainer.n_epochs": 12,
         "dataloaders.train.batch_size": 2,
         "datasets.val.manual_val.limit": 96,
-        "expected_trainable_contract.total_tensors": 2348,
-        "expected_trainable_contract.total_parameters": 224624676,
     }
     for path, expected in fixed.items():
         _require(candidate, path, expected)
+    settings = normalise_e13_settings(candidate.model.e13_settings)
+    expected_settings = {
+        "ba_training_mask_feather": 2,
+        "ba_hardcase_mode": "off",
+        "ba_crossview_consistency_enabled": False,
+        "ba_residual_identity_ca_v3_enabled": True,
+        "ba_residual_identity_ca_v3_groups": ("up_blocks.0", "up_blocks.1"),
+        "ba_residual_identity_ca_v3_rank": 64,
+        "ba_residual_identity_ca_v3_gate_init": 0.02,
+        "ba_residual_identity_ca_v3_gate_max": 0.20,
+    }
+    for name, expected in expected_settings.items():
+        if settings[name] != expected:
+            raise RuntimeError(
+                f"model.e13_settings.{name}: expected {expected!r}, "
+                f"got {settings[name]!r}"
+            )
     _require(
         candidate,
         "pipeline._target_",
-        "src.pipelines.photomaker_branched_cl18_cl20."
-        "PhotomakerBranchedCL18CL20Pipeline.from_pretrained",
+        "src.pipelines.photomaker_branched_subject_v2."
+        "PhotomakerBranchedSubjectV2Pipeline.from_pretrained",
     )
     _require(
         candidate,

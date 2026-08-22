@@ -1,5 +1,10 @@
 # CL23 and CL27 clean extension
 
+> **Source-layout update, 22 August 2026:** CL23 routing now lives in
+> `hardcase_attn_processor.py`; CL27's objective/collectors live in
+> `e13_objectives.py`. See the
+> [2 June key-file rebase record](../../analysis/2026-08-22_june2_key_file_rebase_implementation.md).
+
 **Date:** 18 August 2026
 
 **Branch:** `clean`
@@ -97,7 +102,7 @@ The validator rejects the known hot-loop regression if
 | Runtime | `branched_runtime.py` | Pass real scheduler progress, selected groups, and optional supervision mask. |
 | Model contract | `e13_contract.py`, `lora2.py`, `lora2_helpers.py` | Fail-closed schedules/objective, unchanged ownership, live loss collection. |
 | Dataset | `cosmic_large_adapted.py`, `configs/datasets/all_datasets.yaml` | Defaults-off deterministic CL27 overlay/mask. |
-| Validation | `photomaker_branched_cl18_cl20.py`, `base_trainer.py` | Install the trained CL23/CL27 processor flags in the existing subject-v2 validation path. |
+| Validation | `photomaker_branched_subject_v2.py`, `base_trainer.py` | Install the trained CL23/CL27 processor flags in the existing subject-v2 validation path. |
 | Config/gates | CL23/CL27 leaves, `validate_cl23_cl27_config.py`, Cosmic preflight | Pin exact values and reject contract drift before model startup. |
 | Serv | shared launcher and two `serv_run_packages` YAMLs | One-A100, 24k-step, full-96 prepared jobs; no submission. |
 

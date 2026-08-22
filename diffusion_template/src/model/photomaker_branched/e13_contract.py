@@ -1,10 +1,9 @@
-"""Audited ownership and checkpoint contract for E13, BC_E13 and CL14."""
+"""Ownership, settings, and checkpoint contract for the selected E13 family."""
 
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable
-from collections.abc import Sequence
+from collections.abc import Iterable, Mapping
 
 import torch
 
@@ -13,78 +12,133 @@ SCHEMA_VERSION = 2
 STATE_FORMAT = "trainable_unet_v2"
 ARCHITECTURE = "hard_replace_v1"
 
+EXPECTED_ROLE_SUMMARIES = {
+    "branched_sa_r128": {"tensors": 840, "parameters": 127_795_200},
+    "generic_effective_adapter_r32": {
+        "tensors": 700,
+        "parameters": 30_474_240,
+    },
+    "photomaker_default_effective_adapter_r64": {
+        "tensors": 700,
+        "parameters": 60_948_480,
+    },
+}
+IDENTITY_CA_SUMMARY = {"tensors": 108, "parameters": 5_406_756}
 
-def initialise_e13_contract(model, *, ba_hard_v1_lora_rank: int = 128,
-                            generic_adapter_train_scope: str = "effective_all",
-                            photomaker_default_train_scope: str = "effective_all",
-                            strict_branched_install: bool = True,
-                            strict_trainable_contract: bool = True,
-                            branched_state_dict_mode: str = STATE_FORMAT,
-                            ba_training_mask_feather: int = 0,
-                            conditioning_cache_enabled: bool = False,
-                            skip_unused_text_conditioning: bool = True,
-                            batched_conditioning_preparation: bool = True,
-                            cache_prepared_masks: bool = True,
-                            compute_branch_debug_outputs: bool = False,
-                            ba_hardcase_mode: str = "off",
-                            ba_hardcase_groups: Sequence[str] | None = None,
-                            ba_hardcase_transition_cells: int = 2,
-                            ba_hardcase_frequency_low_early: float = 0.50,
-                            ba_hardcase_frequency_low_late: float = 0.85,
-                            ba_hardcase_frequency_high_early: float = 0.75,
-                            ba_hardcase_frequency_high_late: float = 1.25,
-                            ba_hardcase_telemetry_enabled: bool = False,
-                            ba_frequency_surface_loss_enabled: bool = False,
-                            ba_frequency_surface_loss_groups: Sequence[str] | None = None,
-                            ba_frequency_surface_top_weight: float = 0.02,
-                            ba_frequency_surface_top_low_band_factor: float = 0.25,
-                            ba_frequency_surface_visible_floor_weight: float = 0.005,
-                            ba_frequency_surface_visible_floor_ratio: float = 0.35,
-                            ba_null_key_router_enabled: bool = False,
-                            ba_null_key_router_groups: Sequence[str] | None = None,
-                            ba_null_key_entropy_threshold: float = 0.75,
-                            ba_null_key_temperature: float = 0.08,
-                            ba_null_key_max_abstention: float = 0.75,
-                            ba_null_key_min_reference_fraction: float = 0.25,
-                            ba_crossview_consistency_enabled: bool = False,
-                            ba_crossview_consistency_probability: float = 0.25,
-                            ba_crossview_consistency_weight: float = 0.05,
-                            ba_residual_identity_ca_v3_enabled: bool = False,
-                            ba_residual_identity_ca_v3_groups: Sequence[str] | None = None,
-                            ba_residual_identity_ca_v3_rank: int = 64,
-                            ba_residual_identity_ca_v3_gate_init: float = 0.02,
-                            ba_residual_identity_ca_v3_gate_max: float = 0.20) -> None:
-    """Persist the deliberately small set of E13-family runtime controls."""
-    # 10 Aug 2026 - E13C-CORE-01/02: E13 is one fail-closed hard-v1 route with
-    # rank-128 branch LoRA. Rejecting other values prevents a failed installer
-    # or a stale config from silently training the June rank-32/base route.
-    if int(ba_hard_v1_lora_rank) != 128:
-        raise ValueError("The clean E13-family contract requires BA rank 128")
-    if generic_adapter_train_scope != "effective_all":
-        raise ValueError("E13 requires generic_adapter_train_scope=effective_all")
-    if photomaker_default_train_scope != "effective_all":
-        raise ValueError("E13 requires photomaker_default_train_scope=effective_all")
-    if not strict_branched_install or not strict_trainable_contract:
-        raise ValueError("The clean E13-family contract is always fail closed")
-    if branched_state_dict_mode not in {STATE_FORMAT, "trainable_v2"}:
-        raise ValueError("E13 requires schema-v2 trainable checkpoints")
-    if not 0 <= int(ba_training_mask_feather) <= 8:
+DEFAULT_E13_SETTINGS = {
+    "ba_training_mask_feather": 0,
+    "ba_hardcase_mode": "off",
+    "ba_hardcase_groups": (),
+    "ba_hardcase_transition_cells": 2,
+    "ba_hardcase_frequency_low_early": 0.50,
+    "ba_hardcase_frequency_low_late": 0.85,
+    "ba_hardcase_frequency_high_early": 0.75,
+    "ba_hardcase_frequency_high_late": 1.25,
+    "ba_frequency_surface_loss_enabled": False,
+    "ba_frequency_surface_loss_groups": (),
+    "ba_frequency_surface_top_weight": 0.02,
+    "ba_frequency_surface_top_low_band_factor": 0.25,
+    "ba_frequency_surface_visible_floor_weight": 0.005,
+    "ba_frequency_surface_visible_floor_ratio": 0.35,
+    "ba_null_key_router_enabled": False,
+    "ba_null_key_router_groups": (),
+    "ba_null_key_entropy_threshold": 0.75,
+    "ba_null_key_temperature": 0.08,
+    "ba_null_key_max_abstention": 0.75,
+    "ba_null_key_min_reference_fraction": 0.25,
+    "ba_crossview_consistency_enabled": False,
+    "ba_crossview_consistency_probability": 0.25,
+    "ba_crossview_consistency_weight": 0.05,
+    "ba_residual_identity_ca_v3_enabled": False,
+    "ba_residual_identity_ca_v3_groups": (),
+    "ba_residual_identity_ca_v3_rank": 64,
+    "ba_residual_identity_ca_v3_gate_init": 0.02,
+    "ba_residual_identity_ca_v3_gate_max": 0.20,
+}
+
+PIPELINE_RUNTIME_SETTINGS = (
+    "e13_family_contract",
+    "ba_hardcase_mode",
+    "ba_hardcase_groups",
+    "ba_hardcase_transition_cells",
+    "ba_hardcase_frequency_low_early",
+    "ba_hardcase_frequency_low_late",
+    "ba_hardcase_frequency_high_early",
+    "ba_hardcase_frequency_high_late",
+    "ba_frequency_surface_loss_enabled",
+    "ba_frequency_surface_loss_groups",
+    "ba_frequency_surface_top_low_band_factor",
+    "ba_frequency_surface_visible_floor_ratio",
+    "ba_null_key_router_enabled",
+    "ba_null_key_router_groups",
+    "ba_null_key_entropy_threshold",
+    "ba_null_key_temperature",
+    "ba_null_key_max_abstention",
+    "ba_null_key_min_reference_fraction",
+    "ba_residual_identity_ca_v3_enabled",
+    "ba_residual_identity_ca_v3_groups",
+    "ba_residual_identity_ca_v3_rank",
+    "ba_residual_identity_ca_v3_gate_init",
+    "ba_residual_identity_ca_v3_gate_max",
+)
+
+_BOOL_SETTINGS = {
+    "ba_frequency_surface_loss_enabled",
+    "ba_null_key_router_enabled",
+    "ba_crossview_consistency_enabled",
+    "ba_residual_identity_ca_v3_enabled",
+}
+_INT_SETTINGS = {
+    "ba_training_mask_feather",
+    "ba_hardcase_transition_cells",
+    "ba_residual_identity_ca_v3_rank",
+}
+_GROUP_SETTINGS = {
+    "ba_hardcase_groups",
+    "ba_frequency_surface_loss_groups",
+    "ba_null_key_router_groups",
+    "ba_residual_identity_ca_v3_groups",
+}
+
+
+def normalise_e13_settings(settings: Mapping | None) -> dict:
+    supplied = dict(settings or {})
+    unknown = sorted(set(supplied) - set(DEFAULT_E13_SETTINGS))
+    if unknown:
+        raise ValueError(f"Unknown E13 settings: {unknown}")
+    values = {**DEFAULT_E13_SETTINGS, **supplied}
+    for name in _BOOL_SETTINGS:
+        values[name] = bool(values[name])
+    for name in _INT_SETTINGS:
+        values[name] = int(values[name])
+    for name in _GROUP_SETTINGS:
+        values[name] = tuple(str(group) for group in (values[name] or ()))
+    for name in set(values) - _BOOL_SETTINGS - _INT_SETTINGS - _GROUP_SETTINGS - {
+        "ba_hardcase_mode"
+    }:
+        values[name] = float(values[name])
+    values["ba_hardcase_mode"] = str(values["ba_hardcase_mode"] or "off").lower()
+    return values
+
+
+def initialise_e13_contract(model, settings: Mapping | None = None) -> None:
+    """Validate and persist the selected leaf deltas over fixed E13."""
+    values = normalise_e13_settings(settings)
+    if not 0 <= values["ba_training_mask_feather"] <= 8:
         raise ValueError("ba_training_mask_feather must be within [0, 8]")
-    if conditioning_cache_enabled:
-        raise ValueError("E13 diverse-pair training requires conditioning cache off")
-    hardcase_mode = str(ba_hardcase_mode or "off").lower()
-    hardcase_groups = tuple(str(group) for group in (ba_hardcase_groups or ()))
+    hardcase_mode = values["ba_hardcase_mode"]
+    hardcase_groups = values["ba_hardcase_groups"]
     if hardcase_mode not in {"off", "soft_router", "temporal_frequency"}:
         raise ValueError("The clean extension supports CL19 or CL23 routing only")
     if hardcase_mode != "off" and not hardcase_groups:
         raise ValueError("CL19 soft_router requires explicit U-Net groups")
-    if int(ba_hardcase_transition_cells) < 1:
+    if values["ba_hardcase_transition_cells"] < 1:
         raise ValueError("ba_hardcase_transition_cells must be positive")
     frequency_values = (
-        float(ba_hardcase_frequency_low_early),
-        float(ba_hardcase_frequency_low_late),
-        float(ba_hardcase_frequency_high_early),
-        float(ba_hardcase_frequency_high_late),
+        values["ba_hardcase_frequency_low_early"],
+        values["ba_hardcase_frequency_low_late"],
+        values["ba_hardcase_frequency_high_early"],
+        values["ba_hardcase_frequency_high_late"],
     )
     # 18 Aug 2026 - CL23/CL27 are exact clean leaves, not a general frequency
     # experiment framework; reject schedule or objective drift at construction.
@@ -92,121 +146,56 @@ def initialise_e13_contract(model, *, ba_hard_v1_lora_rank: int = 128,
         0.50, 0.85, 0.75, 1.25
     ):
         raise ValueError("CL23 fixed temporal-frequency schedule drifted")
-    surface_groups = tuple(
-        str(group) for group in (ba_frequency_surface_loss_groups or ())
-    )
-    if bool(ba_frequency_surface_loss_enabled) and (
+    surface_groups = values["ba_frequency_surface_loss_groups"]
+    if values["ba_frequency_surface_loss_enabled"] and (
         hardcase_mode != "temporal_frequency"
         or surface_groups != ("up_blocks.0", "up_blocks.1")
-        or float(ba_frequency_surface_top_weight) != 0.02
-        or float(ba_frequency_surface_top_low_band_factor) != 0.25
-        or float(ba_frequency_surface_visible_floor_weight) != 0.005
-        or float(ba_frequency_surface_visible_floor_ratio) != 0.35
+        or values["ba_frequency_surface_top_weight"] != 0.02
+        or values["ba_frequency_surface_top_low_band_factor"] != 0.25
+        or values["ba_frequency_surface_visible_floor_weight"] != 0.005
+        or values["ba_frequency_surface_visible_floor_ratio"] != 0.35
     ):
         raise ValueError("CL27 frequency-surface objective contract drifted")
-    null_key_groups = tuple(
-        str(group) for group in (ba_null_key_router_groups or ())
-    )
-    if bool(ba_null_key_router_enabled) and (
+    null_key_groups = values["ba_null_key_router_groups"]
+    if values["ba_null_key_router_enabled"] and (
         hardcase_mode != "temporal_frequency"
-        or not bool(ba_frequency_surface_loss_enabled)
+        or not values["ba_frequency_surface_loss_enabled"]
         or null_key_groups != ("up_blocks.0", "up_blocks.1")
-        or float(ba_null_key_entropy_threshold) != 0.75
-        or float(ba_null_key_temperature) != 0.08
-        or float(ba_null_key_max_abstention) != 0.75
-        or float(ba_null_key_min_reference_fraction) != 0.25
+        or values["ba_null_key_entropy_threshold"] != 0.75
+        or values["ba_null_key_temperature"] != 0.08
+        or values["ba_null_key_max_abstention"] != 0.75
+        or values["ba_null_key_min_reference_fraction"] != 0.25
     ):
         raise ValueError("CL39 null-key router contract drifted")
-    crossview_probability = float(ba_crossview_consistency_probability)
-    crossview_weight = float(ba_crossview_consistency_weight)
-    if bool(ba_crossview_consistency_enabled) and not (
+    crossview_probability = values["ba_crossview_consistency_probability"]
+    crossview_weight = values["ba_crossview_consistency_weight"]
+    if values["ba_crossview_consistency_enabled"] and not (
         0.0 < crossview_probability <= 1.0 and crossview_weight > 0.0
     ):
         raise ValueError("CL18 cross-view probability/weight must be positive")
-    identity_groups = tuple(
-        str(group) for group in (ba_residual_identity_ca_v3_groups or ())
-    )
-    if bool(ba_residual_identity_ca_v3_enabled) and (
+    identity_groups = values["ba_residual_identity_ca_v3_groups"]
+    if values["ba_residual_identity_ca_v3_enabled"] and (
         identity_groups != ("up_blocks.0", "up_blocks.1")
-        or int(ba_residual_identity_ca_v3_rank) != 64
-        or float(ba_residual_identity_ca_v3_gate_init) != 0.02
-        or float(ba_residual_identity_ca_v3_gate_max) != 0.20
+        or values["ba_residual_identity_ca_v3_rank"] != 64
+        or values["ba_residual_identity_ca_v3_gate_init"] != 0.02
+        or values["ba_residual_identity_ca_v3_gate_max"] != 0.20
         or hardcase_mode != "off"
-        or bool(ba_crossview_consistency_enabled)
+        or values["ba_crossview_consistency_enabled"]
     ):
         raise ValueError("CL14_CA residual identity-CA contract drifted")
 
+    model.e13_family_contract = True
     model.ba_architecture_version = ARCHITECTURE
-    model.ba_hard_v1_lora_rank = 128
-    # The sealed schema retains the generic adapter rank (32) in
-    # branched_attn_lora_rank and records the hard-v1 override separately.
-    # Runtime installation always reads ba_hard_v1_lora_rank first.
     model.branched_attn_lora_rank = int(model.lora_rank)
-    model.generic_adapter_train_scope = generic_adapter_train_scope
-    model.photomaker_default_train_scope = photomaker_default_train_scope
-    model.strict_branched_install = True
-    model.strict_trainable_contract = True
-    model.branched_state_dict_mode = STATE_FORMAT
-    model.ba_training_mask_feather = int(ba_training_mask_feather)
-    # 10 Aug 2026 - E13C-PERF-01: Large/BigCelebs/Cosmic pairs are effectively
-    # unique; record the sealed cache-off policy instead of paying bookkeeping
-    # for a cache that cannot warm.
-    model.conditioning_cache_enabled = False
-    model.skip_unused_text_conditioning = bool(skip_unused_text_conditioning)
-    model.batched_conditioning_preparation = bool(batched_conditioning_preparation)
-    model.cache_prepared_masks = bool(cache_prepared_masks)
-    model.compute_branch_debug_outputs = bool(compute_branch_debug_outputs)
-    # 12 Aug 2026 - CL18/CL19 are defaults-off extensions: CL18 changes only
-    # the training objective; CL19 changes only the selected SA processor math.
-    model.ba_hardcase_mode = hardcase_mode
-    model.ba_hardcase_groups = hardcase_groups
-    model.ba_hardcase_transition_cells = int(ba_hardcase_transition_cells)
-    model.ba_hardcase_frequency_low_early = frequency_values[0]
-    model.ba_hardcase_frequency_low_late = frequency_values[1]
-    model.ba_hardcase_frequency_high_early = frequency_values[2]
-    model.ba_hardcase_frequency_high_late = frequency_values[3]
-    model.ba_hardcase_telemetry_enabled = bool(ba_hardcase_telemetry_enabled)
-    model.ba_frequency_surface_loss_enabled = bool(
-        ba_frequency_surface_loss_enabled
-    )
-    model.ba_frequency_surface_loss_groups = surface_groups
-    model.ba_frequency_surface_top_weight = float(
-        ba_frequency_surface_top_weight
-    )
-    model.ba_frequency_surface_top_low_band_factor = float(
-        ba_frequency_surface_top_low_band_factor
-    )
-    model.ba_frequency_surface_visible_floor_weight = float(
-        ba_frequency_surface_visible_floor_weight
-    )
-    model.ba_frequency_surface_visible_floor_ratio = float(
-        ba_frequency_surface_visible_floor_ratio
-    )
-    model.ba_null_key_router_enabled = bool(ba_null_key_router_enabled)
-    model.ba_null_key_router_groups = null_key_groups
-    model.ba_null_key_entropy_threshold = float(ba_null_key_entropy_threshold)
-    model.ba_null_key_temperature = float(ba_null_key_temperature)
-    model.ba_null_key_max_abstention = float(ba_null_key_max_abstention)
-    model.ba_null_key_min_reference_fraction = float(
-        ba_null_key_min_reference_fraction
-    )
-    model.ba_crossview_consistency_enabled = bool(
-        ba_crossview_consistency_enabled
-    )
-    model.ba_crossview_consistency_probability = crossview_probability
-    model.ba_crossview_consistency_weight = crossview_weight
-    # 13 Aug 2026 - CL14_CA-CORE-01: defaults-off, exact one-delta extension.
-    model.ba_residual_identity_ca_v3_enabled = bool(
-        ba_residual_identity_ca_v3_enabled
-    )
-    model.ba_residual_identity_ca_v3_groups = identity_groups
-    model.ba_residual_identity_ca_v3_rank = int(ba_residual_identity_ca_v3_rank)
-    model.ba_residual_identity_ca_v3_gate_init = float(
-        ba_residual_identity_ca_v3_gate_init
-    )
-    model.ba_residual_identity_ca_v3_gate_max = float(
-        ba_residual_identity_ca_v3_gate_max
-    )
+    model._e13_settings = values
+    for name, value in values.items():
+        setattr(model, name, value)
+
+
+def copy_pipeline_runtime_settings(model, pipeline) -> None:
+    """Copy the output-affecting leaf settings to validation exactly once."""
+    for name in PIPELINE_RUNTIME_SETTINGS:
+        setattr(pipeline, name, getattr(model, name))
 
 
 def _is_lora_parameter(name: str) -> bool:
@@ -312,6 +301,33 @@ def assert_trainable_contract(model, optimizer=None) -> dict:
         ).append(named[name])
     summary = {role: _summary(params) for role, params in grouped.items()}
     summary["total"] = _summary(named[name] for name in sorted(expected))
+
+    expected_summary = dict(EXPECTED_ROLE_SUMMARIES)
+    if model.ba_residual_identity_ca_v3_enabled:
+        expected_summary["residual_identity_ca_r64"] = IDENTITY_CA_SUMMARY
+    if set(summary) - {"total"} != set(expected_summary):
+        raise RuntimeError(
+            "E13 trainable roles differ from the sealed profile: "
+            f"actual={sorted(set(summary) - {'total'})}, "
+            f"expected={sorted(expected_summary)}"
+        )
+    for role, expected_role in expected_summary.items():
+        if summary[role] != expected_role:
+            raise RuntimeError(
+                f"E13 trainable count mismatch for {role}: "
+                f"actual={summary[role]}, expected={expected_role}"
+            )
+    expected_total = {
+        "tensors": sum(value["tensors"] for value in expected_summary.values()),
+        "parameters": sum(
+            value["parameters"] for value in expected_summary.values()
+        ),
+    }
+    if summary["total"] != expected_total:
+        raise RuntimeError(
+            "E13 total trainable count mismatch: "
+            f"actual={summary['total']}, expected={expected_total}"
+        )
 
     if optimizer is not None:
         expected_ids = {id(named[name]) for name in expected}
@@ -439,9 +455,9 @@ def architecture_manifest(model) -> dict:
         "non_ba_train": False,
         "pose_adapt_ratio": 0.0,
         "ca_mixing_for_face": False,
-        "photomaker_start_step": int(model.photomaker_start_step),
-        "branched_attn_start_step": int(model.branched_attn_start_step),
-        "num_inference_steps": int(model.num_inference_steps),
+        "photomaker_start_step": 10,
+        "branched_attn_start_step": 15,
+        "num_inference_steps": 50,
         "generic_adapter_train_scope": "effective_all",
         "photomaker_default_train_scope": "effective_all",
         "hard_v1_extensions": hard_v1_extensions,
@@ -473,71 +489,16 @@ def get_state_dict(model) -> dict:
 
 
 def _validate_compatible_manifest(saved: dict, current: dict) -> None:
-    # Older E13/CL14 manifests contain inert E14-E24 fields. Compare only the
-    # output-affecting E13 projection plus exact trainable names/shapes so those
-    # sealed checkpoints remain loadable without carrying later mechanisms.
-    required = (
-        "format", "ba_architecture_version", "processor_code_version",
-        "branched_attn_lora_rank",
-        "branched_attn_weight_mode", "branched_attn_new_weight_kind",
-        "train_ba_only", "train_branched_ca_lora", "ba_patch_top_k",
-        "ba_train_top_k", "non_ba_train", "pose_adapt_ratio",
-        "ca_mixing_for_face", "photomaker_start_step",
-        "branched_attn_start_step", "num_inference_steps",
-        "generic_adapter_train_scope", "photomaker_default_train_scope",
-        "semantic_processor_names_sha256", "trainable_names",
-        "trainable_shapes", "trainable_dtypes",
-    )
+    # The clean launch surface starts fresh schema-v2 runs only. Exact
+    # manifests keep checkpoint semantics explicit without old E14-E24
+    # projection branches.
     mismatches = {
         key: (saved.get(key), current.get(key))
-        for key in required if saved.get(key) != current.get(key)
+        for key in sorted(set(saved) | set(current))
+        if saved.get(key) != current.get(key)
     }
     if mismatches:
         raise RuntimeError(f"E13 checkpoint architecture mismatch: {mismatches}")
-    # 10 Aug 2026 - E13C-CORE-04: Compare the hard-v1 extension projection
-    # explicitly. Later manifests may carry unrelated extensions, but the four
-    # routing invariants and rank used by E13 must still match exactly.
-    extension_keys = (
-        "true_reference_key_mask", "branch_output_rank",
-        "reference_roi_warp", "face_fusion_mode", "lora_rank",
-    )
-    saved_extensions = saved.get("hard_v1_extensions") or {}
-    current_extensions = current["hard_v1_extensions"]
-    extension_mismatches = {
-        key: (saved_extensions.get(key), current_extensions.get(key))
-        for key in extension_keys
-        if saved_extensions.get(key) != current_extensions.get(key)
-    }
-    if extension_mismatches:
-        raise RuntimeError(
-            "E13 checkpoint hard-v1 extension mismatch: "
-            f"{extension_mismatches}"
-        )
-    # 12 Aug 2026 - Unlike the inert E14-E24 fields tolerated above, CL19's
-    # router affects generation and CL18's objective affects trained weights.
-    for key in (
-        "hardcase_route", "frequency_surface_loss", "crossview_consistency",
-        "residual_identity_ca_v3", "null_key_router",
-    ):
-        saved_value = saved_extensions.get(key)
-        current_value = current_extensions.get(key)
-        if (
-            key == "hardcase_route"
-            and saved_value is not None
-            and saved_value.get("mode") == "soft_router"
-        ):
-            # Source r2 manifests recorded inert hard-case tuning fields too;
-            # project to the three values that define CL19's actual equation.
-            saved_value = {
-                "mode": saved_value.get("mode"),
-                "groups": saved_value.get("groups"),
-                "transition_cells": saved_value.get("transition_cells"),
-            }
-        if saved_value != current_value:
-            raise RuntimeError(
-                f"E13 checkpoint {key} mismatch: "
-                f"saved={saved_value!r}, current={current_value!r}"
-            )
 
 
 def load_state_dict(model, state: dict) -> None:

@@ -9,6 +9,8 @@ from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 from pathlib import Path
 
+from src.model.photomaker_branched.e13_contract import normalise_e13_settings
+
 
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "src/configs"
 DIFFUSION_ROOT = CONFIG_DIR.parents[1]
@@ -76,30 +78,11 @@ def main() -> None:
         for name, (dataset, feather) in RECIPES.items():
             config = compose(config_name=name)
             composed[name] = config
+            settings = normalise_e13_settings(config.model.e13_settings)
             for path, expected in {
                 "train_dataset_name": dataset,
                 "train_on_separate_image": True,
-                "train_ba_all_steps": True,
-                "train_ba_only": True,
-                "branched_attn_weight_mode": "noise_and_ref",
-                "branched_attn_new_weight_kind": "lora",
-                "train_branched_ca_lora": False,
-                "disable_branched_sa": False,
-                "disable_branched_ca": True,
-                "model.e13_family_contract": True,
                 "model.rank": 32,
-                "model.ba_hard_v1_lora_rank": 128,
-                "model.generic_adapter_train_scope": "effective_all",
-                "model.photomaker_default_train_scope": "effective_all",
-                "model.strict_branched_install": True,
-                "model.strict_trainable_contract": True,
-                "model.branched_state_dict_mode": "trainable_unet_v2",
-                "model.ba_training_mask_feather": feather,
-                "model.conditioning_cache_enabled": False,
-                "model.skip_unused_text_conditioning": True,
-                "model.batched_conditioning_preparation": True,
-                "model.cache_prepared_masks": True,
-                "model.compute_branch_debug_outputs": False,
                 "pipeline.pose_adapt_ratio": 0.0,
                 "pipeline.ca_mixing_for_face": False,
                 "pipeline.photomaker_start_step": 10,
@@ -122,10 +105,6 @@ def main() -> None:
                 "dataloaders.train.num_workers": 2,
                 "dataloaders.manual_val.batch_size": 12,
                 "dataloaders.manual_val.num_workers": 1,
-                "validation_shadow_photomaker_default": True,
-                "validation_processor_base_mode": "legacy_full_copy",
-                "strict_validation_processor_copy": True,
-                "update_proc_weights_val": True,
                 "pretrained_model_for_validation_name_or_path": (
                     "SG161222/RealVisXL_V4.0"
                 ),
@@ -134,15 +113,25 @@ def main() -> None:
                 "validation_args.guidance_scale": 5,
                 "validation_args.photomaker_start_step": 10,
                 "validation_args.branched_attn_start_step": 15,
-                "validation_args.use_bbox_mask_gen": True,
-                "automatic_bboxes": True,
-                "automatic_bboxes_every_val": False,
-                "expected_trainable_contract.total_tensors": 2240,
-                "expected_trainable_contract.total_parameters": 219217920,
             }.items():
                 _require(config, path, expected)
+            if settings["ba_training_mask_feather"] != feather:
+                raise RuntimeError("Training mask feather drifted")
+            if any(
+                settings[name]
+                for name in (
+                    "ba_frequency_surface_loss_enabled",
+                    "ba_null_key_router_enabled",
+                    "ba_crossview_consistency_enabled",
+                    "ba_residual_identity_ca_v3_enabled",
+                )
+            ) or settings["ba_hardcase_mode"] != "off":
+                raise RuntimeError(f"{name}: unexpected E13 extension")
             bbox_path, expected_auto_hash = BBOX_PROTOCOLS[name]
-            _require(config, "datasets.val.manual_val.bbox_mask_gen", bbox_path)
+            auto_bbox_path = str(
+                Path(bbox_path).with_name(f"{Path(bbox_path).stem}_auto.json")
+            )
+            _require(config, "datasets.val.manual_val.bbox_mask_gen", auto_bbox_path)
             # 10 Aug 2026 - E13C-PIPE-03: Validation generations depend on the
             # exact historical automatic box cache, so reject a fresh detector
             # pass or a similarly named protocol before GPU startup.
@@ -153,14 +142,7 @@ def main() -> None:
     # across leaves. Only CL14's training mask feather is excluded here; dataset
     # policy is validated independently below.
     projection_paths = (
-        "train_on_separate_image", "train_ba_all_steps", "train_ba_only",
-        "branched_attn_weight_mode", "branched_attn_new_weight_kind",
-        "train_branched_ca_lora", "disable_branched_sa",
-        "disable_branched_ca", "ba_patch_top_k", "ba_train_top_k",
-        "non_ba_train", "strict_face_routing", "loss_kind", "lambda_face",
-        "model.rank", "model.ba_hard_v1_lora_rank",
-        "model.generic_adapter_train_scope",
-        "model.photomaker_default_train_scope",
+        "train_on_separate_image", "model.rank",
         "pipeline.pose_adapt_ratio", "pipeline.ca_mixing_for_face",
         "pipeline.photomaker_start_step", "pipeline.branched_attn_start_step",
         "trainer.epoch_len", "trainer.n_epochs", "trainer.save_period",
@@ -169,7 +151,6 @@ def main() -> None:
         "lr_scheduler.min_factor", "validation_args.num_inference_steps",
         "validation_args.guidance_scale", "validation_args.photomaker_start_step",
         "validation_args.branched_attn_start_step",
-        "validation_shadow_photomaker_default", "validation_processor_base_mode",
         "pretrained_model_for_validation_name_or_path",
     )
     projections = {

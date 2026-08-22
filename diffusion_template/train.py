@@ -160,99 +160,6 @@ def _print_trainable_summary(model, optimizer=None, max_examples: int = 6):
             pass
 
 
-# 10 Aug 2026 - E13C-CORE-03: Independent config-level ownership gate.
-def _assert_expected_trainable_contract(model, optimizer, config):
-    """Fail closed on an explicitly declared non-standard ownership profile."""
-    contract = getattr(config, "expected_trainable_contract", None)
-    if contract is None or not bool(getattr(contract, "enabled", False)):
-        return
-
-    named_parameters = dict(model.named_parameters())
-    trainable = {
-        name: parameter
-        for name, parameter in named_parameters.items()
-        if parameter.requires_grad
-    }
-    optimizer_parameters = [
-        parameter
-        for group in optimizer.param_groups
-        for parameter in group.get("params", ())
-    ]
-    optimizer_ids = {id(parameter) for parameter in optimizer_parameters}
-    trainable_ids = {id(parameter) for parameter in trainable.values()}
-    unknown_optimizer_ids = optimizer_ids - {
-        id(parameter) for parameter in named_parameters.values()
-    }
-
-    actual = {
-        "total_tensors": len(trainable),
-        "total_parameters": sum(int(parameter.numel()) for parameter in trainable.values()),
-        "optimizer_tensors": len(optimizer_ids),
-        "optimizer_parameters": sum(
-            int(parameter.numel())
-            for parameter in optimizer_parameters
-            if id(parameter) in optimizer_ids
-        ),
-    }
-    for key, value in actual.items():
-        expected = int(getattr(contract, key))
-        if value != expected:
-            raise RuntimeError(
-                f"Expected trainable contract mismatch for {key}: "
-                f"expected={expected}, actual={value}"
-            )
-    if len(optimizer_parameters) != len(optimizer_ids):
-        raise RuntimeError("Expected trainable contract found duplicate optimizer parameters")
-    if unknown_optimizer_ids or optimizer_ids != trainable_ids:
-        raise RuntimeError(
-            "Expected trainable contract optimizer membership mismatch: "
-            f"missing={len(trainable_ids - optimizer_ids)}, "
-            f"unexpected={len(optimizer_ids - trainable_ids)}, "
-            f"unknown={len(unknown_optimizer_ids)}"
-        )
-
-    claimed_names = set()
-    for category_name, category in contract.categories.items():
-        substring = str(category.name_substring)
-        matches = {
-            name: parameter
-            for name, parameter in trainable.items()
-            if substring in name
-        }
-        overlap = claimed_names & set(matches)
-        if overlap:
-            raise RuntimeError(
-                f"Expected trainable categories overlap in {category_name}: "
-                f"{sorted(overlap)[:3]}"
-            )
-        claimed_names.update(matches)
-        expected_tensors = int(category.tensors)
-        expected_parameters = int(category.parameters)
-        actual_parameters = sum(
-            int(parameter.numel()) for parameter in matches.values()
-        )
-        if len(matches) != expected_tensors or actual_parameters != expected_parameters:
-            raise RuntimeError(
-                f"Expected trainable category mismatch for {category_name}: "
-                f"expected={expected_tensors}/{expected_parameters}, "
-                f"actual={len(matches)}/{actual_parameters}"
-            )
-    if claimed_names != set(trainable):
-        raise RuntimeError(
-            "Expected trainable categories do not partition ownership: "
-            f"unclaimed={sorted(set(trainable) - claimed_names)[:6]}"
-        )
-
-    # 4 Aug 2026 - AICODE-NOTE: The historical E0 arm deliberately preserves
-    # r4's broad fail-open ownership. This independent exact gate prevents a
-    # future bug fix or adapter change from silently turning it into another run.
-    print(
-        "[Expected Trainable Contract] exact match: "
-        f"{actual['total_tensors']} tensors / "
-        f"{actual['total_parameters']} parameters"
-    )
-
-
 @hydra.main(version_base=None, config_path="src/configs", config_name="persongen_train_lora")
 def main(config):
     """
@@ -387,7 +294,6 @@ def main(config):
     # build optimizer, learning rate scheduler
     trainable_params = model.get_trainable_params(config)
     optimizer = instantiate(config.optimizer, params=trainable_params)
-    _assert_expected_trainable_contract(model, optimizer, config)
     if hasattr(model, "assert_trainable_contract"):
         model.assert_trainable_contract(optimizer=optimizer)
     

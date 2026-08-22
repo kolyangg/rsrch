@@ -1,12 +1,13 @@
 defaults:
-  - cl18_cl20_extension_24k
+  - subject_v2_extension_24k
   - _self_
 
 # 12 Aug 2026 - CL18 changes training only; inference remains one-reference BA.
 model:
-  ba_crossview_consistency_enabled: true
-  ba_crossview_consistency_probability: 0.25
-  ba_crossview_consistency_weight: 0.05
+  e13_settings:
+    ba_crossview_consistency_enabled: true
+    ba_crossview_consistency_probability: 0.25
+    ba_crossview_consistency_weight: 0.05
 
 datasets:
   train:

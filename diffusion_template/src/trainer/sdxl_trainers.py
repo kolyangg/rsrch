@@ -308,24 +308,10 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                     self.lr_scheduler.step()
             ### 25 APR - ADD GRAD ACCUM ###
 
-        # 13 Aug 2026 - CL14_CA-PERF-03: stack diagnostics for one device sync;
-        # a one-GPU Serv run needs no collective at all. Scalar means are exact.
-        loss_names = tuple(self.config.writer.loss_names)
-        local_scalars = torch.stack([
-            batch[name].detach().reshape(()) for name in loss_names
-        ]).float()
-        if self.accelerator.num_processes == 1:
-            gathered = local_scalars.unsqueeze(0)
-        else:
-            gathered = self.accelerator.gather(local_scalars).reshape(
-                -1, len(loss_names)
-            )
-        means = gathered.mean(dim=0)
-        for index, (loss_name, mean_value) in enumerate(
-            zip(loss_names, means.cpu().tolist())
-        ):
-            batch[loss_name] = means[index]
-            train_metrics.update(loss_name, mean_value)
+        # update metrics for each loss (in case of multiple losses)
+        for loss_name in self.config.writer.loss_names:
+            batch[loss_name] = self.accelerator.gather(batch[loss_name]).mean()
+            train_metrics.update(loss_name, batch[loss_name].item())
 
         return batch
         
@@ -807,8 +793,6 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             sample["generated"] = generated_collection[idx]
             sample["id"] = ids_list[idx]
             sample["seed"] = seeds_list[idx]
-            # 12 Aug 2026 - Subject-v2 scores the face owned by the exact box
-            # passed to BA, not an unrelated detection elsewhere in the image.
             sample["face_bbox_gen"] = face_bbox_gen_list[idx]
             sample["face_bbox_ref"] = face_bbox_ref_list[idx]
 
