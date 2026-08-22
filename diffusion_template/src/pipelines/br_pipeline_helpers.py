@@ -17,6 +17,9 @@ from src.model.photomaker_branched.branched_runtime import (
     two_branch_predict,
 )
 from src.model.photomaker_branched.branch_helpers import prepare_mask4
+from src.model.photomaker_branched.e13_contract import (
+    copy_pipeline_runtime_settings,
+)
 from src.model.photomaker_branched.debug_helpers import (
     debug_reference_latents_once,
     log_debug_image,
@@ -57,26 +60,6 @@ def expand_bbox_xyxy(
         max(0.0, min(float(width), x1 + dx)),
         max(0.0, min(float(height), y1 + dy)),
     ]
-
-
-def annotate_original_and_expanded_bbox(
-    img: PIL.Image.Image,
-    *,
-    original_bbox: Optional[Sequence[float]],
-    expanded_bbox: Optional[Sequence[float]],
-    line_width: int = 4,
-) -> PIL.Image.Image:
-    from bbox_utils.visualize_bboxes import annotate_pil
-
-    boxes = {}
-    if original_bbox is not None:
-        boxes["orig"] = original_bbox
-    if expanded_bbox is not None:
-        orig_rounded = tuple(int(round(v)) for v in original_bbox) if original_bbox is not None else None
-        exp_rounded = tuple(int(round(v)) for v in expanded_bbox)
-        if exp_rounded != orig_rounded:
-            boxes["expanded"] = expanded_bbox
-    return annotate_pil(img, boxes, line_width=line_width)
 
 
 def _bbox_mask_from_original_and_expanded(
@@ -256,85 +239,55 @@ def prepare_ref_mask(
     pipeline,
     *,
     pil: PIL.Image.Image,
-    auto_mask_ref: bool,
-    use_bbox_mask_ref: bool,
     face_bbox_ref: Optional[List[float]],
     mask_expansion_ratio: float,
     mask_softness: float,
-    import_mask_ref: Optional[str],
-    debug_dir: Optional[str],
     height: int,
     width: int,
-) -> Optional[str]:
-    if auto_mask_ref:
-        from src.model.photomaker_branched.create_mask_ref import compute_face_mask_from_pil
-
-        os.makedirs(debug_dir, exist_ok=True)
-        auto_ref_path = os.path.join(debug_dir, "auto_ref_mask.png")
-        mask_array = compute_face_mask_from_pil(pil)
-        PIL.Image.fromarray(mask_array).save(auto_ref_path)
-        log_debug_image(f"[DebugImage] auto_ref_mask → {auto_ref_path}")
-        import_mask_ref = auto_ref_path
-        print(f"[AutoMaskRef] Generated ref mask → {auto_ref_path}")
-    else:
-        print(f"[AutoMaskRef] Using existing ref mask at {import_mask_ref}")
-
-    if (not auto_mask_ref) and use_bbox_mask_ref and face_bbox_ref is None:
+) -> None:
+    if face_bbox_ref is None:
         raise RuntimeError(
-            "use_bbox_mask_ref=True but no face_bbox_ref provided for reference image;"
+            "No face_bbox_ref provided for reference image;"
             " ensure ref_bboxes.json contains an entry for this reference."
         )
 
-    if (not auto_mask_ref) and use_bbox_mask_ref and face_bbox_ref is not None:
-        ref_mask = np.zeros((height, width), dtype=bool)
-        ow, oh = pil.size
-        pl, _, pt, _ = pipeline._ref_pad
-        s = min(width / float(ow), height / float(oh))
-        sx, sy = s, s
-        expanded_bbox_ref = expand_bbox_xyxy(
-            face_bbox_ref,
-            expansion_ratio=mask_expansion_ratio,
-            width=ow,
-            height=oh,
-        )
-        x0, y0, x1, y1 = [float(v) for v in expanded_bbox_ref]
-        x0s = int(round(x0 * sx + pl))
-        x1s = int(round(x1 * sx + pl))
-        y0s = int(round(y0 * sy + pt))
-        y1s = int(round(y1 * sy + pt))
-        x0s = max(0, min(width, x0s))
-        x1s = max(0, min(width, x1s))
-        y0s = max(0, min(height, y0s))
-        y1s = max(0, min(height, y1s))
-        orig_x0, orig_y0, orig_x1, orig_y1 = [float(v) for v in face_bbox_ref]
-        ox0s = int(round(orig_x0 * sx + pl))
-        ox1s = int(round(orig_x1 * sx + pl))
-        oy0s = int(round(orig_y0 * sy + pt))
-        oy1s = int(round(orig_y1 * sy + pt))
-        ox0s = max(0, min(width, ox0s))
-        ox1s = max(0, min(width, ox1s))
-        oy0s = max(0, min(height, oy0s))
-        oy1s = max(0, min(height, oy1s))
-        ref_mask = _bbox_mask_from_original_and_expanded(
-            original_bbox=[ox0s, oy0s, ox1s, oy1s],
-            expanded_bbox=[x0s, y0s, x1s, y1s],
-            height=height,
-            width=width,
-            mask_softness=mask_softness,
-        )
-        pipeline._face_bbox_ref_original = list(face_bbox_ref)
-        pipeline._face_bbox_ref_expanded = list(expanded_bbox_ref)
-        pipeline._face_mask_ref = ref_mask
-        pipeline._face_mask_t_ref = torch.from_numpy(ref_mask.astype(np.float32))[None, None]
+    ow, oh = pil.size
+    pl, _, pt, _ = pipeline._ref_pad
+    scale = min(width / float(ow), height / float(oh))
+    expanded_bbox_ref = expand_bbox_xyxy(
+        face_bbox_ref,
+        expansion_ratio=mask_expansion_ratio,
+        width=ow,
+        height=oh,
+    )
 
-    return import_mask_ref
+    def scaled_box(box):
+        x0, y0, x1, y1 = [float(value) for value in box]
+        return [
+            max(0, min(width, int(round(x0 * scale + pl)))),
+            max(0, min(height, int(round(y0 * scale + pt)))),
+            max(0, min(width, int(round(x1 * scale + pl)))),
+            max(0, min(height, int(round(y1 * scale + pt)))),
+        ]
+
+    ref_mask = _bbox_mask_from_original_and_expanded(
+        original_bbox=scaled_box(face_bbox_ref),
+        expanded_bbox=scaled_box(expanded_bbox_ref),
+        height=height,
+        width=width,
+        mask_softness=mask_softness,
+    )
+    pipeline._face_bbox_ref_original = list(face_bbox_ref)
+    pipeline._face_bbox_ref_expanded = list(expanded_bbox_ref)
+    pipeline._face_mask_ref = ref_mask
+    pipeline._face_mask_t_ref = torch.from_numpy(
+        ref_mask.astype(np.float32)
+    )[None, None]
 
 
 def prepare_gen_mask(
     pipeline,
     *,
-    use_dynamic_mask: bool,
-    use_bbox_mask_gen: bool,
     face_bbox_gen: Optional[List[float]],
     mask_expansion_ratio: float,
     mask_softness: float,
@@ -342,67 +295,41 @@ def prepare_gen_mask(
     width: int,
     batch_size: int = 1,
 ) -> None:
-    #### 08 MAR - FIX BATCHED VALIDATION ####
-    if (not use_dynamic_mask) and use_bbox_mask_gen and face_bbox_gen is not None:
-        per_sample_boxes = (
-            isinstance(face_bbox_gen, (list, tuple))
-            and len(face_bbox_gen) > 0
-            and isinstance(face_bbox_gen[0], (list, tuple))
+    if face_bbox_gen is None:
+        raise RuntimeError(
+            "The fixed validation protocol has no generation face bbox"
         )
-        if per_sample_boxes:
-            boxes = list(face_bbox_gen)
-            if len(boxes) != batch_size:
-                raise RuntimeError(
-                    f"use_bbox_mask_gen batch mismatch: got {len(boxes)} bboxes for batch_size={batch_size}"
-                )
-            gen_mask = np.zeros((batch_size, height, width), dtype=bool)
-            expanded_boxes = []
-            for bi, box in enumerate(boxes):
-                expanded_box = expand_bbox_xyxy(
-                    box,
-                    expansion_ratio=mask_expansion_ratio,
-                    width=width,
-                    height=height,
-                )
-                expanded_boxes.append(list(expanded_box))
-                gen_mask[bi] = _bbox_mask_from_original_and_expanded(
-                    original_bbox=box,
-                    expanded_bbox=expanded_box,
-                    height=height,
-                    width=width,
-                    mask_softness=mask_softness,
-                )
-            pipeline._face_bbox_gen_original = [list(box) for box in boxes]
-            pipeline._face_bbox_gen_expanded = expanded_boxes
-            pipeline._face_mask = gen_mask
-            pipeline._face_mask_t = torch.from_numpy(gen_mask.astype(np.float32))[:, None]
-            return
-
-        gen_mask = np.zeros((height, width), dtype=np.float32)
-        expanded_bbox_gen = expand_bbox_xyxy(
-            face_bbox_gen,
+    per_sample_boxes = (
+        isinstance(face_bbox_gen, (list, tuple))
+        and face_bbox_gen
+        and isinstance(face_bbox_gen[0], (list, tuple))
+    )
+    boxes = list(face_bbox_gen) if per_sample_boxes else [face_bbox_gen]
+    if per_sample_boxes and len(boxes) != batch_size:
+        raise RuntimeError(
+            f"Generation bbox batch mismatch: {len(boxes)} for batch {batch_size}"
+        )
+    gen_mask = np.zeros((len(boxes), height, width), dtype=np.float32)
+    expanded_boxes = []
+    for index, box in enumerate(boxes):
+        expanded = expand_bbox_xyxy(
+            box,
             expansion_ratio=mask_expansion_ratio,
             width=width,
             height=height,
         )
-        gen_mask = _bbox_mask_from_original_and_expanded(
-            original_bbox=face_bbox_gen,
-            expanded_bbox=expanded_bbox_gen,
+        expanded_boxes.append(list(expanded))
+        gen_mask[index] = _bbox_mask_from_original_and_expanded(
+            original_bbox=box,
+            expanded_bbox=expanded,
             height=height,
             width=width,
             mask_softness=mask_softness,
         )
-        pipeline._face_bbox_gen_original = list(face_bbox_gen)
-        pipeline._face_bbox_gen_expanded = list(expanded_bbox_gen)
-        pipeline._face_mask = gen_mask
-        pipeline._face_mask_t = torch.from_numpy(gen_mask.astype(np.float32))[None, None]
-    elif (not use_dynamic_mask) and use_bbox_mask_gen and face_bbox_gen is None:
-        raise RuntimeError(
-            "use_bbox_mask_gen=True but no face_bbox_gen provided for generated image;"
-            " ensure pm20_bboxes.json contains an entry for the current validation index"
-            " (e.g., '00.png', '01.png', ...)."
-        )
-    #### 08 MAR - FIX BATCHED VALIDATION ####
+    pipeline._face_bbox_gen_original = [list(box) for box in boxes]
+    pipeline._face_bbox_gen_expanded = expanded_boxes
+    pipeline._face_mask = gen_mask if per_sample_boxes else gen_mask[0]
+    pipeline._face_mask_t = torch.from_numpy(gen_mask)[:, None]
 
 
 def prepare_id_features(
@@ -479,15 +406,9 @@ def run_branched_setup(
     width: int,
     latents: torch.Tensor,
     id_pixel_values: torch.Tensor,
-    auto_mask_ref: bool,
-    use_bbox_mask_ref: bool,
     face_bbox_ref: Optional[List[float]],
     mask_expansion_ratio: float,
     mask_softness: float,
-    import_mask_ref: Optional[str],
-    debug_dir: Optional[str],
-    use_dynamic_mask: bool,
-    use_bbox_mask_gen: bool,
     face_bbox_gen: Optional[List[float]],
     generator: Optional[torch.Generator],
     device: torch.device,
@@ -509,21 +430,15 @@ def run_branched_setup(
         prepare_ref_mask(
             pipeline,
             pil=pil,
-            auto_mask_ref=auto_mask_ref,
-            use_bbox_mask_ref=use_bbox_mask_ref,
             face_bbox_ref=face_bbox_ref,
             mask_expansion_ratio=mask_expansion_ratio,
             mask_softness=mask_softness,
-            import_mask_ref=import_mask_ref,
-            debug_dir=debug_dir,
             height=height,
             width=width,
         )
 
     prepare_gen_mask(
         pipeline,
-        use_dynamic_mask=use_dynamic_mask,
-        use_bbox_mask_gen=use_bbox_mask_gen,
         face_bbox_gen=face_bbox_gen,
         mask_expansion_ratio=mask_expansion_ratio,
         mask_softness=mask_softness,
@@ -996,24 +911,18 @@ def build_pipeline_from_pretrained(
     )
     pose_adapt_ratio_cfg = kwargs.pop(
         "pose_adapt_ratio",
-        getattr(unwrapped_model, "pose_adapt_ratio", 0.25),
+        0.0,
     )
     ca_mixing_for_face_cfg = kwargs.pop(
         "ca_mixing_for_face",
-        getattr(unwrapped_model, "ca_mixing_for_face", True),
+        False,
     )
     face_embed_strategy_cfg = kwargs.pop(
         "face_embed_strategy",
-        getattr(unwrapped_model, "face_embed_strategy", "face"),
+        "id",
     )
-    use_id_embeds_cfg = kwargs.pop(
-        "use_id_embeds",
-        getattr(unwrapped_model, "use_id_embeds", True),
-    )
-    id_alpha_cfg = kwargs.pop(
-        "id_alpha",
-        getattr(unwrapped_model, "id_alpha", 0.3),
-    )
+    if float(pose_adapt_ratio_cfg) != 0.0 or bool(ca_mixing_for_face_cfg):
+        raise ValueError("Clean E13 validation requires reference-only BA and native CA")
 
     pipeline = pipeline_cls.from_pretrained(
         scheduler=scheduler,
@@ -1038,14 +947,7 @@ def build_pipeline_from_pretrained(
     pipeline.pose_adapt_ratio = pose_adapt_ratio_cfg
     pipeline.ca_mixing_for_face = ca_mixing_for_face_cfg
     pipeline.face_embed_strategy = face_embed_strategy_cfg
-    pipeline.use_id_embeds = bool(use_id_embeds_cfg)
-    pipeline.id_alpha = float(id_alpha_cfg)
-    pipeline.strict_face_routing = bool(getattr(unwrapped_model, "strict_face_routing", False))
-    pipeline.branched_attn_weight_mode = getattr(unwrapped_model, "branched_attn_weight_mode", "shared")
-    pipeline.branched_attn_new_weight_kind = getattr(unwrapped_model, "branched_attn_new_weight_kind", "full")
-    pipeline.branched_attn_lora_rank = int(
-        getattr(unwrapped_model, "branched_attn_lora_rank", getattr(unwrapped_model, "lora_rank", 16))
-    )
+    copy_pipeline_runtime_settings(unwrapped_model, pipeline)
     if hasattr(unwrapped_model, "_original_attn_processors"):
         pipeline._original_attn_processors = dict(unwrapped_model._original_attn_processors)
     if hasattr(unwrapped_model.unet, "attn_processors"):

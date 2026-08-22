@@ -3,7 +3,7 @@ import warnings
 import hydra
 import torch
 from hydra.utils import instantiate
-from omegaconf import OmegaConf, open_dict
+from omegaconf import OmegaConf
 from accelerate import Accelerator
 from accelerate.utils import InitProcessGroupKwargs, DistributedDataParallelKwargs
 
@@ -15,61 +15,6 @@ import datetime
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
-
-def _configure_train_dataset_resolution(config) -> None:
-    train_dataset_name = str(getattr(config, "train_dataset_name", ""))
-    is_cosmic_large_family = train_dataset_name.startswith("cosmic_large")
-    upscale_to_1024 = bool(getattr(config, "train_dataset_upscale_to_1024", True))
-    const_ref = bool(getattr(config, "train_dataset_const_ref", True))
-    crop_ref = bool(getattr(config, "train_dataset_crop_ref", False))
-    ref_similar = bool(getattr(config, "train_dataset_ref_similar", False))
-    origtarget_genref = bool(getattr(config, "train_dataset_origtarget_genref", True))
-    crop_nonface_min = float(getattr(config, "train_dataset_crop_nonface_min", 0.2))
-    crop_nonface_max = float(getattr(config, "train_dataset_crop_nonface_max", 0.4))
-    train_dataset_target_size = 1024
-
-    if is_cosmic_large_family and not origtarget_genref and not upscale_to_1024:
-        train_dataset_target_size = 256
-
-    with open_dict(config):
-        config.train_dataset_upscale_to_1024 = upscale_to_1024
-        config.train_dataset_const_ref = const_ref
-        config.train_dataset_crop_ref = crop_ref
-        config.train_dataset_ref_similar = ref_similar
-        config.train_dataset_origtarget_genref = origtarget_genref
-        config.train_dataset_crop_nonface_min = crop_nonface_min
-        config.train_dataset_crop_nonface_max = crop_nonface_max
-        config.train_dataset_target_size = train_dataset_target_size
-
-        if "model" in config and "target_size" in config.model:
-            config.model.target_size = train_dataset_target_size
-
-        if (
-            "transforms" in config
-            and "instance_transforms" in config.transforms
-            and "train" in config.transforms.instance_transforms
-            and "pixel_values" in config.transforms.instance_transforms.train
-        ):
-            transforms = config.transforms.instance_transforms.train.pixel_values.transforms
-            if transforms:
-                resize_transform = transforms[0]
-                if "size" in resize_transform:
-                    resize_transform.size = [train_dataset_target_size, train_dataset_target_size]
-
-        if (
-            "datasets" in config
-            and "train" in config.datasets
-        ):
-            for dataset_name, dataset_cfg in config.datasets.train.items():
-                if not str(dataset_name).startswith("cosmic_large"):
-                    continue
-                dataset_cfg.upscale_to_1024 = upscale_to_1024
-                dataset_cfg.const_ref = const_ref
-                dataset_cfg.crop_ref = crop_ref
-                dataset_cfg.ref_similar = ref_similar
-                dataset_cfg.origtarget_genref = origtarget_genref
-                dataset_cfg.crop_nonface_min = crop_nonface_min
-                dataset_cfg.crop_nonface_max = crop_nonface_max
 
 def _format_numel(n: int) -> str:
     if n >= 1_000_000_000:
@@ -160,99 +105,6 @@ def _print_trainable_summary(model, optimizer=None, max_examples: int = 6):
             pass
 
 
-# 10 Aug 2026 - E13C-CORE-03: Independent config-level ownership gate.
-def _assert_expected_trainable_contract(model, optimizer, config):
-    """Fail closed on an explicitly declared non-standard ownership profile."""
-    contract = getattr(config, "expected_trainable_contract", None)
-    if contract is None or not bool(getattr(contract, "enabled", False)):
-        return
-
-    named_parameters = dict(model.named_parameters())
-    trainable = {
-        name: parameter
-        for name, parameter in named_parameters.items()
-        if parameter.requires_grad
-    }
-    optimizer_parameters = [
-        parameter
-        for group in optimizer.param_groups
-        for parameter in group.get("params", ())
-    ]
-    optimizer_ids = {id(parameter) for parameter in optimizer_parameters}
-    trainable_ids = {id(parameter) for parameter in trainable.values()}
-    unknown_optimizer_ids = optimizer_ids - {
-        id(parameter) for parameter in named_parameters.values()
-    }
-
-    actual = {
-        "total_tensors": len(trainable),
-        "total_parameters": sum(int(parameter.numel()) for parameter in trainable.values()),
-        "optimizer_tensors": len(optimizer_ids),
-        "optimizer_parameters": sum(
-            int(parameter.numel())
-            for parameter in optimizer_parameters
-            if id(parameter) in optimizer_ids
-        ),
-    }
-    for key, value in actual.items():
-        expected = int(getattr(contract, key))
-        if value != expected:
-            raise RuntimeError(
-                f"Expected trainable contract mismatch for {key}: "
-                f"expected={expected}, actual={value}"
-            )
-    if len(optimizer_parameters) != len(optimizer_ids):
-        raise RuntimeError("Expected trainable contract found duplicate optimizer parameters")
-    if unknown_optimizer_ids or optimizer_ids != trainable_ids:
-        raise RuntimeError(
-            "Expected trainable contract optimizer membership mismatch: "
-            f"missing={len(trainable_ids - optimizer_ids)}, "
-            f"unexpected={len(optimizer_ids - trainable_ids)}, "
-            f"unknown={len(unknown_optimizer_ids)}"
-        )
-
-    claimed_names = set()
-    for category_name, category in contract.categories.items():
-        substring = str(category.name_substring)
-        matches = {
-            name: parameter
-            for name, parameter in trainable.items()
-            if substring in name
-        }
-        overlap = claimed_names & set(matches)
-        if overlap:
-            raise RuntimeError(
-                f"Expected trainable categories overlap in {category_name}: "
-                f"{sorted(overlap)[:3]}"
-            )
-        claimed_names.update(matches)
-        expected_tensors = int(category.tensors)
-        expected_parameters = int(category.parameters)
-        actual_parameters = sum(
-            int(parameter.numel()) for parameter in matches.values()
-        )
-        if len(matches) != expected_tensors or actual_parameters != expected_parameters:
-            raise RuntimeError(
-                f"Expected trainable category mismatch for {category_name}: "
-                f"expected={expected_tensors}/{expected_parameters}, "
-                f"actual={len(matches)}/{actual_parameters}"
-            )
-    if claimed_names != set(trainable):
-        raise RuntimeError(
-            "Expected trainable categories do not partition ownership: "
-            f"unclaimed={sorted(set(trainable) - claimed_names)[:6]}"
-        )
-
-    # 4 Aug 2026 - AICODE-NOTE: The historical E0 arm deliberately preserves
-    # r4's broad fail-open ownership. This independent exact gate prevents a
-    # future bug fix or adapter change from silently turning it into another run.
-    print(
-        "[Expected Trainable Contract] exact match: "
-        f"{actual['total_tensors']} tensors / "
-        f"{actual['total_parameters']} parameters"
-    )
-
-
 @hydra.main(version_base=None, config_path="src/configs", config_name="persongen_train_lora")
 def main(config):
     """
@@ -263,7 +115,6 @@ def main(config):
     Args:
         config (DictConfig): hydra experiment config.
     """
-    _configure_train_dataset_resolution(config)
     set_random_seed(config.trainer.seed)
     # Let Accelerate own distributed init; keep long timeout for validation
     ddp_timeout = int(getattr(config, "ddp_timeout_seconds", 3600))
@@ -285,21 +136,9 @@ def main(config):
     writer = None
     
     if accelerator.is_main_process:
-        print(
-            f"[Train Dataset] name={config.train_dataset_name} "
-            f"upscale_to_1024={config.train_dataset_upscale_to_1024} "
-            f"const_ref={config.train_dataset_const_ref} "
-            f"crop_ref={config.train_dataset_crop_ref} "
-            f"ref_similar={config.train_dataset_ref_similar} "
-            f"origtarget_genref={config.train_dataset_origtarget_genref} "
-            f"crop_nonface=({config.train_dataset_crop_nonface_min},"
-            f"{config.train_dataset_crop_nonface_max}) "
-            f"train_target_size={config.train_dataset_target_size}"
-        )
+        print(f"[Train Dataset] name={config.train_dataset_name}")
         logger = setup_saving_and_logging(config)
-        # Allow resuming the same CometML experiment by passing experiment_key (run_id)
-        comet_run_id = getattr(config, "cometml_id", None)
-        writer = instantiate(config.writer, logger, project_config, run_id=comet_run_id)
+        writer = instantiate(config.writer, logger, project_config)
 
     device = accelerator.device
 
@@ -307,77 +146,15 @@ def main(config):
     # batch_transforms should be put on device
     dataloaders, batch_transforms = get_dataloaders(config, device, logger)
 
-    ### 28 Nov: train only BA layers ###
-    # Optional flag: when true, restrict training to branched attention processors only.
-    train_ba_only = bool(getattr(config, "train_ba_only", False))
-    ba_train_top_k = float(getattr(config, "ba_train_top_k", 1.0))
-    ba_patch_top_k = float(getattr(config, "ba_patch_top_k", 1.0))
-    non_ba_train = bool(getattr(config, "non_ba_train", False))
-    train_ba_all_steps = bool(getattr(config, "train_ba_all_steps", False))
-    # Optional flag: when true, enable clean separation of BA-specific parameters.
-    ### 29 Nov - Clean separataion of BA-specific parameters ###
-    ba_weights_split = bool(getattr(config, "ba_weights_split", False))
-    # Optional flag: select v2 (trainable) vs legacy branched attention processors.
-    use_attn_v2 = bool(getattr(config, "use_attn_v2", False)) # use attn_v1 by default (no Linear layers)
-    ### 29 Nov - Clean separataion of BA-specific parameters ###
-    ba_kwargs = {}
-    model_target = str(getattr(getattr(config, "model", {}), "_target_", ""))
-    if (
-        "src.model.photomaker_branched.lora2.PhotomakerBranchedLora" in model_target
-        or "src.model.photomaker_branched.lora3.PhotomakerBranchedLora" in model_target
-    ):
-        ba_kwargs["train_ba_only"] = train_ba_only
-        ba_kwargs["ba_train_top_k"] = ba_train_top_k
-        ba_kwargs["ba_patch_top_k"] = ba_patch_top_k
-        ba_kwargs["non_ba_train"] = non_ba_train
-        ba_kwargs["train_ba_all_steps"] = train_ba_all_steps
-        ### 29 Nov - Clean separataion of BA-specific parameters ###
-        ba_kwargs["ba_weights_split"] = ba_weights_split
-        ba_kwargs["use_attn_v2"] = use_attn_v2
-        ### 29 Nov - Clean separataion of BA-specific parameters ###
-    ### 28 Nov: train only BA layers ###
-
     # build model architecture, then print to console
-    model = instantiate(config.model, device=device, **ba_kwargs)
+    model = instantiate(config.model, device=device)
     if accelerator.is_main_process:
         base_name = getattr(config.model, "pretrained_model_name_or_path", None)
         print(f"[Base Model Switch] Training base: '{base_name}'")
 
-    ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
-    # Optional flags to disable branched self- and cross-attention while keeping
-    # the rest of the two-branch logic intact. Controlled via top-level config:
-    #   disable_branched_sa: False by default
-    #   disable_branched_ca: False by default
-    disable_sa = bool(getattr(config, "disable_branched_sa", False))
-    disable_ca = bool(getattr(config, "disable_branched_ca", False))
-    setattr(model, "disable_branched_sa", disable_sa)
-    setattr(model, "disable_branched_ca", disable_ca)
-    strict_face_routing = bool(getattr(config, "strict_face_routing", False))
-    setattr(model, "strict_face_routing", strict_face_routing)
-    ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
-
     model.prepare_for_training()
 
-    # get function handles of loss and metrics
-    loss_kind = str(getattr(config, "loss_kind", "masked_alternating")).lower()
-    lambda_face = float(getattr(config, "lambda_face", 0.1))
-    loss_target_by_kind = {
-        "masked_alternating": "src.loss.diffusion_loss.MaskedDiffusionLoss",
-        "blended_masked": "src.loss.diffusion_loss.BlendedMaskedDiffusionLoss",
-    }
-    if loss_kind not in loss_target_by_kind:
-        raise ValueError(
-            f"Unknown loss_kind: {loss_kind}. "
-            f"Expected one of {sorted(loss_target_by_kind)}"
-        )
-
-    loss_cfg = OmegaConf.create(OmegaConf.to_container(config.loss_function, resolve=False))
-    loss_cfg["_target_"] = loss_target_by_kind[loss_kind]
-    if loss_kind == "blended_masked":
-        loss_cfg["lambda_face"] = lambda_face
-    elif "lambda_face" in loss_cfg:
-        del loss_cfg["lambda_face"]
-    loss_function = instantiate(loss_cfg).to(device)
+    loss_function = instantiate(config.loss_function).to(device)
 
     metrics = []
     for metric_name in config.inference_metrics:
@@ -387,9 +164,7 @@ def main(config):
     # build optimizer, learning rate scheduler
     trainable_params = model.get_trainable_params(config)
     optimizer = instantiate(config.optimizer, params=trainable_params)
-    _assert_expected_trainable_contract(model, optimizer, config)
-    if hasattr(model, "assert_trainable_contract"):
-        model.assert_trainable_contract(optimizer=optimizer)
+    model.assert_trainable_contract(optimizer=optimizer)
     
     if accelerator.is_main_process:
         for i, group in enumerate(optimizer.param_groups):
@@ -458,20 +233,10 @@ def main(config):
             model=model,
             accelerator=accelerator,
         )
-        # Mirror the same branched-attn flags on the validation pipeline.
-        ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
-        setattr(pipeline, "disable_branched_sa", disable_sa)
-        setattr(pipeline, "disable_branched_ca", disable_ca)
-        ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
         if val_pretrained:
             # Restore original config value immediately after
             config.pipeline.pretrained_model_name_or_path = prev_base
         
-    # Optionally resume training from a checkpoint if requested at top-level config
-    resume_from = None
-    if bool(getattr(config, "continue_run", False)):
-        resume_from = getattr(config, "saved_checkpoint", None)
-
     trainer = instantiate(
         config.trainer,
         model=model,
@@ -487,7 +252,6 @@ def main(config):
         logger=logger,
         writer=writer,
         batch_transforms=batch_transforms,
-        resume_from=resume_from,
         _recursive_=False
     )
 

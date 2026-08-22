@@ -1,28 +1,19 @@
 defaults:
-  - one_id_09Feb_testing
-  - override metrics: all_metrics
-  - override lr_scheduler: warmup_hold_cosine_24k
+  - trainer: photomaker_lora
+  - model: photomaker_branched_lora2
+  - writer: cometml
+  - transforms: only_instance
+  - ddp: accelerate
+  - lr_scheduler: warmup_hold_cosine_24k
+  - pipeline: pm_br_09Feb_testing
+  - metrics: all_metrics
+  - datasets: all_datasets
+  - dataloaders: all_dataloaders
   - _self_
 
-# 10 Aug 2026 - E13C-CFG-01: This is the single shared architecture/runtime
-# contract for E13, BC_E13 and CL14. Leaf recipes may select only a dataset and
-# CL14's training-only mask feather; all output-affecting inference values live
-# here so cross-dataset comparisons cannot drift.
+# Shared architecture and runtime contract for the ten supported 24k recipes.
 train_on_separate_image: true
-train_ba_all_steps: true
-train_ba_only: true
-branched_attn_weight_mode: noise_and_ref
-branched_attn_new_weight_kind: lora
-train_branched_ca_lora: false
-disable_branched_sa: false
-disable_branched_ca: true
-ba_patch_top_k: 1.0
-ba_train_top_k: 1.0
-non_ba_train: false
-strict_face_routing: false
 
-loss_kind: masked_alternating
-lambda_face: 0.1
 lr_for_lora: 1.0e-4
 ba_lr: 1.0e-4
 generic_adapter_lr: 1.0e-4
@@ -31,22 +22,8 @@ photomaker_default_lr: 1.0e-4
 model:
   rank: 32
   weight_dtype: bf16
-  e13_family_contract: true
-  ba_hard_v1_lora_rank: 128
-  generic_adapter_train_scope: effective_all
-  photomaker_default_train_scope: effective_all
-  strict_branched_install: true
-  strict_trainable_contract: true
-  branched_state_dict_mode: trainable_unet_v2
-  ba_training_mask_feather: 0
-  conditioning_cache_enabled: false
-  skip_unused_text_conditioning: true
-  batched_conditioning_preparation: true
-  cache_prepared_masks: true
-  compute_branch_debug_outputs: false
-  train_branched_ca_lora: false
-  branched_attn_weight_mode: noise_and_ref
-  branched_attn_new_weight_kind: lora
+  e13_settings:
+    ba_training_mask_feather: 0
 
 pipeline:
   variant: null
@@ -70,10 +47,6 @@ trainer:
     execution_mode: deferred
 
 weights_only_save_period: 1
-validation_shadow_photomaker_default: true
-validation_processor_base_mode: legacy_full_copy
-strict_validation_processor_copy: true
-update_proc_weights_val: true
 pretrained_model_for_validation_name_or_path: SG161222/RealVisXL_V4.0
 
 dataloaders:
@@ -86,41 +59,47 @@ dataloaders:
     num_workers: 1
     pin_memory: false
 
+train_dataset_name: large_dataset
 val_datasets_names: [manual_val]
 datasets:
   val:
     manual_val:
       limit: 96
 
+mask_expansion_ratio: 1.0
+mask_softness: 0.0
+val_debug: false
+validation_debug_timing: false
 validation_args:
+  negative_prompt: "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry"
+  debug_dir: hm_debug
+  val_debug: ${val_debug}
   num_images_per_prompt: 1
   num_inference_steps: 50
   guidance_scale: 5
+  height: 1024
+  width: 1024
+  target_size: [1024, 1024]
+  original_size: [1024, 1024]
+  crops_coords_top_left: [0, 0]
+  use_branched_attention: true
+  face_embed_strategy: ${pipeline.face_embed_strategy}
   photomaker_start_step: 10
+  photomaker_use_lora_adapter: false
   merge_start_step: 10
   branched_attn_start_step: 15
+  mask_expansion_ratio: ${mask_expansion_ratio}
+  mask_softness: ${mask_softness}
+  branched_start_mode: ${pipeline.branched_start_mode}
 
-automatic_bboxes: true
-automatic_bboxes_every_val: false
-force_log_first_auto_bbox: false
-val_debug: false
+ddp_timeout_seconds: 21600
 
-expected_trainable_contract:
-  enabled: true
-  total_tensors: 2240
-  total_parameters: 219217920
-  optimizer_tensors: 2240
-  optimizer_parameters: 219217920
-  categories:
-    branched_sa_r128:
-      name_substring: ".attn1.processor."
-      tensors: 840
-      parameters: 127795200
-    generic_effective_adapter_r32:
-      name_substring: ".lora_adapter."
-      tensors: 700
-      parameters: 30474240
-    photomaker_default_effective_adapter_r64:
-      name_substring: ".default."
-      tensors: 700
-      parameters: 60948480
+optimizer:
+  _convert_: partial
+  _target_: torch.optim.AdamW
+  weight_decay: 0
+
+loss_function:
+  _target_: src.loss.diffusion_loss.MaskedDiffusionLoss
+
+inference_metrics: [clip_ts, id_sim_best]

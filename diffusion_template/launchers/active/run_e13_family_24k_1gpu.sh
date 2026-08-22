@@ -231,7 +231,6 @@ case "${CONFIG_NAME}" in
       --output "${CL20_SCHEDULE}" \
       --summary-output "${CL20_SCHEDULE_SUMMARY}"
     export CL20_SCHEDULE_SHA256="$(sha256sum "${CL20_SCHEDULE}" | cut -d' ' -f1)"
-    export CL20_SCHEDULE_START_ROW=0
     [[ "${CL20_SCHEDULE_SHA256}" == \
       "783eb1729871e4ac423c770042315572ee7ea24171797402fc4a565999dd5289" ]] || {
       echo "CL20 schedule does not match the corrected-r2 seal" >&2

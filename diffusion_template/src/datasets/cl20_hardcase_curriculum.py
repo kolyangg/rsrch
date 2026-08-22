@@ -56,7 +56,6 @@ class CL20HardcaseCurriculumTrain(BaseDataset):
         big_manifest_path: str,
         big_images_root: str,
         expected_rows: int = 48000,
-        schedule_start_row: int = 0,
         num_refs: int = 1,
         random_horizontal_flip: bool = False,
         *args,
@@ -114,23 +113,12 @@ class CL20HardcaseCurriculumTrain(BaseDataset):
             root = self.cosmic_root if source == "cosmic" else self.big_images_root
             if not (root / relative).is_file():
                 raise FileNotFoundError(root / relative)
-        self.schedule_start_row = int(schedule_start_row)
-        if self.schedule_start_row % 2 or not 0 <= self.schedule_start_row < len(rows):
-            raise ValueError("CL20 schedule_start_row must be an in-range batch boundary")
         self.rows = rows
         self.summary = summary
         super().__init__(rows, *args, **kwargs)
 
     def __len__(self) -> int:
-        return len(self.rows) - self.schedule_start_row
-
-    def validate_resume_position(self, completed_optimizer_steps: int) -> None:
-        expected = int(completed_optimizer_steps) * 2
-        if self.schedule_start_row != expected:
-            raise RuntimeError(
-                f"CL20 resume mismatch: configured row={self.schedule_start_row}, "
-                f"checkpoint row={expected}"
-            )
+        return len(self.rows)
 
     def _load(self, row: dict, which: str) -> Image.Image:
         source = row["source"]
@@ -172,7 +160,7 @@ class CL20HardcaseCurriculumTrain(BaseDataset):
         ]
 
     def __getitem__(self, index: int):
-        row = self.rows[self.schedule_start_row + int(index)]
+        row = self.rows[int(index)]
         target = self._load(row, "target")
         reference = self._load(row, "reference")
         target_bbox = deepcopy(row["target_bbox"])

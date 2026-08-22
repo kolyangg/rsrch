@@ -1,265 +1,79 @@
 train:
-    dreambooth:
-        _target_: src.datasets.dreambooth.DreamBoothTrainDataset
-        data_path: /home/jovyan/bobkov/dreambooth/dataset/dog
-        placeholder_token: sks
-        class_name: dog
-        instance_transforms: ${transforms.instance_transforms.train}
-      
-    # cosmic:
-    #     _target_: src.datasets.cosmic.CosmicDoubledTrain
-    #     cosmic_json_pth: /home/jovyan/bobkov/persongen/cosmic_gathered.json
-    #     cosmic_texts_json_pth: /home/jovyan/bobkov/all_texts_cosmic_by_qween3.json 
-    #     cosmic_large_json_pth: /home/jovyan/bobkov/cosmic_large_alldata.json
-    #     cosmic_large_texts_json_pth: /home/jovyan/bobkov/all_texts_cosmic_large_by_qween3_trigger_word.json
-    #     images_path: /home/jovyan/bobkov/cosmic_data
-    #     num_refs: 1
-    #     instance_transforms: ${transforms.instance_transforms.train}
+  large_dataset:
+    _target_: src.datasets.large_dataset.LargeDatasetTrain
+    data_json_pth: ${oc.env:LARGE_DATASET_MANIFEST,/nonexistent/large_dataset_manifest.json}
+    images_path: ${oc.env:LARGE_DATASET_IMAGES,/nonexistent/large_dataset_images}
+    num_refs: 1
+    train_on_separate_image: ${train_on_separate_image}
+    singleton_reference_policy: error
+    same_id_ref_map_json_pth: null
+    random_horizontal_flip: true
+    instance_transforms: ${transforms.instance_transforms.train}
 
-    cosmic:
-        _target_: src.datasets.cosmic.CosmicDoubledTrain
-        cosmic_json_pth: ../dataset_full/cosmic_gathered.json
-        cosmic_texts_json_pth: ../dataset_full/all_texts_cosmic_by_qween3.json 
-        cosmic_large_json_pth: ../dataset_full/cosmic_large_alldata.json
-        cosmic_large_texts_json_pth: ../dataset_full/all_texts_cosmic_large_by_qween3_trigger_word.json
-        images_path: /home/aalanov/Bobkov_Denis/datasets/CosmicManHQ-1.0/
-        num_refs: 1
-        train_on_separate_image: ${train_on_separate_image}
-        same_id_ref_map_json_pth: null
-        instance_transforms: ${transforms.instance_transforms.train}
+  big_celebs:
+    _target_: src.datasets.big_celebs.BigCelebsTrain
+    manifest_path: ${oc.env:BIG_CELEBS_MANIFEST,/nonexistent/big_celebs_manifest.json}
+    images_path: ${oc.env:BIG_CELEBS_IMAGES,/nonexistent/big_celebs_images}
+    num_refs: 1
+    min_face_res: ${oc.env:BIG_CELEBS_MIN_FACE_RES,192}
+    trigger_word: img
+    strict_manifest_fields: true
+    random_horizontal_flip: true
+    instance_transforms: ${transforms.instance_transforms.train}
 
-    one_id:
-        _target_: src.datasets.cosmic.OneIDTrain
-        cosmic_json_pth: ../dataset_full/one_id/nm0005092_adj_train.json
-        images_path: ../dataset_full/one_id/nm0005092_adj
-        num_refs: 1
-        train_on_separate_image: ${train_on_separate_image}
-        instance_transforms: ${transforms.instance_transforms.train}
+  cosmic_large_adapted:
+    _target_: src.datasets.cosmic_large_adapted.CosmicLargeAdaptedTrain
+    manifest_path: ${oc.env:COSMIC_LARGE_MANIFEST,/nonexistent/cosmic_large_manifest.json}
+    dataset_root: ${oc.env:COSMIC_LARGE_ROOT,/nonexistent/cosmic_large_root}
+    num_refs: 1
+    min_face_res: 192
+    min_reference_score: null
+    reference_crop_margin: null
+    reference_content_size: null
+    reference_canvas_size: null
+    reference_canvas_fill: 127
+    random_horizontal_flip: true
+    random_reference_flip: false
+    prompt_mode: pose_first
+    prompt_max_words: 50
+    reference_frame_mode: target_face_frame
+    reference_frame_fill: edge
+    reference_accept_list_path: ${oc.env:COSMIC_REFERENCE_ACCEPT_LIST,null}
+    num_identity_refs: 1
+    target_scale_balance: false
+    target_scale_bins: null
+    target_scale_balance_mode: reorder
+    reference_scale_jitter: [0.06, 0.30]
+    reference_position_jitter: 0.15
+    semantic_occlusion_probability: 0.0
+    semantic_occlusion_seed: 150017
+    same_identity_dual_reference: false
+    min_reference_candidates_for_target: 3
+    instance_transforms: ${transforms.instance_transforms.train}
 
-    large_dataset:
-        # 10 Aug 2026 - E13C-DATA-01: Use the identity-aware loader and
-        # environment-overridable Serv paths; it enforces a distinct same-ID
-        # reference instead of relying on the older Cosmic compatibility path.
-        _target_: src.datasets.large_dataset.LargeDatasetTrain
-        data_json_pth: ${oc.env:LARGE_DATASET_MANIFEST,../dataset_full/filtered_ids3_adj.json}
-        images_path: ${oc.env:LARGE_DATASET_IMAGES,../dataset_full/large_dataset_adj/large_dataset}
-        num_refs: 1
-        train_on_separate_image: ${train_on_separate_image}
-        singleton_reference_policy: error
-        same_id_ref_map_json_pth: null
-        random_horizontal_flip: true
-        instance_transforms: ${transforms.instance_transforms.train}
-
-    # 10 Aug 2026 - E13C-DATA-02: BC_E13 is a dataset-only transfer. The
-    # sealed loader rejects small faces, malformed prompts and singleton IDs
-    # before model startup so the architecture remains exactly E13.
-    big_celebs:
-        _target_: src.datasets.big_celebs.BigCelebsTrain
-        manifest_path: ${oc.env:BIG_CELEBS_MANIFEST,/nonexistent/big_celebs_manifest.json}
-        images_path: ${oc.env:BIG_CELEBS_IMAGES,/nonexistent/big_celebs_images}
-        num_refs: 1
-        min_face_res: ${oc.env:BIG_CELEBS_MIN_FACE_RES,192}
-        trigger_word: img
-        strict_manifest_fields: true
-        random_horizontal_flip: true
-        instance_transforms: ${transforms.instance_transforms.train}
-
-    # 10 Aug 2026 - E13C-DATA-03/04: CL14 uses the corrected Cosmic path only;
-    # target/reference transforms are independent and target-frame scale jitter
-    # is explicit rather than hidden in generic augmentation code.
-    cosmic_large_adapted:
-        _target_: src.datasets.cosmic_large_adapted.CosmicLargeAdaptedTrain
-        manifest_path: ${oc.env:COSMIC_LARGE_MANIFEST,/nonexistent/cosmic_large_manifest.json}
-        dataset_root: ${oc.env:COSMIC_LARGE_ROOT,/nonexistent/cosmic_large_root}
-        num_refs: 1
-        min_face_res: 192
-        min_reference_score: null
-        reference_crop_margin: null
-        reference_content_size: null
-        reference_canvas_size: null
-        reference_canvas_fill: 127
-        random_horizontal_flip: true
-        random_reference_flip: false
-        prompt_mode: pose_first
-        prompt_max_words: 50
-        reference_frame_mode: target_face_frame
-        reference_frame_fill: edge
-        reference_accept_list_path: ${oc.env:COSMIC_REFERENCE_ACCEPT_LIST,null}
-        num_identity_refs: 1
-        target_scale_balance: false
-        target_scale_bins: null
-        target_scale_balance_mode: reorder
-        reference_scale_jitter: [0.06, 0.30]
-        reference_position_jitter: 0.15
-        # 18 Aug 2026 - Defaults allocate nothing; CL27 alone enables its
-        # deterministic training-only surface supervision.
-        semantic_occlusion_probability: 0.0
-        semantic_occlusion_seed: 150017
-        # 12 Aug 2026 - Defaults are inert; CL18 alone asks for a second
-        # distinct same-ID spatial view for its training-only consistency pass.
-        same_identity_dual_reference: false
-        min_reference_candidates_for_target: 3
-        instance_transforms: ${transforms.instance_transforms.train}
-
-    # 12 Aug 2026 - CL20 owns row order, pairing, scale and flip decisions in
-    # one hash-sealed 48k-row schedule; model and validation remain CL14.
-    cl20_hardcase_curriculum:
-        _target_: src.datasets.cl20_hardcase_curriculum.CL20HardcaseCurriculumTrain
-        schedule_path: ${oc.env:CL20_SCHEDULE,/nonexistent/cl20_schedule.jsonl}
-        summary_path: ${oc.env:CL20_SCHEDULE_SUMMARY,/nonexistent/cl20_schedule.summary.json}
-        expected_schedule_sha256: ${oc.env:CL20_SCHEDULE_SHA256,0000000000000000000000000000000000000000000000000000000000000000}
-        cosmic_manifest_path: ${oc.env:COSMIC_LARGE_MANIFEST,/nonexistent/cosmic_large_manifest.json}
-        cosmic_root: ${oc.env:COSMIC_LARGE_ROOT,/nonexistent/cosmic_large_root}
-        big_manifest_path: ${oc.env:BIG_CELEBS_MANIFEST,/nonexistent/big_celebs_manifest.json}
-        big_images_root: ${oc.env:BIG_CELEBS_IMAGES,/nonexistent/big_celebs_images}
-        expected_rows: 48000
-        schedule_start_row: ${oc.env:CL20_SCHEDULE_START_ROW,0}
-        num_refs: 1
-        random_horizontal_flip: false
-        instance_transforms: ${transforms.instance_transforms.train}
-  
-    large_dataset_serv:
-        _target_: src.datasets.cosmic.LargeDatasetTrain
-        data_json_pth: /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/datasets/dataset_full/filtered_ids3_adj.json
-        images_path: /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/datasets/dataset_full/large_dataset_adj/large_dataset
-        num_refs: 1
-        train_on_separate_image: ${train_on_separate_image}
-        same_id_ref_map_json_pth: null
-        instance_transforms: ${transforms.instance_transforms.train}
-  
-
-    cosmic_large:
-        _target_: src.datasets.cosmic.CosmicLargeTrain
-        data_json_pth: /mnt/virtual_ai0001053-01309_SR006-nfs1/bobkov/cosmic_data/gathered_data_cosmic_large_filtered.json
-        images_path: /mnt/virtual_ai0001053-01309_SR006-nfs1/bobkov/cosmic_data/LAION-5B-Filtered-Large-Faces/laion1B-nolang
-        path_prefix_to_strip: LAION-5B-Filtered-Large/laion1B-nolang
-        require_nested_identity_subdir: true
-        upscale_to_1024: ${train_dataset_upscale_to_1024}
-        const_ref: ${train_dataset_const_ref}
-        crop_ref: ${train_dataset_crop_ref}
-        ref_similar: ${train_dataset_ref_similar}
-        origtarget_genref: ${train_dataset_origtarget_genref}
-        crop_nonface_min: ${train_dataset_crop_nonface_min}
-        crop_nonface_max: ${train_dataset_crop_nonface_max}
-        num_refs: 1
-        min_face_res: 192
-        target_crop_256: false
-        train_on_separate_image: ${train_on_separate_image}
-        same_id_ref_map_json_pth: null
-        instance_transforms: ${transforms.instance_transforms.train}
-
-    cosmic_large_local:
-        _target_: src.datasets.cosmic.CosmicLargeTrain
-        data_json_pth: /home/kolyangg/rsrch/dataset_full/cosmic_large/gathered_data_cosmic_large_filtered_sample_two.json
-        images_path: /home/kolyangg/rsrch/dataset_full/cosmic_large/LAION-5B-Filtered-Large-Faces
-        target_images_path: /home/kolyangg/rsrch/dataset_full/LAION-5B-Filtered-Large
-        path_prefix_to_strip: LAION-5B-Filtered-Large
-        num_refs: 1
-        min_face_res: 192
-        target_crop_256: false
-        crop_nonface_min: ${train_dataset_crop_nonface_min}
-        crop_nonface_max: ${train_dataset_crop_nonface_max}
-        instance_transforms: ${transforms.instance_transforms.train}
-
-    cosmic_large_vast:
-        _target_: src.datasets.cosmic.CosmicLargeTrain
-        data_json_pth: /workspace/datasets/gathered_data_cosmic_large_filtered.json
-        images_path: /workspace/datasets/LAION-5B-Filtered-Large-Faces/laion1B-nolang
-        path_prefix_to_strip: LAION-5B-Filtered-Large/laion1B-nolang
-        require_nested_identity_subdir: true
-        upscale_to_1024: ${train_dataset_upscale_to_1024}
-        const_ref: ${train_dataset_const_ref}
-        crop_ref: ${train_dataset_crop_ref}
-        ref_similar: ${train_dataset_ref_similar}
-        origtarget_genref: ${train_dataset_origtarget_genref}
-        crop_nonface_min: ${train_dataset_crop_nonface_min}
-        crop_nonface_max: ${train_dataset_crop_nonface_max}
-        num_refs: 1
-        min_face_res: 192
-        target_crop_256: false
-        train_on_separate_image: ${train_on_separate_image}
-        same_id_ref_map_json_pth: null
-        instance_transforms: ${transforms.instance_transforms.train}
-
-    cosmic_large_clust:
-        _target_: src.datasets.cosmic.CosmicLargeTrain
-        data_json_pth: ../../datasets/gathered_data_cosmic_large_filtered.json
-        images_path: ../../datasets/LAION-5B-Filtered-Large-Faces/laion1B-nolang
-        target_images_path: /home/aalanov/Bobkov_Denis/datasets/CosmicManHQ-1.0/LAION-5B-Filtered-Large/laion1B-nolang
-        path_prefix_to_strip: LAION-5B-Filtered-Large/laion1B-nolang
-        require_nested_identity_subdir: true
-        upscale_to_1024: ${train_dataset_upscale_to_1024}
-        const_ref: ${train_dataset_const_ref}
-        crop_ref: ${train_dataset_crop_ref}
-        ref_similar: ${train_dataset_ref_similar}
-        origtarget_genref: ${train_dataset_origtarget_genref}
-        crop_nonface_min: ${train_dataset_crop_nonface_min}
-        crop_nonface_max: ${train_dataset_crop_nonface_max}
-        num_refs: 1
-        min_face_res: 192
-        target_crop_256: false
-        train_on_separate_image: ${train_on_separate_image}
-        same_id_ref_map_json_pth: null
-        instance_transforms: ${transforms.instance_transforms.train}
+  cl20_hardcase_curriculum:
+    _target_: src.datasets.cl20_hardcase_curriculum.CL20HardcaseCurriculumTrain
+    schedule_path: ${oc.env:CL20_SCHEDULE,/nonexistent/cl20_schedule.jsonl}
+    summary_path: ${oc.env:CL20_SCHEDULE_SUMMARY,/nonexistent/cl20_schedule.summary.json}
+    expected_schedule_sha256: ${oc.env:CL20_SCHEDULE_SHA256,0000000000000000000000000000000000000000000000000000000000000000}
+    cosmic_manifest_path: ${oc.env:COSMIC_LARGE_MANIFEST,/nonexistent/cosmic_large_manifest.json}
+    cosmic_root: ${oc.env:COSMIC_LARGE_ROOT,/nonexistent/cosmic_large_root}
+    big_manifest_path: ${oc.env:BIG_CELEBS_MANIFEST,/nonexistent/big_celebs_manifest.json}
+    big_images_root: ${oc.env:BIG_CELEBS_IMAGES,/nonexistent/big_celebs_images}
+    expected_rows: 48000
+    num_refs: 1
+    random_horizontal_flip: false
+    instance_transforms: ${transforms.instance_transforms.train}
 
 val:
-    db_liv_small:
-      _target_: src.datasets.dreambooth.DreamBoothLivingSmall
-      data_path: /home/jovyan/bobkov/dreambooth/dataset/dog
-      placeholder_token: sks
-      class_name: dog
-
-    # man:
-    #   _target_: src.datasets.man_datasets.ManValDataset
-    #   data_json_pth: /home/jovyan/bobkov/persongen/filtered_ids3.json
-    #   images_path: /home/jovyan/bobkov/full_dataset
-    
-    man_face:
-      _target_: src.datasets.man_datasets.ManValFaceDataset
-      data_json_pth: /home/jovyan/bobkov/persongen/filtered_ids3.json
-      images_path: /home/jovyan/bobkov/full_dataset
-
-    man:
-      _target_: src.datasets.cosmic.CosmicDoubledTrain
-      cosmic_json_pth: ../dataset_full/cosmic_gathered.json
-      cosmic_texts_json_pth: ../dataset_full/all_texts_cosmic_by_qween3.json
-      cosmic_large_json_pth: ../dataset_full/cosmic_large_alldata.json
-      cosmic_large_texts_json_pth: ../dataset_full/all_texts_cosmic_large_by_qween3_trigger_word.json
-      images_path: /home/aalanov/Bobkov_Denis/datasets/CosmicManHQ-1.0/
-      num_refs: 1
-      instance_transforms: ${transforms.instance_transforms.train}
-      limit: 3
-
-    manual_val:
-      _target_: src.datasets.manual_val.ManualPhotoMakerValDataset
-      images_dir: ../dataset_full/val_dataset/references
-      prompts_path: ../dataset_full/val_dataset/prompts_10.txt
-      classes_json_path: ../dataset_full/val_dataset/classes_ref.json
-      bbox_mask_ref: ../dataset_full/val_dataset/ref_bboxes.json
-      # bbox_mask_gen: ../dataset_full/val_dataset/pm96_bboxes.json
-      bbox_mask_gen: ../dataset_full/val_dataset/pm96_bboxes_new.json
-      seeds: [0] # [0, 1, 2]
-      limit: 96 # 20
-      # limit: 4 # temp
-
-    manual_val_two:
-      _target_: src.datasets.manual_val.ManualPhotoMakerValDataset
-      images_dir: ../dataset_full/val_dataset/references_two
-      prompts_path: ../dataset_full/val_dataset/prompts_10.txt
-      classes_json_path: ../dataset_full/val_dataset/classes_ref.json
-      bbox_mask_ref: ../dataset_full/val_dataset/ref_bboxes.json
-      bbox_mask_gen: ../dataset_full/val_dataset/pm96_bboxes_new.json
-      seeds: [0]
-      limit: 20
-
-    one_id_val:
-      _target_: src.datasets.manual_val.ManualPhotoMakerValDataset
-      images_dir: ../dataset_full/one_id/ref
-      prompts_path: ../dataset_full/val_dataset/prompts_10.txt
-      classes_json_path: ../dataset_full/one_id/one_id_classes_ref.json
-      bbox_mask_ref: ../dataset_full/one_id/nm0005092_adj_test.json
-      bbox_mask_gen: ../dataset_full/one_id/one_id_ref_bboxes.json
-      seeds: [0]
-      # limit: 96 # 10 # 1
-      limit: 12 # 10 # 1
-  
+  manual_val:
+    _target_: src.datasets.manual_val.ManualPhotoMakerValDataset
+    # 22 Aug 2026 - Generation boxes come only from the sealed 96-item JSON;
+    # detector regeneration and cache mutation are outside the clean protocol.
+    images_dir: ../dataset_full/val_dataset/references
+    prompts_path: ../dataset_full/val_dataset/prompts_10.txt
+    classes_json_path: ../dataset_full/val_dataset/classes_ref.json
+    bbox_mask_ref: ../dataset_full/val_dataset/ref_bboxes.json
+    bbox_mask_gen: ../dataset_full/val_dataset/protocols/e13_bc_e13/pm96_bboxes_new_auto.json
+    seeds: [0]
+    limit: 96

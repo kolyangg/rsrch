@@ -1,117 +1,38 @@
-## Photomaker
+# E13-family concise branch (`clean_new`)
 
-```bash
-cd PhotoMaker
-conda create --name photomaker python=3.10
-conda activate photomaker
-pip install -U pip
+This branch is the concise, bloat-removed implementation of the ten selected
+E13-family recipes. The shared architecture is explicit target-query /
+reference-K/V branched self-attention; experiment differences live in small
+Hydra leaves and isolated extension modules.
 
-# Install requirements
-cd ..
-pip install -r pm_requirements.txt
+| Recipe | Difference from shared E13 |
+|---|---|
+| E13 | Large Dataset baseline. |
+| BC_E13 | E13 trained on sealed BigCelebs. |
+| CL14 | Corrected Cosmic policy plus a two-cell training-mask feather. |
+| CL14_CA | CL14 plus bounded residual identity-token CA in `up_blocks.0/1`. |
+| CL18 | CL14 plus training-only same-ID cross-view consistency. |
+| CL19 | CL14 with a two-cell cosine router over full BA messages. |
+| CL20 | CL14 with the sealed Cosmic/BigCelebs hard-case curriculum. |
+| CL23 | CL19 plus fixed denoising-progress low/high frequency gains. |
+| CL27 | CL23 plus training-only frequency-surface supervision. |
+| CL39 | CL27 plus parameter-free entropy abstention to native target SA. |
 
-# Install photomaker
-pip install git+https://github.com/TencentARC/PhotoMaker.git
+The shared E13 processor is
+[`attn_processor_cleanest.py`](diffusion_template/src/model/photomaker_branched/attn_processor_cleanest.py).
+Later routing equations are isolated in
+[`hardcase_attn_processor.py`](diffusion_template/src/model/photomaker_branched/hardcase_attn_processor.py),
+and training-only objectives are isolated in
+[`e13_objectives.py`](diffusion_template/src/model/photomaker_branched/e13_objectives.py).
 
-# Run inference
-python3 inference_scripts/inference_pmv2.py
+Use the single supported launcher,
+[`run_e13_family_24k_1gpu.sh`](diffusion_template/launchers/active/run_e13_family_24k_1gpu.sh),
+through the exact Serv packages listed in
+[`serv_run_packages/README.md`](diffusion_template/serv_run_packages/README.md).
+That README records config names, path assumptions, `.env` requirements, and
+submission gates. No job is submitted merely by these files.
 
-python3 inference_scripts/inference_pmv2_seed_NS2.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts.txt --output_dir ../compare/results/PM
-
-# new
-python3 inference_scripts/inference_pmv2_seed_NS2.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts3.txt --output_dir ../compare/results/PM3
-
-# new2
-python3 inference_scripts/inference_pmv2_seed_NS3.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts3pm.txt --class_file ../compare/testing/classes.json --output_dir ../compare/results/PM3b
-
-# new_full
-python3 inference_scripts/inference_pmv2_seed_NS3.py --image_folder ../compare/testing/references --prompt_file ../compare/testing/prompts4.txt --class_file ../compare/testing/classes_ref.json --output_dir ../compare/results/PM_full
-
-# testing our upgrade (in PhotoMaker dir)
-pip uninstall -y photomaker
-pip install -e .
-
-python3 inference_scripts/inference_pmv2_seed_NS4.py --image_folder ../compare/testing/ref1 --prompt_file ../compare/testing/prompt_one.txt --class_file ../compare/testing/classes_ref.json --output_dir ../compare/results/PM_upgrade0
-
-python3 inference_scripts/inference_pmv2_seed_NS4_upd.py --image_folder ../compare/testing/ref1 --prompt_file ../compare/testing/prompt_one.txt --class_file ../compare/testing/classes_ref.json --output_dir ../compare/results/PM_upgrade1
-
-
-```
-
-
-
-## PuLID
-
-```bash
-cd PuLID
-conda create --name pulid python=3.10
-conda activate pulid
-
-# Install requirements
-cd ..
-pip install -r pl_requirements.txt
-
-# Run inference
-python3 pulid_generate2.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts.txt --output_dir ../compare/results/PL
-
-python3 pulid_generate3.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts3pm.txt --class_file ../compare/testing/classes.json --output_dir ../compare/results/PL3b
-
-
-# new_full
-python3 pulid_generate3.py  --image_folder ../compare/testing/references --prompt_file ../compare/testing/prompts4.txt --class_file ../compare/testing/classes_ref.json --output_dir ../compare/results/PL_full
-
-```
-
-
-## Metrics
-
-```bash
-cd persongen
-conda create --name metrics python=3.10
-conda activate metrics
-
-# Install requirements
-pip install -r requirements.txt
-
-# Run eval
-cd persongen
-python3 src/metrics/eval_NS.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts.txt --new_images ../compare/results/PM  --out ../compare/results/metrics_PM.csv
-
-python3 src/metrics/eval_NS.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts.txt --new_images ../compare/results/PL  --out ../compare/results/metrics_PL.csv
-
-# new
-cd persongen
-python3 src/metrics/eval_NS.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts3pm.txt --new_images ../compare/results/PM3  --out ../compare/results/metrics_PM3.csv
-
-python3 src/metrics/eval_NS.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts3.txt --new_images ../compare/results/PL3  --out ../compare/results/metrics_PL3.csv
-
-python3 src/metrics/eval_NS.py --image_folder ../compare/testing/ref1 --prompt_file ../compare/testing/prompts4.txt --new_images ../compare/results/PL_new_one  --out ../compare/results/metrics_PL_new_one.csv
-
-# new_full
-cd persongen
-python3 src/metrics/eval_NS2.py --image_folder ../compare/testing/references --prompt_file ../compare/testing/prompts4.txt --new_images ../compare/results/PM_full --class_file ../compare/testing/classes_ref.json  --out ../compare/results/metrics_PM_full.csv
-
-python3 src/metrics/eval_NS2.py --image_folder ../compare/testing/references --prompt_file ../compare/testing/prompts4.txt --new_images ../compare/results/PL_full --class_file ../compare/testing/classes_ref.json  --out ../compare/results/metrics_PL_full.csv
-
-
-# Create a pdf output
-cd ..
-python3 ../compare/testing/pdf_output.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts.txt --new_images ../compare/results/PM  --metrics_file ../compare/results/metrics_PM.csv --output_pdf ../compare/testing/output_PM.pdf
-
-python3 ../compare/testing/pdf_output.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts.txt --new_images ../compare/results/PL  --metrics_file ../compare/results/metrics_PL.csv --output_pdf ../compare/testing/output_PL.pdf
-
-# new
-python3 ../compare/testing/pdf_output3.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts3pm.txt --new_images ../compare/results/PM3  --metrics_file ../compare/results/metrics_PM3.csv --output_pdf ../compare/testing/output_PM3.pdf
-
-python3 ../compare/testing/pdf_output3.py --image_folder ../compare/testing/images --prompt_file ../compare/testing/prompts3.txt --new_images ../compare/results/PL3  --metrics_file ../compare/results/metrics_PL3.csv --output_pdf ../compare/testing/output_PL3.pdf
-
-python3 ../compare/testing/pdf_output3.py --image_folder ../compare/testing/ref1 --prompt_file ../compare/testing/prompts4.txt --new_images ../compare/results/PL_new_one --metrics_file ../compare/results/metrics_PL_new_one.csv --output_pdf ../compare/testing/output_PL_new_one.pdf
-
-# new_full
-
-python3 ../compare/testing/pdf_output4.py --image_folder ../compare/testing/references --prompt_file ../compare/testing/prompts4.txt --new_images ../compare/results/PM_full --metrics_file ../compare/results/metrics_PM_full.csv --output_pdf ../compare/testing/output_PM_full.pdf
-
-python3 ../compare/testing/pdf_output4.py --image_folder ../compare/testing/references --prompt_file ../compare/testing/prompts4.txt --new_images ../compare/results/PL_full --metrics_file ../compare/results/metrics_PL_full.csv --output_pdf ../compare/testing/output_PL_full.pdf
-
-
-```
+Architecture and reproducibility details are in
+[`docs/architecture/`](diffusion_template/docs/architecture/) and the current
+session handoff is
+[`docs/handoffs/LATEST.md`](diffusion_template/docs/handoffs/LATEST.md).

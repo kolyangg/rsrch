@@ -10,6 +10,8 @@ from pathlib import Path
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 
+from src.model.photomaker_branched.e13_contract import normalise_e13_settings
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = ROOT / "src" / "configs"
@@ -48,27 +50,12 @@ def main() -> None:
     surface_enabled, null_key_enabled = ARMS[args.config_name]
     fixed = {
         "train_dataset_name": "cosmic_large_adapted",
-        "train_ba_all_steps": True,
-        "disable_branched_sa": False,
-        "disable_branched_ca": True,
-        "model.e13_family_contract": True,
-        "model.ba_hardcase_mode": "temporal_frequency",
-        "model.ba_hardcase_groups": GROUPS,
-        "model.ba_hardcase_transition_cells": 2,
-        "model.ba_hardcase_frequency_low_early": 0.50,
-        "model.ba_hardcase_frequency_low_late": 0.85,
-        "model.ba_hardcase_frequency_high_early": 0.75,
-        "model.ba_hardcase_frequency_high_late": 1.25,
-        "model.ba_hardcase_telemetry_enabled": False,
-        "model.ba_frequency_surface_loss_enabled": surface_enabled,
         "pipeline.pose_adapt_ratio": 0.0,
         "pipeline.ca_mixing_for_face": False,
         "trainer.epoch_len": 2000,
         "trainer.n_epochs": 12,
         "dataloaders.train.batch_size": 2,
         "datasets.val.manual_val.limit": 96,
-        "expected_trainable_contract.total_tensors": 2240,
-        "expected_trainable_contract.total_parameters": 219217920,
     }
     for path, expected in fixed.items():
         require(config, path, expected)
@@ -76,20 +63,39 @@ def main() -> None:
     for path in (
         "optimizer", "lr_scheduler", "loss_function", "dataloaders.manual_val",
         "pretrained_model_for_validation_name_or_path",
-        "validation_processor_base_mode", "validation_shadow_photomaker_default",
         "validation_args", "inference_metrics",
     ):
         if value(config, path) != value(cl19, path):
             raise RuntimeError(f"{path} drifted from CL19")
 
+    settings = normalise_e13_settings(config.model.e13_settings)
+    expected_settings = {
+        "ba_training_mask_feather": 2,
+        "ba_hardcase_mode": "temporal_frequency",
+        "ba_hardcase_groups": tuple(GROUPS),
+        "ba_hardcase_transition_cells": 2,
+        "ba_hardcase_frequency_low_early": 0.50,
+        "ba_hardcase_frequency_low_late": 0.85,
+        "ba_hardcase_frequency_high_early": 0.75,
+        "ba_hardcase_frequency_high_late": 1.25,
+        "ba_frequency_surface_loss_enabled": surface_enabled,
+        "ba_null_key_router_enabled": null_key_enabled,
+    }
+    for name, expected in expected_settings.items():
+        if settings[name] != expected:
+            raise RuntimeError(f"{name}: expected {expected!r}, got {settings[name]!r}")
+
     if surface_enabled:
-        require(config, "model.ba_frequency_surface_loss_groups", [
-            "up_blocks.0", "up_blocks.1"
-        ])
-        require(config, "model.ba_frequency_surface_top_weight", 0.02)
-        require(config, "model.ba_frequency_surface_top_low_band_factor", 0.25)
-        require(config, "model.ba_frequency_surface_visible_floor_weight", 0.005)
-        require(config, "model.ba_frequency_surface_visible_floor_ratio", 0.35)
+        surface_expected = {
+            "ba_frequency_surface_loss_groups": ("up_blocks.0", "up_blocks.1"),
+            "ba_frequency_surface_top_weight": 0.02,
+            "ba_frequency_surface_top_low_band_factor": 0.25,
+            "ba_frequency_surface_visible_floor_weight": 0.005,
+            "ba_frequency_surface_visible_floor_ratio": 0.35,
+        }
+        for name, expected in surface_expected.items():
+            if settings[name] != expected:
+                raise RuntimeError(f"{name} drifted")
         require(
             config,
             "datasets.train.cosmic_large_adapted.semantic_occlusion_probability",
@@ -108,14 +114,16 @@ def main() -> None:
         )
 
     if null_key_enabled:
-        require(config, "model.ba_null_key_router_enabled", True)
-        require(config, "model.ba_null_key_router_groups", [
-            "up_blocks.0", "up_blocks.1"
-        ])
-        require(config, "model.ba_null_key_entropy_threshold", 0.75)
-        require(config, "model.ba_null_key_temperature", 0.08)
-        require(config, "model.ba_null_key_max_abstention", 0.75)
-        require(config, "model.ba_null_key_min_reference_fraction", 0.25)
+        null_expected = {
+            "ba_null_key_router_groups": ("up_blocks.0", "up_blocks.1"),
+            "ba_null_key_entropy_threshold": 0.75,
+            "ba_null_key_temperature": 0.08,
+            "ba_null_key_max_abstention": 0.75,
+            "ba_null_key_min_reference_fraction": 0.25,
+        }
+        for name, expected in null_expected.items():
+            if settings[name] != expected:
+                raise RuntimeError(f"{name} drifted")
         if any(
             str(name).startswith("active_grad_norm")
             for name in value(config, "writer.loss_names")

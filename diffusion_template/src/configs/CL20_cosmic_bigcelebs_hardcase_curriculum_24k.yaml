@@ -1,5 +1,5 @@
 defaults:
-  - cl18_cl20_extension_24k
+  - subject_v2_extension_24k
   - _self_
 
 # 12 Aug 2026 - CL20 changes only the sealed training schedule.

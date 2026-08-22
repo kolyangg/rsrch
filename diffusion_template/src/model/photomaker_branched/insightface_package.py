@@ -61,6 +61,30 @@ def create_face_analyzer(
     with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
         return _build()
 
+
+def assert_cuda_face_analyzer(analyzer, required_version="1.20.1") -> None:
+    """Fail before training if InsightFace silently fell back to ONNX CPU."""
+    import onnxruntime as ort
+
+    if ort.__version__ != required_version:
+        raise RuntimeError(
+            f"Expected onnxruntime-gpu=={required_version}, got {ort.__version__}"
+        )
+    sessions = [
+        getattr(component, "session", None)
+        for component in getattr(analyzer, "models", {}).values()
+    ]
+    providers = [
+        session.get_providers() for session in sessions if session is not None
+    ]
+    if not providers or any(
+        "CUDAExecutionProvider" not in active for active in providers
+    ):
+        raise RuntimeError(
+            "InsightFace ONNX sessions did not activate CUDAExecutionProvider: "
+            f"{providers}"
+        )
+
 def analyze_faces(face_analysis: FaceAnalysis, img_data: np.ndarray, det_size=(640, 640)):
     # NOTE: try detect faces, if no faces detected, lower det_size until it does
     detection_sizes = [None] + [(size, size) for size in range(640, 256, -64)] + [(256, 256)]

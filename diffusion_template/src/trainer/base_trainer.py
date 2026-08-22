@@ -9,58 +9,16 @@ from tqdm.auto import tqdm
 from src.datasets.data_utils import inf_loop
 from src.metrics.tracker import MetricTracker
 from src.metrics.face_quality_validation import FaceQualityValidationSession
+from src.trainer.validation_model_helpers import (
+    copy_full_processor_state,
+    photomaker_default_snapshot,
+    restore_photomaker_default,
+)
 from src.utils.io_utils import ROOT_PATH
 from hydra.utils import instantiate
 
 import os
 import time
-
-
-def _copy_full_processor_state(train_unet, val_unet, *, strict: bool) -> int:
-    """Copy every stateful processor tensor by exact processor name."""
-    train_processors = getattr(train_unet, "attn_processors", {})
-    val_processors = getattr(val_unet, "attn_processors", {})
-    copied = 0
-    failures = []
-    for name, train_processor in train_processors.items():
-        state = train_processor.state_dict()
-        if not state:
-            continue
-        val_processor = val_processors.get(name)
-        if val_processor is None:
-            failures.append(f"missing:{name}")
-            continue
-        try:
-            val_processor.load_state_dict(state, strict=True)
-            copied += 1
-        except Exception as exc:
-            failures.append(f"{name}:{exc}")
-    if strict and (failures or copied == 0):
-        raise RuntimeError(
-            "Strict E13 validation processor copy failed: "
-            f"copied={copied}, failures={failures[:5]}"
-        )
-    return copied
-
-
-def _photomaker_default_snapshot(model) -> dict[str, torch.Tensor]:
-    return {
-        name: parameter.detach().cpu().clone()
-        for name, parameter in model.unet.named_parameters()
-        if ".default." in name and ("lora_A" in name or "lora_B" in name)
-    }
-
-
-def _restore_photomaker_default(model, snapshot: dict[str, torch.Tensor]) -> None:
-    named = dict(model.unet.named_parameters())
-    missing = sorted(set(snapshot) - set(named))
-    if missing:
-        raise RuntimeError(f"Validation model is missing PhotoMaker tensors: {missing[:5]}")
-    with torch.no_grad():
-        for name, value in snapshot.items():
-            named[name].copy_(value.to(named[name].device, named[name].dtype))
-
-
 
 class BaseTrainer:
     """
@@ -145,11 +103,6 @@ class BaseTrainer:
 
         # define dataloaders
         self.train_dataloader = dataloaders["train"]
-        self._train_dataset_for_resume_validation = getattr(
-            self.train_dataloader,
-            "dataset",
-            None,
-        )
         if epoch_len is None:
             # epoch-based training
             self.epoch_len = len(self.train_dataloader)
@@ -226,18 +179,6 @@ class BaseTrainer:
         # resumes from a different epoch, rank-conditional first-epoch logic
         # (initial validation, barriers) can desynchronize collectives.
         self._sync_start_epoch()
-
-        # 12 Aug 2026 - CL20's schedule starts at an optimizer-step boundary;
-        # reject a checkpoint/schedule mismatch before consuming the iterator.
-        validate_resume_position = getattr(
-            self._train_dataset_for_resume_validation,
-            "validate_resume_position",
-            None,
-        )
-        if validate_resume_position is not None:
-            completed_steps = (self.start_epoch - 1) * self.epoch_len
-            validate_resume_position(completed_steps)
-
 
     def train(self):
         """
@@ -571,75 +512,33 @@ class BaseTrainer:
                 try:
                     self.config.model.pretrained_model_name_or_path = val_pretrained
                     _val_model = instantiate(self.config.model, device=self.device)
-                    # 10 Aug 2026 - E13C-CORE-05: Install the same SA-only map
-                    # before loading/copying validation state; setting this
-                    # after prepare_for_training would create branched CA.
-                    setattr(
-                        _val_model,
-                        "disable_branched_sa",
-                        bool(getattr(self.config, "disable_branched_sa", False)),
-                    )
-                    setattr(
-                        _val_model,
-                        "disable_branched_ca",
-                        bool(getattr(self.config, "disable_branched_ca", False)),
-                    )
-                    setattr(_val_model, "strict_face_routing", bool(getattr(self.config, "strict_face_routing", False)))
                     # Ensure adapters are initialized before loading LoRA weights
                     if hasattr(_val_model, "prepare_for_training"):
                         _val_model.prepare_for_training()
-                    shadow_default = None
-                    if bool(getattr(self.config, "validation_shadow_photomaker_default", False)):
-                        # 10 Aug 2026 - E13C-CORE-05: E13 validation measures
-                        # BA + generic adapters over the pretrained PhotoMaker
-                        # default, not over the jointly trained default adapter.
-                        shadow_default = _photomaker_default_snapshot(_val_model)
-                        if len(shadow_default) != 700:
-                            raise RuntimeError(
-                                "E13 validation shadow expected 700 PhotoMaker tensors, "
-                                f"got {len(shadow_default)}"
-                            )
+                    # 10 Aug 2026 - E13C-CORE-05: validation measures BA plus
+                    # generic adapters over the pretrained PhotoMaker default.
+                    shadow_default = photomaker_default_snapshot(_val_model)
+                    if len(shadow_default) != 700:
+                        raise RuntimeError(
+                            "E13 validation shadow expected 700 PhotoMaker tensors, "
+                            f"got {len(shadow_default)}"
+                        )
                     try:
                         state = self.accelerator.unwrap_model(self.model).get_state_dict()
                     except Exception:
                         state = self.model.get_state_dict()
-                    if not bool(getattr(self.config, "update_proc_weights_val", False)) and isinstance(state, dict):
-                        state = dict(state)
-                        state.pop("attn_processors", None)
                     if hasattr(_val_model, "load_state_dict_"):
                         _val_model.load_state_dict_(state)
-                    if shadow_default is not None:
-                        _restore_photomaker_default(_val_model, shadow_default)
+                    restore_photomaker_default(_val_model, shadow_default)
 
-                    # Optionally copy branched-attention processor weights into the
-                    # validation UNet so their effect is visible in validation.
-                    if bool(getattr(self.config, "update_proc_weights_val", False)):
-                        try:
-                            train_unet = self.accelerator.unwrap_model(self.model).unet
-                        except Exception:
-                            train_unet = getattr(self.model, "unet", None)
-                        val_unet = getattr(_val_model, "unet", None)
-                        if train_unet is not None and val_unet is not None:
-                            t_procs = getattr(train_unet, "attn_processors", {})
-                            v_procs = getattr(val_unet, "attn_processors", {})
-                            if bool(getattr(self.config, "strict_validation_processor_copy", False)):
-                                copied = _copy_full_processor_state(
-                                    train_unet, val_unet, strict=True
-                                )
-                                if copied != 70:
-                                    raise RuntimeError(
-                                        "E13 validation expected 70 stateful processors, "
-                                        f"copied {copied}"
-                                    )
-                            else:
-                                for name, t_proc in t_procs.items():
-                                    v_proc = v_procs.get(name)
-                                    if v_proc is None:
-                                        continue
-                                    try:
-                                        v_proc.load_state_dict(t_proc.state_dict(), strict=False)
-                                    except Exception:
-                                        continue
+                    try:
+                        train_unet = self.accelerator.unwrap_model(self.model).unet
+                    except Exception:
+                        train_unet = getattr(self.model, "unet", None)
+                    val_unet = getattr(_val_model, "unet", None)
+                    if train_unet is None or val_unet is None:
+                        raise RuntimeError("E13 validation model is missing its U-Net")
+                    copy_full_processor_state(train_unet, val_unet)
                     # Move the temporary validation model to the active device (GPU)
                     try:
                         _val_model.to(self.device)
@@ -659,48 +558,6 @@ class BaseTrainer:
                         model=_val_model,
                         accelerator=self.accelerator,
                     )
-                    # 10 Aug 2026 - E13C-PIPE-02: Keep validation runtime flags
-                    # aligned with the model whose processors/checkpoint were
-                    # just loaded; this is required for deterministic replay.
-                    for attr, default in (
-                        ("disable_branched_sa", False),
-                        ("disable_branched_ca", False),
-                        ("cache_prepared_masks", False),
-                        ("compute_branch_debug_outputs", True),
-                        # 13 Aug 2026 - CL14_CA-PIPE-01: copy the checkpoint's
-                        # exact defaults-off selector into alternate-base validation.
-                        ("e13_family_contract", False),
-                        # 18 Aug 2026 - Preserve CL23's inference route and
-                        # CL27's installed processor map on the RealVis model.
-                        ("ba_hardcase_mode", "off"),
-                        ("ba_hardcase_groups", ()),
-                        ("ba_hardcase_transition_cells", 2),
-                        ("ba_hardcase_frequency_low_early", 0.50),
-                        ("ba_hardcase_frequency_low_late", 0.85),
-                        ("ba_hardcase_frequency_high_early", 0.75),
-                        ("ba_hardcase_frequency_high_late", 1.25),
-                        ("ba_hardcase_telemetry_enabled", False),
-                        ("ba_frequency_surface_loss_enabled", False),
-                        ("ba_frequency_surface_loss_groups", ()),
-                        ("ba_frequency_surface_top_low_band_factor", 0.25),
-                        ("ba_frequency_surface_visible_floor_ratio", 0.35),
-                        ("ba_null_key_router_enabled", False),
-                        ("ba_null_key_router_groups", ()),
-                        ("ba_null_key_entropy_threshold", 0.75),
-                        ("ba_null_key_temperature", 0.08),
-                        ("ba_null_key_max_abstention", 0.75),
-                        ("ba_null_key_min_reference_fraction", 0.25),
-                        ("ba_residual_identity_ca_v3_enabled", False),
-                        ("ba_residual_identity_ca_v3_groups", ()),
-                        ("ba_residual_identity_ca_v3_rank", 64),
-                        ("ba_residual_identity_ca_v3_gate_init", 0.02),
-                        ("ba_residual_identity_ca_v3_gate_max", 0.20),
-                    ):
-                        setattr(
-                            self.pipe,
-                            attr,
-                            getattr(_val_model, attr, getattr(self.config, attr, default)),
-                        )
                     # Ensure pipeline modules are on GPU
                     try:
                         self.pipe.to(self.device)
@@ -725,9 +582,6 @@ class BaseTrainer:
                     self.pipe.to(self.device)
                 except Exception:
                     pass
-                for attr in ("disable_branched_sa", "disable_branched_ca"):
-                    if hasattr(self.model, attr):
-                        setattr(self.pipe, attr, getattr(self.model, attr))
 
             face_quality_session = None
             if (
@@ -786,7 +640,6 @@ class BaseTrainer:
                     int(getattr(self.accelerator, "process_index", 0)),
                     {
                         "generated": batch.get("generated"),
-                        "generated_masks": batch.get("generated_masks"),
                         "prompt": batch.get("prompt"),
                         "id": batch.get("id"),
                     },

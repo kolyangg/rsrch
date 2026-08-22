@@ -5,12 +5,13 @@ defaults:
 # 18 Aug 2026 - CL27 keeps CL23 inference and ownership exactly; it adds only
 # deterministic synthetic-mask training supervision at up_blocks.0/1.
 model:
-  ba_frequency_surface_loss_enabled: true
-  ba_frequency_surface_loss_groups: [up_blocks.0, up_blocks.1]
-  ba_frequency_surface_top_weight: 0.02
-  ba_frequency_surface_top_low_band_factor: 0.25
-  ba_frequency_surface_visible_floor_weight: 0.005
-  ba_frequency_surface_visible_floor_ratio: 0.35
+  e13_settings:
+    ba_frequency_surface_loss_enabled: true
+    ba_frequency_surface_loss_groups: [up_blocks.0, up_blocks.1]
+    ba_frequency_surface_top_weight: 0.02
+    ba_frequency_surface_top_low_band_factor: 0.25
+    ba_frequency_surface_visible_floor_weight: 0.005
+    ba_frequency_surface_visible_floor_ratio: 0.35
 
 datasets:
   train:

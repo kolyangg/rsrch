@@ -1,9 +1,0 @@
-{
-  "runs": [
-    {
-      "run_id": "REPLACE_WITH_COMET_EXPERIMENT_KEY",
-      "run_name": "optional_run_name_override",
-      "step_number": 1000
-    }
-  ]
-}

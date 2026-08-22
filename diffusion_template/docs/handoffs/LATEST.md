@@ -1,14 +1,14 @@
 # Current project handoff
 
-**Last updated:** 21 August 2026
+**Last updated:** 22 August 2026
 
 **Repository:** clean worktree `/home/kolyangg/rsrch_clean`
 
 **Primary project:** `diffusion_template/`
 
-**Branch:** `clean`
+**Branch:** `clean_new`
 
-**Current branch:** `clean`; it is based on June 2 commit
+**Current branch:** `clean_new`; it is based on June 2 commit
 `2157eada14824d14019e80f9416e6d736c837306`. Inspect live worktrees because
 active jobs are pinned to their recorded launch commits.
 
@@ -26,6 +26,50 @@ This is the required starting document for a new agent. It summarizes the
 research question, experiment history, reliable results, current code and
 machine state, and the highest-value next work. Detailed evidence remains in
 the linked reports.
+
+## Clean source-reduction implementation — 22 August 2026
+
+The approved June-2 reduction plan in
+`analysis/2026-08-21_clean_branch_june2_code_reduction_audit_and_plan.md` is
+implemented on `clean_new` over
+`8d56caf179994dcc12a125d05361e910d6f056af`. This is the bloat-removed
+alternative to the literal-June-key-file implementation on `clean` commit
+`4ff1464`. No job was launched and no experiment record changed.
+
+- The supported surface is exactly the ten recipes below and 24 Hydra YAMLs.
+  The old one-ID inheritance chain and inactive selectors are gone; genuine
+  leaf deltas are normalized once through `model.e13_settings`.
+- `lora2.py` is now short orchestration. CL18/27 objectives live in
+  `e13_objectives.py`; CL19/23/27/39 equations live in
+  `hardcase_attn_processor.py`; ownership/settings/schema-v2 checkpoints stay
+  in `e13_contract.py`; alternate-base validation transfer lives in
+  `trainer/validation_model_helpers.py`.
+- Validation reads the exact sealed protocol `*_auto.json` directly. Detector
+  regeneration, PMv1, automatic reference-mask fallbacks, legacy branched CA,
+  stale model/config variants, comparison/release/reporting trees, and unused
+  tracked datasets were removed. `dataset_full/` now contains only the exact
+  22-file, 3.0 MB fixed-panel input set.
+- The worktree removes 373 tracked paths. Source/config scope fell from 157
+  files and 26,606 lines at the pre-clean HEAD to 73 files and 13,207 lines;
+  Hydra fell from 87 files and 5,359 lines to 24 files and 557 lines. Generated
+  bytecode and ignored `_old`/`_backup` bytecode-only directories were also
+  removed.
+- Fresh clean checkpoints now require the exact schema-v2 manifest. Historical
+  E14-E24/source-r2 projection compatibility was deliberately removed because
+  all ten supported leaves start fresh.
+- Strict alternate-base state transfer now skips native stateless Diffusers
+  processors and copies every installed stateful processor. This is 70 for the
+  shared SA route and 106 for CL14_CA (70 SA plus 36 residual identity-CA),
+  removing the stale hard-coded 70 assumption.
+
+Verification passed for all ten existing config validators, CL14 source/input
+parity, shell syntax, in-memory compilation, all 21 composed `_target_`
+imports, both 96-row bbox protocols, pre-clean scientific projections, and
+SDXL meta-device processor installation/counts. Small deterministic processor
+fixtures were bit-identical to the pre-clean implementation for hard-v1,
+CL19, CL23/27, and CL39 routes. A fresh A100 checkpoint/full-96 RGB replay is
+still pending and remains the promotion gate; these cleanup checks are not a
+new experiment result.
 
 ## Clean E13-family branch decision — updated 18 August 2026
 
@@ -138,8 +182,8 @@ checked-in debug outputs. Before deletion, every path was confirmed on
 58 also exist on `origin/test` commit
 `ad194a026ab701dd979712d415c487dd536a4645`. The conditional cleanup group
 (`compare/`, superseded reporting utilities, old narrative READMEs and broader
-config pruning) remains intentionally untouched. The exact scope and recovery
-evidence are recorded in
+config pruning) was subsequently handled by the 22 August source-reduction
+implementation above. The original Batch A scope and recovery evidence are recorded in
 `docs/cleanup/2026-08-12_clean_branch_removal_candidates.md`.
 
 ## Read this first

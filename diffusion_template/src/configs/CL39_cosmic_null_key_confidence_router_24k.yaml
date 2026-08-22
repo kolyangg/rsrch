@@ -5,13 +5,13 @@ defaults:
 # 21 Aug 2026 - CL39 changes only CL27's routed output in up_blocks.0/1:
 # ambiguous reference matches retain more native target self-attention.
 model:
-  ba_hardcase_telemetry_enabled: false
-  ba_null_key_router_enabled: true
-  ba_null_key_router_groups: [up_blocks.0, up_blocks.1]
-  ba_null_key_entropy_threshold: 0.75
-  ba_null_key_temperature: 0.08
-  ba_null_key_max_abstention: 0.75
-  ba_null_key_min_reference_fraction: 0.25
+  e13_settings:
+    ba_null_key_router_enabled: true
+    ba_null_key_router_groups: [up_blocks.0, up_blocks.1]
+    ba_null_key_entropy_threshold: 0.75
+    ba_null_key_temperature: 0.08
+    ba_null_key_max_abstention: 0.75
+    ba_null_key_min_reference_fraction: 0.25
 
 writer:
   loss_names:

@@ -1,19 +1,20 @@
 defaults:
-  - cl18_cl20_extension_24k
+  - subject_v2_extension_24k
   - _self_
 
 # 12 Aug 2026 - Compute both full messages and blend once at the target mask.
 model:
-  ba_hardcase_mode: soft_router
-  ba_hardcase_groups:
-    - down_blocks.0
-    - down_blocks.1
-    - down_blocks.2
-    - mid_block
-    - up_blocks.0
-    - up_blocks.1
-    - up_blocks.2
-  ba_hardcase_transition_cells: 2
+  e13_settings:
+    ba_hardcase_mode: soft_router
+    ba_hardcase_groups:
+      - down_blocks.0
+      - down_blocks.1
+      - down_blocks.2
+      - mid_block
+      - up_blocks.0
+      - up_blocks.1
+      - up_blocks.2
+    ba_hardcase_transition_cells: 2
 
 writer:
   experiment_comment: >-

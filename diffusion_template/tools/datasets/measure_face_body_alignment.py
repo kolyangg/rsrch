@@ -3,11 +3,11 @@
 # measurement as offline analysis tooling, separate from the training path.
 """Measure face/body misalignment in full-96 validation output.
 
-The branched face route writes reference-derived content into a FIXED mask box:
-`automatic_bboxes_every_val=false`, so all 96 generation boxes are computed once
-from a BA-off PhotoMaker pass and reused at every validation step. If a run's
-learned composition places the head somewhere else, the branch paints a face at
-the stale location and the head detaches from the shoulders.
+The branched face route writes reference-derived content into a fixed mask box.
+All 96 generation boxes are pinned in the protocol's sealed ``*_auto.json`` and
+reused at every validation step. If a run's learned composition places the head
+somewhere else, the branch paints a face at the stale location and the head
+detaches from the shoulders.
 
 This detects the actual face in each generated image and compares it with the
 cached box the mask used, giving three per-image numbers:

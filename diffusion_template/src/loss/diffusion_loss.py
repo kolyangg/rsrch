@@ -32,21 +32,6 @@ def _masked_face_mse(model_pred, target, face_bbox):
     return loss / valid
 
 
-class DiffusionLoss(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-
-    def forward(self, model_pred, target, **batch):
-        if isinstance(model_pred, list):
-            loss = 0
-            for i in range(len(model_pred)):
-                loss = loss + F.mse_loss(model_pred[i].float(), target[i].float())
-            loss = loss / len(model_pred)
-        else:
-            loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
-        return {'loss': loss}
-
-
 class MaskedDiffusionLoss(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -58,7 +43,6 @@ class MaskedDiffusionLoss(nn.Module):
         is_masked_loss,
         face_bbox,
         ba_aux_loss=None,
-        ba_ownership_loss=None,
         ba_crossview_loss=None,
         **batch,
     ):
@@ -71,34 +55,9 @@ class MaskedDiffusionLoss(nn.Module):
         return {
             'loss': loss + auxiliary,
             'loss_ba_aux': auxiliary.detach(),
-            'loss_ba_ownership': (
-                loss.new_tensor(0.0)
-                if ba_ownership_loss is None
-                else ba_ownership_loss.detach()
-            ),
             'loss_ba_crossview': (
                 loss.new_tensor(0.0)
                 if ba_crossview_loss is None
                 else ba_crossview_loss.detach()
             ),
         }
-
-
-class BlendedMaskedDiffusionLoss(nn.Module):
-    def __init__(self, lambda_face: float = 0.1) -> None:
-        super().__init__()
-        lambda_face = float(lambda_face)
-        if not (0.0 <= lambda_face <= 1.0):
-            raise ValueError(f"lambda_face must be in [0, 1], got {lambda_face}")
-        self.lambda_face = lambda_face
-
-    def forward(self, model_pred, target, is_masked_loss, face_bbox, **batch):
-        full_loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
-
-        if face_bbox is None:
-            return {"loss": full_loss}
-
-        masked_loss = _masked_face_mse(model_pred, target, face_bbox)
-        loss = (1.0 - self.lambda_face) * full_loss + self.lambda_face * masked_loss
-
-        return {'loss': loss}

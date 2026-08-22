@@ -1,40 +1,13 @@
 train:
-    _target_: torch.utils.data.DataLoader
-    batch_size: 2
-    ### 25 APR - ADD GRAD ACCUM ###
-    grad_accum_enabled: false
-    batch_size_eff: null
-    ### 25 APR - ADD GRAD ACCUM ###
-    num_workers: 1
-    pin_memory: False
-
-one_id:
   _target_: torch.utils.data.DataLoader
-  batch_size: 2    # or 4, etc.
+  batch_size: 2
+  grad_accum_enabled: false
+  batch_size_eff: null
   num_workers: 1
-  pin_memory: False
-
-
-val_default:
-    _target_: torch.utils.data.DataLoader
-    batch_size: 1
-    num_workers: 1
-    pin_memory: False
+  pin_memory: false
 
 manual_val:
-    _target_: torch.utils.data.DataLoader
-    batch_size: 1
-    num_workers: 1
-    pin_memory: False
-
-manual_val_two:
-    _target_: torch.utils.data.DataLoader
-    batch_size: 1
-    num_workers: 1
-    pin_memory: False
-
-one_id_val:
   _target_: torch.utils.data.DataLoader
-  batch_size: 1    # or 4, etc.
+  batch_size: 1
   num_workers: 1
-  pin_memory: False
+  pin_memory: false

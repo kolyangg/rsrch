@@ -9,7 +9,7 @@ job:
     workers: 1
   script: >-
     mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL27_cosmic_frequency_surface_energy_24k_full96_clean_r1 &&
-    test "$(git -C /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_e13_family_clean branch --show-current)" = "clean" &&
+    test "$(git -C /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_e13_family_clean branch --show-current)" = "clean_new" &&
     test -z "$(git -C /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_e13_family_clean status --porcelain)" &&
     git -C /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_e13_family_clean rev-parse HEAD > /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL27_cosmic_frequency_surface_energy_24k_full96_clean_r1/source_commit.txt &&
     env

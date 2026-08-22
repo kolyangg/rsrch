@@ -32,15 +32,8 @@ from src.pipelines.br_pipeline_helpers import (
     ensure_face_analyzer as ensure_face_analyzer_helper,
     ensure_id_embeds as ensure_id_embeds_helper,
     ensure_ref_latents_ready as ensure_ref_latents_ready_helper,
-    prepare_gen_mask as prepare_gen_mask_helper,
-    prepare_id_features as prepare_id_features_helper,
-    prepare_ref_latents as prepare_ref_latents_helper,
-    prepare_ref_mask as prepare_ref_mask_helper,
     run_branched_setup as run_branched_setup_helper,
-    run_branched_step as run_branched_step_helper,
     run_denoising_step as run_denoising_step_helper,
-    save_step_previews as save_step_previews_helper,
-    select_mode_and_prompts as select_mode_and_prompts_helper,
 )
 
 OLD_HEATMAP_MASKING = False
@@ -84,7 +77,6 @@ else:
     XLA_AVAILABLE = False
 
 
-from src.model.photomaker_branched.model import PhotoMakerIDEncoder  # PhotoMaker v1
 from src.model.photomaker_branched.model_v2_NS import PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken  # PhotoMaker v2
 
 PipelineImageInput = Union[
@@ -180,7 +172,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         weight_name: str,
         subfolder: str = '',
         trigger_word: str = 'img',
-        pm_version: str = 'v2',
         **kwargs,
     ):
         """
@@ -252,27 +243,21 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         if keys != ["id_encoder", "lora_weights"]:
             raise ValueError("Required keys are (`id_encoder` and `lora_weights`) missing from the state dict.")
 
-        # self.num_tokens =2
-        self.num_tokens = 2 if pm_version == 'v2' else 1
-        self.pm_version = pm_version
+        self.num_tokens = 2
+        self.pm_version = "v2"
         self.trigger_word = trigger_word
         # load finetuned CLIP image encoder and fuse module here if it has not been registered to the pipeline yet
-        print(f"Loading PhotoMaker {pm_version} components [1] id_encoder from [{pretrained_model_name_or_path_or_dict}]...")
+        print(f"Loading PhotoMaker v2 components [1] id_encoder from [{pretrained_model_name_or_path_or_dict}]...")
         self.id_image_processor = CLIPImageProcessor()
-        if pm_version == "v1": # PhotoMaker v1 
-            id_encoder = PhotoMakerIDEncoder()
-        elif pm_version == "v2": # PhotoMaker v2
-            id_encoder = PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken()
-        else:
-            raise NotImplementedError(f"The PhotoMaker version [{pm_version}] does not support")
+        id_encoder = PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken()
 
         id_encoder.load_state_dict(state_dict["id_encoder"], strict=True)
         id_encoder = id_encoder.to(self.device, dtype=self.unet.dtype)    
         self.id_encoder = id_encoder
-        self._ensure_face_analyzer()
+        ensure_face_analyzer_helper(self)
 
         # load lora into models
-        print(f"Loading PhotoMaker {pm_version} components [2] lora_weights from [{pretrained_model_name_or_path_or_dict}]")
+        print(f"Loading PhotoMaker v2 components [2] lora_weights from [{pretrained_model_name_or_path_or_dict}]")
         self.load_lora_weights(state_dict["lora_weights"], adapter_name="photomaker")
 
         # Add trigger word token
@@ -581,19 +566,10 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         photomaker_scale: float = 1.0,  # Add scale parameter for attention
         branched_attn_start_step: int = 10,
         face_embed_strategy: str = "face", # "face", #  "face" or "id_embeds"
-        use_bbox_mask_ref: bool = False, # BBox-driven masking toggles (validation convenience)
-        use_bbox_mask_gen: bool = False, # BBox-driven masking toggles (validation convenience)
         face_bbox_ref: Optional[List[float]] = None, # Optional per-sample face boxes (x0,y0,x1,y1) in pixel space
         face_bbox_gen: Optional[List[float]] = None, # Optional per-sample face boxes (x0,y0,x1,y1) in pixel space
         mask_expansion_ratio: float = 1.0,
         mask_softness: float = 0.0,
-        import_mask: Optional[str] = "../compare/testing/ref2_masks/keanu_gen_mask.png",        
-        import_mask_ref: Optional[str] = None, # to debug auto_mask_ref
-
-               
-        auto_mask_ref: bool = True,
-        use_dynamic_mask: bool = True, # generation mask
-        
         debug_dir: Optional[str] = None,
         debug_idx: Optional[int] = None,
         val_debug: bool = True,
@@ -876,15 +852,9 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             width=width,
             latents=latents,
             id_pixel_values=id_pixel_values,
-            auto_mask_ref=auto_mask_ref,
-            use_bbox_mask_ref=use_bbox_mask_ref,
             face_bbox_ref=face_bbox_ref_for_setup,
             mask_expansion_ratio=mask_expansion_ratio,
             mask_softness=mask_softness,
-            import_mask_ref=import_mask_ref,
-            debug_dir=debug_dir,
-            use_dynamic_mask=use_dynamic_mask,
-            use_bbox_mask_gen=use_bbox_mask_gen,
             face_bbox_gen=face_bbox_gen,
             generator=generator,
             device=device,
@@ -1132,8 +1102,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         return StableDiffusionXLPipelineOutput(images=image)
     
     
-    ##### BRANCHED ATTENTION - BLOCK 4 #####
-    """Helper API used by branched inference (state prep, mode selection, branched forward pass, debug previews)."""
     @property
     def cross_attention_kwargs(self):
         """Get cross attention kwargs if they exist."""
@@ -1143,182 +1111,6 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
     def cross_attention_kwargs(self, value):
         """Set cross attention kwargs."""
         self._cross_attention_kwargs = value
-    
-    def _ensure_face_analyzer(self):
-        ensure_face_analyzer_helper(self)
-    
-    def _prepare_ref_latents(
-        self,
-        *,
-        pil: PIL.Image.Image,
-        height: int,
-        width: int,
-        latents_dtype: torch.dtype,
-    ) -> torch.Tensor:
-        return prepare_ref_latents_helper(
-            self,
-            pil=pil,
-            height=height,
-            width=width,
-            latents_dtype=latents_dtype,
-        )
-
-    def _prepare_ref_mask(
-        self,
-        *,
-        pil: PIL.Image.Image,
-        auto_mask_ref: bool,
-        use_bbox_mask_ref: bool,
-        face_bbox_ref: Optional[List[float]],
-        mask_expansion_ratio: float,
-        mask_softness: float,
-        import_mask_ref: Optional[str],
-        debug_dir: Optional[str],
-        height: int,
-        width: int,
-    ) -> Optional[str]:
-        return prepare_ref_mask_helper(
-            self,
-            pil=pil,
-            auto_mask_ref=auto_mask_ref,
-            use_bbox_mask_ref=use_bbox_mask_ref,
-            face_bbox_ref=face_bbox_ref,
-            mask_expansion_ratio=mask_expansion_ratio,
-            mask_softness=mask_softness,
-            import_mask_ref=import_mask_ref,
-            debug_dir=debug_dir,
-            height=height,
-            width=width,
-        )
-
-    def _prepare_gen_mask(
-        self,
-        *,
-        use_dynamic_mask: bool,
-        use_bbox_mask_gen: bool,
-        face_bbox_gen: Optional[List[float]],
-        mask_expansion_ratio: float,
-        mask_softness: float,
-        height: int,
-        width: int,
-    ) -> None:
-        prepare_gen_mask_helper(
-            self,
-            use_dynamic_mask=use_dynamic_mask,
-            use_bbox_mask_gen=use_bbox_mask_gen,
-            face_bbox_gen=face_bbox_gen,
-            mask_expansion_ratio=mask_expansion_ratio,
-            mask_softness=mask_softness,
-            height=height,
-            width=width,
-        )
-
-    def _prepare_id_features(
-        self,
-        *,
-        id_pixel_values: Optional[torch.Tensor],
-        prompt_embeds: torch.Tensor,
-        id_embeds: Optional[torch.Tensor],
-        class_tokens_mask: torch.LongTensor,
-    ) -> None:
-        prepare_id_features_helper(
-            self,
-            id_pixel_values=id_pixel_values,
-            prompt_embeds=prompt_embeds,
-            id_embeds=id_embeds,
-            class_tokens_mask=class_tokens_mask,
-        )
-
-    def _select_mode_and_prompts(
-        self,
-        *,
-        i: int,
-        photomaker_start_step: int,
-        branched_attn_start_step: int,
-        prompt_embeds_text_only: torch.Tensor,
-        pooled_prompt_embeds_text_only: torch.Tensor,
-        prompt_embeds: torch.Tensor,
-        pooled_prompt_embeds: torch.Tensor,
-        force_par_before_pm: bool,
-        pose_forced_logged: bool,
-        pose_relaxed_logged: bool,
-    ) -> Tuple[str, torch.Tensor, torch.Tensor, bool, bool]:
-        return select_mode_and_prompts_helper(
-            self,
-            i=i,
-            photomaker_start_step=photomaker_start_step,
-            branched_attn_start_step=branched_attn_start_step,
-            prompt_embeds_text_only=prompt_embeds_text_only,
-            pooled_prompt_embeds_text_only=pooled_prompt_embeds_text_only,
-            prompt_embeds=prompt_embeds,
-            pooled_prompt_embeds=pooled_prompt_embeds,
-            force_par_before_pm=force_par_before_pm,
-            pose_forced_logged=pose_forced_logged,
-            pose_relaxed_logged=pose_relaxed_logged,
-        )
-
-    def _run_branched_step(
-        self,
-        *,
-        i: int,
-        t: torch.Tensor,
-        mode: str,
-        latent_model_input: torch.Tensor,
-        current_prompt_embeds: torch.Tensor,
-        added_cond_kwargs: Dict[str, Any],
-        class_tokens_mask: Optional[torch.LongTensor],
-        timestep_cond: Optional[torch.Tensor],
-        photomaker_scale: float,
-        merge_start_step: int,
-        photomaker_start_step: int,
-        branched_attn_start_step: int,
-        debug_dir: Optional[str],
-        num_outputs: int,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
-        return run_branched_step_helper(
-            self,
-            i=i,
-            t=t,
-            mode=mode,
-            latent_model_input=latent_model_input,
-            current_prompt_embeds=current_prompt_embeds,
-            added_cond_kwargs=added_cond_kwargs,
-            class_tokens_mask=class_tokens_mask,
-            timestep_cond=timestep_cond,
-            photomaker_scale=photomaker_scale,
-            merge_start_step=merge_start_step,
-            photomaker_start_step=photomaker_start_step,
-            branched_attn_start_step=branched_attn_start_step,
-            debug_dir=debug_dir,
-            num_outputs=num_outputs,
-        )
-
-    def _save_step_previews(
-        self,
-        *,
-        i: int,
-        t: torch.Tensor,
-        num_inference_steps: int,
-        debug_dir: Optional[str],
-        latents: torch.Tensor,
-        noise_pred: torch.Tensor,
-        mask4: Optional[torch.Tensor],
-        noise_face: Optional[torch.Tensor],
-        extra_step_kwargs: Dict[str, Any],
-    ) -> None:
-        save_step_previews_helper(
-            self,
-            i=i,
-            t=t,
-            num_inference_steps=num_inference_steps,
-            debug_dir=debug_dir,
-            latents=latents,
-            noise_pred=noise_pred,
-            mask4=mask4,
-            noise_face=noise_face,
-            extra_step_kwargs=extra_step_kwargs,
-        )
-    ##### BRANCHED ATTENTION - BLOCK 4 #####
     
 
 ##### BRANCHED ATTENTION - BLOCK 5 #####

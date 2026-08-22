@@ -851,7 +851,7 @@ subject-v2 validation wrapper:
 
 This is a validation identity-selection repair, not an attention-architecture
 change. See
-[`photomaker_branched_cl18_cl20.py`](../../src/pipelines/photomaker_branched_cl18_cl20.py),
+[`photomaker_branched_subject_v2.py`](../../src/pipelines/photomaker_branched_subject_v2.py),
 [`face_subject_selector.py`](../../src/face_subject_selector.py), and
 [`all_metrics_subject_v2.yaml`](../../src/configs/metrics/all_metrics_subject_v2.yaml).
 
