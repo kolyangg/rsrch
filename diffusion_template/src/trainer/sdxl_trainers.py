@@ -236,10 +236,25 @@ class SDXLTrainer(BaseTrainer):
 
 
 class PhotomakerLoraTrainer(SDXLTrainer):
-    def __init__(self, masked_loss_step, *args, **kwargs):
+    def __init__(
+        self,
+        masked_loss_step,
+        *args,
+        ba_pcgrad_enabled: bool = False,
+        ba_pcgrad_scope: str = "branched_sa_only",
+        ba_pcgrad_interval: int = 1,
+        ba_pcgrad_eps: float = 1.0e-12,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.masked_loss_step = masked_loss_step
         self._identity_aux_calibrated_max_weight = None
+        self.ba_pcgrad_enabled = bool(ba_pcgrad_enabled)
+        self.ba_pcgrad_scope = str(ba_pcgrad_scope)
+        self.ba_pcgrad_interval = int(ba_pcgrad_interval)
+        self.ba_pcgrad_eps = float(ba_pcgrad_eps)
+        if self.ba_pcgrad_enabled and self.ba_pcgrad_scope != "branched_sa_only":
+            raise ValueError("CL45 supports only branched_sa_only PCGrad")
 
     @staticmethod
     def _gradient_norm(grads):
@@ -481,6 +496,74 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             )
             if norm is not None:
                 batch[metric] = norm.detach().to(device=zero.device)
+
+    def _apply_ba_pcgrad_surrogate(self, batch):
+        if not self.ba_pcgrad_enabled:
+            return
+        reference = batch["loss"].detach()
+        zero = reference.new_tensor(0.0)
+        metrics = {
+            "ba/pcgrad/gradient_cosine": zero,
+            "ba/pcgrad/conflict_fraction": zero,
+            "ba/pcgrad/projection_norm": zero,
+            "ba/pcgrad/main_norm": zero,
+            "ba/pcgrad/aux_norm": zero,
+        }
+        batch.update(metrics)
+        if int(batch.get("global_step", 0)) % self.ba_pcgrad_interval:
+            return
+        primary = batch.get("_loss_diffusion_graph")
+        auxiliary = batch.get("_loss_ba_aux_graph")
+        if primary is None or auxiliary is None or not auxiliary.requires_grad:
+            raise RuntimeError("CL45 requires separate live diffusion and BA auxiliary graphs")
+        ba_parameters = [
+            parameter
+            for group in self.optimizer.param_groups
+            if str(group.get("name", "")) == "ba"
+            for parameter in group.get("params", ())
+        ]
+        if len(ba_parameters) != 840:
+            raise RuntimeError(
+                f"CL45 expected 840 CL27 BA tensors, found {len(ba_parameters)}"
+            )
+        main_grads = torch.autograd.grad(
+            primary, ba_parameters, retain_graph=True, allow_unused=True
+        )
+        aux_grads = torch.autograd.grad(
+            auxiliary, ba_parameters, retain_graph=True, allow_unused=True
+        )
+        dot = zero
+        main_sq = zero
+        aux_sq = zero
+        for main, aux in zip(main_grads, aux_grads):
+            if main is not None:
+                main_sq = main_sq + main.detach().float().square().sum()
+            if aux is not None:
+                aux_sq = aux_sq + aux.detach().float().square().sum()
+            if main is not None and aux is not None:
+                dot = dot + (main.detach().float() * aux.detach().float()).sum()
+        main_norm = main_sq.clamp_min(0.0).sqrt()
+        aux_norm = aux_sq.clamp_min(0.0).sqrt()
+        coefficient = (-dot / (main_sq + self.ba_pcgrad_eps)).clamp_min(0.0)
+        surrogate = batch["loss"]
+        for parameter, main in zip(ba_parameters, main_grads):
+            if main is not None:
+                correction = coefficient * main.detach().to(parameter.dtype)
+                surrogate = surrogate + (
+                    (parameter - parameter.detach()) * correction
+                ).sum()
+        batch["loss"] = surrogate
+        batch.update(
+            {
+                "ba/pcgrad/gradient_cosine": (
+                    dot / (main_norm * aux_norm).clamp_min(self.ba_pcgrad_eps)
+                ).detach(),
+                "ba/pcgrad/conflict_fraction": (dot < 0).float().detach(),
+                "ba/pcgrad/projection_norm": (coefficient * main_norm).detach(),
+                "ba/pcgrad/main_norm": main_norm.detach(),
+                "ba/pcgrad/aux_norm": aux_norm.detach(),
+            }
+        )
         
     def process_batch(self, batch, train_metrics: MetricTracker):
         self.optimizer.zero_grad()
@@ -503,6 +586,7 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         all_losses = self.criterion(**batch)
         batch.update(all_losses)
         self._calibrate_identity_auxiliary(batch)
+        self._apply_ba_pcgrad_surrogate(batch)
         
         if self.is_train:
             assert torch.isfinite(batch["loss"]) # sum of all losses is always called loss
@@ -515,6 +599,7 @@ class PhotomakerLoraTrainer(SDXLTrainer):
 
         batch.pop("_loss_diffusion_graph", None)
         batch.pop("_loss_identity_raw_graph", None)
+        batch.pop("_loss_ba_aux_graph", None)
 
         # 2 Aug 2026 - AICODE-NOTE: reference counterfactuals are sampled, so
         # unconditional Comet curves contain zeros on inactive ranks/batches.
@@ -580,6 +665,8 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         
     @torch.no_grad()
     def process_evaluation_batch(self, batch, eval_metrics):
+        if self.pipe is not None:
+            self.pipe._ba_current_global_step = int(getattr(self.writer, "step", 0))
         prompts = batch["prompt"]
         if isinstance(prompts, str):
             prompts = [prompts]

@@ -1,17 +1,14 @@
-# Utilities
+# Utilities retained by clean_full
 
-- `reports/publish_report.py` — render an analysis Markdown report to PDF and
-  optionally upload it to Dropbox, in one call. This is the standard pipeline
-  for every findings report; pair it with the `research-report` skill at
-  [`.claude/skills/research-report/SKILL.md`](../../.claude/skills/research-report/SKILL.md),
-  which defines the report structure the PDF is expected to follow.
-- `comet/` — automatically record Comet experiment IDs, retrieve metrics and
-  images by ID, selectively repair subject-v2 validation from saved
-  checkpoints, export runs, and build PDF reports. See
-  [`comet/README.md`](comet/README.md).
-- `inference/` — calculate metrics and build image/metric PDFs.
-- `datasets/` — prepare validation embeddings and the Cosmic Large one-ID
-  dataset.
+- `validate_clean_full_config.py` — supported-config manifest gate and run
+  record generator.
+- `datasets/` — dataset preflights invoked by the unified launcher.
+- `comet/` — immutable-key retrieval, deferred face-quality finalization, and
+  report export/rendering.
+- `inference/calculate_face_quality_metrics.py` — canonical face-crop IQA
+  scorer.
+- `reports/publish_report.py` and `dropbox/upload_to_dropbox.py` — standard
+  Markdown-to-PDF and Dropbox publishing path.
+- `verify_serv_source_manifest.py` — immutable Serv source verification.
 
-Run these tools from `diffusion_template` unless a tool's help text says
-otherwise.
+Run these tools from `diffusion_template/`.

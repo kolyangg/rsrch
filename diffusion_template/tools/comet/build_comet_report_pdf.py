@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import re
@@ -179,6 +180,18 @@ def parse_optional_positive_number(value: Any, field_name: str) -> float | None:
     return parsed
 
 
+def parse_nonnegative_number(value: Any, field_name: str) -> float:
+    if isinstance(value, bool):
+        raise ConfigError(f"{field_name} must be a non-negative number")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{field_name} must be a non-negative number") from exc
+    if not math.isfinite(parsed) or parsed < 0:
+        raise ConfigError(f"{field_name} must be a non-negative number")
+    return parsed
+
+
 def parse_output_format(value: Any) -> str:
     if value is None:
         return "pdf"
@@ -205,8 +218,18 @@ def load_image_for_report(
     path: Path,
     max_side: int,
     image_dpi_percent: float | None,
+    crop_bbox: list[float] | None = None,
+    crop_padding_ratio: float = 0.0,
+    bbox_coordinate_size: tuple[int, int] | None = None,
 ) -> Image.Image:
     image = Image.open(path).convert("RGB")
+    if crop_bbox is not None:
+        image = square_face_crop(
+            image,
+            crop_bbox,
+            padding_ratio=crop_padding_ratio,
+            bbox_coordinate_size=bbox_coordinate_size,
+        )
     if image_dpi_percent is not None:
         scale = image_dpi_percent / 100.0
         new_size = (
@@ -218,6 +241,38 @@ def load_image_for_report(
     elif max(image.size) > max_side:
         image.thumbnail((max_side, max_side), Image.LANCZOS)
     return image
+
+
+def square_face_crop(
+    image: Image.Image,
+    bbox: list[float],
+    padding_ratio: float,
+    bbox_coordinate_size: tuple[int, int] | None,
+) -> Image.Image:
+    """Crop a square around a fixed owned-face bbox without re-detecting faces."""
+    x0, y0, x1, y1 = bbox
+    if bbox_coordinate_size is not None:
+        coordinate_width, coordinate_height = bbox_coordinate_size
+        x_scale = image.width / coordinate_width
+        y_scale = image.height / coordinate_height
+        x0, x1 = x0 * x_scale, x1 * x_scale
+        y0, y1 = y0 * y_scale, y1 * y_scale
+
+    if x0 < 0 or y0 < 0 or x1 > image.width or y1 > image.height:
+        raise ConfigError(
+            f"Face bbox {bbox} resolves outside image canvas {image.size}"
+        )
+
+    center_x = (x0 + x1) / 2.0
+    center_y = (y0 + y1) / 2.0
+    face_side = max(x1 - x0, y1 - y0)
+    side = max(2, int(round(face_side * (1.0 + 2.0 * padding_ratio))))
+    side = min(side, image.width, image.height)
+    crop_x0 = int(round(center_x - side / 2.0))
+    crop_y0 = int(round(center_y - side / 2.0))
+    crop_x0 = min(max(crop_x0, 0), image.width - side)
+    crop_y0 = min(max(crop_y0, 0), image.height - side)
+    return image.crop((crop_x0, crop_y0, crop_x0 + side, crop_y0 + side))
 
 
 def placeholder_image(size: tuple[int, int] = (512, 512)) -> Image.Image:
@@ -263,6 +318,135 @@ def normalize_object(value: Any, field_name: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ConfigError(f"'{field_name}' must be an object when provided.")
     return dict(value)
+
+
+def normalize_face_closeups(
+    value: Any,
+    config_dir: Path,
+) -> dict[str, Any]:
+    raw = normalize_object(value, "face_closeups")
+    enabled = parse_bool(raw.get("enabled", False), "face_closeups.enabled")
+    normalized: dict[str, Any] = {
+        "enabled": enabled,
+        "padding_ratio": parse_nonnegative_number(
+            raw.get("padding_ratio", 0.45),
+            "face_closeups.padding_ratio",
+        ),
+        "bbox_field": str(raw.get("bbox_field") or "face_crop_new").strip(),
+        "title": str(raw.get("title") or "Comet Run Face Region Comparison").strip(),
+        "require_exact_keys": parse_bool(
+            raw.get("require_exact_keys", True),
+            "face_closeups.require_exact_keys",
+        ),
+        "bbox_json": None,
+        "expected_sha256": None,
+        "bbox_coordinate_size": None,
+    }
+    if not normalized["bbox_field"]:
+        raise ConfigError("face_closeups.bbox_field must not be empty")
+    if not normalized["title"]:
+        raise ConfigError("face_closeups.title must not be empty")
+
+    coordinate_size = raw.get("bbox_coordinate_size")
+    if coordinate_size is not None:
+        if not isinstance(coordinate_size, list) or len(coordinate_size) != 2:
+            raise ConfigError(
+                "face_closeups.bbox_coordinate_size must be [width, height]"
+            )
+        normalized["bbox_coordinate_size"] = (
+            parse_positive_int(
+                coordinate_size[0], "face_closeups.bbox_coordinate_size[0]"
+            ),
+            parse_positive_int(
+                coordinate_size[1], "face_closeups.bbox_coordinate_size[1]"
+            ),
+        )
+
+    expected_sha256 = str(raw.get("expected_sha256") or "").strip().lower()
+    if expected_sha256:
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+            raise ConfigError(
+                "face_closeups.expected_sha256 must be a 64-character hex digest"
+            )
+        normalized["expected_sha256"] = expected_sha256
+
+    bbox_json_raw = raw.get("bbox_json")
+    if enabled:
+        if bbox_json_raw in (None, ""):
+            raise ConfigError(
+                "face_closeups.bbox_json is required when face close-ups are enabled"
+            )
+        bbox_json = resolve_path(config_dir, str(bbox_json_raw))
+        if not bbox_json.is_file():
+            raise ConfigError(f"Face bbox JSON does not exist: {bbox_json}")
+        normalized["bbox_json"] = bbox_json
+    return normalized
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def load_face_bbox_map(
+    face_config: dict[str, Any],
+    image_keys: list[str],
+) -> dict[str, list[float]]:
+    # 21 Aug 2026 - AICODE-NOTE: Face comparison pages use one sealed fixed-box
+    # protocol for every run. Per-run face detection would hide ownership drift.
+    if not face_config.get("enabled", False):
+        return {}
+
+    bbox_json = Path(face_config["bbox_json"])
+    expected_sha256 = face_config.get("expected_sha256")
+    actual_sha256 = file_sha256(bbox_json)
+    if expected_sha256 and actual_sha256 != expected_sha256:
+        raise ConfigError(
+            f"Face bbox JSON SHA-256 mismatch: expected {expected_sha256}, "
+            f"found {actual_sha256} at {bbox_json}"
+        )
+
+    payload = load_json(bbox_json)
+    if not isinstance(payload, dict):
+        raise ConfigError(f"Face bbox JSON must contain an object: {bbox_json}")
+    bbox_field = str(face_config["bbox_field"])
+    bbox_map: dict[str, list[float]] = {}
+    for raw_key, raw_record in payload.items():
+        if not isinstance(raw_record, dict):
+            raise ConfigError(f"Invalid bbox record for {raw_key!r} in {bbox_json}")
+        raw_bbox = raw_record.get(bbox_field)
+        if not isinstance(raw_bbox, (list, tuple)) or len(raw_bbox) != 4:
+            raise ConfigError(
+                f"BBox record {raw_key!r} has no valid {bbox_field!r} field"
+            )
+        if any(isinstance(item, bool) for item in raw_bbox):
+            raise ConfigError(f"Non-numeric face bbox for {raw_key!r}")
+        try:
+            bbox = [float(item) for item in raw_bbox]
+        except (TypeError, ValueError) as exc:
+            raise ConfigError(f"Non-numeric face bbox for {raw_key!r}") from exc
+        x0, y0, x1, y1 = bbox
+        if not all(math.isfinite(item) for item in bbox) or x1 <= x0 or y1 <= y0:
+            raise ConfigError(f"Invalid face bbox for {raw_key!r}: {raw_bbox}")
+        key = canonical_image_key(str(raw_key))
+        if key in bbox_map:
+            raise ConfigError(f"Duplicate canonical face bbox key {key!r}")
+        bbox_map[key] = bbox
+
+    image_key_set = set(image_keys)
+    bbox_key_set = set(bbox_map)
+    missing = sorted(image_key_set - bbox_key_set, key=natural_sort_key)
+    extra = sorted(bbox_key_set - image_key_set, key=natural_sort_key)
+    if missing or (face_config.get("require_exact_keys", True) and extra):
+        raise ConfigError(
+            "Image/bbox join mismatch "
+            f"images={len(image_keys)} boxes={len(bbox_map)} "
+            f"missing={missing[:5]} extra={extra[:5]}"
+        )
+    return bbox_map
 
 
 def select_numeric_metrics(
@@ -373,6 +557,10 @@ def load_pdf_config(path: Path) -> tuple[dict[str, Any], Path]:
     metric_point_labels = normalize_object(
         raw_config.get("metric_point_labels"), "metric_point_labels"
     )
+    face_closeups = normalize_face_closeups(
+        raw_config.get("face_closeups"),
+        config_dir,
+    )
     markdown_source_raw = raw_config.get("markdown_source")
     markdown_source = None
     if markdown_source_raw not in (None, ""):
@@ -400,6 +588,7 @@ def load_pdf_config(path: Path) -> tuple[dict[str, Any], Path]:
         "per_image_metric": per_image_metric,
         "group_average_tables": group_average_tables,
         "metric_point_labels": metric_point_labels,
+        "face_closeups": face_closeups,
         "markdown_source": markdown_source,
         "runs": normalized_runs,
     }
@@ -1101,6 +1290,9 @@ def render_image_pages(
     per_image_metric: dict[str, Any],
     dpi: int,
     page_number: int,
+    page_title: str = "Comet Run Image Comparison",
+    face_bbox_map: dict[str, list[float]] | None = None,
+    face_closeups: dict[str, Any] | None = None,
 ) -> int:
     if not image_keys:
         fig = plt.figure(figsize=LANDSCAPE_A4)
@@ -1137,7 +1329,7 @@ def render_image_pages(
             fig.text(
                 0.04,
                 0.965,
-                "Comet Run Image Comparison",
+                page_title,
                 ha="left",
                 va="top",
                 fontsize=13,
@@ -1185,6 +1377,21 @@ def render_image_pages(
                         image_meta["path"],
                         image_max_side,
                         image_dpi_percent,
+                        crop_bbox=(
+                            face_bbox_map[image_key]
+                            if face_bbox_map is not None
+                            else None
+                        ),
+                        crop_padding_ratio=(
+                            float(face_closeups["padding_ratio"])
+                            if face_closeups is not None
+                            else 0.0
+                        ),
+                        bbox_coordinate_size=(
+                            face_closeups.get("bbox_coordinate_size")
+                            if face_closeups is not None
+                            else None
+                        ),
                     )
                     cell_ax.imshow(image)
                     cell_ax.set_xticks([])
@@ -1566,6 +1773,7 @@ def build_report(
         config["per_image_metric"],
     )
     image_keys = collect_image_keys(selected_runs)
+    face_bbox_map = load_face_bbox_map(config["face_closeups"], image_keys)
     metrics = select_numeric_metrics(selected_runs, config["key_metrics"])
     image_dpi_percent = resolve_image_dpi_percent(
         config["image_dpi_percent"],
@@ -1591,6 +1799,23 @@ def build_report(
             dpi=dpi,
             page_number=page_number,
         )
+        if config["face_closeups"]["enabled"]:
+            page_number = render_image_pages(
+                writer=writer,
+                selected_runs=selected_runs,
+                image_keys=image_keys,
+                max_rows=config["max_rows"],
+                max_columns=config["max_columns"],
+                run_name_max_chars_per_line=config["run_name_max_chars_per_line"],
+                image_max_side=image_max_side,
+                image_dpi_percent=image_dpi_percent,
+                per_image_metric=config["per_image_metric"],
+                dpi=dpi,
+                page_number=page_number,
+                page_title=str(config["face_closeups"]["title"]),
+                face_bbox_map=face_bbox_map,
+                face_closeups=config["face_closeups"],
+            )
         page_number = render_markdown_pages(
             writer=writer,
             markdown_source=config["markdown_source"],

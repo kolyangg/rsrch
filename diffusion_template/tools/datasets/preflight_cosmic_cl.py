@@ -187,6 +187,7 @@ def main() -> None:
         "CL15", "CL16", "CL17", "CL18", "CL19", "CL21", "CL22",
         "CL23", "CL24", "CL25", "CL26", "CL27", "CL28", "CL29",
         "CL30", "CL31", "CL32", "CL33", "CL34", "CL35", "CL36", "CL37",
+        "CL38", "CL39", "CL40", "CL41", "CL42", "CL43", "CL44", "CL45",
     ):
         if ref_sizes != {(1024, 1024)}:
             failures.append(f"{arm} canvases must be 1024x1024, saw {ref_sizes}")
@@ -258,9 +259,12 @@ def main() -> None:
                 f"CL5 expects {expected_refs} reference images per sample, saw {sorted(counts)}"
             )
 
+    # 19 Aug 2026 - CL38-CL45 inherit CL27's semantic-occlusion dataset;
+    # keep the same fail-closed sampling gate for every successor arm.
     if arm in {
         "CL17", "CL22", "CL24", "CL27", "CL30", "CL31", "CL32",
-        "CL33", "CL34", "CL35", "CL36", "CL37",
+        "CL33", "CL34", "CL35", "CL36", "CL37", "CL38", "CL39",
+        "CL40", "CL41", "CL42", "CL43", "CL44", "CL45",
     }:
         report["synthetic_occluder_fraction"] = supervised_occluders / len(picks)
         if not 0.10 <= report["synthetic_occluder_fraction"] <= 0.40:

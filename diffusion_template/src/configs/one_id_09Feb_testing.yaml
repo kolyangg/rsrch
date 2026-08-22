@@ -1,10 +1,10 @@
 defaults:
   - trainer: photomaker_lora
   - model: photomaker_branched_lora2 # Modified to make attn_processor trainable in branched version
-  - writer: console
+  - writer: cometml
   - transforms: only_instance
   - ddp: accelerate
-  - lr_scheduler: custom_linear
+  - lr_scheduler: warmup_hold_cosine
   # - pipeline: photomaker_branched2_both # Modified to make attn_processor trainable in branched version
   # - pipeline: photomaker_branched2_ref
   # - pipeline: photomaker_branched2_ref1
@@ -12,12 +12,12 @@ defaults:
   # - pipeline: photomaker_branched2_ref1
   # - pipeline: photomaker_branched # Modified to make attn_processor trainable in branched version
   # - metrics: all_metrics
-  - metrics: all_metrics_oneid
+  - metrics: clean_full_metrics
   # - datasets: all_datasets
   # - datasets: all_datasets_local
   # - dataloaders: all_dataloaders
-  - datasets: all_datasets
-  - dataloaders: all_dataloaders
+  - datasets: clean_full_datasets
+  - dataloaders: clean_full_dataloaders
   - _self_
 
 train_on_separate_image: false

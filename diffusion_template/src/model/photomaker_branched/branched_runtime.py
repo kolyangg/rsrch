@@ -55,36 +55,22 @@ def patch_unet_attention_processors(
     disable_sa = bool(getattr(pipeline, "disable_branched_sa", False))
     disable_ca = bool(getattr(pipeline, "disable_branched_ca", False))
 
-    # Historical configs keep the current hard replacement implementation.
-    # The old use_attn_v2 flag never selected a different active processor and
-    # is retained only for replay compatibility.
     configured_architecture_version = getattr(
         pipeline, "ba_architecture_version", None
     )
     from .attn_processor_cleanest import (
         BranchedAttnProcessor as HardReplaceBranchedAttnProcessor,
-        BranchedCrossAttnProcessor,
     )
-    from .anchored_mix_sa_processor_v3 import (
-        AnchoredMixBranchedSelfAttnProcessorV3,
-    )
-    from .query_adaptive_hard_sa_processor_v4 import (
-        QueryAdaptiveHardBranchedSelfAttnProcessorV4,
-    )
-    from .residual_sa_processor_v2 import ResidualBranchedSelfAttnProcessorV2
-    from .identity_ca_processor_v2 import HardIdentityCrossAttnProcessorV2
-    from .residual_identity_ca_processor_v3 import (
-        ResidualIdentityCrossAttnProcessorV3,
-    )
-
     identity_ca_v2_enabled = bool(
         getattr(pipeline, "ba_identity_ca_v2_enabled", False)
     )
     residual_identity_ca_v3_enabled = bool(
         getattr(pipeline, "ba_residual_identity_ca_v3_enabled", False)
     )
-    if identity_ca_v2_enabled and residual_identity_ca_v3_enabled:
-        raise RuntimeError("Hard and residual identity CA cannot both be enabled")
+    if identity_ca_v2_enabled or residual_identity_ca_v3_enabled:
+        raise RuntimeError("clean_full does not support identity cross-attention")
+    if not disable_ca:
+        raise RuntimeError("clean_full requires disable_branched_ca=true")
 
     hardcase_mode = str(getattr(pipeline, "ba_hardcase_mode", "off") or "off").lower()
     hardcase_fallback_mode = str(
@@ -144,30 +130,45 @@ def patch_unet_attention_processors(
     hardcase_telemetry_enabled = bool(
         getattr(pipeline, "ba_hardcase_telemetry_enabled", True)
     )
+    extension_specs = {
+        "visibility_ownership_v2": "ba_visibility_ownership_v2",
+        "null_key_router": "ba_null_key_router",
+        "landmark_canonical_kv": "ba_landmark_canonical_kv",
+        "component_token_memory": "ba_component_token_memory",
+        "identity_motion_projector": "ba_identity_motion_projector",
+        "id_adaptive_modulation": "ba_id_adaptive_modulation",
+        "semantic_window_gate": "ba_semantic_window_gate",
+    }
+    extension_enabled = {
+        name: bool(getattr(pipeline, f"{prefix}_enabled", False))
+        for name, prefix in extension_specs.items()
+    }
+    extension_groups = {
+        name: tuple(str(group) for group in (getattr(pipeline, f"{prefix}_groups", None) or ()))
+        for name, prefix in extension_specs.items()
+    }
+    enabled_extensions = [name for name, enabled in extension_enabled.items() if enabled]
+    if len(enabled_extensions) > 1:
+        raise RuntimeError(
+            f"CL38-CL44 arms are independent; got {enabled_extensions}"
+        )
+    if enabled_extensions:
+        extension = enabled_extensions[0]
+        if not extension_groups[extension]:
+            raise RuntimeError(f"{extension} requires non-empty processor groups")
+        if hardcase_mode != "temporal_frequency":
+            raise RuntimeError(f"{extension} requires the CL27 temporal-frequency route")
 
-    if configured_architecture_version is None:
-        # Validation pipelines reuse the already-installed training U-Net but
-        # historically copy only a subset of model attributes. Infer the exact
-        # processor version; an unpatched pipeline remains legacy.
-        if any(
-            type(proc) is QueryAdaptiveHardBranchedSelfAttnProcessorV4
-            for proc in pipeline.unet.attn_processors.values()
-        ):
-            architecture_version = "query_adaptive_hard_sa_v4"
-        elif any(
-            type(proc) is AnchoredMixBranchedSelfAttnProcessorV3
-            for proc in pipeline.unet.attn_processors.values()
-        ):
-            architecture_version = "anchored_mix_sa_v3"
-        elif any(
-            type(proc) is ResidualBranchedSelfAttnProcessorV2
-            for proc in pipeline.unet.attn_processors.values()
-        ):
-            architecture_version = "residual_sa_v2"
-        else:
-            architecture_version = "hard_replace_v1"
-    else:
-        architecture_version = str(configured_architecture_version).lower()
+    # 22 Aug 2026 - AICODE-NOTE: every clean_full arm uses the audited hard-v1
+    # target-Q/reference-KV route. Alternate processor families were removed
+    # so a stale config fails instead of reviving an unreviewed architecture.
+    architecture_version = str(
+        configured_architecture_version or "hard_replace_v1"
+    ).lower()
+    if architecture_version != "hard_replace_v1":
+        raise RuntimeError(
+            "clean_full supports ba_architecture_version=hard_replace_v1 only"
+        )
 
     if hardcase_mode != "off":
         if architecture_version != "hard_replace_v1":
@@ -218,54 +219,8 @@ def patch_unet_attention_processors(
                 "Corrected identity CA cannot enable the legacy branched CA trainables"
             )
 
-    if architecture_version == "hard_replace_v1":
-        BranchedAttnProcessor = HardReplaceBranchedAttnProcessor
-    elif architecture_version == "residual_sa_v2":
-        BranchedAttnProcessor = ResidualBranchedSelfAttnProcessorV2
-    elif architecture_version == "anchored_mix_sa_v3":
-        BranchedAttnProcessor = AnchoredMixBranchedSelfAttnProcessorV3
-    elif architecture_version == "query_adaptive_hard_sa_v4":
-        BranchedAttnProcessor = QueryAdaptiveHardBranchedSelfAttnProcessorV4
-    else:
-        raise ValueError(
-            f"Unknown ba_architecture_version={architecture_version!r}"
-        )
-
-    if architecture_version in {
-        "residual_sa_v2",
-        "anchored_mix_sa_v3",
-        "query_adaptive_hard_sa_v4",
-    }:
-        reusing_installed_version = any(
-            type(proc) is BranchedAttnProcessor
-            for proc in pipeline.unet.attn_processors.values()
-        )
-        if not disable_ca and not reusing_installed_version:
-            raise RuntimeError(
-                f"{architecture_version} requires disable_branched_ca=true"
-            )
-        if reusing_installed_version and any(
-            isinstance(proc, BranchedCrossAttnProcessor)
-            for proc in pipeline.unet.attn_processors.values()
-        ):
-            raise RuntimeError(
-                f"{architecture_version} cannot reuse a U-Net with branched CA processors"
-            )
-        if float(getattr(pipeline, "pose_adapt_ratio", 0.0)) != 0.0:
-            raise RuntimeError(f"{architecture_version} requires pose_adapt_ratio=0")
-        if bool(getattr(pipeline, "ca_mixing_for_face", False)):
-            raise RuntimeError(
-                f"{architecture_version} requires ca_mixing_for_face=false"
-            )
-    known_branched_types = (
-        HardReplaceBranchedAttnProcessor,
-        ResidualBranchedSelfAttnProcessorV2,
-        AnchoredMixBranchedSelfAttnProcessorV3,
-        QueryAdaptiveHardBranchedSelfAttnProcessorV4,
-        BranchedCrossAttnProcessor,
-        HardIdentityCrossAttnProcessorV2,
-        ResidualIdentityCrossAttnProcessorV3,
-    )
+    BranchedAttnProcessor = HardReplaceBranchedAttnProcessor
+    known_branched_types = (HardReplaceBranchedAttnProcessor,)
 
     # print(f'[TEMP DEBUG] mask in patch_unet_attention_processors: {mask}')
     
@@ -352,6 +307,29 @@ def patch_unet_attention_processors(
                 "Installed temporal-frequency extension map does not match "
                 f"configuration: {mismatched_frequency_extensions[:5]}"
             )
+        mismatched_cl38_cl44 = []
+        for name, processor in current_procs.items():
+            if type(processor) is not HardReplaceBranchedAttnProcessor:
+                continue
+            actual = tuple(
+                bool(getattr(processor, f"{extension}_enabled", False))
+                for extension in extension_specs
+            )
+            expected = tuple(
+                extension_enabled[extension]
+                and any(
+                    name.startswith(f"{group}.")
+                    for group in extension_groups[extension]
+                )
+                for extension in extension_specs
+            )
+            if actual != expected:
+                mismatched_cl38_cl44.append((name, actual, expected))
+        if mismatched_cl38_cl44:
+            raise RuntimeError(
+                "Installed CL38-CL44 extension map does not match configuration: "
+                f"{mismatched_cl38_cl44[:5]}"
+            )
 
     def _resolve_attn_module(unet, proc_name):
         mod = unet
@@ -396,6 +374,14 @@ def patch_unet_attention_processors(
         )
         if hasattr(proc, "set_denoise_progress"):
             proc.set_denoise_progress(ba_denoise_progress)
+        if hasattr(proc, "set_training_step"):
+            proc.set_training_step(int(getattr(pipe, "_ba_current_global_step", 0)))
+        if hasattr(proc, "set_identity_context"):
+            proc.set_identity_context(
+                getattr(pipe, "_ba_identity_embedding_512", None),
+                getattr(pipe, "_ba_reference_landmarks_5", None),
+                getattr(pipe, "_ba_reference_landmark_confidence", None),
+            )
         if hasattr(proc, "set_hardcase_telemetry_enabled"):
             proc.set_hardcase_telemetry_enabled(hardcase_telemetry_enabled)
         if hasattr(proc, "set_ownership_target_mask"):
@@ -485,108 +471,12 @@ def patch_unet_attention_processors(
     patchable_sa_name_set = set(patchable_sa_names)
     setattr(pipeline, "_ba_semantic_processor_names", tuple(patchable_sa_names))
 
-    identity_ca_names: list[str] = []
-    identity_ca_enabled = identity_ca_v2_enabled or residual_identity_ca_v3_enabled
-    if identity_ca_enabled:
-        if architecture_version != "hard_replace_v1":
-            raise RuntimeError("Corrected identity CA requires hard_replace_v1")
-        if not disable_ca:
-            raise RuntimeError(
-                "Corrected identity CA requires the legacy branched CA path disabled"
-            )
-        if float(getattr(pipeline, "pose_adapt_ratio", 0.0)) != 0.0:
-            raise RuntimeError("Corrected identity CA requires pose_adapt_ratio=0")
-        if bool(getattr(pipeline, "ca_mixing_for_face", False)):
-            raise RuntimeError(
-                "Corrected identity CA forbids PhotoMaker/native face-output mixing"
-            )
-        group_attribute = (
-            "ba_identity_ca_v2_groups"
-            if identity_ca_v2_enabled
-            else "ba_residual_identity_ca_v3_groups"
-        )
-        identity_groups = tuple(
-            str(group)
-            for group in (
-                getattr(pipeline, group_attribute, None) or ()
-            )
-        )
-        invalid_identity_groups = [
-            group
-            for group in identity_groups
-            if not (
-                group == "mid_block"
-                or group.startswith("down_blocks.")
-                or group.startswith("up_blocks.")
-            )
-        ]
-        if invalid_identity_groups or not identity_groups:
-            raise ValueError(
-                f"Invalid {group_attribute}="
-                f"{invalid_identity_groups or identity_groups!r}"
-            )
-        identity_ca_names = [
-            name
-            for name in pipeline.unet.attn_processors.keys()
-            if name.endswith("attn2.processor")
-            and any(name.startswith(f"{group}.") for group in identity_groups)
-        ]
-        if not identity_ca_names:
-            raise RuntimeError(
-                f"{group_attribute} selected zero cross-attention processors"
-            )
-    identity_ca_name_set = set(identity_ca_names)
-    setattr(pipeline, "_ba_identity_ca_processor_names", tuple(identity_ca_names))
-
-    identity_token_indices = None
-    if identity_ca_enabled and class_tokens_mask is not None:
-        token_mask = class_tokens_mask.detach().to(dtype=torch.bool)
-        if token_mask.ndim == 1:
-            token_mask = token_mask.unsqueeze(0)
-        if token_mask.ndim != 2:
-            raise RuntimeError("Identity-token mask must be a 2D tensor")
-        # 12 Aug 2026 - Training optimization: validate the tiny prompt mask
-        # once per U-Net call and share fixed indices across all CA layers.
-        index_rows = [
-            row.nonzero(as_tuple=False).flatten().tolist()
-            for row in token_mask.cpu()
-        ]
-        if not index_rows or not index_rows[0] or any(
-            len(row) != len(index_rows[0]) for row in index_rows
-        ):
-            raise RuntimeError(
-                "Corrected identity CA requires equal, nonzero ID-token counts"
-            )
-        identity_token_indices = torch.tensor(
-            index_rows,
-            device=class_tokens_mask.device,
-            dtype=torch.long,
-        )
-
-    installed_identity_ca_names = {
-        name
-        for name, processor in current_procs.items()
-        if isinstance(
-            processor,
-            (HardIdentityCrossAttnProcessorV2, ResidualIdentityCrossAttnProcessorV3),
-        )
-    }
-    if has_branched and installed_identity_ca_names != identity_ca_name_set:
-        raise RuntimeError(
-            "Installed corrected identity-CA map does not match configuration: "
-            f"installed={sorted(installed_identity_ca_names)}, "
-            f"expected={sorted(identity_ca_name_set)}"
-        )
+    setattr(pipeline, "_ba_identity_ca_processor_names", ())
 
     if not has_branched:
         # Create new processors
         new_procs = {}
         patched_proc_names: list[str] = []
-        
-        # Get cross-attention dimension
-        cross_attention_dim = pipeline.unet.config.cross_attention_dim
-        if isinstance(cross_attention_dim, (list, tuple)):
-            cross_attention_dim = cross_attention_dim[0]
         
         for name in pipeline.unet.attn_processors.keys():
             # Get hidden size
@@ -870,7 +760,18 @@ def patch_unet_attention_processors(
                                 getattr(pipeline, "ba_hardcase_frequency_high_late", 1.25)
                             ),
                             hardcase_telemetry_enabled=hardcase_telemetry_enabled,
-                            frequency_surface_experiment_enabled=frequency_surface_enabled,
+                            # 20 Aug 2026 - AICODE-NOTE: CL27's surface collector is
+                            # group-scoped. Enabling it on every BA processor created
+                            # zero-only telemetry outside up0/up1, so a declared
+                            # single-arm extension produced a mixed synthetic "all"
+                            # schema before the first training update.
+                            frequency_surface_experiment_enabled=(
+                                frequency_surface_enabled
+                                and any(
+                                    name.startswith(f"{group}.")
+                                    for group in frequency_surface_groups
+                                )
+                            ),
                             frequency_surface_loss_enabled=(
                                 frequency_surface_enabled
                                 and any(
@@ -1014,15 +915,65 @@ def patch_unet_attention_processors(
                             hardcase_roi_rms_cap=float(
                                 getattr(pipeline, "ba_hardcase_roi_rms_cap", 0.25)
                             ),
+                            visibility_ownership_v2_enabled=(
+                                extension_enabled["visibility_ownership_v2"]
+                                and any(name.startswith(f"{group}.") for group in extension_groups["visibility_ownership_v2"])
+                            ),
+                            visibility_ownership_v2_dilate_cells=int(getattr(pipeline, "ba_visibility_ownership_v2_dilate_cells", 1)),
+                            visibility_ownership_v2_min_top_area=float(getattr(pipeline, "ba_visibility_ownership_v2_min_top_area", 0.002)),
+                            visibility_ownership_v2_delta_only=bool(getattr(pipeline, "ba_visibility_ownership_v2_delta_only", False)),
+                            null_key_router_enabled=(
+                                extension_enabled["null_key_router"]
+                                and any(name.startswith(f"{group}.") for group in extension_groups["null_key_router"])
+                            ),
+                            null_key_entropy_threshold=float(getattr(pipeline, "ba_null_key_entropy_threshold", 0.75)),
+                            null_key_temperature=float(getattr(pipeline, "ba_null_key_temperature", 0.08)),
+                            null_key_max_abstention=float(getattr(pipeline, "ba_null_key_max_abstention", 0.75)),
+                            null_key_min_reference_fraction=float(getattr(pipeline, "ba_null_key_min_reference_fraction", 0.25)),
+                            landmark_canonical_kv_enabled=(
+                                extension_enabled["landmark_canonical_kv"]
+                                and any(name.startswith(f"{group}.") for group in extension_groups["landmark_canonical_kv"])
+                            ),
+                            landmark_canonical_kv_mix=float(getattr(pipeline, "ba_landmark_canonical_kv_mix", 0.50)),
+                            landmark_canonical_kv_min_confidence=float(getattr(pipeline, "ba_landmark_canonical_kv_min_confidence", 0.80)),
+                            component_token_memory_enabled=(
+                                extension_enabled["component_token_memory"]
+                                and any(name.startswith(f"{group}.") for group in extension_groups["component_token_memory"])
+                            ),
+                            component_token_memory_scale=float(getattr(pipeline, "ba_component_token_memory_scale", 0.15)),
+                            component_token_memory_sigma_cells=float(getattr(pipeline, "ba_component_token_memory_sigma_cells", 1.75)),
+                            component_token_memory_min_confidence=float(getattr(pipeline, "ba_component_token_memory_min_confidence", 0.80)),
+                            identity_motion_projector_enabled=(
+                                extension_enabled["identity_motion_projector"]
+                                and any(name.startswith(f"{group}.") for group in extension_groups["identity_motion_projector"])
+                            ),
+                            identity_motion_projector_rank=int(getattr(pipeline, "ba_identity_motion_projector_rank", 32)),
+                            identity_motion_projector_gate_max=float(getattr(pipeline, "ba_identity_motion_projector_gate_max", 0.35)),
+                            identity_motion_projector_ramp_start_step=int(getattr(pipeline, "ba_identity_motion_projector_ramp_start_step", 1000)),
+                            identity_motion_projector_ramp_end_step=int(getattr(pipeline, "ba_identity_motion_projector_ramp_end_step", 6000)),
+                            id_adaptive_modulation_enabled=(
+                                extension_enabled["id_adaptive_modulation"]
+                                and any(name.startswith(f"{group}.") for group in extension_groups["id_adaptive_modulation"])
+                            ),
+                            id_adaptive_modulation_embedding_dim=int(getattr(pipeline, "ba_id_adaptive_modulation_embedding_dim", 512)),
+                            id_adaptive_modulation_bottleneck=int(getattr(pipeline, "ba_id_adaptive_modulation_bottleneck", 32)),
+                            id_adaptive_modulation_scale_max=float(getattr(pipeline, "ba_id_adaptive_modulation_scale_max", 0.20)),
+                            id_adaptive_modulation_ramp_start_step=int(getattr(pipeline, "ba_id_adaptive_modulation_ramp_start_step", 1000)),
+                            id_adaptive_modulation_ramp_end_step=int(getattr(pipeline, "ba_id_adaptive_modulation_ramp_end_step", 6000)),
+                            semantic_window_gate_enabled=(
+                                extension_enabled["semantic_window_gate"]
+                                and any(name.startswith(f"{group}.") for group in extension_groups["semantic_window_gate"])
+                            ),
+                            semantic_window_progress_start=float(getattr(pipeline, "ba_semantic_window_gate_progress_start", 0.20)),
+                            semantic_window_progress_end=float(getattr(pipeline, "ba_semantic_window_gate_progress_end", 0.85)),
+                            semantic_window_progress_temperature=float(getattr(pipeline, "ba_semantic_window_gate_progress_temperature", 0.08)),
+                            semantic_window_agreement_threshold=float(getattr(pipeline, "ba_semantic_window_gate_agreement_threshold", 0.15)),
+                            semantic_window_agreement_temperature=float(getattr(pipeline, "ba_semantic_window_gate_agreement_temperature", 0.08)),
+                            semantic_window_min_scale=float(getattr(pipeline, "ba_semantic_window_gate_min_scale", 0.60)),
+                            semantic_window_max_scale=float(getattr(pipeline, "ba_semantic_window_gate_max_scale", 1.15)),
                         )
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
-                    if architecture_version in {
-                        "residual_sa_v2",
-                        "anchored_mix_sa_v3",
-                        "query_adaptive_hard_sa_v4",
-                    }:
-                        proc = proc.to(pipeline.device)
-                    elif hard_trainable_dtype is not None:
+                    if hard_trainable_dtype is not None:
                         # 3 Aug 2026 - Keep only hard-v1 BA parameters in FP32;
                         # cloned effective base weights remain frozen BF16 buffers.
                         proc = proc.to(pipeline.device)
@@ -1039,105 +990,8 @@ def patch_unet_attention_processors(
                     patched_proc_names.append(name)
                 
             elif name.endswith("attn2.processor"):
-                if name in identity_ca_name_set:
-                    trainable_dtype_name = str(
-                        getattr(pipeline, "branched_trainable_dtype", "inherit")
-                    ).lower()
-                    identity_trainable_dtype = (
-                        torch.float32
-                        if (
-                            residual_identity_ca_v3_enabled
-                            or trainable_dtype_name in {"fp32", "float32"}
-                        )
-                        else None
-                    )
-                    if identity_ca_v2_enabled:
-                        proc = HardIdentityCrossAttnProcessorV2(
-                            hidden_size=hidden_size,
-                            cross_attention_dim=int(cross_attention_dim),
-                            rank=int(
-                                getattr(pipeline, "ba_identity_ca_v2_rank", 16)
-                            ),
-                            trainable_dtype=identity_trainable_dtype,
-                        )
-                    else:
-                        proc = ResidualIdentityCrossAttnProcessorV3(
-                            hidden_size=hidden_size,
-                            cross_attention_dim=int(cross_attention_dim),
-                            rank=int(
-                                getattr(
-                                    pipeline,
-                                    "ba_residual_identity_ca_v3_rank",
-                                    64,
-                                )
-                            ),
-                            gate_init=float(
-                                getattr(
-                                    pipeline,
-                                    "ba_residual_identity_ca_v3_gate_init",
-                                    0.02,
-                                )
-                            ),
-                            gate_max=float(
-                                getattr(
-                                    pipeline,
-                                    "ba_residual_identity_ca_v3_gate_max",
-                                    0.20,
-                                )
-                            ),
-                            trainable_dtype=(
-                                identity_trainable_dtype or torch.float32
-                            ),
-                        )
-                    proc.init_from_attention(
-                        _resolve_attn_module(pipeline.unet, name)
-                    )
-                    if identity_trainable_dtype is not None:
-                        proc = proc.to(pipeline.device)
-                    else:
-                        proc = proc.to(
-                            pipeline.device,
-                            dtype=pipeline.unet.dtype,
-                        )
-                    proc.set_masks(_mask, _mref)
-                    proc.set_class_tokens_mask(
-                        class_tokens_mask,
-                        identity_token_indices,
-                    )
-                    new_procs[name] = proc
-                    patched_proc_names.append(name)
-                elif disable_ca:
-                    # Keep original cross-attn processor; no branched CA.
-                    new_procs[name] = pipeline._original_attn_processors[name]
-                else:
-                    # Cross-attention: use branched cross-attention processor
-                    num_tokens = 77  # Standard CLIP token count
-                    if hasattr(pipeline, 'tokenizer_2'):
-                        num_tokens = pipeline.tokenizer_2.model_max_length
-
-                    proc = BranchedCrossAttnProcessor(
-                        hidden_size=hidden_size,
-                        cross_attention_dim=cross_attention_dim,
-                        scale=scale,
-                        num_tokens=num_tokens,
-                        branched_attn_weight_mode=getattr(pipeline, "branched_attn_weight_mode", "shared"),
-                        branched_attn_new_weight_kind=getattr(pipeline, "branched_attn_new_weight_kind", "full"),
-                        branched_attn_lora_rank=int(
-                            getattr(pipeline, "branched_attn_lora_rank", getattr(pipeline, "lora_rank", 16))
-                        ),
-                    ).to(pipeline.device, dtype=pipeline.unet.dtype)
-                    proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
-                    # enable KV equalizer for face branch
-                    setattr(proc, "equalize_face_kv", True)
-                    setattr(proc, "equalize_clip", (1/3, 8.0))
-                    setattr(proc, "strict_face_routing", bool(getattr(pipeline, "strict_face_routing", False)))
-                    proc.set_masks(_mask, _mref)
-                    # Keep CA path consistent too (even if CA doesn’t always consume id_embeds)
-                    proc.id_embeds = _idem
-                    proc.class_tokens_mask = class_tokens_mask
-
-                    new_procs[name] = proc
-                    patched_proc_names.append(name)
+                # All supported runs keep Diffusers cross-attention unchanged.
+                new_procs[name] = pipeline._original_attn_processors[name]
                 
             else:
                 # Keep original for other processors
@@ -1149,15 +1003,7 @@ def patch_unet_attention_processors(
         patched_proc_names: list[str] = []
         # Update masks on existing processors
         for name, proc in pipeline.unet.attn_processors.items():
-            if isinstance(
-                proc,
-                (
-                    BranchedAttnProcessor,
-                    BranchedCrossAttnProcessor,
-                    HardIdentityCrossAttnProcessorV2,
-                    ResidualIdentityCrossAttnProcessorV3,
-                ),
-            ):
+            if isinstance(proc, BranchedAttnProcessor):
                 patched_proc_names.append(name)
                 # proc.set_masks(mask, mask_ref)
                 proc.set_masks(_mask, _mref)
@@ -1166,19 +1012,6 @@ def patch_unet_attention_processors(
                 # (Re)apply id_embeds (zeros if missing); actual usage is gated by use_id_embeds
                 if hasattr(proc, "id_embeds"):
                     proc.id_embeds = _idem
-                if isinstance(
-                    proc,
-                    (
-                        HardIdentityCrossAttnProcessorV2,
-                        ResidualIdentityCrossAttnProcessorV3,
-                    ),
-                ):
-                    # 4 Aug 2026 - ID-token membership changes with the current
-                    # prompt/CFG batch and must be refreshed on every forward.
-                    proc.set_class_tokens_mask(
-                        class_tokens_mask,
-                        identity_token_indices,
-                    )
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
 
     pose_adapt_ratio = float(getattr(pipeline, "pose_adapt_ratio", 0.0))

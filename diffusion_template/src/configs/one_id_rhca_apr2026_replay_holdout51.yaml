@@ -1,8 +1,0 @@
-defaults:
-  - one_id_rhca_apr2026_replay
-  - _self_
-
-# Leak-free companion to the historical one-ID replay. Validation remains
-# fixed on ref/51.jpg, while 51.jpg is excluded from both training targets and
-# the same-identity reference sampling pool.
-train_dataset_name: one_id_holdout51

@@ -12,7 +12,7 @@ from .insightface_package import analyze_faces
 from src.face_subject_selector import LEGACY_FIRST, select_subject_face
 
 
-def _subject_embedding(model, ref, declared_bbox):
+def _subject_face_data(model, ref, declared_bbox):
     img_np = np.array(ref.convert("RGB"))[:, :, ::-1]
     faces = analyze_faces(model.face_analyzer, img_np)
     policy = str(
@@ -23,13 +23,32 @@ def _subject_embedding(model, ref, declared_bbox):
             raise RuntimeError(
                 "Subject-v2 training conditioning found no face in a reference image"
             )
-        return torch.zeros(512, dtype=torch.float32)
+        return (
+            torch.zeros(512, dtype=torch.float32),
+            torch.full((5, 2), float("nan"), dtype=torch.float32),
+            0.0,
+        )
     selected, _audit = select_subject_face(
         faces,
         declared_bbox=declared_bbox,
         policy=policy,
     )
-    return torch.from_numpy(selected["embedding"]).float()
+    embedding = torch.from_numpy(selected["embedding"]).float()
+    keypoints = selected.get("kps")
+    if keypoints is None:
+        landmarks = torch.full((5, 2), float("nan"), dtype=torch.float32)
+        confidence = 0.0
+    else:
+        width, height = ref.size
+        landmarks = torch.from_numpy(np.asarray(keypoints)).float()
+        landmarks[:, 0] /= max(float(width), 1.0)
+        landmarks[:, 1] /= max(float(height), 1.0)
+        confidence = float(selected.get("det_score", 1.0))
+    return embedding, landmarks, confidence
+
+
+def _subject_embedding(model, ref, declared_bbox):
+    return _subject_face_data(model, ref, declared_bbox)[0]
 
 
 def _branched_trainable_context(model) -> dict:
@@ -180,6 +199,8 @@ def _is_expected_branched_trainable(name: str, context: dict) -> bool:
                 ".attn1.processor.ownership_scale_raw",
                 ".attn1.processor.ownership_mlp.",
                 ".attn1.processor.frequency_schedule_raw",
+                ".attn1.processor.identity_motion_projector.",
+                ".attn1.processor.id_adaptive_modulation.",
             )
             expected = any(marker in name for marker in hardcase_markers)
         if not expected and is_selected_proc and any(
@@ -487,6 +508,23 @@ def collect_frequency_surface_aux_loss(model):
     )
 
 
+def collect_visibility_ownership_v2_loss(model):
+    """Aggregate CL38's live native top/contact anchors once per forward."""
+    processors = model.unet.attn_processors
+    rows = []
+    for name in getattr(model, "_ba_patched_processor_names", ()):
+        processor = processors.get(name)
+        if not bool(getattr(processor, "visibility_ownership_v2_enabled", False)):
+            continue
+        getter = getattr(processor, "visibility_ownership_v2_aux", None)
+        values = None if getter is None else getter()
+        if values is not None:
+            rows.append(values)
+    if not rows:
+        return None
+    return tuple(torch.stack([row[index].float() for row in rows]).mean() for index in range(4))
+
+
 def collect_frequency_schedule_anchor_loss(model) -> torch.Tensor | None:
     """Return the mean squared bounded-endpoint correction for CL28."""
     processors = model.unet.attn_processors
@@ -775,6 +813,9 @@ def prepare_branched_training_inputs(
     ref_mask_list = []
     ref_latents_list = []
     pm_feature_list = []
+    raw_identity_list = []
+    landmark_list = []
+    landmark_confidence_list = []
 
     image_h, image_w = pixel_values.shape[-2:]
     latent_h, latent_w = noisy_latents.shape[-2:]
@@ -855,15 +896,19 @@ def prepare_branched_training_inputs(
                 )
 
                 prompt_for_id = prompt_embeds.to(dtype=model.id_encoder.dtype)
-                id_embed_list = []
+                face_rows = []
                 for ref_index, ref in enumerate(refs):
-                    id_embed_list.append(
-                        _subject_embedding(
+                    face_rows.append(
+                        _subject_face_data(
                             model,
                             ref,
                             ref_bbox if ref_index == 0 else None,
                         )
                     )
+                id_embed_list = [row[0] for row in face_rows]
+                raw_identity = torch.stack(id_embed_list).mean(dim=0)
+                reference_landmarks = face_rows[0][1]
+                reference_landmark_confidence = face_rows[0][2]
 
                 id_embeds = torch.stack(id_embed_list, dim=0).unsqueeze(0)
                 id_embeds = id_embeds.to(
@@ -908,6 +953,9 @@ def prepare_branched_training_inputs(
                     None if pm_features is None else pm_features.detach(),
                     target_mask.detach(),
                     ref_mask.detach(),
+                    raw_identity.detach(),
+                    reference_landmarks.detach(),
+                    float(reference_landmark_confidence),
                 )
                 cache[cache_key] = cached
                 cache.move_to_end(cache_key)
@@ -925,6 +973,9 @@ def prepare_branched_training_inputs(
                 pm_features,
                 target_mask,
                 ref_mask,
+                raw_identity,
+                reference_landmarks,
+                reference_landmark_confidence,
             ) = cached
 
         class_tokens_mask_list.append(class_tokens_mask)
@@ -933,6 +984,9 @@ def prepare_branched_training_inputs(
         mask_list.append(target_mask)
         if pm_features is not None:
             pm_feature_list.append(pm_features)
+        raw_identity_list.append(raw_identity)
+        landmark_list.append(reference_landmarks)
+        landmark_confidence_list.append(reference_landmark_confidence)
         prompt_embeds_list.append(prompt_embeds)
         pooled_prompt_embeds_list.append(pooled_prompt_embeds)
 
@@ -958,6 +1012,11 @@ def prepare_branched_training_inputs(
     mask4 = torch.cat(mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
     mask4_ref = torch.cat(ref_mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
     reference_latents = torch.cat(ref_latents_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
+    model._ba_identity_embedding_512 = torch.stack(raw_identity_list).to(model.device)
+    model._ba_reference_landmarks_5 = torch.stack(landmark_list).to(model.device)
+    model._ba_reference_landmark_confidence = torch.tensor(
+        landmark_confidence_list, device=model.device, dtype=torch.float32
+    )
 
     model._ref_latents_all = reference_latents
     model._face_prompt_embeds = prompt_embeds
@@ -1042,22 +1101,27 @@ def _prepare_branched_training_inputs_batched(
         )
 
         id_embed_list = []
+        landmark_list = []
+        landmark_confidence_list = []
         for refs, ref_bbox in zip(refs_per_sample, face_bbox_ref):
-            id_embed_list.append(
-                torch.stack(
-                    [
-                        _subject_embedding(
-                            model,
-                            ref,
-                            ref_bbox if ref_index == 0 else None,
-                        )
-                        for ref_index, ref in enumerate(refs)
-                    ],
-                    dim=0,
+            rows = [
+                _subject_face_data(
+                    model,
+                    ref,
+                    ref_bbox if ref_index == 0 else None,
                 )
-            )
+                for ref_index, ref in enumerate(refs)
+            ]
+            id_embed_list.append(torch.stack([row[0] for row in rows], dim=0))
+            landmark_list.append(rows[0][1])
+            landmark_confidence_list.append(rows[0][2])
         id_embeds = torch.stack(id_embed_list, dim=0).to(
             device=model.device, dtype=model.id_encoder.dtype
+        )
+        model._ba_identity_embedding_512 = id_embeds.float().mean(dim=1)
+        model._ba_reference_landmarks_5 = torch.stack(landmark_list).to(model.device)
+        model._ba_reference_landmark_confidence = torch.tensor(
+            landmark_confidence_list, device=model.device, dtype=torch.float32
         )
 
         prompt_embeds = model.id_encoder(

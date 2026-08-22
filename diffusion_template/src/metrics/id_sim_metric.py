@@ -77,16 +77,6 @@ class IDSimBest(BaseMetric):
         return best_score
 
 
-class IDSimMax(IDSimBest):
-    def choose_face(self, embeds, bboxes, person_id):
-        best_score = -np.inf
-        pairs = list(zip(embeds, bboxes))
-        pairs = sorted(pairs, key=lambda x: -(x[1][3] - x[1][1]) * (x[1][2] - x[1][0]))
-        best_embed = pairs[0][0]
-        best_score = cos_sim(best_embed, self.id_embeds[person_id])
-        return best_score
-
-
 class IDSimMaskMatched(IDSimBest):
     """Identity similarity for the generated face owned by the target mask."""
 

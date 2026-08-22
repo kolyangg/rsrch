@@ -1,0 +1,119 @@
+# Runtime dataset registry for the clean_full support boundary.
+# Historical loaders remain available in git history, not in this branch.
+train:
+    large_dataset:
+        _target_: src.datasets.large_dataset.LargeDatasetTrain
+        data_json_pth: ${oc.env:LARGE_DATASET_MANIFEST,../dataset_full/filtered_ids3_adj.json}
+        images_path: ${oc.env:LARGE_DATASET_IMAGES,../dataset_full/large_dataset_adj/large_dataset}
+        num_refs: 1
+        train_on_separate_image: ${train_on_separate_image}
+        singleton_reference_policy: ${oc.env:LARGE_DATASET_SINGLETON_REFERENCE_POLICY,error}
+        same_id_ref_map_json_pth: null
+        random_horizontal_flip: true
+        instance_transforms: ${transforms.instance_transforms.train}
+
+    big_celebs:
+        _target_: src.datasets.big_celebs.BigCelebsTrain
+        manifest_path: ${oc.env:BIG_CELEBS_MANIFEST,/nonexistent/big_celebs_manifest.json}
+        images_path: ${oc.env:BIG_CELEBS_IMAGES,/nonexistent/big_celebs_images}
+        num_refs: 1
+        min_face_res: ${oc.env:BIG_CELEBS_MIN_FACE_RES,192}
+        trigger_word: img
+        strict_manifest_fields: true
+        random_horizontal_flip: true
+        instance_transforms: ${transforms.instance_transforms.train}
+
+    bc_e13_ds1:
+        _target_: src.datasets.big_celebs_e13_scheduled.BigCelebsE13ScheduledTrain
+        schedule_path: ${oc.env:BC_E13_SCHEDULE,/nonexistent/bc_e13_ds1.jsonl}
+        schedule_summary_path: ${oc.env:BC_E13_SCHEDULE_SUMMARY,/nonexistent/bc_e13_ds1_summary.json}
+        expected_schedule_sha256: ${oc.env:BC_E13_EXPECTED_SCHEDULE_SHA256,0000000000000000000000000000000000000000000000000000000000000000}
+        expected_mode: ds1
+        expected_schedule_rows: 48000
+        big_manifest_path: ${oc.env:BIG_CELEBS_MANIFEST,/nonexistent/big_celebs_manifest.json}
+        big_images_path: ${oc.env:BIG_CELEBS_IMAGES,/nonexistent/big_celebs_images}
+        expected_big_manifest_sha256: ${oc.env:BIG_CELEBS_EXPECTED_MANIFEST_SHA256,f846b8cc8a4ce087c78130beee48a65f1b13560b63e42a9715cb5686526e5efa}
+        large_manifest_path: null
+        large_images_path: null
+        expected_large_manifest_sha256: null
+        schedule_start_row: ${oc.env:BC_E13_SCHEDULE_START_ROW,0}
+        num_refs: 1
+        random_horizontal_flip: false
+        instance_transforms: ${transforms.instance_transforms.train}
+
+    bc_e13_ds2:
+        _target_: src.datasets.big_celebs_e13_scheduled.BigCelebsE13ScheduledTrain
+        schedule_path: ${oc.env:BC_E13_SCHEDULE,/nonexistent/bc_e13_ds2.jsonl}
+        schedule_summary_path: ${oc.env:BC_E13_SCHEDULE_SUMMARY,/nonexistent/bc_e13_ds2_summary.json}
+        expected_schedule_sha256: ${oc.env:BC_E13_EXPECTED_SCHEDULE_SHA256,0000000000000000000000000000000000000000000000000000000000000000}
+        expected_mode: ds2
+        expected_schedule_rows: 48000
+        big_manifest_path: ${oc.env:BIG_CELEBS_MANIFEST,/nonexistent/big_celebs_manifest.json}
+        big_images_path: ${oc.env:BIG_CELEBS_IMAGES,/nonexistent/big_celebs_images}
+        expected_big_manifest_sha256: ${oc.env:BIG_CELEBS_EXPECTED_MANIFEST_SHA256,f846b8cc8a4ce087c78130beee48a65f1b13560b63e42a9715cb5686526e5efa}
+        large_manifest_path: null
+        large_images_path: null
+        expected_large_manifest_sha256: null
+        schedule_start_row: ${oc.env:BC_E13_SCHEDULE_START_ROW,0}
+        num_refs: 1
+        random_horizontal_flip: false
+        instance_transforms: ${transforms.instance_transforms.train}
+
+    bc_e13_ds3:
+        _target_: src.datasets.big_celebs_e13_scheduled.BigCelebsE13ScheduledTrain
+        schedule_path: ${oc.env:BC_E13_SCHEDULE,/nonexistent/bc_e13_ds3.jsonl}
+        schedule_summary_path: ${oc.env:BC_E13_SCHEDULE_SUMMARY,/nonexistent/bc_e13_ds3_summary.json}
+        expected_schedule_sha256: ${oc.env:BC_E13_EXPECTED_SCHEDULE_SHA256,0000000000000000000000000000000000000000000000000000000000000000}
+        expected_mode: ds3
+        expected_schedule_rows: 48000
+        big_manifest_path: ${oc.env:BIG_CELEBS_MANIFEST,/nonexistent/big_celebs_manifest.json}
+        big_images_path: ${oc.env:BIG_CELEBS_IMAGES,/nonexistent/big_celebs_images}
+        expected_big_manifest_sha256: ${oc.env:BIG_CELEBS_EXPECTED_MANIFEST_SHA256,f846b8cc8a4ce087c78130beee48a65f1b13560b63e42a9715cb5686526e5efa}
+        large_manifest_path: ${oc.env:LARGE_DATASET_MANIFEST,/nonexistent/large_dataset_manifest.json}
+        large_images_path: ${oc.env:LARGE_DATASET_IMAGES,/nonexistent/large_dataset_images}
+        expected_large_manifest_sha256: ${oc.env:LARGE_DATASET_EXPECTED_MANIFEST_SHA256,0056f9647c6ca69079c3b7ae479ea5cdf9e642f076460249b160000eecb3ee50}
+        schedule_start_row: ${oc.env:BC_E13_SCHEDULE_START_ROW,0}
+        num_refs: 1
+        random_horizontal_flip: false
+        instance_transforms: ${transforms.instance_transforms.train}
+
+    cosmic_large_adapted:
+        _target_: src.datasets.cosmic_large_adapted.CosmicLargeAdaptedTrain
+        manifest_path: ${oc.env:COSMIC_LARGE_MANIFEST,/nonexistent/cosmic_large_manifest.json}
+        dataset_root: ${oc.env:COSMIC_LARGE_ROOT,/nonexistent/cosmic_large_root}
+        num_refs: 1
+        min_face_res: 192
+        min_reference_score: null
+        reference_crop_margin: 0.2
+        reference_content_size: 256
+        reference_canvas_size: null
+        reference_canvas_fill: 127
+        random_horizontal_flip: true
+        random_reference_flip: true
+        prompt_mode: legacy
+        prompt_max_words: null
+        reference_frame_mode: native
+        reference_frame_fill: edge
+        reference_accept_list_path: ${oc.env:COSMIC_REFERENCE_ACCEPT_LIST,null}
+        num_identity_refs: 1
+        target_scale_balance: false
+        target_scale_bins: null
+        target_scale_balance_mode: reorder
+        reference_scale_jitter: null
+        reference_position_jitter: 0.0
+        semantic_occlusion_probability: 0.0
+        semantic_occlusion_seed: 150017
+        same_identity_dual_reference: false
+        min_reference_candidates_for_target: 3
+        instance_transforms: ${transforms.instance_transforms.train}
+
+val:
+    manual_val:
+        _target_: src.datasets.manual_val.ManualPhotoMakerValDataset
+        images_dir: ../dataset_full/val_dataset/references
+        prompts_path: ../dataset_full/val_dataset/prompts_10.txt
+        classes_json_path: ../dataset_full/val_dataset/classes_ref.json
+        bbox_mask_ref: ../dataset_full/val_dataset/ref_bboxes.json
+        bbox_mask_gen: ../dataset_full/val_dataset/pm96_bboxes_new.json
+        seeds: [0]
+        limit: 96

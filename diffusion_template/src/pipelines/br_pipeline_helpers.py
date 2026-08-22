@@ -176,8 +176,16 @@ def ensure_id_embeds(
             raise ValueError(f"Unsupported id_embeds shape: {tuple(x.shape)}")
         return x.to(device=device, dtype=dtype)
 
-    if id_embeds is not None:
-        return _normalize_id_embeds(id_embeds)
+    normalized_provided = None if id_embeds is None else _normalize_id_embeds(id_embeds)
+    needs_landmarks = bool(
+        getattr(pipeline, "ba_landmark_canonical_kv_enabled", False)
+        or getattr(pipeline, "ba_component_token_memory_enabled", False)
+    )
+    needs_raw_identity = bool(
+        getattr(pipeline, "ba_id_adaptive_modulation_enabled", False)
+    )
+    if normalized_provided is not None and not (needs_landmarks or needs_raw_identity):
+        return normalized_provided
 
     ensure_face_analyzer(pipeline)
 
@@ -215,6 +223,8 @@ def ensure_id_embeds(
             declared_bboxes[0] = face_bbox_ref
 
     embeddings = []
+    landmarks = []
+    landmark_confidences = []
     selections = []
     for ref, declared_bbox in zip(refs, declared_bboxes):
         if isinstance(ref, torch.Tensor):
@@ -236,6 +246,16 @@ def ensure_id_embeds(
                 policy=face_subject_selection_policy,
             )
             embedding = torch.from_numpy(selected["embedding"]).float()
+            keypoints = selected.get("kps")
+            if keypoints is None:
+                normalized_keypoints = torch.full((5, 2), float("nan"))
+                confidence = 0.0
+            else:
+                height, width = img_np.shape[:2]
+                normalized_keypoints = torch.from_numpy(np.asarray(keypoints)).float()
+                normalized_keypoints[:, 0] /= max(float(width), 1.0)
+                normalized_keypoints[:, 1] /= max(float(height), 1.0)
+                confidence = float(selected.get("det_score", 1.0))
             selections.append(audit.to_dict())
         else:
             if str(face_subject_selection_policy).lower() != LEGACY_FIRST:
@@ -243,6 +263,8 @@ def ensure_id_embeds(
                     "Subject-v2 identity conditioning found no face in a reference image"
                 )
             embedding = torch.zeros(512, dtype=torch.float32)
+            normalized_keypoints = torch.full((5, 2), float("nan"))
+            confidence = 0.0
             selections.append(
                 {
                     "selection_reason": "legacy_no_face_zero_vector",
@@ -250,6 +272,8 @@ def ensure_id_embeds(
                 }
             )
         embeddings.append(embedding)
+        landmarks.append(normalized_keypoints)
+        landmark_confidences.append(confidence)
 
     pipeline._face_subject_selections = selections
 
@@ -259,6 +283,16 @@ def ensure_id_embeds(
     else:
         stacked = stacked.unsqueeze(0)
     #### 08 MAR - FIX BATCHED VALIDATION ####
+    pipeline._ba_identity_embedding_512 = stacked.mean(dim=1).to(
+        device=device, dtype=torch.float32
+    )
+    pipeline._ba_reference_landmarks_5 = torch.stack(landmarks).to(device)
+    pipeline._ba_reference_landmark_confidence = torch.tensor(
+        landmark_confidences, device=device, dtype=torch.float32
+    )
+    if normalized_provided is not None:
+        pipeline._ba_identity_embedding_512 = normalized_provided.mean(dim=1).float()
+        return normalized_provided
     return stacked.to(device=device, dtype=dtype)
 
 
@@ -306,17 +340,12 @@ def prepare_ref_mask(
     width: int,
 ) -> Optional[str]:
     if auto_mask_ref:
-        from src.model.photomaker_branched.create_mask_ref import compute_face_mask_from_pil
-
-        os.makedirs(debug_dir, exist_ok=True)
-        auto_ref_path = os.path.join(debug_dir, "auto_ref_mask.png")
-        mask_array = compute_face_mask_from_pil(pil)
-        PIL.Image.fromarray(mask_array).save(auto_ref_path)
-        log_debug_image(f"[DebugImage] auto_ref_mask → {auto_ref_path}")
-        import_mask_ref = auto_ref_path
-        print(f"[AutoMaskRef] Generated ref mask → {auto_ref_path}")
-    else:
-        print(f"[AutoMaskRef] Using existing ref mask at {import_mask_ref}")
+        # 22 Aug 2026 - clean_full always uses sealed reference boxes. The
+        # segmentation-based fallback was unused and made validation mutable.
+        raise RuntimeError(
+            "clean_full does not support auto_mask_ref; use the sealed bbox mask"
+        )
+    print(f"[AutoMaskRef] Using existing ref mask at {import_mask_ref}")
 
     if (not auto_mask_ref) and use_bbox_mask_ref and face_bbox_ref is None:
         raise RuntimeError(

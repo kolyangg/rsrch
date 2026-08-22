@@ -7,6 +7,16 @@
   "image_dpi_percent": null,
   "run_name_max_chars_per_line": 16,
   "markdown_source": null,
+  "face_closeups": {
+    "enabled": false,
+    "bbox_json": null,
+    "expected_sha256": null,
+    "bbox_field": "face_crop_new",
+    "bbox_coordinate_size": [1024, 1024],
+    "padding_ratio": 0.45,
+    "require_exact_keys": true,
+    "title": "Comet Run Face Region Comparison"
+  },
   "metric_point_labels": {
     "enabled": false,
     "decimals": 3

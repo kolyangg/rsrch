@@ -1,9 +1,0 @@
-defaults:
-  - large_dataset_rhca_historical_observed_20k
-  - _self_
-
-writer:
-  experiment_comment: >-
-    E0 historical r4 replay: preserve the observed 171.29M fail-open BA plus
-    generic/default-adapter ownership and legacy checkpoints; measure the
-    historical identity benefit and its prompt/quality cost on a matched 20k run.

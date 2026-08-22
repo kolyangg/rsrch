@@ -1,74 +1,38 @@
-# PhotoMaker branched-attention training
+# PhotoMaker branched-attention: clean_full
 
-This is the primary project in the `test` worktree. It preserves the April
-2026 RHCA model/runtime while keeping current one-identity replay configs and
-launchers easy to find.
+This branch is the unified training and validation code base for PM0,
+CL14/19/23/27/39, CL40-CL45, E13, and the four supported BigCelebs/E13 dataset
+arms. Every scientific choice is made by a reviewed Hydra config.
 
-## Main entry points
+## Entry points
 
-- `train.py` — Hydra training entry point.
-- `infer.py` — inference entry point.
-- `src/` — model, pipeline, trainer, datasets, metrics, and Hydra configs.
-- `bbox_utils/` — active face-box utilities and detector checkpoint.
-- `setup/` — reproducible environment snapshots and helpers.
+- `train.py` — shared Hydra/Accelerate entry point.
+- `src/configs/clean_full_runs.json` — supported run manifest and immutable
+  historical Comet references.
+- `tools/validate_clean_full_config.py` — fail-closed composition gate.
+- `launchers/active/run_clean_full_config_1gpu.sh` — sole supported one-GPU
+  Serv launcher.
+- `analysis/2026-08-22_clean_full_code_structure_and_run_inventory.md` —
+  file/class/function ownership and excluded-code inventory.
 
-Run Python and Hydra commands from this directory so relative dataset and
-output paths resolve consistently.
-
-## Active launchers
+Run from this directory:
 
 ```bash
 conda activate photomaker
-
-# One-time machine-local setup (the resulting .env is ignored by Git).
 cp .env.example .env
 chmod 600 .env
-# Edit .env and set COMET_API_KEY, PM_PATH, and any optional overrides.
+python tools/validate_clean_full_config.py --list
 
-# Historical April one-ID replay: 4k steps, validation every 500.
-bash launchers/active/run_rhca_apr2026_one_id_1gpu.sh
-
-# Leak-free companion: hold validation reference 51.jpg out of training.
-bash launchers/active/run_rhca_apr2026_one_id_holdout51_1gpu.sh
-
-# Same RHCA architecture on cosmic_large_one_id.
-bash launchers/active/run_rhca_apr2026_cosmic_large_one_id_1gpu.sh
-
-# Cosmic one-target run with face-masked loss on every step: 8k total.
-bash launchers/active/run_rhca_apr2026_cosmic_large_one_id_faceonly_8k_1gpu.sh
-
-# 4k causal arm: face-only loss with branched cross-attention disabled.
-bash launchers/active/run_rhca_apr2026_cosmic_large_one_id_faceonly_noca_4k_1gpu.sh
-
-# Controlled data factorial (multi_full | single_full | multi_cosref).
-FACTORIAL_ARM=multi_full \
-  bash launchers/active/run_rhca_controlled_identity_factorial_4k_1gpu.sh
+CONFIG_NAME=CL39_cosmic_null_key_confidence_router_24k \
+RUN_NAME=CL39_clean_full_replay_r1 \
+bash launchers/active/run_clean_full_config_1gpu.sh
 ```
 
-Active launchers automatically load and export values from
-`diffusion_template/.env`; shell-level `export` commands are not required.
-Set `ENV_FILE=/another/path/.env` only when a server needs a different file.
+The launcher rejects arbitrary Hydra overrides, resolves the selected dataset
+from the config, runs its sealed preflight, creates the canonical run record,
+verifies Comet registration, and finalizes face quality after successful
+training. Machine paths and credentials live only in `.env`.
 
-The default Comet project is `rsrch-jul`. Override names without editing a
-launcher. Values passed on the command line take precedence unless the same
-variable is explicitly assigned in `.env`:
-
-```bash
-RUN_NAME=my_run COMET_PROJECT=rsrch-jul \
-  bash launchers/active/run_rhca_apr2026_one_id_1gpu.sh
-```
-
-## Supporting material
-
-- [`docs/`](docs/) — architecture and experiment documentation.
-- [`tools/`](tools/) — Comet, inference/reporting, and dataset utilities.
-- [`tools/inference/evaluate_rhca_checkpoint.py`](tools/inference/evaluate_rhca_checkpoint.py)
-  — fixed-validation checkpoint evaluation without optimizer steps.
-- [`requirements/`](requirements/) — supplemental environment requirements.
-- [`artifacts/reference_debug/`](artifacts/reference_debug/) — retained debug
-  examples, not runtime output.
-- [`archive/`](archive/) — historical entry points and integration examples.
-- [`launchers/archive/`](launchers/archive/) — historical SLURM launchers.
-
-Generated checkpoints, logs, Hydra outputs, and new debug images should remain
-untracked.
+Run comparison/report commands through the tools documented in `TOOLS.md`.
+Historical implementations and generated artifacts can be recovered from the
+`test` branch or earlier commits; they are not runtime dependencies here.

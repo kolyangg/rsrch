@@ -83,7 +83,6 @@ else:
     XLA_AVAILABLE = False
 
 
-from src.model.photomaker_branched.model import PhotoMakerIDEncoder  # PhotoMaker v1
 from src.model.photomaker_branched.model_v2_NS import PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken  # PhotoMaker v2
 
 PipelineImageInput = Union[
@@ -252,18 +251,19 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             raise ValueError("Required keys are (`id_encoder` and `lora_weights`) missing from the state dict.")
 
         # self.num_tokens =2
-        self.num_tokens = 2 if pm_version == 'v2' else 1
+        # 22 Aug 2026 - AICODE-NOTE: clean_full supports the PhotoMaker V2
+        # identity encoder only; the unused V1 implementation was removed.
+        if pm_version != "v2":
+            raise NotImplementedError(
+                f"clean_full supports PhotoMaker V2 only, got {pm_version!r}"
+            )
+        self.num_tokens = 2
         self.pm_version = pm_version
         self.trigger_word = trigger_word
         # load finetuned CLIP image encoder and fuse module here if it has not been registered to the pipeline yet
         print(f"Loading PhotoMaker {pm_version} components [1] id_encoder from [{pretrained_model_name_or_path_or_dict}]...")
         self.id_image_processor = CLIPImageProcessor()
-        if pm_version == "v1": # PhotoMaker v1 
-            id_encoder = PhotoMakerIDEncoder()
-        elif pm_version == "v2": # PhotoMaker v2
-            id_encoder = PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken()
-        else:
-            raise NotImplementedError(f"The PhotoMaker version [{pm_version}] does not support")
+        id_encoder = PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken()
 
         id_encoder.load_state_dict(state_dict["id_encoder"], strict=True)
         id_encoder = id_encoder.to(self.device, dtype=self.unet.dtype)    

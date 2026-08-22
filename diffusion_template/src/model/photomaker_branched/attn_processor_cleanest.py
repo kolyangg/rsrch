@@ -8,6 +8,12 @@ import torch.nn.functional as F
 from typing import Optional
 import math
 
+from .identity_conditioning import (
+    IDAdaptiveModulation,
+    IdentityMotionProjector,
+    similarity_grid_from_landmarks,
+)
+
 
 class BranchLoRALinear(nn.Module):
     def __init__(
@@ -158,6 +164,41 @@ class BranchedAttnProcessor(nn.Module):
         hardcase_roi_gate_min: float = 0.05,
         hardcase_roi_progress_min: float = 0.60,
         hardcase_roi_rms_cap: float = 0.25,
+        visibility_ownership_v2_enabled: bool = False,
+        visibility_ownership_v2_dilate_cells: int = 1,
+        visibility_ownership_v2_min_top_area: float = 0.002,
+        visibility_ownership_v2_delta_only: bool = False,
+        null_key_router_enabled: bool = False,
+        null_key_entropy_threshold: float = 0.75,
+        null_key_temperature: float = 0.08,
+        null_key_max_abstention: float = 0.75,
+        null_key_min_reference_fraction: float = 0.25,
+        landmark_canonical_kv_enabled: bool = False,
+        landmark_canonical_kv_mix: float = 0.50,
+        landmark_canonical_kv_min_confidence: float = 0.80,
+        component_token_memory_enabled: bool = False,
+        component_token_memory_scale: float = 0.15,
+        component_token_memory_sigma_cells: float = 1.75,
+        component_token_memory_min_confidence: float = 0.80,
+        identity_motion_projector_enabled: bool = False,
+        identity_motion_projector_rank: int = 32,
+        identity_motion_projector_gate_max: float = 0.35,
+        identity_motion_projector_ramp_start_step: int = 1000,
+        identity_motion_projector_ramp_end_step: int = 6000,
+        id_adaptive_modulation_enabled: bool = False,
+        id_adaptive_modulation_embedding_dim: int = 512,
+        id_adaptive_modulation_bottleneck: int = 32,
+        id_adaptive_modulation_scale_max: float = 0.20,
+        id_adaptive_modulation_ramp_start_step: int = 1000,
+        id_adaptive_modulation_ramp_end_step: int = 6000,
+        semantic_window_gate_enabled: bool = False,
+        semantic_window_progress_start: float = 0.20,
+        semantic_window_progress_end: float = 0.85,
+        semantic_window_progress_temperature: float = 0.08,
+        semantic_window_agreement_threshold: float = 0.15,
+        semantic_window_agreement_temperature: float = 0.08,
+        semantic_window_min_scale: float = 0.60,
+        semantic_window_max_scale: float = 1.15,
     ):
         super().__init__()
 
@@ -274,6 +315,58 @@ class BranchedAttnProcessor(nn.Module):
         self.hardcase_roi_gate_min = float(hardcase_roi_gate_min)
         self.hardcase_roi_progress_min = float(hardcase_roi_progress_min)
         self.hardcase_roi_rms_cap = float(hardcase_roi_rms_cap)
+        self.visibility_ownership_v2_enabled = bool(
+            visibility_ownership_v2_enabled
+        )
+        self.visibility_ownership_v2_dilate_cells = int(visibility_ownership_v2_dilate_cells)
+        self.visibility_ownership_v2_min_top_area = float(
+            visibility_ownership_v2_min_top_area
+        )
+        self.visibility_ownership_v2_delta_only = bool(
+            visibility_ownership_v2_delta_only
+        )
+        self.null_key_router_enabled = bool(null_key_router_enabled)
+        self.null_key_entropy_threshold = float(null_key_entropy_threshold)
+        self.null_key_temperature = float(null_key_temperature)
+        self.null_key_max_abstention = float(null_key_max_abstention)
+        self.null_key_min_reference_fraction = float(null_key_min_reference_fraction)
+        self.landmark_canonical_kv_enabled = bool(landmark_canonical_kv_enabled)
+        self.landmark_canonical_kv_mix = float(landmark_canonical_kv_mix)
+        self.landmark_canonical_kv_min_confidence = float(
+            landmark_canonical_kv_min_confidence
+        )
+        self.component_token_memory_enabled = bool(component_token_memory_enabled)
+        self.component_token_memory_scale = float(component_token_memory_scale)
+        self.component_token_memory_sigma_cells = float(
+            component_token_memory_sigma_cells
+        )
+        self.component_token_memory_min_confidence = float(
+            component_token_memory_min_confidence
+        )
+        self.identity_motion_projector_enabled = bool(identity_motion_projector_enabled)
+        self.identity_motion_projector_gate_max = float(identity_motion_projector_gate_max)
+        self.identity_motion_projector_ramp_start_step = int(
+            identity_motion_projector_ramp_start_step
+        )
+        self.identity_motion_projector_ramp_end_step = int(
+            identity_motion_projector_ramp_end_step
+        )
+        self.id_adaptive_modulation_enabled = bool(id_adaptive_modulation_enabled)
+        self.id_adaptive_modulation_scale_max = float(id_adaptive_modulation_scale_max)
+        self.id_adaptive_modulation_ramp_start_step = int(
+            id_adaptive_modulation_ramp_start_step
+        )
+        self.id_adaptive_modulation_ramp_end_step = int(
+            id_adaptive_modulation_ramp_end_step
+        )
+        self.semantic_window_gate_enabled = bool(semantic_window_gate_enabled)
+        self.semantic_window_progress_start = float(semantic_window_progress_start)
+        self.semantic_window_progress_end = float(semantic_window_progress_end)
+        self.semantic_window_progress_temperature = float(semantic_window_progress_temperature)
+        self.semantic_window_agreement_threshold = float(semantic_window_agreement_threshold)
+        self.semantic_window_agreement_temperature = float(semantic_window_agreement_temperature)
+        self.semantic_window_min_scale = float(semantic_window_min_scale)
+        self.semantic_window_max_scale = float(semantic_window_max_scale)
         if self.hardcase_rank <= 0 or self.hardcase_roi_size <= 1:
             raise ValueError("Hard-case rank and ROI size must be positive")
         if not 0.0 < self.hardcase_gate_max <= 1.0:
@@ -311,6 +404,33 @@ class BranchedAttnProcessor(nn.Module):
             raise ValueError("hardcase_roi_progress_min must be in [0, 1)")
         if self.hardcase_roi_rms_cap <= 0.0:
             raise ValueError("hardcase_roi_rms_cap must be positive")
+        if (
+            self.visibility_ownership_v2_dilate_cells < 1
+            or self.visibility_ownership_v2_min_top_area < 0.0
+        ):
+            raise ValueError("CL38 ownership geometry is invalid")
+        if not (
+            0.0 <= self.null_key_max_abstention <= 1.0
+            and 0.0 < self.null_key_min_reference_fraction <= 1.0
+        ):
+            raise ValueError("CL39 null-key bounds are invalid")
+        if self.null_key_temperature <= 0.0:
+            raise ValueError("CL39 null-key temperature must be positive")
+        if not 0.0 <= self.landmark_canonical_kv_mix <= 1.0:
+            raise ValueError("CL41 canonical mix must be in [0, 1]")
+        if min(self.component_token_memory_scale, self.component_token_memory_sigma_cells) <= 0.0:
+            raise ValueError("CL42 component-memory controls must be positive")
+        if not 0.0 < self.identity_motion_projector_gate_max <= 1.0:
+            raise ValueError("CL40 projector gate must be in (0, 1]")
+        if not 0.0 < self.id_adaptive_modulation_scale_max <= 1.0:
+            raise ValueError("CL43 modulation scale must be in (0, 1]")
+        if not (
+            0.0 <= self.semantic_window_progress_start < self.semantic_window_progress_end <= 1.0
+            and self.semantic_window_progress_temperature > 0.0
+            and self.semantic_window_agreement_temperature > 0.0
+            and 0.0 < self.semantic_window_min_scale <= self.semantic_window_max_scale
+        ):
+            raise ValueError("CL44 semantic-window controls are invalid")
 
         self.roi_gate_raw = None
         self.memory_to_k = None
@@ -321,6 +441,8 @@ class BranchedAttnProcessor(nn.Module):
         self.ownership_mlp = None
         self.ownership_scale_raw = None
         self.frequency_schedule_raw = None
+        self.identity_motion_projector = None
+        self.id_adaptive_modulation = None
         if self.hardcase_mode == "highres_roi":
             self.roi_gate_raw = nn.Parameter(torch.zeros((), dtype=trainable_dtype))
         elif self.hardcase_mode == "anchored_roi":
@@ -361,6 +483,16 @@ class BranchedAttnProcessor(nn.Module):
             self.frequency_schedule_raw = nn.Parameter(
                 torch.zeros(3, dtype=trainable_dtype or torch.float32)
             )
+        if self.identity_motion_projector_enabled:
+            self.identity_motion_projector = IdentityMotionProjector(
+                hidden_size, int(identity_motion_projector_rank)
+            )
+        if self.id_adaptive_modulation_enabled:
+            self.id_adaptive_modulation = IDAdaptiveModulation(
+                hidden_size,
+                int(id_adaptive_modulation_bottleneck),
+                int(id_adaptive_modulation_embedding_dim),
+            )
         if (
             self.frequency_surface_experiment_enabled
             or self.frequency_lowband_contrastive_enabled
@@ -384,6 +516,11 @@ class BranchedAttnProcessor(nn.Module):
         self._lowband_negative_embedding = None
         self.ba_denoise_progress = None
         self._latest_ba_telemetry = None
+        self._visibility_ownership_v2_aux = None
+        self.identity_embedding_512 = None
+        self.reference_landmarks_5 = None
+        self.reference_landmark_confidence = None
+        self.ba_training_step = 0
         
         self.mask = None
         self.mask_ref = None
@@ -516,6 +653,22 @@ class BranchedAttnProcessor(nn.Module):
 
     def set_denoise_progress(self, progress: Optional[torch.Tensor]) -> None:
         self.ba_denoise_progress = progress
+
+    def set_training_step(self, step: int) -> None:
+        self.ba_training_step = int(step)
+
+    def set_identity_context(
+        self,
+        identity_embedding_512: Optional[torch.Tensor],
+        reference_landmarks_5: Optional[torch.Tensor],
+        reference_landmark_confidence: Optional[torch.Tensor],
+    ) -> None:
+        self.identity_embedding_512 = identity_embedding_512
+        self.reference_landmarks_5 = reference_landmarks_5
+        self.reference_landmark_confidence = reference_landmark_confidence
+
+    def visibility_ownership_v2_aux(self):
+        return self._visibility_ownership_v2_aux
 
     def ownership_aux_loss(self) -> Optional[torch.Tensor]:
         return self._ownership_aux_loss
@@ -1181,6 +1334,212 @@ class BranchedAttnProcessor(nn.Module):
             eligible.mean(),
         )
 
+    def _step_ramp(self, start: int, end: int) -> float:
+        if end <= start:
+            return float(self.ba_training_step >= end)
+        return max(0.0, min(1.0, (self.ba_training_step - start) / (end - start)))
+
+    def _null_key_confidence(
+        self, attn, q: torch.Tensor, reference: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return detached query confidence without retaining an LxL graph."""
+        batch, heads, length, width = q.shape
+        ref_mask = self._binary_mask(
+            self.mask_ref, length, batch, reference.dtype
+        )
+        keys = self._reshape_heads(
+            self._k_ref(attn, reference * ref_mask), heads
+        ).detach().float()
+        chunks = []
+        with torch.no_grad():
+            for q_chunk in q.detach().float().split(256, dim=2):
+                logits = torch.matmul(q_chunk, keys.transpose(-1, -2)) / math.sqrt(width)
+                probability = logits.softmax(dim=-1)
+                entropy = -(
+                    probability * probability.clamp_min(1.0e-8).log()
+                ).sum(dim=-1) / math.log(max(length, 2))
+                chunks.append(entropy.mean(dim=1, keepdim=False)[..., None])
+            entropy = torch.cat(chunks, dim=1)
+            null_mass = torch.sigmoid(
+                (entropy - self.null_key_entropy_threshold)
+                / self.null_key_temperature
+            )
+            confidence = (
+                1.0 - self.null_key_max_abstention * null_mass
+            ).clamp(min=self.null_key_min_reference_fraction, max=1.0)
+        return confidence.to(q.dtype), null_mass
+
+    def _landmark_rows(
+        self, batch: int, device: torch.device
+    ) -> tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
+        points = self.reference_landmarks_5
+        confidence = self.reference_landmark_confidence
+        if points is None or confidence is None:
+            return None, None
+        points = torch.as_tensor(points, device=device, dtype=torch.float32)
+        confidence = torch.as_tensor(confidence, device=device, dtype=torch.float32).flatten()
+        if points.ndim == 2:
+            points = points.unsqueeze(0)
+        if points.shape[0] == 1:
+            points = points.expand(batch, -1, -1)
+        elif batch % points.shape[0] == 0:
+            points = points.repeat(batch // points.shape[0], 1, 1)
+        if confidence.shape[0] == 1:
+            confidence = confidence.expand(batch)
+        elif batch % confidence.shape[0] == 0:
+            confidence = confidence.repeat(batch // confidence.shape[0])
+        if points.shape != (batch, 5, 2) or confidence.shape[0] != batch:
+            return None, None
+        return points, confidence
+
+    def _canonical_reference_out(
+        self,
+        attn,
+        q: torch.Tensor,
+        reference: torch.Tensor,
+        original: torch.Tensor,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        batch, length, channels = reference.shape
+        side = int(math.isqrt(length))
+        points, confidence = self._landmark_rows(batch, reference.device)
+        if points is None or side * side != length:
+            zero = reference.new_tensor(0.0)
+            return original, {"applied": zero, "confidence": zero, "cosine": zero, "rms": zero}
+        grid, geometrically_valid = similarity_grid_from_landmarks(points, side=side)
+        valid = geometrically_valid & (
+            confidence >= self.landmark_canonical_kv_min_confidence
+        )
+        canonical = F.grid_sample(
+            reference.transpose(1, 2).reshape(batch, channels, side, side).float(),
+            grid,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=False,
+        ).to(reference.dtype).flatten(2).transpose(1, 2)
+        candidate = self._reference_target_out(attn, q, canonical)
+        mixed = (1.0 - self.landmark_canonical_kv_mix) * original
+        mixed = mixed + self.landmark_canonical_kv_mix * candidate
+        ratio = self._masked_rms(original, torch.ones_like(original[..., :1]))
+        ratio = ratio / self._masked_rms(mixed, torch.ones_like(mixed[..., :1]))
+        mixed = mixed * ratio.to(mixed.dtype)
+        valid_mask = valid[:, None, None]
+        output = torch.where(valid_mask, mixed, original)
+        correction = output.float() - original.float()
+        cosine = F.cosine_similarity(
+            original.float().flatten(1), candidate.float().flatten(1)
+        ).mean()
+        return output, {
+            "applied": valid.float().mean(),
+            "confidence": confidence.mean(),
+            "cosine": cosine.detach(),
+            "rms": correction.square().mean().sqrt().detach(),
+        }
+
+    def _component_memory_correction(
+        self,
+        attn,
+        q: torch.Tensor,
+        reference: torch.Tensor,
+        routed_delta: torch.Tensor,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        batch, length, channels = reference.shape
+        side = int(math.isqrt(length))
+        points, confidence = self._landmark_rows(batch, reference.device)
+        zero = reference.new_tensor(0.0)
+        empty_metrics = {"applied": zero, "rms": zero, "masses": reference.new_zeros(5)}
+        if points is None or side * side != length:
+            return torch.zeros_like(routed_delta), empty_metrics
+        valid = confidence >= self.component_token_memory_min_confidence
+        y, x = torch.meshgrid(
+            torch.arange(side, device=reference.device, dtype=torch.float32),
+            torch.arange(side, device=reference.device, dtype=torch.float32),
+            indexing="ij",
+        )
+        xy = torch.stack((x, y), dim=-1).reshape(1, length, 1, 2)
+        centers = torch.stack(
+            (points[:, 0], points[:, 1], points[:, 2], points[:, 3:5].mean(1)),
+            dim=1,
+        ) * float(side - 1)
+        distances = (xy - centers[:, None]).square().sum(-1)
+        weights = torch.exp(
+            -0.5 * distances / (self.component_token_memory_sigma_cells ** 2)
+        )
+        face = self._binary_mask(self.mask_ref, length, batch, torch.float32)
+        weights = weights * face
+        global_weight = face
+        weights = torch.cat((weights, global_weight), dim=-1)
+        mass = weights.sum(dim=1).clamp_min(1.0e-6)
+        tokens = torch.einsum("blc,bld->bcd", weights, reference.float()) / mass[..., None]
+        component = torch.arange(5, device=reference.device, dtype=torch.float32)
+        channel = torch.arange(channels, device=reference.device, dtype=torch.float32)
+        type_code = torch.sin((component[:, None] + 1.0) * (channel[None] + 1.0) / channels)
+        tokens = (tokens + 0.01 * type_code[None]).to(reference.dtype)
+        heads = int(attn.heads)
+        message = F.scaled_dot_product_attention(
+            q,
+            self._reshape_heads(self._k_ref(attn, tokens), heads),
+            self._reshape_heads(self._v_ref(attn, tokens), heads),
+            dropout_p=0.0,
+            is_causal=False,
+        )
+        part = attn.to_out[0](self._merge_heads(message))
+        ratio = self._masked_rms(routed_delta, torch.ones_like(routed_delta[..., :1]))
+        ratio = ratio / self._masked_rms(part, torch.ones_like(part[..., :1]))
+        correction = self.component_token_memory_scale * part * ratio.to(part.dtype)
+        correction = correction * valid[:, None, None].to(correction.dtype)
+        attention_mass = mass / mass.sum(dim=-1, keepdim=True)
+        return correction, {
+            "applied": valid.float().mean(),
+            "rms": correction.float().square().mean().sqrt().detach(),
+            "masses": attention_mass.mean(dim=0).detach(),
+        }
+
+    def _visibility_ownership_loss(
+        self, native: torch.Tensor, candidate: torch.Tensor
+    ) -> None:
+        self._visibility_ownership_v2_aux = None
+        if (
+            not self.visibility_ownership_v2_enabled
+            or not self.training
+            or not torch.is_grad_enabled()
+            or self.ownership_target_mask is None
+        ):
+            return
+        batch, length, _ = native.shape
+        face = self._binary_mask(self.mask, length, batch, torch.float32)
+        top = self._binary_mask(
+            self.ownership_target_mask, length, batch, torch.float32
+        ) * face
+        side = int(math.isqrt(length))
+        top_image = top.transpose(1, 2).reshape(batch, 1, side, side)
+        width = self.visibility_ownership_v2_dilate_cells
+        dilated = F.max_pool2d(
+            top_image, 2 * width + 1, stride=1, padding=width
+        )
+        contact = (dilated - top_image).clamp(0.0, 1.0).flatten(2).transpose(1, 2) * face
+        top_area = top.mean(dim=(1, 2))
+        eligible = top_area >= self.visibility_ownership_v2_min_top_area
+        # 20 Aug 2026 - AICODE-NOTE: CL38's candidate shares its native path.
+        # Keeping native live in this subtraction cancels native-path gradients
+        # algebraically, so this auxiliary can update only the explicit BA delta.
+        native_target = (
+            native if self.visibility_ownership_v2_delta_only else native.detach()
+        )
+        difference = (candidate.float() - native_target.float()).abs()
+
+        def region_mean(mask: torch.Tensor) -> torch.Tensor:
+            per_sample = (difference * mask).sum((1, 2)) / (
+                mask.sum((1, 2)) * difference.shape[-1]
+            ).clamp_min(1.0)
+            return (per_sample * eligible.float()).sum() / eligible.float().sum().clamp_min(1.0)
+
+        self._visibility_ownership_v2_aux = (
+            region_mean(top),
+            region_mean(contact),
+            top_area.mean().detach(),
+            eligible.float().mean().detach(),
+        )
+
     def _call_hardcase(self, attn, hidden_states, temb) -> torch.Tensor:
         residual = hidden_states
         target, reference, input_ndim, spatial = self._normalized_halves(
@@ -1301,6 +1660,19 @@ class BranchedAttnProcessor(nn.Module):
             router = self._soft_router_mask(
                 self.mask, target.shape[1], target.shape[0], native_out.dtype
             )
+            extension_metrics = {}
+            if self.landmark_canonical_kv_enabled:
+                reference_out, canonical_metrics = self._canonical_reference_out(
+                    attn, q, reference, reference_out
+                )
+                extension_metrics.update(
+                    **{
+                        "canonical_kv/applied_fraction": canonical_metrics["applied"],
+                        "canonical_kv/landmark_confidence": canonical_metrics["confidence"],
+                        "canonical_kv/native_vs_canonical_cosine": canonical_metrics["cosine"],
+                        "canonical_kv/correction_rms": canonical_metrics["rms"],
+                    }
+                )
             low, high = self._gaussian_split(reference_out - native_out)
             progress = self._progress(target)
             if self.frequency_shared_schedule_enabled:
@@ -1369,15 +1741,162 @@ class BranchedAttnProcessor(nn.Module):
                     self.hardcase_frequency_high_late
                     - self.hardcase_frequency_high_early
                 )
+            if self.semantic_window_gate_enabled:
+                face = self._binary_mask(
+                    self.mask, target.shape[1], target.shape[0], torch.float32
+                )
+                ref_face = self._binary_mask(
+                    self.mask_ref, reference.shape[1], reference.shape[0], torch.float32
+                )
+                agreement = F.cosine_similarity(
+                    self._masked_pool(target, face),
+                    self._masked_pool(reference, ref_face),
+                    dim=-1,
+                ).detach().view(-1, 1, 1)
+                rising = torch.sigmoid(
+                    (progress - self.semantic_window_progress_start)
+                    / self.semantic_window_progress_temperature
+                )
+                falling = torch.sigmoid(
+                    (self.semantic_window_progress_end - progress)
+                    / self.semantic_window_progress_temperature
+                )
+                time_weight = rising * falling
+                agreement_weight = torch.sigmoid(
+                    (agreement - self.semantic_window_agreement_threshold)
+                    / self.semantic_window_agreement_temperature
+                )
+                window_scale = self.semantic_window_min_scale + (
+                    self.semantic_window_max_scale - self.semantic_window_min_scale
+                ) * time_weight * agreement_weight
+                # 19 Aug 2026 - A per-sample fp32 gate would promote the BA
+                # residual and break the following bf16 SDXL LayerNorm.
+                window_scale = window_scale.to(dtype=target.dtype)
+                high_scale = high_scale * window_scale
+                extension_metrics.update(
+                    **{
+                        "semantic_window/agreement": agreement.mean(),
+                        "semantic_window/time_weight": time_weight.mean(),
+                        "semantic_window/high_scale": window_scale.mean(),
+                        "semantic_window/object_minus_visible_scale": window_scale.new_tensor(0.0),
+                    }
+                )
             low_component = router * low_scale * low
             high_component = router * high_scale * high
+            if self.null_key_router_enabled:
+                confidence, null_mass = self._null_key_confidence(
+                    attn, q, reference
+                )
+                low_component = low_component * confidence
+                high_component = high_component * confidence
+                object_minus_visible = null_mass.new_tensor(0.0)
+                if self.ownership_target_mask is not None:
+                    face = self._binary_mask(
+                        self.mask, target.shape[1], target.shape[0], torch.float32
+                    )
+                    top = self._binary_mask(
+                        self.ownership_target_mask,
+                        target.shape[1],
+                        target.shape[0],
+                        torch.float32,
+                    ) * face
+                    visible = (face - top).clamp(0.0, 1.0)
+                    object_minus_visible = (
+                        (null_mass * top).sum() / top.sum().clamp_min(1.0)
+                        - (null_mass * visible).sum() / visible.sum().clamp_min(1.0)
+                    )
+                extension_metrics.update(
+                    **{
+                        "null_key/null_mass": null_mass.mean(),
+                        "null_key/reference_fraction": confidence.float().mean(),
+                        "null_key/object_minus_visible_mass": object_minus_visible,
+                    }
+                )
             routed_delta = low_component + high_component
+            if self.component_token_memory_enabled:
+                correction, component_metrics = self._component_memory_correction(
+                    attn, q, reference, routed_delta
+                )
+                routed_delta = routed_delta + correction
+                extension_metrics.update(
+                    **{
+                        "component_memory/applied_fraction": component_metrics["applied"],
+                        "component_memory/correction_rms": component_metrics["rms"],
+                        "component_memory/left_eye_mass": component_metrics["masses"][0],
+                        "component_memory/right_eye_mass": component_metrics["masses"][1],
+                        "component_memory/nose_mass": component_metrics["masses"][2],
+                        "component_memory/mouth_mass": component_metrics["masses"][3],
+                        "component_memory/global_mass": component_metrics["masses"][4],
+                    }
+                )
+            if self.identity_motion_projector is not None:
+                face = self._binary_mask(
+                    self.mask, target.shape[1], target.shape[0], target.dtype
+                )
+                ref_face = self._binary_mask(
+                    self.mask_ref, reference.shape[1], reference.shape[0], reference.dtype
+                )
+                correction, cosine_before, cosine_after = self.identity_motion_projector(
+                    target * face, reference * ref_face
+                )
+                correction_rms = self._masked_rms(correction, face)
+                routed_rms = self._masked_rms(routed_delta, face)
+                correction = correction * (routed_rms / correction_rms).clamp(max=1.0).to(correction.dtype)
+                gate = self.identity_motion_projector_gate_max * self._step_ramp(
+                    self.identity_motion_projector_ramp_start_step,
+                    self.identity_motion_projector_ramp_end_step,
+                )
+                routed_delta = routed_delta + gate * correction * face
+                extension_metrics.update(
+                    **{
+                        "id_motion/cosine_before": cosine_before.detach(),
+                        "id_motion/cosine_after": cosine_after.detach(),
+                        "id_motion/correction_rms": correction.float().square().mean().sqrt().detach(),
+                        "id_motion/gate": target.new_tensor(gate),
+                    }
+                )
+            if self.id_adaptive_modulation is not None:
+                identity = self.identity_embedding_512
+                if identity is None:
+                    raise RuntimeError("CL43 requires the raw 512-D identity embedding")
+                identity = torch.as_tensor(identity, device=target.device)
+                if identity.ndim == 3:
+                    identity = identity.mean(dim=1)
+                if identity.shape[0] == 1:
+                    identity = identity.expand(target.shape[0], -1)
+                elif target.shape[0] % identity.shape[0] == 0:
+                    identity = identity.repeat(target.shape[0] // identity.shape[0], 1)
+                if identity.shape != (target.shape[0], 512):
+                    raise RuntimeError(
+                        f"CL43 identity shape mismatch: {tuple(identity.shape)}"
+                    )
+                correction, gamma, beta = self.id_adaptive_modulation(
+                    routed_delta, identity
+                )
+                scale = self.id_adaptive_modulation_scale_max * self._step_ramp(
+                    self.id_adaptive_modulation_ramp_start_step,
+                    self.id_adaptive_modulation_ramp_end_step,
+                )
+                routed_delta = routed_delta + scale * correction
+                extension_metrics.update(
+                    **{
+                        "id_modulation/gamma_rms": gamma.float().square().mean().sqrt().detach(),
+                        "id_modulation/beta_rms": beta.float().square().mean().sqrt().detach(),
+                        "id_modulation/output_rms": correction.float().square().mean().sqrt().detach(),
+                        "id_modulation/active_fraction": target.new_tensor(float(scale > 0.0)),
+                    }
+                )
             target_out = native_out + routed_delta
-            self._latest_ba_telemetry = None
+            # 19 Aug 2026 - AICODE-NOTE: all CL38-CL44 arms modify only the
+            # explicit CL27 reference delta; target Q and reference K/V ownership stay intact.
+            self._visibility_ownership_loss(native_out, target_out)
+            self._latest_ba_telemetry = (
+                dict(extension_metrics) if extension_metrics else None
+            )
             if self.hardcase_telemetry_enabled:
                 # 16 Aug 2026 - Full-activation fp32 reductions are optional;
                 # objectives and routed activations remain unchanged.
-                self._latest_ba_telemetry = {
+                base_telemetry = {
                     "frequency_low_scale": low_scale.detach().float().mean(),
                     "frequency_high_scale": high_scale.detach().float().mean(),
                     "frequency_low_delta_rms": low.detach().float().square().mean().clamp_min(1e-12).sqrt(),
@@ -1387,6 +1906,9 @@ class BranchedAttnProcessor(nn.Module):
                         / native_out.detach().float().square().mean().clamp_min(1e-12).sqrt()
                     ),
                 }
+                if self._latest_ba_telemetry is None:
+                    self._latest_ba_telemetry = {}
+                self._latest_ba_telemetry.update(base_telemetry)
             if self.frequency_learnable_schedule_enabled and self._latest_ba_telemetry is not None:
                 raw_abs = self.frequency_schedule_raw.detach().float().abs()
                 self._latest_ba_telemetry.update(

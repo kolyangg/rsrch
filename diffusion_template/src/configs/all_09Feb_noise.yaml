@@ -1,5 +1,0 @@
-defaults:
-  - all_09Feb
-  - _self_
-
-branched_attn_weight_mode: noise_and_ref

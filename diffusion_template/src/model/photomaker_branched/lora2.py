@@ -33,6 +33,7 @@ from .lora2_helpers import (
     clear_lowband_contrastive_state,
     collect_frequency_schedule_anchor_loss,
     collect_frequency_surface_aux_loss,
+    collect_visibility_ownership_v2_loss,
     collect_hardcase_aux_loss,
     collect_attention_ownership_loss,
     collect_lowband_contrastive_loss,
@@ -235,6 +236,54 @@ class PhotomakerBranchedLora(SDXL):
         ba_hardcase_roi_gate_min: float = 0.05,
         ba_hardcase_roi_progress_min: float = 0.60,
         ba_hardcase_roi_rms_cap: float = 0.25,
+        # 19 Aug 2026 - CL38-CL44 independent, defaults-off CL27 extensions.
+        ba_visibility_ownership_v2_enabled: bool = False,
+        ba_visibility_ownership_v2_groups: Optional[Sequence[str]] = None,
+        ba_visibility_ownership_v2_top_native_weight: float = 0.020,
+        ba_visibility_ownership_v2_contact_native_weight: float = 0.010,
+        ba_visibility_ownership_v2_dilate_cells: int = 1,
+        ba_visibility_ownership_v2_min_top_area: float = 0.002,
+        ba_visibility_ownership_v2_stopgrad_native: bool = True,
+        ba_visibility_ownership_v2_delta_only: bool = False,
+        ba_visibility_ownership_v2_ramp_start_step: int = 1000,
+        ba_visibility_ownership_v2_ramp_end_step: int = 4000,
+        ba_null_key_router_enabled: bool = False,
+        ba_null_key_router_groups: Optional[Sequence[str]] = None,
+        ba_null_key_entropy_threshold: float = 0.75,
+        ba_null_key_temperature: float = 0.08,
+        ba_null_key_max_abstention: float = 0.75,
+        ba_null_key_min_reference_fraction: float = 0.25,
+        ba_landmark_canonical_kv_enabled: bool = False,
+        ba_landmark_canonical_kv_groups: Optional[Sequence[str]] = None,
+        ba_landmark_canonical_kv_mix: float = 0.50,
+        ba_landmark_canonical_kv_min_confidence: float = 0.80,
+        ba_component_token_memory_enabled: bool = False,
+        ba_component_token_memory_groups: Optional[Sequence[str]] = None,
+        ba_component_token_memory_scale: float = 0.15,
+        ba_component_token_memory_sigma_cells: float = 1.75,
+        ba_component_token_memory_min_confidence: float = 0.80,
+        ba_identity_motion_projector_enabled: bool = False,
+        ba_identity_motion_projector_groups: Optional[Sequence[str]] = None,
+        ba_identity_motion_projector_rank: int = 32,
+        ba_identity_motion_projector_gate_max: float = 0.35,
+        ba_identity_motion_projector_ramp_start_step: int = 1000,
+        ba_identity_motion_projector_ramp_end_step: int = 6000,
+        ba_id_adaptive_modulation_enabled: bool = False,
+        ba_id_adaptive_modulation_groups: Optional[Sequence[str]] = None,
+        ba_id_adaptive_modulation_embedding_dim: int = 512,
+        ba_id_adaptive_modulation_bottleneck: int = 32,
+        ba_id_adaptive_modulation_scale_max: float = 0.20,
+        ba_id_adaptive_modulation_ramp_start_step: int = 1000,
+        ba_id_adaptive_modulation_ramp_end_step: int = 6000,
+        ba_semantic_window_gate_enabled: bool = False,
+        ba_semantic_window_gate_groups: Optional[Sequence[str]] = None,
+        ba_semantic_window_gate_progress_start: float = 0.20,
+        ba_semantic_window_gate_progress_end: float = 0.85,
+        ba_semantic_window_gate_progress_temperature: float = 0.08,
+        ba_semantic_window_gate_agreement_threshold: float = 0.15,
+        ba_semantic_window_gate_agreement_temperature: float = 0.08,
+        ba_semantic_window_gate_min_scale: float = 0.60,
+        ba_semantic_window_gate_max_scale: float = 1.15,
         ba_semantic_ownership_loss_weight: float = 0.05,
         ba_crossview_consistency_enabled: bool = False,
         ba_crossview_consistency_probability: float = 0.25,
@@ -849,6 +898,56 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_hardcase_roi_gate_min = float(ba_hardcase_roi_gate_min)
         self.ba_hardcase_roi_progress_min = float(ba_hardcase_roi_progress_min)
         self.ba_hardcase_roi_rms_cap = float(ba_hardcase_roi_rms_cap)
+        self.ba_visibility_ownership_v2_enabled = bool(ba_visibility_ownership_v2_enabled)
+        self.ba_visibility_ownership_v2_groups = tuple(ba_visibility_ownership_v2_groups or ())
+        self.ba_visibility_ownership_v2_top_native_weight = float(ba_visibility_ownership_v2_top_native_weight)
+        self.ba_visibility_ownership_v2_contact_native_weight = float(ba_visibility_ownership_v2_contact_native_weight)
+        self.ba_visibility_ownership_v2_dilate_cells = int(ba_visibility_ownership_v2_dilate_cells)
+        self.ba_visibility_ownership_v2_min_top_area = float(ba_visibility_ownership_v2_min_top_area)
+        if not ba_visibility_ownership_v2_stopgrad_native:
+            raise ValueError("CL38 requires stopgrad on the native target anchor")
+        self.ba_visibility_ownership_v2_delta_only = bool(
+            ba_visibility_ownership_v2_delta_only
+        )
+        self.ba_visibility_ownership_v2_ramp_start_step = int(ba_visibility_ownership_v2_ramp_start_step)
+        self.ba_visibility_ownership_v2_ramp_end_step = int(ba_visibility_ownership_v2_ramp_end_step)
+        self.ba_null_key_router_enabled = bool(ba_null_key_router_enabled)
+        self.ba_null_key_router_groups = tuple(ba_null_key_router_groups or ())
+        self.ba_null_key_entropy_threshold = float(ba_null_key_entropy_threshold)
+        self.ba_null_key_temperature = float(ba_null_key_temperature)
+        self.ba_null_key_max_abstention = float(ba_null_key_max_abstention)
+        self.ba_null_key_min_reference_fraction = float(ba_null_key_min_reference_fraction)
+        self.ba_landmark_canonical_kv_enabled = bool(ba_landmark_canonical_kv_enabled)
+        self.ba_landmark_canonical_kv_groups = tuple(ba_landmark_canonical_kv_groups or ())
+        self.ba_landmark_canonical_kv_mix = float(ba_landmark_canonical_kv_mix)
+        self.ba_landmark_canonical_kv_min_confidence = float(ba_landmark_canonical_kv_min_confidence)
+        self.ba_component_token_memory_enabled = bool(ba_component_token_memory_enabled)
+        self.ba_component_token_memory_groups = tuple(ba_component_token_memory_groups or ())
+        self.ba_component_token_memory_scale = float(ba_component_token_memory_scale)
+        self.ba_component_token_memory_sigma_cells = float(ba_component_token_memory_sigma_cells)
+        self.ba_component_token_memory_min_confidence = float(ba_component_token_memory_min_confidence)
+        self.ba_identity_motion_projector_enabled = bool(ba_identity_motion_projector_enabled)
+        self.ba_identity_motion_projector_groups = tuple(ba_identity_motion_projector_groups or ())
+        self.ba_identity_motion_projector_rank = int(ba_identity_motion_projector_rank)
+        self.ba_identity_motion_projector_gate_max = float(ba_identity_motion_projector_gate_max)
+        self.ba_identity_motion_projector_ramp_start_step = int(ba_identity_motion_projector_ramp_start_step)
+        self.ba_identity_motion_projector_ramp_end_step = int(ba_identity_motion_projector_ramp_end_step)
+        self.ba_id_adaptive_modulation_enabled = bool(ba_id_adaptive_modulation_enabled)
+        self.ba_id_adaptive_modulation_groups = tuple(ba_id_adaptive_modulation_groups or ())
+        self.ba_id_adaptive_modulation_embedding_dim = int(ba_id_adaptive_modulation_embedding_dim)
+        self.ba_id_adaptive_modulation_bottleneck = int(ba_id_adaptive_modulation_bottleneck)
+        self.ba_id_adaptive_modulation_scale_max = float(ba_id_adaptive_modulation_scale_max)
+        self.ba_id_adaptive_modulation_ramp_start_step = int(ba_id_adaptive_modulation_ramp_start_step)
+        self.ba_id_adaptive_modulation_ramp_end_step = int(ba_id_adaptive_modulation_ramp_end_step)
+        self.ba_semantic_window_gate_enabled = bool(ba_semantic_window_gate_enabled)
+        self.ba_semantic_window_gate_groups = tuple(ba_semantic_window_gate_groups or ())
+        self.ba_semantic_window_gate_progress_start = float(ba_semantic_window_gate_progress_start)
+        self.ba_semantic_window_gate_progress_end = float(ba_semantic_window_gate_progress_end)
+        self.ba_semantic_window_gate_progress_temperature = float(ba_semantic_window_gate_progress_temperature)
+        self.ba_semantic_window_gate_agreement_threshold = float(ba_semantic_window_gate_agreement_threshold)
+        self.ba_semantic_window_gate_agreement_temperature = float(ba_semantic_window_gate_agreement_temperature)
+        self.ba_semantic_window_gate_min_scale = float(ba_semantic_window_gate_min_scale)
+        self.ba_semantic_window_gate_max_scale = float(ba_semantic_window_gate_max_scale)
         self.ba_semantic_ownership_loss_weight = float(
             ba_semantic_ownership_loss_weight
         )
@@ -1216,15 +1315,12 @@ class PhotomakerBranchedLora(SDXL):
                 "and dynamic gradient calibration"
             )
         self.identity_aux_recognizer = None
-        if self.identity_aux_enabled and self.identity_aux_backend == "arcface_torch_v2":
-            from .arcface_identity_aux import FrozenOnnxArcFace
-
-            # 6 Aug 2026 - Load the exact frozen buffalo_l recognition graph
-            # through differentiable PyTorch ops. It contributes buffers only;
-            # BA/generic/default optimizer ownership remains unchanged.
-            self.identity_aux_recognizer = FrozenOnnxArcFace(
-                self.identity_aux_model_path,
-                expected_sha256=self.identity_aux_model_sha256,
+        if self.identity_aux_enabled:
+            # 22 Aug 2026 - AICODE-NOTE: no supported clean_full config uses
+            # predicted-x0 identity supervision; fail instead of reviving an
+            # excluded objective with a different ownership contract.
+            raise RuntimeError(
+                "clean_full does not support identity_aux_enabled"
             )
         self.ba_pm_boundary_distill_enabled = bool(ba_pm_boundary_distill_enabled)
         self.ba_pm_boundary_distill_probability = float(
@@ -1789,6 +1885,24 @@ class PhotomakerBranchedLora(SDXL):
                             ],
                             "negative": "in_batch_different_identity",
                             "target_query_detached": True,
+                        }
+                    cl38_cl44 = {
+                        "visibility_ownership_v2": self.ba_visibility_ownership_v2_enabled,
+                        "null_key_router": self.ba_null_key_router_enabled,
+                        "identity_motion_projector": self.ba_identity_motion_projector_enabled,
+                        "landmark_canonical_kv": self.ba_landmark_canonical_kv_enabled,
+                        "component_token_memory": self.ba_component_token_memory_enabled,
+                        "id_adaptive_modulation": self.ba_id_adaptive_modulation_enabled,
+                        "semantic_window_gate": self.ba_semantic_window_gate_enabled,
+                    }
+                    active_cl38_cl44 = [
+                        name for name, enabled in cl38_cl44.items() if enabled
+                    ]
+                    if active_cl38_cl44:
+                        name = active_cl38_cl44[0]
+                        hardcase_route["cl38_cl44_extension"] = {
+                            "name": name,
+                            "groups": list(getattr(self, f"ba_{name}_groups")),
                         }
                 if self.ba_hardcase_mode == "anchored_roi":
                     hardcase_route["roi_gate"] = [
@@ -3051,6 +3165,29 @@ class PhotomakerBranchedLora(SDXL):
                     "ba/attention_top_ref_mass/up0": attention_visible_mass,
                     "ba/attention_top_ref_mass/up1": attention_visible_mass,
                     "ba/attention_ownership_applied_fraction": attention_visible_mass,
+                }
+            )
+
+        if self.ba_visibility_ownership_v2_enabled:
+            ownership = collect_visibility_ownership_v2_loss(self)
+            if ownership is None:
+                raise RuntimeError("CL38 did not capture its top/contact anchor")
+            top_native, contact_native, top_area, applied = ownership
+            start = self.ba_visibility_ownership_v2_ramp_start_step
+            end = self.ba_visibility_ownership_v2_ramp_end_step
+            ramp = max(0.0, min(1.0, (int(global_step) - start) / max(end - start, 1)))
+            ownership_loss = ramp * (
+                self.ba_visibility_ownership_v2_top_native_weight * top_native
+                + self.ba_visibility_ownership_v2_contact_native_weight * contact_native
+            )
+            hardcase_aux_loss = hardcase_aux_loss + ownership_loss
+            ba_telemetry.update(
+                {
+                    "loss_ba_visibility_ownership_v2": ownership_loss.detach(),
+                    "ba/visibility_ownership_v2/top_native_l1": top_native.detach(),
+                    "ba/visibility_ownership_v2/contact_native_l1": contact_native.detach(),
+                    "ba/visibility_ownership_v2/top_area": top_area.detach(),
+                    "ba/visibility_ownership_v2/applied_fraction": applied.detach(),
                 }
             )
         if self._ba_attention_ownership_capture:

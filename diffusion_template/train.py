@@ -317,55 +317,17 @@ def main(config):
 
     # get function handles of loss and metrics
     loss_kind = str(getattr(config, "loss_kind", "masked_alternating")).lower()
-    lambda_face = float(getattr(config, "lambda_face", 0.1))
-    loss_target_by_kind = {
-        "masked_alternating": "src.loss.diffusion_loss.MaskedDiffusionLoss",
-        "masked_alternating_audited": (
-            "src.loss.diffusion_loss.AuditedAlternatingDiffusionLoss"
-        ),
-        "masked_identity_aux": (
-            "src.loss.diffusion_loss.MetricAlignedMaskedDiffusionLoss"
-        ),
-        "blended_masked": "src.loss.diffusion_loss.BlendedMaskedDiffusionLoss",
-        "branched_reference": "src.loss.branched_reference_loss.BranchedReferenceLoss",
-        "visibility_balanced_ba": (
-            "src.loss.visibility_balanced_loss.VisibilityBalancedBranchedLoss"
-        ),
-    }
-    if loss_kind not in loss_target_by_kind:
+    if loss_kind != "masked_alternating":
         raise ValueError(
-            f"Unknown loss_kind: {loss_kind}. "
-            f"Expected one of {sorted(loss_target_by_kind)}"
+            "clean_full supports loss_kind=masked_alternating only, "
+            f"got {loss_kind!r}"
         )
 
     loss_cfg = OmegaConf.create(OmegaConf.to_container(config.loss_function, resolve=False))
-    loss_cfg["_target_"] = loss_target_by_kind[loss_kind]
-    if loss_kind == "blended_masked":
-        loss_cfg["lambda_face"] = lambda_face
-    elif "lambda_face" in loss_cfg:
+    loss_cfg["_target_"] = "src.loss.diffusion_loss.MaskedDiffusionLoss"
+    if "lambda_face" in loss_cfg:
         del loss_cfg["lambda_face"]
     loss_function = instantiate(loss_cfg).to(device)
-    if loss_kind == "branched_reference":
-        model_reference_mode = str(
-            getattr(model, "ba_reference_loss_mode", "detached_diagnostic")
-        ).lower()
-        loss_reference_mode = str(
-            getattr(loss_function, "reference_mode", "detached_diagnostic")
-        ).lower()
-        if model_reference_mode != loss_reference_mode:
-            raise RuntimeError(
-                "BA model/loss reference-mode mismatch: "
-                f"model={model_reference_mode}, loss={loss_reference_mode}"
-            )
-        if (
-            model_reference_mode == "differentiable_rank"
-            and float(getattr(model, "ba_spatial_reference_shuffle_probability", 0.0))
-            <= 0.0
-        ):
-            raise RuntimeError(
-                "differentiable_rank requires a positive spatial-reference "
-                "shuffle probability"
-            )
 
     metrics = []
     for metric_name in config.inference_metrics:
@@ -551,6 +513,48 @@ def main(config):
             "ba_hardcase_roi_gate_min",
             "ba_hardcase_roi_progress_min",
             "ba_hardcase_roi_rms_cap",
+            "ba_visibility_ownership_v2_enabled",
+            "ba_visibility_ownership_v2_groups",
+            "ba_visibility_ownership_v2_dilate_cells",
+            "ba_visibility_ownership_v2_min_top_area",
+            "ba_visibility_ownership_v2_delta_only",
+            "ba_null_key_router_enabled",
+            "ba_null_key_router_groups",
+            "ba_null_key_entropy_threshold",
+            "ba_null_key_temperature",
+            "ba_null_key_max_abstention",
+            "ba_null_key_min_reference_fraction",
+            "ba_landmark_canonical_kv_enabled",
+            "ba_landmark_canonical_kv_groups",
+            "ba_landmark_canonical_kv_mix",
+            "ba_landmark_canonical_kv_min_confidence",
+            "ba_component_token_memory_enabled",
+            "ba_component_token_memory_groups",
+            "ba_component_token_memory_scale",
+            "ba_component_token_memory_sigma_cells",
+            "ba_component_token_memory_min_confidence",
+            "ba_identity_motion_projector_enabled",
+            "ba_identity_motion_projector_groups",
+            "ba_identity_motion_projector_rank",
+            "ba_identity_motion_projector_gate_max",
+            "ba_identity_motion_projector_ramp_start_step",
+            "ba_identity_motion_projector_ramp_end_step",
+            "ba_id_adaptive_modulation_enabled",
+            "ba_id_adaptive_modulation_groups",
+            "ba_id_adaptive_modulation_embedding_dim",
+            "ba_id_adaptive_modulation_bottleneck",
+            "ba_id_adaptive_modulation_scale_max",
+            "ba_id_adaptive_modulation_ramp_start_step",
+            "ba_id_adaptive_modulation_ramp_end_step",
+            "ba_semantic_window_gate_enabled",
+            "ba_semantic_window_gate_groups",
+            "ba_semantic_window_gate_progress_start",
+            "ba_semantic_window_gate_progress_end",
+            "ba_semantic_window_gate_progress_temperature",
+            "ba_semantic_window_gate_agreement_threshold",
+            "ba_semantic_window_gate_agreement_temperature",
+            "ba_semantic_window_gate_min_scale",
+            "ba_semantic_window_gate_max_scale",
         ):
             # 17 Aug 2026 - AICODE-NOTE: Validation must use the composed experiment flags,
             # even when Accelerate's wrapper does not expose a newly added

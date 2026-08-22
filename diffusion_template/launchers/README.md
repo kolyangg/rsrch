@@ -1,42 +1,28 @@
-# Launchers
+# clean_full launcher
 
-- `active/` contains the supported April RHCA replay launchers.
-- `archive/slurm/` contains older February/March SLURM jobs for provenance.
+`active/run_clean_full_config_1gpu.sh` is the only supported training entry
+point on this branch. `CONFIG_NAME` selects the model, dataset, routing,
+objective, validation, and trainable ownership. `RUN_NAME` is only an output
+and Comet label; command-line Hydra overrides are rejected.
 
-`run_rhca_apr2026_one_id_1gpu.sh` preserves the historical training-seen
-`51.jpg` validation reference. For a leak-free companion control, use
-`run_rhca_apr2026_one_id_holdout51_1gpu.sh`; it keeps validation fixed while
-removing `51.jpg` from both training-target and training-reference sampling.
+List and validate supported configs before submission:
 
-For the CosmicLarge next-step controls:
+```bash
+python tools/validate_clean_full_config.py --list
+python tools/validate_clean_full_config.py --config-name CL39_cosmic_null_key_confidence_router_24k
+```
 
-- `run_rhca_apr2026_cosmic_large_one_id_faceonly_noca_4k_1gpu.sh` disables
-  branched cross-attention while retaining historical branched self-attention.
-- `run_rhca_apr2026_cosmic_large_one_id_faceonly_noca_refonly_4k_1gpu.sh`
-  additionally freezes target/noise projection copies; run it only after the
-  CA-off trigger is met.
-- `run_rhca_controlled_identity_factorial_4k_1gpu.sh` selects the
-  manifest-backed `multi_full`, `single_full`, or `multi_cosref` arm through
-  `FACTORIAL_ARM`.
-- `run_rhca_cosmic_one_id_reference_policy_4k_1gpu.sh` runs the post-Task-D
-  `margin40` or `canvas1024` data-only controls without changing the sealed
-  validation package.
-- `run_rhca_cosmic_large_adapted_1gpu.sh` uses the isolated loader for the
-  real full-Cosmic `face_paths` manifest. `EXPERIMENT_ARM` selects an exact
-  crop/canvas/caption policy and step budget.
-- `launchers/neb/start_rhca_cosmic_experiment.sh` supplies Neb's fixed dataset
-  and environment paths. Launch it through the `nohup setsid` procedure in
-  `LOCAL_NEB_SERVER_OPERATIONS.md`; Neb must run only one GPU job at a time.
+Launch from any directory after loading machine-local paths and credentials in
+`diffusion_template/.env`:
 
-The new Cosmic launchers seed
-`saved/<run_name>/comet_experiment.json` from the matching JSON under
-`experiments/cosmic_large_adaptation/`. `CometMLWriter` preserves the plan and
-fills the immutable experiment key during startup. A non-empty existing output
-directory or an already-registered Comet key is a hard error.
+```bash
+CONFIG_NAME=CL39_cosmic_null_key_confidence_router_24k \
+RUN_NAME=CL39_clean_full_replay_r1 \
+bash diffusion_template/launchers/active/run_clean_full_config_1gpu.sh
+```
 
-Run active launchers from any working directory; they resolve the project root
-from their own location. Archived SLURM jobs expect submission from
-`diffusion_template` and may reference historical configs.
-
-All Comet launchers require `COMET_API_KEY` from the environment. No API key is
-stored in these files.
+The launcher composes the allowlisted config, runs the matching dataset
+preflight, creates `saved/<run_name>/comet_experiment.json`, verifies that
+Comet wrote a 32-character immutable key, and finalizes the fixed-96 face
+quality panel after a successful run. Historical launchers are available in
+git history and are intentionally absent from `clean_full`.

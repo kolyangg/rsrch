@@ -1,9 +1,0 @@
-run,mechanism,observed_activity,interpretation
-CL30,positive-only low-band same-ID pull,"applied fraction mean ~0.124 after 1k; auxiliary loss nonzero in 449/460 logged windows",active intervention; aggregate ID is clearly worse than CL27
-CL31,attention ownership alignment,"applied fraction mean ~0.247; auxiliary loss nonzero in 449/461 logged windows",active intervention; aggregate effect is not established and face-quality telemetry is unavailable
-CL32,contact-frequency surface,"applied fraction mean ~0.220",active intervention; aggregate effect is neutral and Skiing is worse
-CL33,visibility-balanced reconstruction,"partition applied fraction mean ~0.254",active intervention; near-neutral aggregate with a Skiing gain but object-deletion shortcut
-CL34,learned shared frequency schedule,"low-late 0.85000->0.84915; high-early 0.75000->0.74871; high-late 1.25000->1.24860",parameters barely moved; recipe is clearly worse and step-zero parity also fails
-CL35,attention-gated DINOv2 patch identity,"loss/applied fraction nonzero only near step 100; exactly zero after 1k while gate mass mean ~0.111; configured minimum gate mass 0.55",reward was effectively inactive; negative recipe does not falsify the patch-identity objective
-CL36,ArcFace hinge continuation,"applied fraction mean ~0.0147; identity loss nonzero in 4/60 post-1k windows; BA auxiliary gradient ratio zero in every logged window",continuation recipe is clearly harmful; intended identity gradient was mostly absent
-CL37,small-face ROI teacher,"applied fraction mean ~0.124; eligible fraction mean ~0.0158",teacher was active but eligible signal was too sparse for a broad gain

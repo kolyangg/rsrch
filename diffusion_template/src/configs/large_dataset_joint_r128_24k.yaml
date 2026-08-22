@@ -1,6 +1,6 @@
 defaults:
   - large_dataset_rhca_hard_v1_audited_20k
-  - override /metrics: all_metrics_subject_v2
+  - override /metrics: clean_full_metrics
   - _self_
 
 # Shared E13-E18 substrate: restore the three historically effective paths,
