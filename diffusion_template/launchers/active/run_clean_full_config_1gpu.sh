@@ -146,7 +146,7 @@ set +e
 "${ACCELERATE_BIN}" launch \
   --config_file=src/configs/ddp/accelerate.yaml \
   --num_processes=1 \
-  train.py \
+  train_clean_full.py \
   "--config-name=${CONFIG_NAME}" \
   writer=cometml \
   "writer.run_name=${RUN_NAME}" \

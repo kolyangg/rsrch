@@ -25,7 +25,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 ##### BRANCHED ATTENTION - ADDITIONAL IMPORTS #####
 """Import compact BA helper entrypoints used by pipeline runtime and wrapper methods."""
-from src.pipelines.br_pipeline_helpers import (
+from src.pipelines.clean_full_pipeline_helpers import (
     build_pipeline_from_pretrained as build_pipeline_from_pretrained_helper,
     cleanup_branched_runtime as cleanup_branched_runtime_helper,
     ensure_face_analyzer as ensure_face_analyzer_helper,

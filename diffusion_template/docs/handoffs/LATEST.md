@@ -6,11 +6,28 @@ results, or launching a job from `diffusion_template`.
 ## Current code boundary
 
 `clean_full` is the supported unified branch. It intentionally contains one
-trainer/model/pipeline implementation, one Serv launcher, a small Hydra config
-inheritance closure, and four training dataset implementations. The support
-set is PM0; CL14, CL19, CL23, CL27, CL39; CL40-CL45; E13; BC_E13; and the
-BC_E13 ds1-ds3 dataset arms. The allowlist and immutable historical Comet keys
-are in `src/configs/clean_full_runs.json`.
+active trainer/model/pipeline implementation, one Serv launcher, a small Hydra
+config inheritance closure, and four training dataset implementations. The
+support set is PM0; CL14, CL19, CL23, CL27, CL39; CL40-CL45; E13; BC_E13; and
+the BC_E13 ds1-ds3 dataset arms. The allowlist and immutable historical Comet
+keys are in `src/configs/clean_full_runs.json`.
+
+The traditional core paths (`train.py`, `lora2.py`,
+`attn_processor_cleanest.py`, both trainer files, and their model/runtime/
+pipeline helpers) are exact copies of the local 2 June `main_clean` baseline,
+commit `2157eada14824d14019e80f9416e6d736c837306`. They are reference code, not
+the supported runtime. Allowlisted configs target `clean_full_*` modules and
+the launcher starts `train_clean_full.py`. CL39-CL44 attention behavior and
+CL45 PCGrad are isolated in defaults-off extension modules. Do not switch a
+supported config back to the June targets: the audited hard-v1 ownership,
+schema-v2 checkpoint, batched-conditioning, and fixed-96 contracts replaced
+too much of those classes for inheritance to be safe.
+
+Within the active model, `clean_full_model_contract.py` owns preparation,
+optimizer ownership, manifests, and checkpoint I/O. Legacy disabled
+frozen-teacher/predicted-x0 objectives are quarantined in
+`clean_full_excluded_objectives.py`. Recent attention-arm helpers and CL45
+PCGrad are likewise outside the shared model/processor/trainer bodies.
 
 Use only:
 

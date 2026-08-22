@@ -1,9 +1,11 @@
+"""Validated entry point for allowlisted clean_full training configurations."""
+
 import warnings
 
 import hydra
 import torch
 from hydra.utils import instantiate
-from omegaconf import OmegaConf, open_dict
+from omegaconf import OmegaConf
 from accelerate import Accelerator
 from accelerate.utils import InitProcessGroupKwargs, DistributedDataParallelKwargs
 
@@ -14,62 +16,6 @@ import datetime
 
 
 warnings.filterwarnings("ignore", category=UserWarning)
-
-
-def _configure_train_dataset_resolution(config) -> None:
-    train_dataset_name = str(getattr(config, "train_dataset_name", ""))
-    is_cosmic_large_family = train_dataset_name.startswith("cosmic_large")
-    upscale_to_1024 = bool(getattr(config, "train_dataset_upscale_to_1024", True))
-    const_ref = bool(getattr(config, "train_dataset_const_ref", True))
-    crop_ref = bool(getattr(config, "train_dataset_crop_ref", False))
-    ref_similar = bool(getattr(config, "train_dataset_ref_similar", False))
-    origtarget_genref = bool(getattr(config, "train_dataset_origtarget_genref", True))
-    crop_nonface_min = float(getattr(config, "train_dataset_crop_nonface_min", 0.2))
-    crop_nonface_max = float(getattr(config, "train_dataset_crop_nonface_max", 0.4))
-    train_dataset_target_size = 1024
-
-    if is_cosmic_large_family and not origtarget_genref and not upscale_to_1024:
-        train_dataset_target_size = 256
-
-    with open_dict(config):
-        config.train_dataset_upscale_to_1024 = upscale_to_1024
-        config.train_dataset_const_ref = const_ref
-        config.train_dataset_crop_ref = crop_ref
-        config.train_dataset_ref_similar = ref_similar
-        config.train_dataset_origtarget_genref = origtarget_genref
-        config.train_dataset_crop_nonface_min = crop_nonface_min
-        config.train_dataset_crop_nonface_max = crop_nonface_max
-        config.train_dataset_target_size = train_dataset_target_size
-
-        if "model" in config and "target_size" in config.model:
-            config.model.target_size = train_dataset_target_size
-
-        if (
-            "transforms" in config
-            and "instance_transforms" in config.transforms
-            and "train" in config.transforms.instance_transforms
-            and "pixel_values" in config.transforms.instance_transforms.train
-        ):
-            transforms = config.transforms.instance_transforms.train.pixel_values.transforms
-            if transforms:
-                resize_transform = transforms[0]
-                if "size" in resize_transform:
-                    resize_transform.size = [train_dataset_target_size, train_dataset_target_size]
-
-        if (
-            "datasets" in config
-            and "train" in config.datasets
-        ):
-            for dataset_name, dataset_cfg in config.datasets.train.items():
-                if not str(dataset_name).startswith("cosmic_large"):
-                    continue
-                dataset_cfg.upscale_to_1024 = upscale_to_1024
-                dataset_cfg.const_ref = const_ref
-                dataset_cfg.crop_ref = crop_ref
-                dataset_cfg.ref_similar = ref_similar
-                dataset_cfg.origtarget_genref = origtarget_genref
-                dataset_cfg.crop_nonface_min = crop_nonface_min
-                dataset_cfg.crop_nonface_max = crop_nonface_max
 
 def _format_numel(n: int) -> str:
     if n >= 1_000_000_000:
@@ -117,10 +63,10 @@ def _print_trainable_summary(model, optimizer=None, max_examples: int = 6):
         n = int(p.numel())
         total_numel += n
         if name.startswith("unet."):
-            if "lora_A" in name or "lora_B" in name:
-                key = "unet_lora"
-            elif ".attn1.processor." in name or ".attn2.processor." in name:
+            if ".attn1.processor." in name or ".attn2.processor." in name:
                 key = "unet_processors"
+            elif "lora_A" in name or "lora_B" in name:
+                key = "unet_lora"
             else:
                 key = "unet_other"
         else:
@@ -160,6 +106,98 @@ def _print_trainable_summary(model, optimizer=None, max_examples: int = 6):
             pass
 
 
+def _assert_expected_trainable_contract(model, optimizer, config):
+    """Fail closed on an explicitly declared non-standard ownership profile."""
+    contract = getattr(config, "expected_trainable_contract", None)
+    if contract is None or not bool(getattr(contract, "enabled", False)):
+        return
+
+    named_parameters = dict(model.named_parameters())
+    trainable = {
+        name: parameter
+        for name, parameter in named_parameters.items()
+        if parameter.requires_grad
+    }
+    optimizer_parameters = [
+        parameter
+        for group in optimizer.param_groups
+        for parameter in group.get("params", ())
+    ]
+    optimizer_ids = {id(parameter) for parameter in optimizer_parameters}
+    trainable_ids = {id(parameter) for parameter in trainable.values()}
+    unknown_optimizer_ids = optimizer_ids - {
+        id(parameter) for parameter in named_parameters.values()
+    }
+
+    actual = {
+        "total_tensors": len(trainable),
+        "total_parameters": sum(int(parameter.numel()) for parameter in trainable.values()),
+        "optimizer_tensors": len(optimizer_ids),
+        "optimizer_parameters": sum(
+            int(parameter.numel())
+            for parameter in optimizer_parameters
+            if id(parameter) in optimizer_ids
+        ),
+    }
+    for key, value in actual.items():
+        expected = int(getattr(contract, key))
+        if value != expected:
+            raise RuntimeError(
+                f"Expected trainable contract mismatch for {key}: "
+                f"expected={expected}, actual={value}"
+            )
+    if len(optimizer_parameters) != len(optimizer_ids):
+        raise RuntimeError("Expected trainable contract found duplicate optimizer parameters")
+    if unknown_optimizer_ids or optimizer_ids != trainable_ids:
+        raise RuntimeError(
+            "Expected trainable contract optimizer membership mismatch: "
+            f"missing={len(trainable_ids - optimizer_ids)}, "
+            f"unexpected={len(optimizer_ids - trainable_ids)}, "
+            f"unknown={len(unknown_optimizer_ids)}"
+        )
+
+    claimed_names = set()
+    for category_name, category in contract.categories.items():
+        substring = str(category.name_substring)
+        matches = {
+            name: parameter
+            for name, parameter in trainable.items()
+            if substring in name
+        }
+        overlap = claimed_names & set(matches)
+        if overlap:
+            raise RuntimeError(
+                f"Expected trainable categories overlap in {category_name}: "
+                f"{sorted(overlap)[:3]}"
+            )
+        claimed_names.update(matches)
+        expected_tensors = int(category.tensors)
+        expected_parameters = int(category.parameters)
+        actual_parameters = sum(
+            int(parameter.numel()) for parameter in matches.values()
+        )
+        if len(matches) != expected_tensors or actual_parameters != expected_parameters:
+            raise RuntimeError(
+                f"Expected trainable category mismatch for {category_name}: "
+                f"expected={expected_tensors}/{expected_parameters}, "
+                f"actual={len(matches)}/{actual_parameters}"
+            )
+    if claimed_names != set(trainable):
+        raise RuntimeError(
+            "Expected trainable categories do not partition ownership: "
+            f"unclaimed={sorted(set(trainable) - claimed_names)[:6]}"
+        )
+
+    # 4 Aug 2026 - AICODE-NOTE: The historical E0 arm deliberately preserves
+    # r4's broad fail-open ownership. This independent exact gate prevents a
+    # future bug fix or adapter change from silently turning it into another run.
+    print(
+        "[Expected Trainable Contract] exact match: "
+        f"{actual['total_tensors']} tensors / "
+        f"{actual['total_parameters']} parameters"
+    )
+
+
 @hydra.main(version_base=None, config_path="src/configs", config_name="persongen_train_lora")
 def main(config):
     """
@@ -170,7 +208,6 @@ def main(config):
     Args:
         config (DictConfig): hydra experiment config.
     """
-    _configure_train_dataset_resolution(config)
     set_random_seed(config.trainer.seed)
     # Let Accelerate own distributed init; keep long timeout for validation
     ddp_timeout = int(getattr(config, "ddp_timeout_seconds", 3600))
@@ -192,17 +229,6 @@ def main(config):
     writer = None
     
     if accelerator.is_main_process:
-        print(
-            f"[Train Dataset] name={config.train_dataset_name} "
-            f"upscale_to_1024={config.train_dataset_upscale_to_1024} "
-            f"const_ref={config.train_dataset_const_ref} "
-            f"crop_ref={config.train_dataset_crop_ref} "
-            f"ref_similar={config.train_dataset_ref_similar} "
-            f"origtarget_genref={config.train_dataset_origtarget_genref} "
-            f"crop_nonface=({config.train_dataset_crop_nonface_min},"
-            f"{config.train_dataset_crop_nonface_max}) "
-            f"train_target_size={config.train_dataset_target_size}"
-        )
         logger = setup_saving_and_logging(config)
         # Allow resuming the same CometML experiment by passing experiment_key (run_id)
         comet_run_id = getattr(config, "cometml_id", None)
@@ -230,7 +256,8 @@ def main(config):
     ba_kwargs = {}
     model_target = str(getattr(getattr(config, "model", {}), "_target_", ""))
     if (
-        "src.model.photomaker_branched.lora2.PhotomakerBranchedLora" in model_target
+        "src.model.photomaker_branched.clean_full_model.PhotomakerBranchedLora"
+        in model_target
         or "src.model.photomaker_branched.lora3.PhotomakerBranchedLora" in model_target
     ):
         ba_kwargs["train_ba_only"] = train_ba_only
@@ -243,6 +270,23 @@ def main(config):
         ba_kwargs["use_attn_v2"] = use_attn_v2
         ### 29 Nov - Clean separataion of BA-specific parameters ###
     ### 28 Nov: train only BA layers ###
+
+    # 28 Jul 2026 - AICODE-NOTE: Fresh MLS containers can deadlock when two
+    # ranks populate the same model cache concurrently. This opt-in gate keeps
+    # model construction identical but lets rank 0 populate the cache first.
+    serialize_model_init = bool(
+        getattr(config, "serialize_distributed_model_init", False)
+    )
+    if (
+        serialize_model_init
+        and accelerator.num_processes > 1
+        and not accelerator.is_main_process
+    ):
+        print(
+            f"[Distributed Init] rank={accelerator.process_index} "
+            "waiting for rank 0 model-cache warmup"
+        )
+        accelerator.wait_for_everyone()
 
     # build model architecture, then print to console
     model = instantiate(config.model, device=device, **ba_kwargs)
@@ -264,25 +308,27 @@ def main(config):
     ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
 
     model.prepare_for_training()
+    if serialize_model_init and accelerator.num_processes > 1:
+        if accelerator.is_main_process:
+            print("[Distributed Init] rank=0 model ready; releasing other ranks")
+            accelerator.wait_for_everyone()
+        accelerator.wait_for_everyone()
+        print(
+            f"[Distributed Init] rank={accelerator.process_index} "
+            "all model replicas ready"
+        )
 
     # get function handles of loss and metrics
     loss_kind = str(getattr(config, "loss_kind", "masked_alternating")).lower()
-    lambda_face = float(getattr(config, "lambda_face", 0.1))
-    loss_target_by_kind = {
-        "masked_alternating": "src.loss.diffusion_loss.MaskedDiffusionLoss",
-        "blended_masked": "src.loss.diffusion_loss.BlendedMaskedDiffusionLoss",
-    }
-    if loss_kind not in loss_target_by_kind:
+    if loss_kind != "masked_alternating":
         raise ValueError(
-            f"Unknown loss_kind: {loss_kind}. "
-            f"Expected one of {sorted(loss_target_by_kind)}"
+            "clean_full supports loss_kind=masked_alternating only, "
+            f"got {loss_kind!r}"
         )
 
     loss_cfg = OmegaConf.create(OmegaConf.to_container(config.loss_function, resolve=False))
-    loss_cfg["_target_"] = loss_target_by_kind[loss_kind]
-    if loss_kind == "blended_masked":
-        loss_cfg["lambda_face"] = lambda_face
-    elif "lambda_face" in loss_cfg:
+    loss_cfg["_target_"] = "src.loss.diffusion_loss.MaskedDiffusionLoss"
+    if "lambda_face" in loss_cfg:
         del loss_cfg["lambda_face"]
     loss_function = instantiate(loss_cfg).to(device)
 
@@ -294,6 +340,19 @@ def main(config):
     # build optimizer, learning rate scheduler
     trainable_params = model.get_trainable_params(config)
     optimizer = instantiate(config.optimizer, params=trainable_params)
+
+    _assert_expected_trainable_contract(model, optimizer, config)
+
+    # 1 Aug 2026 - AICODE-NOTE: Inclusion-only processor counts missed 140.3M
+    # unintended adapter parameters. Strict runs compare the optimizer against
+    # the complete BA allowlist on every rank before Accelerate wraps the model.
+    if bool(getattr(model, "strict_trainable_contract", False)):
+        contract = model.assert_trainable_contract(optimizer=optimizer)
+        print(
+            "[BA Trainable Contract] exact match: "
+            f"{contract['tensor_count']} tensors / "
+            f"{contract['parameter_count']} parameters"
+        )
     
     if accelerator.is_main_process:
         for i, group in enumerate(optimizer.param_groups):
@@ -311,7 +370,8 @@ def main(config):
 
     lr_scheduler = instantiate(config.lr_scheduler, optimizer=optimizer) 
 
-    # Quick check: confirm optimizer includes branched-attn processor params
+    # Legacy diagnostic retained for historical log comparability. Strict runs
+    # have already passed the exact inclusion-and-exclusion contract above.
     if accelerator.is_main_process:
         try:
             # Map model params by id for matching against optimizer groups
@@ -343,10 +403,6 @@ def main(config):
         model, train_dataloader, optimizer, lr_scheduler
     )
     dataloaders["train"] = train_dataloader
-    for part_name, dataloader in list(dataloaders.items()):
-        if part_name == "train":
-            continue
-        dataloaders[part_name] = accelerator.prepare(dataloader)
 
     pipeline = None
     if accelerator.is_main_process:
@@ -366,6 +422,150 @@ def main(config):
         ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
         setattr(pipeline, "disable_branched_sa", disable_sa)
         setattr(pipeline, "disable_branched_ca", disable_ca)
+        try:
+            pipeline_model = accelerator.unwrap_model(model)
+        except Exception:
+            pipeline_model = model
+        for attribute in (
+            "ba_architecture_version",
+            "branched_trainable_dtype",
+            "ba_ref_kv_rank",
+            "ba_output_rank",
+            "ba_branch_q_rank",
+            "ba_face_fusion_mode",
+            "ba_face_branch_scale",
+            "ba_gate_init",
+            "ba_gate_max",
+            "ba_gate_timestep",
+            "ba_gate_face_area",
+            "ba_mix_init",
+            "ba_mix_floor",
+            "ba_mix_max",
+            "ba_mix_timestep",
+            "ba_mix_face_area",
+            "ba_reference_rms_match",
+            "ba_reference_rms_clip_min",
+            "ba_reference_rms_clip_max",
+            "ba_mix_override",
+            "ba_telemetry_enabled",
+            "ba_telemetry_interval",
+            "ba_require_denoise_progress",
+            "ba_self_attention_groups",
+            "ba_reference_loss_mode",
+            "ba_enforce_reference_only_hard_route",
+            "ba_hard_v1_true_reference_key_mask",
+            "ba_hard_v1_branch_output_rank",
+            "ba_hard_v1_reference_roi_warp",
+            "ba_hardcase_mode",
+            "ba_hardcase_groups",
+            "ba_hardcase_fallback_mode",
+            "ba_hardcase_rank",
+            "ba_hardcase_gate_max",
+            "ba_hardcase_roi_size",
+            "ba_hardcase_face_threshold_px",
+            "ba_hardcase_transition_cells",
+            "ba_hardcase_ownership_hidden_dim",
+            "ba_hardcase_visible_face_floor",
+            "ba_hardcase_top_native_floor",
+            "ba_hardcase_frequency_low_early",
+            "ba_hardcase_frequency_low_late",
+            "ba_hardcase_frequency_high_early",
+            "ba_hardcase_frequency_high_late",
+            "ba_frequency_surface_loss_enabled",
+            "ba_frequency_surface_loss_groups",
+            "ba_frequency_surface_top_weight",
+            "ba_frequency_surface_top_low_band_factor",
+            "ba_frequency_surface_visible_floor_weight",
+            "ba_frequency_surface_visible_floor_ratio",
+            "ba_frequency_learnable_schedule_enabled",
+            "ba_frequency_learnable_low_early",
+            "ba_frequency_low_late_center",
+            "ba_frequency_low_late_half_range",
+            "ba_frequency_high_early_center",
+            "ba_frequency_high_early_half_range",
+            "ba_frequency_high_late_center",
+            "ba_frequency_high_late_half_range",
+            "ba_frequency_schedule_anchor_weight",
+            "ba_frequency_lowband_contrastive_enabled",
+            "ba_frequency_lowband_contrastive_groups",
+            "ba_frequency_lowband_contrastive_probability",
+            "ba_frequency_lowband_contrastive_weight",
+            "ba_frequency_lowband_contrastive_temperature",
+            "ba_frequency_lowband_contrastive_ramp_start_step",
+            "ba_frequency_lowband_contrastive_ramp_end_step",
+            "ba_frequency_lowband_contrastive_detach_target_query",
+            "ba_frequency_lowband_contrastive_negative_mode",
+            "ba_frequency_positive_sameid_enabled",
+            "ba_frequency_positive_sameid_groups",
+            "ba_attention_ownership_loss_enabled",
+            "ba_attention_ownership_groups",
+            "ba_frequency_surface_region_mode",
+            "ba_frequency_surface_contact_width",
+            "ba_frequency_surface_top_interior_factor",
+            "ba_frequency_surface_contact_factor",
+            "ba_frequency_shared_schedule_enabled",
+            "ba_frequency_shared_low_late_center",
+            "ba_frequency_shared_low_late_half_range",
+            "ba_frequency_shared_high_early_center",
+            "ba_frequency_shared_high_early_half_range",
+            "ba_frequency_shared_high_late_center",
+            "ba_frequency_shared_high_late_half_range",
+            "ba_roi_teacher_distill_enabled",
+            "ba_roi_teacher_distill_groups",
+            "ba_hardcase_roi_gate_init",
+            "ba_hardcase_roi_gate_min",
+            "ba_hardcase_roi_progress_min",
+            "ba_hardcase_roi_rms_cap",
+            "ba_visibility_ownership_v2_enabled",
+            "ba_visibility_ownership_v2_groups",
+            "ba_visibility_ownership_v2_dilate_cells",
+            "ba_visibility_ownership_v2_min_top_area",
+            "ba_visibility_ownership_v2_delta_only",
+            "ba_null_key_router_enabled",
+            "ba_null_key_router_groups",
+            "ba_null_key_entropy_threshold",
+            "ba_null_key_temperature",
+            "ba_null_key_max_abstention",
+            "ba_null_key_min_reference_fraction",
+            "ba_landmark_canonical_kv_enabled",
+            "ba_landmark_canonical_kv_groups",
+            "ba_landmark_canonical_kv_mix",
+            "ba_landmark_canonical_kv_min_confidence",
+            "ba_component_token_memory_enabled",
+            "ba_component_token_memory_groups",
+            "ba_component_token_memory_scale",
+            "ba_component_token_memory_sigma_cells",
+            "ba_component_token_memory_min_confidence",
+            "ba_identity_motion_projector_enabled",
+            "ba_identity_motion_projector_groups",
+            "ba_identity_motion_projector_rank",
+            "ba_identity_motion_projector_gate_max",
+            "ba_identity_motion_projector_ramp_start_step",
+            "ba_identity_motion_projector_ramp_end_step",
+            "ba_id_adaptive_modulation_enabled",
+            "ba_id_adaptive_modulation_groups",
+            "ba_id_adaptive_modulation_embedding_dim",
+            "ba_id_adaptive_modulation_bottleneck",
+            "ba_id_adaptive_modulation_scale_max",
+            "ba_id_adaptive_modulation_ramp_start_step",
+            "ba_id_adaptive_modulation_ramp_end_step",
+            "ba_semantic_window_gate_enabled",
+            "ba_semantic_window_gate_groups",
+            "ba_semantic_window_gate_progress_start",
+            "ba_semantic_window_gate_progress_end",
+            "ba_semantic_window_gate_progress_temperature",
+            "ba_semantic_window_gate_agreement_threshold",
+            "ba_semantic_window_gate_agreement_temperature",
+            "ba_semantic_window_gate_min_scale",
+            "ba_semantic_window_gate_max_scale",
+        ):
+            # 17 Aug 2026 - AICODE-NOTE: Validation must use the composed experiment flags,
+            # even when Accelerate's wrapper does not expose a newly added
+            # model attribute. This keeps the reused processor map auditable.
+            if hasattr(config.model, attribute):
+                setattr(pipeline, attribute, getattr(config.model, attribute))
+            elif hasattr(pipeline_model, attribute):
+                setattr(pipeline, attribute, getattr(pipeline_model, attribute))
         ### 25 Nov: AB testing to disable BranchedCrossAttnProcessor
         if val_pretrained:
             # Restore original config value immediately after

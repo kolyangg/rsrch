@@ -1,3 +1,5 @@
+"""Active PhotoMaker trainer stack for allowlisted clean_full runs."""
+
 import time
 import os
 from pathlib import Path  # --- MODIFIED For training integration ---
@@ -7,7 +9,8 @@ from omegaconf import OmegaConf  # --- MODIFIED For training integration ---
 DEBUG_LOG_DEBUG_IMAGES = os.environ.get("PM_DEBUG_IMAGES", "1") not in {"0", "false", "False", ""}
 
 from src.metrics.tracker import MetricTracker
-from src.trainer.base_trainer import BaseTrainer
+from src.trainer.clean_full_base_trainer import BaseTrainer
+from src.trainer.clean_full_pcgrad import apply_ba_pcgrad_surrogate
 
 
 class SDXLTrainer(BaseTrainer):
@@ -236,56 +239,280 @@ class SDXLTrainer(BaseTrainer):
 
 
 class PhotomakerLoraTrainer(SDXLTrainer):
-    def __init__(self, masked_loss_step, *args, **kwargs):
+    def __init__(
+        self,
+        masked_loss_step,
+        *args,
+        ba_pcgrad_enabled: bool = False,
+        ba_pcgrad_scope: str = "branched_sa_only",
+        ba_pcgrad_interval: int = 1,
+        ba_pcgrad_eps: float = 1.0e-12,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.masked_loss_step = masked_loss_step
-        
+        self._identity_aux_calibrated_max_weight = None
+        self.ba_pcgrad_enabled = bool(ba_pcgrad_enabled)
+        self.ba_pcgrad_scope = str(ba_pcgrad_scope)
+        self.ba_pcgrad_interval = int(ba_pcgrad_interval)
+        self.ba_pcgrad_eps = float(ba_pcgrad_eps)
+        if self.ba_pcgrad_enabled and self.ba_pcgrad_scope != "branched_sa_only":
+            raise ValueError("CL45 supports only branched_sa_only PCGrad")
+
+    @staticmethod
+    def _gradient_norm(grads):
+        total = None
+        for grad in grads:
+            if grad is None:
+                continue
+            value = grad.detach().float().square().sum()
+            total = value if total is None else total + value
+        if total is None:
+            return None
+        return total.clamp_min(0.0).sqrt()
+
+    def _calibrate_identity_auxiliary(self, batch):
+        reference = batch["loss"].detach()
+        zero = reference.new_tensor(0.0)
+        metric_names = (
+            "identity_aux_grad_calibrated",
+            "identity_aux_calibrated_max_weight",
+            "identity_aux_grad_ratio_all",
+            "identity_aux_grad_ratio_ba",
+            "identity_aux_grad_ratio_generic_adapter",
+            "identity_aux_grad_ratio_photomaker_default",
+        )
+        for name in metric_names:
+            batch[name] = zero
+        diffusion = batch.get("_loss_diffusion_graph")
+        identity_raw = batch.get("_loss_identity_raw_graph")
+        if diffusion is None or identity_raw is None:
+            return
+
+        try:
+            model = self.accelerator.unwrap_model(self.model)
+        except Exception:
+            model = self.model
+        if not bool(getattr(model, "identity_aux_dynamic_weight", False)):
+            return
+        applied = float(batch["identity_aux_applied"].detach().item()) > 0.5
+        if not applied:
+            return
+
+        max_weight = float(model.identity_aux_max_weight)
+        requested_weight = float(batch["identity_aux_weight"].detach().item())
+        ramp_fraction = min(1.0, max(0.0, requested_weight / max_weight))
+        interval = int(model.identity_aux_grad_norm_interval)
+        global_step = int(batch.get("global_step", 0))
+        recalibrate = (
+            self._identity_aux_calibrated_max_weight is None
+            or global_step % interval == 0
+        )
+
+        role_groups = [
+            (str(group.get("name", "unnamed")), list(group.get("params", ())))
+            for group in self.optimizer.param_groups
+        ]
+        flat_parameters = [parameter for _, params in role_groups for parameter in params]
+        role_sizes = [len(params) for _, params in role_groups]
+        gradient_scope = str(
+            getattr(model, "identity_aux_gradient_scope", "all_trainable")
+        ).lower()
+        identity_graph = identity_raw
+        scoped_parameters = flat_parameters
+        scoped_identity_grads = None
+        if gradient_scope == "branched_sa_only":
+            name_by_id = {
+                id(parameter): name for name, parameter in model.named_parameters()
+            }
+            scoped_parameters = [
+                parameter
+                for parameter in flat_parameters
+                if ".attn1.processor." in name_by_id.get(id(parameter), "")
+            ]
+            if not scoped_parameters:
+                raise RuntimeError("BA-only identity gradient scope selected zero tensors")
+            scoped_identity_grads = torch.autograd.grad(
+                identity_raw,
+                scoped_parameters,
+                retain_graph=True,
+                allow_unused=True,
+            )
+            surrogate = identity_raw.detach()
+            for parameter, grad in zip(scoped_parameters, scoped_identity_grads):
+                if grad is not None:
+                    surrogate = surrogate + (
+                        (parameter - parameter.detach()) * grad.detach()
+                    ).sum()
+            identity_graph = surrogate
+        role_norms = {}
+        calibrated_for_step = self._identity_aux_calibrated_max_weight
+        if recalibrate:
+            calibration_parameters = (
+                scoped_parameters
+                if gradient_scope == "branched_sa_only"
+                else flat_parameters
+            )
+            diffusion_grads = torch.autograd.grad(
+                diffusion,
+                calibration_parameters,
+                retain_graph=True,
+                allow_unused=True,
+            )
+            identity_grads = scoped_identity_grads
+            if identity_grads is None:
+                identity_grads = torch.autograd.grad(
+                    identity_raw,
+                    calibration_parameters,
+                    retain_graph=True,
+                    allow_unused=True,
+                )
+            if gradient_scope == "branched_sa_only":
+                role_norms["ba"] = (
+                    self._gradient_norm(diffusion_grads),
+                    self._gradient_norm(identity_grads),
+                )
+            else:
+                offset = 0
+                for (role, _), size in zip(role_groups, role_sizes):
+                    role_norms[role] = (
+                        self._gradient_norm(diffusion_grads[offset : offset + size]),
+                        self._gradient_norm(identity_grads[offset : offset + size]),
+                    )
+                    offset += size
+            diffusion_norm = self._gradient_norm(diffusion_grads)
+            identity_norm = self._gradient_norm(identity_grads)
+            if (
+                diffusion_norm is None
+                or identity_norm is None
+                or not torch.isfinite(diffusion_norm)
+                or not torch.isfinite(identity_norm)
+            ):
+                raise RuntimeError("ArcFace auxiliary gradient calibration is invalid")
+            identity_norm_value = float(identity_norm.item())
+            if identity_norm_value <= 0.0:
+                if not (
+                    str(getattr(model, "identity_aux_mode", "")).lower()
+                    == "quadratic_hinge"
+                    and float(identity_raw.detach().abs().item()) == 0.0
+                ):
+                    raise RuntimeError(
+                        "ArcFace auxiliary has zero gradient outside the inactive hinge"
+                    )
+                # 17 Aug 2026 - AICODE-NOTE: An already-satisfied quadratic
+                # hinge has exactly zero loss/gradient. It is a valid no-op,
+                # not a calibration failure; leave persistent calibration
+                # unset so the next active hinge sample calibrates normally.
+                calibrated_for_step = (
+                    max_weight
+                    if self._identity_aux_calibrated_max_weight is None
+                    else float(self._identity_aux_calibrated_max_weight)
+                )
+            else:
+                proposed = (
+                    float(model.identity_aux_grad_target_ratio)
+                    * float(diffusion_norm.item())
+                    / identity_norm_value
+                )
+                proposed = min(max_weight, max(0.0, proposed))
+                if self._identity_aux_calibrated_max_weight is None:
+                    calibrated = proposed
+                else:
+                    calibrated = (
+                        0.9 * float(self._identity_aux_calibrated_max_weight)
+                        + 0.1 * proposed
+                    )
+                self._identity_aux_calibrated_max_weight = calibrated
+                calibrated_for_step = calibrated
+                batch["identity_aux_grad_calibrated"] = zero.new_tensor(1.0)
+
+            for role, (base_norm, raw_norm) in role_norms.items():
+                if base_norm is None or raw_norm is None:
+                    continue
+                ratio = calibrated_for_step * float(raw_norm.item()) / max(
+                    float(base_norm.item()), 1.0e-12
+                )
+                key = {
+                    "ba": "identity_aux_grad_ratio_ba",
+                    "generic_adapter": "identity_aux_grad_ratio_generic_adapter",
+                    "photomaker_default": (
+                        "identity_aux_grad_ratio_photomaker_default"
+                    ),
+                }.get(role)
+                if key is not None:
+                    batch[key] = zero.new_tensor(ratio)
+            total_ratio = calibrated_for_step * identity_norm_value / max(
+                float(diffusion_norm.item()), 1.0e-12
+            )
+            batch["identity_aux_grad_ratio_all"] = zero.new_tensor(total_ratio)
+
+        if calibrated_for_step is None:
+            raise RuntimeError("ArcFace auxiliary has no calibrated weight")
+        calibrated_max = float(calibrated_for_step)
+        effective_weight = ramp_fraction * calibrated_max
+        batch["identity_aux_calibrated_max_weight"] = zero.new_tensor(
+            calibrated_max
+        )
+        batch["identity_aux_weight"] = zero.new_tensor(effective_weight)
+        batch["identity_aux_weighted"] = (
+            zero.new_tensor(effective_weight) * identity_raw.detach()
+        )
+        anchor = batch.get("ba_anchor_loss", zero)
+        anchor_weight = batch.get("ba_anchor_weight", zero)
+        # 13 Aug 2026 - CL25 calibration may change only the ArcFace weight;
+        # the frozen-source trajectory anchor remains in the optimized graph.
+        batch["loss"] = (
+            diffusion + effective_weight * identity_graph + anchor_weight * anchor
+        )
+
+    def _record_active_gradient_norms(self, batch):
+        reference = batch["loss"].detach()
+        zero = reference.new_tensor(0.0)
+        role_to_metric = {
+            "ba": "active_grad_norm_ba",
+            "generic_adapter": "active_grad_norm_generic_adapter",
+            "photomaker_default": "active_grad_norm_photomaker_default",
+        }
+        mode = self.active_grad_norm_mode
+        if mode == "off":
+            return
+        if mode == "requested_only":
+            requested = set(self.config.writer.loss_names)
+            role_to_metric = {
+                role: metric
+                for role, metric in role_to_metric.items()
+                if metric in requested
+            }
+            # 16 Aug 2026 - AICODE-NOTE: CL19+ scanned every trainable gradient
+            # tensor after every backward even when no active-norm metric was
+            # requested. This opt-in mode is bit-preserving for the loss/update.
+            if not role_to_metric:
+                return
+        for metric in role_to_metric.values():
+            batch[metric] = zero
+        for group in self.optimizer.param_groups:
+            metric = role_to_metric.get(str(group.get("name", "")))
+            if metric is None:
+                continue
+            norm = self._gradient_norm(
+                [parameter.grad for parameter in group.get("params", ())]
+            )
+            if norm is not None:
+                batch[metric] = norm.detach().to(device=zero.device)
+
     def process_batch(self, batch, train_metrics: MetricTracker):
-        ### 25 APR - ADD GRAD ACCUM ###
-        accum_steps = int(getattr(self, "grad_accum_steps", 1))
-        is_accum_start = batch["batch_idx"] % accum_steps == 0
-        is_accum_end = (batch["batch_idx"] + 1) % accum_steps == 0
-        if self.is_train and is_accum_start:
-            self.optimizer.zero_grad()
-        ### 25 APR - ADD GRAD ACCUM ###
+        self.optimizer.zero_grad()
             
         do_cfg = (batch["batch_idx"] % self.cfg_step == 0)
-        oom_flag = torch.zeros(1, device=self.device)
-        local_oom = False
-        output = None
-        try:
-            output = self.model(**batch, do_cfg=do_cfg)
-        except RuntimeError as exc:
-            if "out of memory" not in str(exc).lower():
-                raise
-            local_oom = True
-            oom_flag.fill_(1)
-            self.optimizer.zero_grad(set_to_none=True)
-            self._cleanup_cuda_state()
-
-        if torch.distributed.is_available() and torch.distributed.is_initialized():
-            torch.distributed.all_reduce(oom_flag, op=torch.distributed.ReduceOp.MAX)
-
-        if bool(oom_flag.item()):
-            if output is not None:
-                del output
-            self.optimizer.zero_grad(set_to_none=True)
-            self._cleanup_cuda_state()
-            rank = int(getattr(self.accelerator, "process_index", 0))
-            msg = (
-                f"[OOM_SKIP] time={time.strftime('%Y-%m-%d %H:%M:%S')} "
-                f"rank={rank} batch_idx={batch.get('batch_idx')} "
-                f"local_oom={local_oom}"
-            )
-            if self.logger is not None:
-                self.logger.warning(msg)
-            else:
-                print(msg, flush=True)
-            batch["skip_batch"] = True
-            batch["loss"] = torch.zeros((), device=self.device)
-            return batch
-
+        output = self.model(**batch, do_cfg=do_cfg)
         batch.update(output)
+
+        # 12 Aug 2026 - AICODE-NOTE: BA telemetry is model output, not loss
+        # output. Promote it independently so CL14's unchanged masked loss can
+        # log the residual-CA route without changing the scientific objective.
+        ba_telemetry = output.get("ba_telemetry")
+        if ba_telemetry:
+            batch.update(ba_telemetry)
 
         batch["is_masked_loss"] = (
             self.masked_loss_step > 0
@@ -293,27 +520,88 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         )
         all_losses = self.criterion(**batch)
         batch.update(all_losses)
+        self._calibrate_identity_auxiliary(batch)
+        apply_ba_pcgrad_surrogate(self, batch)
         
         if self.is_train:
             assert torch.isfinite(batch["loss"]) # sum of all losses is always called loss
-            ### 25 APR - ADD GRAD ACCUM ###
-            self.accelerator.backward(batch["loss"] / accum_steps)
-            if is_accum_end:
-                self._clip_grad_norm()
-                self.optimizer.step()
-                if self.lr_scheduler is not None:
-                    self.lr_scheduler.step()
-            ### 25 APR - ADD GRAD ACCUM ###
+            self.accelerator.backward(batch["loss"]) 
+            self._record_active_gradient_norms(batch)
+            self._clip_grad_norm()
+            self.optimizer.step()
+            if self.lr_scheduler is not None:
+                self.lr_scheduler.step()
 
-        # update metrics for each loss (in case of multiple losses)
-        for loss_name in self.config.writer.loss_names:
-            batch[loss_name] = self.accelerator.gather(batch[loss_name]).mean()
-            train_metrics.update(loss_name, batch[loss_name].item())
+        batch.pop("_loss_diffusion_graph", None)
+        batch.pop("_loss_identity_raw_graph", None)
+        batch.pop("_loss_ba_aux_graph", None)
+
+        # 2 Aug 2026 - AICODE-NOTE: reference counterfactuals are sampled, so
+        # unconditional Comet curves contain zeros on inactive ranks/batches.
+        # Keep those historical curves and add shuffle-conditional companions.
+        conditional_reference_metrics = {}
+        active_rank = None
+        if "reference_shuffle_applied" in batch:
+            conditional_reference_metrics = {
+                "reference_error_gap": "reference_error_gap_conditional",
+                "reference_error_relative_gap": (
+                    "reference_error_relative_gap_conditional"
+                ),
+                "reference_prediction_delta_ratio": (
+                    "reference_prediction_delta_ratio_conditional"
+                ),
+            }
+            shuffle_by_rank = self.accelerator.gather(
+                batch["reference_shuffle_applied"].detach().reshape(1)
+            ).float()
+            active_rank = shuffle_by_rank > 0.5
+
+        # 12 Aug 2026 - Training optimization: gather every scalar in one
+        # vector and synchronize the GPU once. CL14_CA has 19 diagnostics;
+        # this prevents 19 serialized gather/item synchronization pairs.
+        loss_names = tuple(self.config.writer.loss_names)
+        local_scalars = torch.stack(
+            [batch[name].detach().reshape(()) for name in loss_names]
+        ).float()
+        # 12 Aug 2026 - Training optimization: a one-GPU run needs no NCCL
+        # scalar gather; bypassing it also avoids the vector-gather SIGSEGV.
+        if self.accelerator.num_processes == 1:
+            gathered_matrix = local_scalars.unsqueeze(0)
+        else:
+            gathered_matrix = self.accelerator.gather(local_scalars).reshape(
+                -1, len(loss_names)
+            )
+        mean_scalars = gathered_matrix.mean(dim=0)
+        mean_values = mean_scalars.cpu().tolist()
+        has_active_reference_rank = bool(
+            active_rank is not None and active_rank.any().item()
+        )
+        for metric_index, (loss_name, mean_value) in enumerate(
+            zip(loss_names, mean_values)
+        ):
+            batch[loss_name] = mean_scalars[metric_index]
+            train_metrics.update(loss_name, mean_value)
+            conditional_name = conditional_reference_metrics.get(loss_name)
+            if (
+                conditional_name is not None
+                and has_active_reference_rank
+            ):
+                train_metrics.update(
+                    conditional_name,
+                    gathered_matrix[active_rank, metric_index].mean().item(),
+                )
+        if active_rank is not None:
+            train_metrics.update(
+                "reference_shuffle_rank_fraction",
+                active_rank.float().mean().item(),
+            )
 
         return batch
         
     @torch.no_grad()
     def process_evaluation_batch(self, batch, eval_metrics):
+        if self.pipe is not None:
+            self.pipe._ba_current_global_step = int(getattr(self.writer, "step", 0))
         prompts = batch["prompt"]
         if isinstance(prompts, str):
             prompts = [prompts]
@@ -562,7 +850,7 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 entries[idx] = entry
 
             if pending_pm:
-                from src.pipelines.br_pipeline_helpers import (
+                from src.pipelines.clean_full_pipeline_helpers import (
                     annotate_original_and_expanded_bbox,
                     expand_bbox_xyxy,
                 )
@@ -687,6 +975,18 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             val_refs.append(refs_list)
 
         val_kwargs = dict(self.config.validation_args)
+        subject_policies = get_value("face_subject_selection_policy", None)
+        if isinstance(subject_policies, list):
+            normalized_policies = {str(value) for value in subject_policies}
+            if len(normalized_policies) != 1:
+                raise RuntimeError(
+                    "One validation batch cannot mix face-subject selection policies"
+                )
+            subject_policy = next(iter(normalized_policies))
+        else:
+            subject_policy = subject_policies
+        if subject_policy is not None:
+            val_kwargs["face_subject_selection_policy"] = str(subject_policy)
         val_kwargs["debug_idx"] = int(batch_debug_idx)
         val_kwargs["debug_total"] = int(batch_debug_total)
         val_kwargs["val_debug"] = val_debug
@@ -778,6 +1078,13 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 generated_masks_collection.append([sample_mask_images[idx].copy() for _ in range(len(sample_images))])
 
         for idx in range(batch_size):
+            # 3 Aug 2026 - Use the validation stream ordinal rather than
+            # batch_idx * current_batch_size, which mislabels a short final
+            # batch and can make a supposedly per-image Comet table ambiguous.
+            table_image_index = int(
+                getattr(self, "_validation_per_image_id_next_index", 0)
+            )
+            self._validation_per_image_id_next_index = table_image_index + 1
             sample = {}
             for key, value in batch.items():
                 if isinstance(value, list) and batch_size > 1 and len(value) == batch_size:
@@ -790,15 +1097,59 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             sample["generated"] = generated_collection[idx]
             sample["id"] = ids_list[idx]
             sample["seed"] = seeds_list[idx]
+            # 09 Aug 2026 - AICODE-NOTE: identity ownership must be scored
+            # against the exact resolved box used by BA, not the dataset's
+            # pre-override/index fallback (which is None for filename-keyed
+            # full-96 maps).
+            sample["face_bbox_gen"] = face_bbox_gen_list[idx]
+            sample["face_bbox_ref"] = face_bbox_ref_list[idx]
 
             metric_time = 0.0
+            id_sim_value = None
+            id_sim_diagnostics = {}
             for metric in self.metrics:
                 metric_start = time.time()
                 metric_result = metric(**sample)
                 metric_time += time.time() - metric_start
                 for k, v in metric_result.items():
                     eval_metrics.update(k, v)
+                    if k == "id_sim":
+                        id_sim_value = float(
+                            v.item() if hasattr(v, "item") else v
+                        )
+                    elif k in {
+                        "id_sim_legacy_best",
+                        "id_sim_mask_iou",
+                        "id_sim_face_count",
+                        "id_sim_no_face",
+                        "id_sim_unowned",
+                        "id_sim_ambiguous",
+                    }:
+                        id_sim_diagnostics[k] = float(
+                            v.item() if hasattr(v, "item") else v
+                        )
             total_metric_time += metric_time
+
+            if id_sim_value is not None and hasattr(
+                self, "_validation_per_image_id_rows"
+            ):
+                seed = seeds_list[idx]
+                if hasattr(seed, "item"):
+                    seed = seed.item()
+                output_key = keys[idx]
+                if output_key is None:
+                    output_key = f"{str(prompts[idx])[:10]}_{ids_list[idx]}.png"
+                row = {
+                        "image_index": table_image_index,
+                        "output_key": str(output_key),
+                        "identity": str(ids_list[idx]),
+                        "prompt": str(prompts[idx]),
+                        "seed": int(seed),
+                        "generated_image_count": len(generated_collection[idx]),
+                        "id_sim": id_sim_value,
+                    }
+                row.update(id_sim_diagnostics)
+                self._validation_per_image_id_rows.append(row)
 
         batch["generated"] = generated_collection if batch_size > 1 else generated_collection[0]
         batch["generated_masks"] = generated_masks_collection if batch_size > 1 else generated_masks_collection[0]

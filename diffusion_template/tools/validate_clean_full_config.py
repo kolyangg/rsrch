@@ -18,8 +18,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = PROJECT_ROOT / "src" / "configs"
 RUNS_PATH = CONFIG_DIR / "clean_full_runs.json"
 COMMON_TARGETS = {
-    "trainer._target_": "src.trainer.sdxl_trainers.PhotomakerLoraTrainer",
-    "model._target_": "src.model.photomaker_branched.lora2.PhotomakerBranchedLora",
+    "trainer._target_": "src.trainer.clean_full_trainers.PhotomakerLoraTrainer",
+    "model._target_": (
+        "src.model.photomaker_branched.clean_full_model.PhotomakerBranchedLora"
+    ),
     "pipeline._target_": (
         "src.pipelines.photomaker_branched_clean."
         "PhotomakerBranchedPipeline.from_pretrained"

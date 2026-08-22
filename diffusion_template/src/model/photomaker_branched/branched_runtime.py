@@ -47,7 +47,6 @@ def patch_unet_attention_processors(
     scale: float = 1.0,
     id_embeds: Optional[torch.Tensor] = None,
     class_tokens_mask: Optional[torch.Tensor] = None,
-    ba_denoise_progress: Optional[torch.Tensor] = None,
 )-> None:
     """
     Patch UNet with branched attention processors for both self and cross attention.
@@ -55,172 +54,15 @@ def patch_unet_attention_processors(
     disable_sa = bool(getattr(pipeline, "disable_branched_sa", False))
     disable_ca = bool(getattr(pipeline, "disable_branched_ca", False))
 
-    configured_architecture_version = getattr(
-        pipeline, "ba_architecture_version", None
-    )
-    from .attn_processor_cleanest import (
-        BranchedAttnProcessor as HardReplaceBranchedAttnProcessor,
-    )
-    identity_ca_v2_enabled = bool(
-        getattr(pipeline, "ba_identity_ca_v2_enabled", False)
-    )
-    residual_identity_ca_v3_enabled = bool(
-        getattr(pipeline, "ba_residual_identity_ca_v3_enabled", False)
-    )
-    if identity_ca_v2_enabled or residual_identity_ca_v3_enabled:
-        raise RuntimeError("clean_full does not support identity cross-attention")
-    if not disable_ca:
-        raise RuntimeError("clean_full requires disable_branched_ca=true")
-
-    hardcase_mode = str(getattr(pipeline, "ba_hardcase_mode", "off") or "off").lower()
-    hardcase_fallback_mode = str(
-        getattr(pipeline, "ba_hardcase_fallback_mode", "off") or "off"
-    ).lower()
-    hardcase_groups = tuple(
-        str(group) for group in (getattr(pipeline, "ba_hardcase_groups", None) or ())
-    )
-    frequency_surface_enabled = bool(
-        getattr(pipeline, "ba_frequency_surface_loss_enabled", False)
-    )
-    frequency_surface_groups = tuple(
-        str(group)
-        for group in (
-            getattr(pipeline, "ba_frequency_surface_loss_groups", None) or ()
-        )
-    )
-    frequency_learnable_schedule_enabled = bool(
-        getattr(pipeline, "ba_frequency_learnable_schedule_enabled", False)
-    )
-    frequency_lowband_contrastive_enabled = bool(
-        getattr(pipeline, "ba_frequency_lowband_contrastive_enabled", False)
-    )
-    frequency_lowband_contrastive_groups = tuple(
-        str(group)
-        for group in (
-            getattr(pipeline, "ba_frequency_lowband_contrastive_groups", None) or ()
-        )
-    )
-    frequency_positive_enabled = bool(
-        getattr(pipeline, "ba_frequency_positive_sameid_enabled", False)
-    )
-    frequency_positive_groups = tuple(
-        str(group) for group in (
-            getattr(pipeline, "ba_frequency_positive_sameid_groups", None) or ()
-        )
-    )
-    attention_ownership_enabled = bool(
-        getattr(pipeline, "ba_attention_ownership_loss_enabled", False)
-    )
-    attention_ownership_groups = tuple(
-        str(group) for group in (
-            getattr(pipeline, "ba_attention_ownership_groups", None) or ()
-        )
-    )
-    roi_teacher_enabled = bool(
-        getattr(pipeline, "ba_roi_teacher_distill_enabled", False)
-    )
-    roi_teacher_groups = tuple(
-        str(group) for group in (
-            getattr(pipeline, "ba_roi_teacher_distill_groups", None) or ()
-        )
-    )
-    shared_schedule_enabled = bool(
-        getattr(pipeline, "ba_frequency_shared_schedule_enabled", False)
-    )
-    hardcase_telemetry_enabled = bool(
-        getattr(pipeline, "ba_hardcase_telemetry_enabled", True)
-    )
-    extension_specs = {
-        "visibility_ownership_v2": "ba_visibility_ownership_v2",
-        "null_key_router": "ba_null_key_router",
-        "landmark_canonical_kv": "ba_landmark_canonical_kv",
-        "component_token_memory": "ba_component_token_memory",
-        "identity_motion_projector": "ba_identity_motion_projector",
-        "id_adaptive_modulation": "ba_id_adaptive_modulation",
-        "semantic_window_gate": "ba_semantic_window_gate",
-    }
-    extension_enabled = {
-        name: bool(getattr(pipeline, f"{prefix}_enabled", False))
-        for name, prefix in extension_specs.items()
-    }
-    extension_groups = {
-        name: tuple(str(group) for group in (getattr(pipeline, f"{prefix}_groups", None) or ()))
-        for name, prefix in extension_specs.items()
-    }
-    enabled_extensions = [name for name, enabled in extension_enabled.items() if enabled]
-    if len(enabled_extensions) > 1:
-        raise RuntimeError(
-            f"CL38-CL44 arms are independent; got {enabled_extensions}"
-        )
-    if enabled_extensions:
-        extension = enabled_extensions[0]
-        if not extension_groups[extension]:
-            raise RuntimeError(f"{extension} requires non-empty processor groups")
-        if hardcase_mode != "temporal_frequency":
-            raise RuntimeError(f"{extension} requires the CL27 temporal-frequency route")
-
-    # 22 Aug 2026 - AICODE-NOTE: every clean_full arm uses the audited hard-v1
-    # target-Q/reference-KV route. Alternate processor families were removed
-    # so a stale config fails instead of reviving an unreviewed architecture.
-    architecture_version = str(
-        configured_architecture_version or "hard_replace_v1"
-    ).lower()
-    if architecture_version != "hard_replace_v1":
-        raise RuntimeError(
-            "clean_full supports ba_architecture_version=hard_replace_v1 only"
-        )
-
-    if hardcase_mode != "off":
-        if architecture_version != "hard_replace_v1":
-            raise RuntimeError("CL15+ hard-case routes require hard_replace_v1")
-        if not hardcase_groups:
-            raise RuntimeError("ba_hardcase_mode requires non-empty ba_hardcase_groups")
-        invalid_hardcase_groups = [
-            group
-            for group in hardcase_groups
-            if not (
-                group == "mid_block"
-                or group.startswith("down_blocks.")
-                or group.startswith("up_blocks.")
-            )
-        ]
-        if invalid_hardcase_groups:
-            raise ValueError(
-                f"Invalid ba_hardcase_groups={invalid_hardcase_groups!r}"
-            )
-
-    if bool(getattr(pipeline, "ba_enforce_reference_only_hard_route", False)):
-        if architecture_version != "hard_replace_v1":
-            raise RuntimeError(
-                "The audited Large Dataset suite requires hard_replace_v1"
-            )
-        if not disable_ca:
-            raise RuntimeError(
-                "The audited Large Dataset suite requires disable_branched_ca=true"
-            )
-        if float(getattr(pipeline, "pose_adapt_ratio", 0.0)) != 0.0:
-            raise RuntimeError(
-                "The audited Large Dataset suite requires pose_adapt_ratio=0"
-            )
-        if bool(getattr(pipeline, "ca_mixing_for_face", False)):
-            raise RuntimeError(
-                "The audited Large Dataset suite requires ca_mixing_for_face=false"
-            )
-        if str(
-            getattr(pipeline, "ba_face_fusion_mode", "hard_reference_replace")
-        ).lower() != "hard_reference_replace":
-            raise RuntimeError(
-                "The audited Large Dataset suite forbids native/reference face mixing"
-            )
-        if (identity_ca_v2_enabled or residual_identity_ca_v3_enabled) and bool(
-            getattr(pipeline, "train_branched_ca_lora", False)
-        ):
-            raise RuntimeError(
-                "Corrected identity CA cannot enable the legacy branched CA trainables"
-            )
-
-    BranchedAttnProcessor = HardReplaceBranchedAttnProcessor
-    known_branched_types = (HardReplaceBranchedAttnProcessor,)
+    # Default to legacy (v1) when flag is not provided.
+    use_attn_v2 = bool(getattr(pipeline, "use_attn_v2", False))
+    # if use_attn_v2:
+    #     from ._old2.attn_processor2 import BranchedAttnProcessor, BranchedCrossAttnProcessor
+    # else:
+    #     # from .attn_processor import BranchedAttnProcessor, BranchedCrossAttnProcessor
+    #     # from .attn_processor_clean import BranchedAttnProcessor, BranchedCrossAttnProcessor
+    
+    from .attn_processor_cleanest import BranchedAttnProcessor, BranchedCrossAttnProcessor # New ver 25 Feb
 
     # print(f'[TEMP DEBUG] mask in patch_unet_attention_processors: {mask}')
     
@@ -232,104 +74,10 @@ def patch_unet_attention_processors(
     
     # Check if already patched
     current_procs = pipeline.unet.attn_processors
-    has_branched = any(isinstance(p, known_branched_types) for p in current_procs.values())
-    incompatible_self_processors = [
-        name
-        for name, proc in current_procs.items()
-        if name.endswith("attn1.processor")
-        and isinstance(proc, known_branched_types)
-        and type(proc) is not BranchedAttnProcessor
-    ]
-    if incompatible_self_processors:
-        raise RuntimeError(
-            "Installed branched processor architecture does not match "
-            f"{architecture_version}: {incompatible_self_processors[:5]}"
-        )
-    if has_branched and architecture_version == "hard_replace_v1":
-        mismatched_hardcase_routes = []
-        for name, processor in current_procs.items():
-            if type(processor) is not HardReplaceBranchedAttnProcessor:
-                continue
-            expected_mode = (
-                hardcase_mode
-                if any(name.startswith(f"{group}.") for group in hardcase_groups)
-                else hardcase_fallback_mode
-            )
-            if processor.hardcase_mode != expected_mode:
-                mismatched_hardcase_routes.append(
-                    (name, processor.hardcase_mode, expected_mode)
-                )
-        if mismatched_hardcase_routes:
-            # 11 Aug 2026 - AICODE-NOTE: processor reuse must never turn a YAML
-            # toggle into a silent no-op; validation must use the trained route.
-            raise RuntimeError(
-                "Installed hard-case processor map does not match configuration: "
-                f"{mismatched_hardcase_routes[:5]}"
-            )
-        mismatched_frequency_extensions = []
-        for name, processor in current_procs.items():
-            if type(processor) is not HardReplaceBranchedAttnProcessor:
-                continue
-            expected_surface = frequency_surface_enabled and any(
-                name.startswith(f"{group}.") for group in frequency_surface_groups
-            )
-            expected_contrastive = (
-                frequency_lowband_contrastive_enabled
-                and any(name.startswith(f"{group}.") for group in frequency_lowband_contrastive_groups)
-            ) or (
-                frequency_positive_enabled
-                and any(name.startswith(f"{group}.") for group in frequency_positive_groups)
-            )
-            actual = (
-                bool(processor.frequency_surface_loss_enabled),
-                bool(processor.frequency_learnable_schedule_enabled),
-                bool(processor.frequency_lowband_contrastive_enabled),
-                bool(processor.attention_ownership_enabled),
-                bool(processor.frequency_shared_schedule_enabled),
-                bool(processor.roi_teacher_enabled),
-            )
-            expected = (
-                expected_surface,
-                frequency_learnable_schedule_enabled,
-                expected_contrastive,
-                attention_ownership_enabled and any(
-                    name.startswith(f"{group}.") for group in attention_ownership_groups
-                ),
-                shared_schedule_enabled,
-                roi_teacher_enabled and any(
-                    name.startswith(f"{group}.") for group in roi_teacher_groups
-                ),
-            )
-            if actual != expected:
-                mismatched_frequency_extensions.append((name, actual, expected))
-        if mismatched_frequency_extensions:
-            raise RuntimeError(
-                "Installed temporal-frequency extension map does not match "
-                f"configuration: {mismatched_frequency_extensions[:5]}"
-            )
-        mismatched_cl38_cl44 = []
-        for name, processor in current_procs.items():
-            if type(processor) is not HardReplaceBranchedAttnProcessor:
-                continue
-            actual = tuple(
-                bool(getattr(processor, f"{extension}_enabled", False))
-                for extension in extension_specs
-            )
-            expected = tuple(
-                extension_enabled[extension]
-                and any(
-                    name.startswith(f"{group}.")
-                    for group in extension_groups[extension]
-                )
-                for extension in extension_specs
-            )
-            if actual != expected:
-                mismatched_cl38_cl44.append((name, actual, expected))
-        if mismatched_cl38_cl44:
-            raise RuntimeError(
-                "Installed CL38-CL44 extension map does not match configuration: "
-                f"{mismatched_cl38_cl44[:5]}"
-            )
+    has_branched = any(
+        isinstance(p, (BranchedAttnProcessor, BranchedCrossAttnProcessor)) 
+        for p in current_procs.values()
+    )
 
     def _resolve_attn_module(unet, proc_name):
         mod = unet
@@ -339,86 +87,19 @@ def patch_unet_attention_processors(
 
 
     def _apply_runtime_flags(proc, pipe):
-        # 26 Jul 2026 - Refresh the face K/V blend on every patch call so
-        # training and validation honor the same pipeline setting. The default
-        # remains 0.0, which is byte-for-byte the historical reference-only mix.
-        pose_adapt_ratio = float(getattr(pipe, "pose_adapt_ratio", 0.0))
-        if not 0.0 <= pose_adapt_ratio <= 1.0:
-            raise ValueError(
-                f"pose_adapt_ratio must be in [0, 1], got {pose_adapt_ratio}"
-            )
-        setattr(proc, "pose_adapt_ratio", pose_adapt_ratio)
+        # propagate key runtime knobs from model/pipeline onto processors
+        # for k in ("pose_adapt_ratio", "ca_mixing_for_face", "train_branch_mode", "id_alpha", "use_id_embeds"):
+        #     if hasattr(pipe, k):
+        #         setattr(proc, k, getattr(pipe, k))
+        
+        # Keep only static toggles on processor instances.
+        # Per-step runtime knobs are passed via UNet cross_attention_kwargs
 
         # Optional toggle for per-branch BA-specific adapters.
         if hasattr(pipe, "ba_weights_split"):
             setattr(proc, "ba_weights_split", getattr(pipe, "ba_weights_split"))
         if hasattr(pipe, "force_binary_masks"):
             setattr(proc, "force_binary_masks", bool(getattr(pipe, "force_binary_masks")))
-        if isinstance(proc, HardReplaceBranchedAttnProcessor):
-            setattr(
-                proc,
-                "true_reference_key_mask",
-                bool(getattr(pipe, "ba_hard_v1_true_reference_key_mask", False)),
-            )
-            setattr(
-                proc,
-                "reference_roi_warp",
-                bool(getattr(pipe, "ba_hard_v1_reference_roi_warp", False)),
-            )
-        # Explicitly reset to False on validation pipelines, which do not
-        # opt in even when they reuse processors from the training U-Net.
-        setattr(
-            proc,
-            "cache_prepared_masks",
-            bool(getattr(pipe, "cache_prepared_masks", False)),
-        )
-        if hasattr(proc, "set_denoise_progress"):
-            proc.set_denoise_progress(ba_denoise_progress)
-        if hasattr(proc, "set_training_step"):
-            proc.set_training_step(int(getattr(pipe, "_ba_current_global_step", 0)))
-        if hasattr(proc, "set_identity_context"):
-            proc.set_identity_context(
-                getattr(pipe, "_ba_identity_embedding_512", None),
-                getattr(pipe, "_ba_reference_landmarks_5", None),
-                getattr(pipe, "_ba_reference_landmark_confidence", None),
-            )
-        if hasattr(proc, "set_hardcase_telemetry_enabled"):
-            proc.set_hardcase_telemetry_enabled(hardcase_telemetry_enabled)
-        if hasattr(proc, "set_ownership_target_mask"):
-            proc.set_ownership_target_mask(
-                getattr(pipe, "_ba_ownership_target_mask", None)
-            )
-        if hasattr(proc, "set_lowband_contrastive"):
-            mode = (
-                getattr(pipe, "_ba_lowband_capture_mode", "off")
-                if bool(getattr(proc, "frequency_lowband_contrastive_enabled", False))
-                else "off"
-            )
-            proc.set_lowband_contrastive(
-                mode,
-                getattr(pipe, "_ba_lowband_negative_permutation", None),
-            )
-        if hasattr(proc, "set_attention_ownership_capture"):
-            proc.set_attention_ownership_capture(
-                bool(getattr(pipe, "_ba_attention_ownership_capture", False))
-                and bool(getattr(proc, "attention_ownership_enabled", False))
-            )
-        if hasattr(proc, "set_roi_teacher_capture"):
-            proc.set_roi_teacher_capture(
-                bool(getattr(pipe, "_ba_roi_teacher_capture", False))
-                and bool(getattr(proc, "roi_teacher_enabled", False))
-            )
-        if hasattr(proc, "set_frequency_shared_schedule"):
-            proc.set_frequency_shared_schedule(
-                getattr(pipe.unet, "ba_frequency_shared_schedule_raw", None)
-            )
-        if hasattr(proc, "set_mix_override"):
-            proc.set_mix_override(getattr(pipe, "ba_mix_override", None))
-        if hasattr(proc, "set_telemetry_enabled"):
-            telemetry_enabled = bool(
-                getattr(pipe, "ba_telemetry_enabled", False)
-            ) and not bool(getattr(pipe, "_ba_suppress_telemetry", False))
-            proc.set_telemetry_enabled(telemetry_enabled)
             
         
 
@@ -440,43 +121,17 @@ def patch_unet_attention_processors(
         top_k=ba_patch_top_k,
         param_name="ba_patch_top_k",
     )
-    semantic_groups = getattr(pipeline, "ba_self_attention_groups", None)
-    if semantic_groups:
-        semantic_groups = tuple(str(group) for group in semantic_groups)
-        invalid_groups = [
-            group
-            for group in semantic_groups
-            if not (
-                group == "mid_block"
-                or group.startswith("down_blocks.")
-                or group.startswith("up_blocks.")
-            )
-        ]
-        if invalid_groups:
-            raise ValueError(
-                f"Unknown ba_self_attention_groups={invalid_groups!r}"
-            )
-        patchable_sa_names = [
-            name
-            for name in patchable_sa_names
-            if any(
-                name.startswith(f"{group}.")
-                for group in semantic_groups
-            )
-        ]
-        if not patchable_sa_names:
-            raise RuntimeError(
-                "ba_self_attention_groups selected zero self-attention processors"
-            )
     patchable_sa_name_set = set(patchable_sa_names)
-    setattr(pipeline, "_ba_semantic_processor_names", tuple(patchable_sa_names))
-
-    setattr(pipeline, "_ba_identity_ca_processor_names", ())
 
     if not has_branched:
         # Create new processors
         new_procs = {}
         patched_proc_names: list[str] = []
+        
+        # Get cross-attention dimension
+        cross_attention_dim = pipeline.unet.config.cross_attention_dim
+        if isinstance(cross_attention_dim, (list, tuple)):
+            cross_attention_dim = cross_attention_dim[0]
         
         for name in pipeline.unet.attn_processors.keys():
             # Get hidden size
@@ -497,488 +152,18 @@ def patch_unet_attention_processors(
                     new_procs[name] = pipeline._original_attn_processors[name]
                 else:
                     # Self-attention: use branched processor
-                    if architecture_version in {
-                        "residual_sa_v2",
-                        "anchored_mix_sa_v3",
-                        "query_adaptive_hard_sa_v4",
-                    }:
-                        trainable_dtype_name = str(
-                            getattr(pipeline, "branched_trainable_dtype", "fp32")
-                        ).lower()
-                        if trainable_dtype_name not in {"fp32", "float32"}:
-                            raise ValueError(
-                                f"{architecture_version} currently requires "
-                                "branched_trainable_dtype=fp32"
-                            )
-                        configured_ref_rank = getattr(
-                            pipeline, "ba_ref_kv_rank", None
-                        )
-                        configured_output_rank = getattr(
-                            pipeline, "ba_output_rank", None
-                        )
-                        fallback_rank = int(
-                            getattr(
-                                pipeline,
-                                "branched_attn_lora_rank",
-                                getattr(pipeline, "lora_rank", 32),
-                            )
-                        )
-                        if architecture_version == "residual_sa_v2":
-                            proc = BranchedAttnProcessor(
-                                hidden_size=hidden_size,
-                                cross_attention_dim=hidden_size,
-                                scale=scale,
-                                ref_kv_rank=int(configured_ref_rank or fallback_rank),
-                                output_rank=int(configured_output_rank or fallback_rank),
-                                gate_init=float(
-                                    getattr(pipeline, "ba_gate_init", 0.10)
-                                ),
-                                gate_max=float(
-                                    getattr(pipeline, "ba_gate_max", 1.0)
-                                ),
-                                gate_timestep=bool(
-                                    getattr(pipeline, "ba_gate_timestep", True)
-                                ),
-                                gate_face_area=bool(
-                                    getattr(pipeline, "ba_gate_face_area", True)
-                                ),
-                                trainable_dtype=torch.float32,
-                                require_denoise_progress=bool(
-                                    getattr(
-                                        pipeline,
-                                        "ba_require_denoise_progress",
-                                        True,
-                                    )
-                                ),
-                            )
-                        elif architecture_version == "anchored_mix_sa_v3":
-                            proc = BranchedAttnProcessor(
-                                hidden_size=hidden_size,
-                                cross_attention_dim=hidden_size,
-                                scale=scale,
-                                ref_kv_rank=int(configured_ref_rank or fallback_rank),
-                                output_rank=int(configured_output_rank or fallback_rank),
-                                mix_init=float(
-                                    getattr(pipeline, "ba_mix_init", 0.50)
-                                ),
-                                mix_floor=float(
-                                    getattr(pipeline, "ba_mix_floor", 0.25)
-                                ),
-                                mix_max=float(
-                                    getattr(pipeline, "ba_mix_max", 0.90)
-                                ),
-                                mix_timestep=bool(
-                                    getattr(pipeline, "ba_mix_timestep", True)
-                                ),
-                                mix_face_area=bool(
-                                    getattr(pipeline, "ba_mix_face_area", True)
-                                ),
-                                reference_rms_match=bool(
-                                    getattr(
-                                        pipeline,
-                                        "ba_reference_rms_match",
-                                        True,
-                                    )
-                                ),
-                                reference_rms_clip_min=float(
-                                    getattr(
-                                        pipeline,
-                                        "ba_reference_rms_clip_min",
-                                        0.50,
-                                    )
-                                ),
-                                reference_rms_clip_max=float(
-                                    getattr(
-                                        pipeline,
-                                        "ba_reference_rms_clip_max",
-                                        2.00,
-                                    )
-                                ),
-                                trainable_dtype=torch.float32,
-                                require_denoise_progress=bool(
-                                    getattr(
-                                        pipeline,
-                                        "ba_require_denoise_progress",
-                                        True,
-                                    )
-                                ),
-                                telemetry_enabled=bool(
-                                    getattr(
-                                        pipeline,
-                                        "ba_telemetry_enabled",
-                                        False,
-                                    )
-                                ),
-                                telemetry_interval=int(
-                                    getattr(
-                                        pipeline,
-                                        "ba_telemetry_interval",
-                                        50,
-                                    )
-                                ),
-                                mix_override=getattr(
-                                    pipeline, "ba_mix_override", None
-                                ),
-                            )
-                        else:
-                            proc = BranchedAttnProcessor(
-                                hidden_size=hidden_size,
-                                cross_attention_dim=hidden_size,
-                                scale=float(
-                                    getattr(
-                                        pipeline,
-                                        "ba_face_branch_scale",
-                                        scale,
-                                    )
-                                ),
-                                branch_q_rank=int(
-                                    getattr(
-                                        pipeline,
-                                        "ba_branch_q_rank",
-                                        16,
-                                    )
-                                ),
-                                ref_kv_rank=int(configured_ref_rank or fallback_rank),
-                                output_rank=int(configured_output_rank or fallback_rank),
-                                trainable_dtype=torch.float32,
-                                telemetry_enabled=bool(
-                                    getattr(
-                                        pipeline,
-                                        "ba_telemetry_enabled",
-                                        False,
-                                    )
-                                ),
-                                telemetry_interval=int(
-                                    getattr(
-                                        pipeline,
-                                        "ba_telemetry_interval",
-                                        50,
-                                    )
-                                ),
-                            )
-                    else:
-                        trainable_dtype_name = str(
-                            getattr(pipeline, "branched_trainable_dtype", "inherit")
-                        ).lower()
-                        hard_trainable_dtype = (
-                            torch.float32
-                            if trainable_dtype_name in {"fp32", "float32"}
-                            else None
-                        )
-                        proc = BranchedAttnProcessor(
-                            hidden_size=hidden_size,
-                            cross_attention_dim=hidden_size,
-                            scale=scale,
-                            branched_attn_weight_mode=getattr(pipeline, "branched_attn_weight_mode", "shared"),
-                            branched_attn_new_weight_kind=getattr(pipeline, "branched_attn_new_weight_kind", "full"),
-                            branched_attn_lora_rank=int(
-                                getattr(pipeline, "ba_hard_v1_lora_rank", None)
-                                or getattr(
-                                    pipeline,
-                                    "branched_attn_lora_rank",
-                                    getattr(pipeline, "lora_rank", 16),
-                                )
-                            ),
-                            trainable_dtype=hard_trainable_dtype,
-                            true_reference_key_mask=bool(
-                                getattr(
-                                    pipeline,
-                                    "ba_hard_v1_true_reference_key_mask",
-                                    False,
-                                )
-                            ),
-                            branch_output_rank=getattr(
-                                pipeline,
-                                "ba_hard_v1_branch_output_rank",
-                                None,
-                            ),
-                            reference_roi_warp=bool(
-                                getattr(
-                                    pipeline,
-                                    "ba_hard_v1_reference_roi_warp",
-                                    False,
-                                )
-                            ),
-                            hardcase_mode=(
-                                hardcase_mode
-                                if any(
-                                    name.startswith(f"{group}.")
-                                    for group in hardcase_groups
-                                )
-                                else hardcase_fallback_mode
-                            ),
-                            hardcase_rank=int(
-                                getattr(pipeline, "ba_hardcase_rank", 64)
-                            ),
-                            hardcase_gate_max=float(
-                                getattr(pipeline, "ba_hardcase_gate_max", 0.20)
-                            ),
-                            hardcase_roi_size=int(
-                                getattr(pipeline, "ba_hardcase_roi_size", 32)
-                            ),
-                            hardcase_face_threshold_px=int(
-                                getattr(
-                                    pipeline,
-                                    "ba_hardcase_face_threshold_px",
-                                    256,
-                                )
-                            ),
-                            hardcase_transition_cells=int(
-                                getattr(
-                                    pipeline,
-                                    "ba_hardcase_transition_cells",
-                                    2,
-                                )
-                            ),
-                            hardcase_ownership_hidden_dim=int(
-                                getattr(
-                                    pipeline,
-                                    "ba_hardcase_ownership_hidden_dim",
-                                    128,
-                                )
-                            ),
-                            hardcase_visible_face_floor=float(
-                                getattr(
-                                    pipeline,
-                                    "ba_hardcase_visible_face_floor",
-                                    0.20,
-                                )
-                            ),
-                            hardcase_top_native_floor=float(
-                                getattr(pipeline, "ba_hardcase_top_native_floor", 0.95)
-                            ),
-                            hardcase_frequency_low_early=float(
-                                getattr(pipeline, "ba_hardcase_frequency_low_early", 0.50)
-                            ),
-                            hardcase_frequency_low_late=float(
-                                getattr(pipeline, "ba_hardcase_frequency_low_late", 0.85)
-                            ),
-                            hardcase_frequency_high_early=float(
-                                getattr(pipeline, "ba_hardcase_frequency_high_early", 0.75)
-                            ),
-                            hardcase_frequency_high_late=float(
-                                getattr(pipeline, "ba_hardcase_frequency_high_late", 1.25)
-                            ),
-                            hardcase_telemetry_enabled=hardcase_telemetry_enabled,
-                            # 20 Aug 2026 - AICODE-NOTE: CL27's surface collector is
-                            # group-scoped. Enabling it on every BA processor created
-                            # zero-only telemetry outside up0/up1, so a declared
-                            # single-arm extension produced a mixed synthetic "all"
-                            # schema before the first training update.
-                            frequency_surface_experiment_enabled=(
-                                frequency_surface_enabled
-                                and any(
-                                    name.startswith(f"{group}.")
-                                    for group in frequency_surface_groups
-                                )
-                            ),
-                            frequency_surface_loss_enabled=(
-                                frequency_surface_enabled
-                                and any(
-                                    name.startswith(f"{group}.")
-                                    for group in frequency_surface_groups
-                                )
-                            ),
-                            frequency_surface_top_low_band_factor=float(
-                                getattr(
-                                    pipeline,
-                                    "ba_frequency_surface_top_low_band_factor",
-                                    0.25,
-                                )
-                            ),
-                            frequency_surface_visible_floor_ratio=float(
-                                getattr(
-                                    pipeline,
-                                    "ba_frequency_surface_visible_floor_ratio",
-                                    0.35,
-                                )
-                            ),
-                            frequency_learnable_schedule_enabled=(
-                                frequency_learnable_schedule_enabled
-                            ),
-                            frequency_low_late_center=float(
-                                getattr(
-                                    pipeline,
-                                    "ba_frequency_low_late_center",
-                                    0.85,
-                                )
-                            ),
-                            frequency_low_late_half_range=float(
-                                getattr(
-                                    pipeline,
-                                    "ba_frequency_low_late_half_range",
-                                    0.15,
-                                )
-                            ),
-                            frequency_high_early_center=float(
-                                getattr(
-                                    pipeline,
-                                    "ba_frequency_high_early_center",
-                                    0.75,
-                                )
-                            ),
-                            frequency_high_early_half_range=float(
-                                getattr(
-                                    pipeline,
-                                    "ba_frequency_high_early_half_range",
-                                    0.15,
-                                )
-                            ),
-                            frequency_high_late_center=float(
-                                getattr(
-                                    pipeline,
-                                    "ba_frequency_high_late_center",
-                                    1.25,
-                                )
-                            ),
-                            frequency_high_late_half_range=float(
-                                getattr(
-                                    pipeline,
-                                    "ba_frequency_high_late_half_range",
-                                    0.15,
-                                )
-                            ),
-                            frequency_lowband_contrastive_enabled=(
-                                (
-                                    frequency_lowband_contrastive_enabled
-                                    and any(name.startswith(f"{group}.") for group in frequency_lowband_contrastive_groups)
-                                )
-                                or (
-                                    frequency_positive_enabled
-                                    and any(name.startswith(f"{group}.") for group in frequency_positive_groups)
-                                )
-                            ),
-                            attention_ownership_enabled=(
-                                attention_ownership_enabled
-                                and any(name.startswith(f"{group}.") for group in attention_ownership_groups)
-                            ),
-                            attention_ownership_visible_floor=float(
-                                getattr(pipeline, "ba_attention_ownership_visible_ref_mass_floor", 0.55)
-                            ),
-                            attention_ownership_top_ceiling=float(
-                                getattr(pipeline, "ba_attention_ownership_top_ref_mass_ceiling", 0.10)
-                            ),
-                            attention_ownership_contact_width=int(
-                                getattr(pipeline, "ba_attention_ownership_contact_width", 1)
-                            ),
-                            frequency_surface_region_mode=str(
-                                getattr(pipeline, "ba_frequency_surface_region_mode", "full_top")
-                            ),
-                            frequency_surface_contact_width=int(
-                                getattr(pipeline, "ba_frequency_surface_contact_width", 1)
-                            ),
-                            frequency_surface_top_interior_factor=float(
-                                getattr(pipeline, "ba_frequency_surface_top_interior_factor", 1.0)
-                            ),
-                            frequency_surface_contact_factor=float(
-                                getattr(pipeline, "ba_frequency_surface_contact_factor", 1.0)
-                            ),
-                            frequency_shared_schedule_enabled=shared_schedule_enabled,
-                            frequency_shared_low_late_center=float(
-                                getattr(pipeline, "ba_frequency_shared_low_late_center", 0.85)
-                            ),
-                            frequency_shared_low_late_half_range=float(
-                                getattr(pipeline, "ba_frequency_shared_low_late_half_range", 0.05)
-                            ),
-                            frequency_shared_high_early_center=float(
-                                getattr(pipeline, "ba_frequency_shared_high_early_center", 0.75)
-                            ),
-                            frequency_shared_high_early_half_range=float(
-                                getattr(pipeline, "ba_frequency_shared_high_early_half_range", 0.05)
-                            ),
-                            frequency_shared_high_late_center=float(
-                                getattr(pipeline, "ba_frequency_shared_high_late_center", 1.25)
-                            ),
-                            frequency_shared_high_late_half_range=float(
-                                getattr(pipeline, "ba_frequency_shared_high_late_half_range", 0.05)
-                            ),
-                            roi_teacher_enabled=(
-                                roi_teacher_enabled
-                                and any(name.startswith(f"{group}.") for group in roi_teacher_groups)
-                            ),
-                            roi_teacher_size=int(getattr(pipeline, "ba_roi_teacher_size", 32)),
-                            roi_teacher_face_threshold_px=int(
-                                getattr(pipeline, "ba_roi_teacher_face_threshold_px", 256)
-                            ),
-                            roi_teacher_progress_min=float(
-                                getattr(pipeline, "ba_roi_teacher_progress_min", 0.60)
-                            ),
-                            hardcase_roi_gate_init=float(
-                                getattr(pipeline, "ba_hardcase_roi_gate_init", 0.10)
-                            ),
-                            hardcase_roi_gate_min=float(
-                                getattr(pipeline, "ba_hardcase_roi_gate_min", 0.05)
-                            ),
-                            hardcase_roi_progress_min=float(
-                                getattr(pipeline, "ba_hardcase_roi_progress_min", 0.60)
-                            ),
-                            hardcase_roi_rms_cap=float(
-                                getattr(pipeline, "ba_hardcase_roi_rms_cap", 0.25)
-                            ),
-                            visibility_ownership_v2_enabled=(
-                                extension_enabled["visibility_ownership_v2"]
-                                and any(name.startswith(f"{group}.") for group in extension_groups["visibility_ownership_v2"])
-                            ),
-                            visibility_ownership_v2_dilate_cells=int(getattr(pipeline, "ba_visibility_ownership_v2_dilate_cells", 1)),
-                            visibility_ownership_v2_min_top_area=float(getattr(pipeline, "ba_visibility_ownership_v2_min_top_area", 0.002)),
-                            visibility_ownership_v2_delta_only=bool(getattr(pipeline, "ba_visibility_ownership_v2_delta_only", False)),
-                            null_key_router_enabled=(
-                                extension_enabled["null_key_router"]
-                                and any(name.startswith(f"{group}.") for group in extension_groups["null_key_router"])
-                            ),
-                            null_key_entropy_threshold=float(getattr(pipeline, "ba_null_key_entropy_threshold", 0.75)),
-                            null_key_temperature=float(getattr(pipeline, "ba_null_key_temperature", 0.08)),
-                            null_key_max_abstention=float(getattr(pipeline, "ba_null_key_max_abstention", 0.75)),
-                            null_key_min_reference_fraction=float(getattr(pipeline, "ba_null_key_min_reference_fraction", 0.25)),
-                            landmark_canonical_kv_enabled=(
-                                extension_enabled["landmark_canonical_kv"]
-                                and any(name.startswith(f"{group}.") for group in extension_groups["landmark_canonical_kv"])
-                            ),
-                            landmark_canonical_kv_mix=float(getattr(pipeline, "ba_landmark_canonical_kv_mix", 0.50)),
-                            landmark_canonical_kv_min_confidence=float(getattr(pipeline, "ba_landmark_canonical_kv_min_confidence", 0.80)),
-                            component_token_memory_enabled=(
-                                extension_enabled["component_token_memory"]
-                                and any(name.startswith(f"{group}.") for group in extension_groups["component_token_memory"])
-                            ),
-                            component_token_memory_scale=float(getattr(pipeline, "ba_component_token_memory_scale", 0.15)),
-                            component_token_memory_sigma_cells=float(getattr(pipeline, "ba_component_token_memory_sigma_cells", 1.75)),
-                            component_token_memory_min_confidence=float(getattr(pipeline, "ba_component_token_memory_min_confidence", 0.80)),
-                            identity_motion_projector_enabled=(
-                                extension_enabled["identity_motion_projector"]
-                                and any(name.startswith(f"{group}.") for group in extension_groups["identity_motion_projector"])
-                            ),
-                            identity_motion_projector_rank=int(getattr(pipeline, "ba_identity_motion_projector_rank", 32)),
-                            identity_motion_projector_gate_max=float(getattr(pipeline, "ba_identity_motion_projector_gate_max", 0.35)),
-                            identity_motion_projector_ramp_start_step=int(getattr(pipeline, "ba_identity_motion_projector_ramp_start_step", 1000)),
-                            identity_motion_projector_ramp_end_step=int(getattr(pipeline, "ba_identity_motion_projector_ramp_end_step", 6000)),
-                            id_adaptive_modulation_enabled=(
-                                extension_enabled["id_adaptive_modulation"]
-                                and any(name.startswith(f"{group}.") for group in extension_groups["id_adaptive_modulation"])
-                            ),
-                            id_adaptive_modulation_embedding_dim=int(getattr(pipeline, "ba_id_adaptive_modulation_embedding_dim", 512)),
-                            id_adaptive_modulation_bottleneck=int(getattr(pipeline, "ba_id_adaptive_modulation_bottleneck", 32)),
-                            id_adaptive_modulation_scale_max=float(getattr(pipeline, "ba_id_adaptive_modulation_scale_max", 0.20)),
-                            id_adaptive_modulation_ramp_start_step=int(getattr(pipeline, "ba_id_adaptive_modulation_ramp_start_step", 1000)),
-                            id_adaptive_modulation_ramp_end_step=int(getattr(pipeline, "ba_id_adaptive_modulation_ramp_end_step", 6000)),
-                            semantic_window_gate_enabled=(
-                                extension_enabled["semantic_window_gate"]
-                                and any(name.startswith(f"{group}.") for group in extension_groups["semantic_window_gate"])
-                            ),
-                            semantic_window_progress_start=float(getattr(pipeline, "ba_semantic_window_gate_progress_start", 0.20)),
-                            semantic_window_progress_end=float(getattr(pipeline, "ba_semantic_window_gate_progress_end", 0.85)),
-                            semantic_window_progress_temperature=float(getattr(pipeline, "ba_semantic_window_gate_progress_temperature", 0.08)),
-                            semantic_window_agreement_threshold=float(getattr(pipeline, "ba_semantic_window_gate_agreement_threshold", 0.15)),
-                            semantic_window_agreement_temperature=float(getattr(pipeline, "ba_semantic_window_gate_agreement_temperature", 0.08)),
-                            semantic_window_min_scale=float(getattr(pipeline, "ba_semantic_window_gate_min_scale", 0.60)),
-                            semantic_window_max_scale=float(getattr(pipeline, "ba_semantic_window_gate_max_scale", 1.15)),
-                        )
+                    proc = BranchedAttnProcessor(
+                        hidden_size=hidden_size,
+                        cross_attention_dim=hidden_size,
+                        scale=scale,
+                        branched_attn_weight_mode=getattr(pipeline, "branched_attn_weight_mode", "shared"),
+                        branched_attn_new_weight_kind=getattr(pipeline, "branched_attn_new_weight_kind", "full"),
+                        branched_attn_lora_rank=int(
+                            getattr(pipeline, "branched_attn_lora_rank", getattr(pipeline, "lora_rank", 16))
+                        ),
+                    )
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
-                    if hard_trainable_dtype is not None:
-                        # 3 Aug 2026 - Keep only hard-v1 BA parameters in FP32;
-                        # cloned effective base weights remain frozen BF16 buffers.
-                        proc = proc.to(pipeline.device)
-                    else:
-                        proc = proc.to(pipeline.device, dtype=pipeline.unet.dtype)
+                    proc = proc.to(pipeline.device, dtype=pipeline.unet.dtype)
                     proc.set_masks(_mask, _mref)
                     setattr(proc, "strict_face_routing", bool(getattr(pipeline, "strict_face_routing", False)))
                     _apply_runtime_flags(proc, pipeline)
@@ -990,8 +175,38 @@ def patch_unet_attention_processors(
                     patched_proc_names.append(name)
                 
             elif name.endswith("attn2.processor"):
-                # All supported runs keep Diffusers cross-attention unchanged.
-                new_procs[name] = pipeline._original_attn_processors[name]
+                if disable_ca:
+                    # Keep original cross-attn processor; no branched CA.
+                    new_procs[name] = pipeline._original_attn_processors[name]
+                else:
+                    # Cross-attention: use branched cross-attention processor
+                    num_tokens = 77  # Standard CLIP token count
+                    if hasattr(pipeline, 'tokenizer_2'):
+                        num_tokens = pipeline.tokenizer_2.model_max_length
+
+                    proc = BranchedCrossAttnProcessor(
+                        hidden_size=hidden_size,
+                        cross_attention_dim=cross_attention_dim,
+                        scale=scale,
+                        num_tokens=num_tokens,
+                        branched_attn_weight_mode=getattr(pipeline, "branched_attn_weight_mode", "shared"),
+                        branched_attn_new_weight_kind=getattr(pipeline, "branched_attn_new_weight_kind", "full"),
+                        branched_attn_lora_rank=int(
+                            getattr(pipeline, "branched_attn_lora_rank", getattr(pipeline, "lora_rank", 16))
+                        ),
+                    ).to(pipeline.device, dtype=pipeline.unet.dtype)
+                    proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
+                    # enable KV equalizer for face branch
+                    setattr(proc, "equalize_face_kv", True)
+                    setattr(proc, "equalize_clip", (1/3, 8.0))
+                    setattr(proc, "strict_face_routing", bool(getattr(pipeline, "strict_face_routing", False)))
+                    proc.set_masks(_mask, _mref)
+                    # Keep CA path consistent too (even if CA doesn’t always consume id_embeds)
+                    proc.id_embeds = _idem
+                    proc.class_tokens_mask = class_tokens_mask
+
+                    new_procs[name] = proc
+                    patched_proc_names.append(name)
                 
             else:
                 # Keep original for other processors
@@ -1003,7 +218,7 @@ def patch_unet_attention_processors(
         patched_proc_names: list[str] = []
         # Update masks on existing processors
         for name, proc in pipeline.unet.attn_processors.items():
-            if isinstance(proc, BranchedAttnProcessor):
+            if isinstance(proc, (BranchedAttnProcessor, BranchedCrossAttnProcessor)):
                 patched_proc_names.append(name)
                 # proc.set_masks(mask, mask_ref)
                 proc.set_masks(_mask, _mref)
@@ -1012,20 +227,9 @@ def patch_unet_attention_processors(
                 # (Re)apply id_embeds (zeros if missing); actual usage is gated by use_id_embeds
                 if hasattr(proc, "id_embeds"):
                     proc.id_embeds = _idem
+                if hasattr(proc, "class_tokens_mask"):
+                    proc.class_tokens_mask = class_tokens_mask
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
-
-    pose_adapt_ratio = float(getattr(pipeline, "pose_adapt_ratio", 0.0))
-    if (
-        pose_adapt_ratio != 0.0
-        and getattr(pipeline, "_logged_pose_adapt_ratio", None)
-        != pose_adapt_ratio
-    ):
-        print(
-            "POSE_ADAPT_RUNTIME "
-            f"ratio={pose_adapt_ratio:.4f} "
-            f"processors={len(getattr(pipeline, '_ba_patched_processor_names', ()))}"
-        )
-        pipeline._logged_pose_adapt_ratio = pose_adapt_ratio
 
 def encode_face_prompt(
     pipeline,
@@ -1078,7 +282,6 @@ def two_branch_predict(
     mask4: torch.Tensor,
     mask4_ref: torch.Tensor,
     reference_latents: torch.Tensor,
-    reference_noise: Optional[torch.Tensor] = None,
     face_prompt_embeds: Optional[torch.Tensor] = None,
     class_tokens_mask: Optional[torch.Tensor] = None,
     face_embed_strategy: str = "face",
@@ -1117,10 +320,52 @@ def two_branch_predict(
     device = latent_model_input.device
     dtype = latent_model_input.dtype
     batch_size = latent_model_input.shape[0]
+
+    def _repeat_batch(tensor: torch.Tensor, repeats: int) -> torch.Tensor:
+        return tensor.repeat((int(repeats),) + (1,) * (tensor.ndim - 1))
+
+    def _match_generation_batch(
+        tensor: Optional[torch.Tensor],
+        target_batch: int,
+        name: str,
+    ) -> Optional[torch.Tensor]:
+        if tensor is None:
+            return None
+        cur_batch = int(tensor.shape[0])
+        if cur_batch == target_batch:
+            return tensor
+        if cur_batch <= 0 or target_batch % cur_batch != 0:
+            raise RuntimeError(
+                f"{name} batch={cur_batch} is incompatible with generation batch={target_batch}"
+            )
+        return _repeat_batch(tensor, target_batch // cur_batch)
+
+    def _match_reference_batch(
+        tensor: Optional[torch.Tensor],
+        target_batch: int,
+        name: str,
+    ) -> Optional[torch.Tensor]:
+        if tensor is None:
+            return None
+        cur_batch = int(tensor.shape[0])
+        if cur_batch == target_batch:
+            return tensor
+        if cur_batch > 0 and target_batch % cur_batch == 0:
+            return _repeat_batch(tensor, target_batch // cur_batch)
+        raise RuntimeError(
+            f"{name} batch={cur_batch} is incompatible with reference batch={target_batch}"
+        )
+
+    # CFG doubles latent_model_input ([uncond, cond]) while masks are prepared
+    # once per output image. Keep masks aligned with the actual UNet batch
+    # without changing CFG order: [uncond batch, cond batch].
+    mask4 = _match_generation_batch(mask4, batch_size, "mask4")
+    reference_latents = _match_reference_batch(reference_latents, batch_size, "reference_latents")
+    mask4_ref = _match_reference_batch(mask4_ref, batch_size, "mask4_ref")
     
     
     REF_NOISE_ONCE = True  # keep same ref noise across steps within one generation
-    if reference_noise is None and not hasattr(pipeline, "_ref_noise"):
+    if not hasattr(pipeline, "_ref_noise") or tuple(pipeline._ref_noise.shape) != tuple(reference_latents.shape):
         gen = getattr(pipeline, "generator", None)
         if isinstance(gen, (list, tuple)):
             gen = gen[0] if gen else None
@@ -1147,30 +392,17 @@ def two_branch_predict(
 
 
     
-    t_ref = t if torch.is_tensor(t) else torch.tensor([t], device=device, dtype=torch.long)
-    if t_ref.ndim == 0:
-        t_ref = t_ref.unsqueeze(0)
-    expected_ref = reference_latents.shape[0]
-    current_ref = t_ref.shape[0]
-    if current_ref != expected_ref:
-        reps = (expected_ref + current_ref - 1) // current_ref
-        t_ref = t_ref.repeat(reps)[:expected_ref]
+    t_gen = t if torch.is_tensor(t) else torch.tensor([t], device=device, dtype=torch.long)
+    if t_gen.ndim == 0:
+        t_gen = t_gen.unsqueeze(0)
+    if t_gen.shape[0] != batch_size:
+        reps = (batch_size + t_gen.shape[0] - 1) // t_gen.shape[0]
+        t_gen = t_gen.repeat(reps)[:batch_size]
+    t_ref = t_gen
     
-    if reference_noise is None:
-        reference_noise = pipeline._ref_noise
-    if reference_noise.shape != reference_latents.shape:
-        raise RuntimeError(
-            "Reference-noise shape mismatch: "
-            f"noise={tuple(reference_noise.shape)}, "
-            f"latents={tuple(reference_latents.shape)}"
-        )
-    reference_noise = reference_noise.to(
-        device=reference_latents.device,
-        dtype=reference_latents.dtype,
-    )
     ref_noised = pipeline.scheduler.add_noise(
         reference_latents,
-        reference_noise,
+        pipeline._ref_noise[:reference_latents.shape[0]],
         t_ref
     )
 
@@ -1182,33 +414,14 @@ def two_branch_predict(
             print(f"[2BP]   ref_noised:  {stat(ref_noised)}  Δ(noise,ref)σ={(latent_model_input.std()-ref_noised.std()).item():.4f}")
 
     
-    # Ensure same batch size
-    if ref_noised.shape[0] < batch_size:
-        ref_noised = ref_noised.expand(batch_size, -1, -1, -1)
-    
-    # Create doubled batch: [noise, reference]
+    # Create branched batch: [generation B, reference B].
     batched_latents = torch.cat([latent_model_input, ref_noised], dim=0)
     
-    timestep_for_progress = t if torch.is_tensor(t) else torch.tensor([t], device=device)
-    if timestep_for_progress.ndim == 0:
-        timestep_for_progress = timestep_for_progress.unsqueeze(0)
-    num_train_timesteps = int(pipeline.scheduler.config.num_train_timesteps)
-    if num_train_timesteps <= 1:
-        raise RuntimeError(
-            f"Invalid scheduler num_train_timesteps={num_train_timesteps}"
-        )
-    ba_denoise_progress = 1.0 - (
-        timestep_for_progress.to(device=device, dtype=torch.float32)
-        / float(num_train_timesteps - 1)
-    )
-
-    # Patch processors with masks and the real scheduler timestep. Training
-    # historically passes step_idx=0, so architecture gates must not use it.
+    # Patch processors with masks
     patch_unet_attention_processors(
         pipeline, mask4, mask4_ref, scale,
         id_embeds=id_embeds if face_embed_strategy == "id_embeds" else None,
         class_tokens_mask=class_tokens_mask,
-        ba_denoise_progress=ba_denoise_progress,
     )
 
     # --- quick patch check
@@ -1223,14 +436,7 @@ def two_branch_predict(
 
         
     # Prepare timesteps for doubled batch
-    t_batched = t if torch.is_tensor(t) else torch.tensor([t], device=device)
-    if t_batched.ndim == 0:
-        t_batched = t_batched.unsqueeze(0)
-    expected = batched_latents.shape[0]
-    current = t_batched.shape[0]
-    if current != expected:
-        reps = (expected + current - 1) // current
-        t_batched = t_batched.repeat(reps)[:expected]
+    t_batched = torch.cat([t_gen, t_ref], dim=0)
     
     # Prepare face prompt if not provided
     if face_prompt_embeds is None:
@@ -1313,9 +519,6 @@ def two_branch_predict(
         
     face_prompt_embeds = face_prompt_embeds.to(prompt_embeds.device, prompt_embeds.dtype)
 
-    # Double-stack encoder states for branched CA:
-    #   first half → generation prompt
-    #   second half → face prompt
     encoder_hidden_states = torch.cat([prompt_embeds, face_prompt_embeds], dim=0)
 
     if full_debug:
@@ -1325,12 +528,13 @@ def two_branch_predict(
             print(f"[2BP]   encoder_hidden_states Δ(gen,face)μ={diff_mu:.4f}")
 
 
-    # Double added_cond_kwargs
     doubled_kwargs = {}
     for k, v in added_cond_kwargs.items():
         if torch.is_tensor(v):
-            # Double the tensor
-            doubled_kwargs[k] = torch.cat([v, v], dim=0)
+            if v.shape[0] == batch_size:
+                doubled_kwargs[k] = torch.cat([v, v], dim=0)
+            else:
+                doubled_kwargs[k] = v
         else:
             doubled_kwargs[k] = v
     
@@ -1339,59 +543,6 @@ def two_branch_predict(
         timestep_cond_doubled = torch.cat([timestep_cond, timestep_cond], dim=0)
     else:
         timestep_cond_doubled = None
-
-    if str(getattr(pipeline, "ba_hardcase_mode", "off")).lower() == "clean_memory":
-        memory_source = getattr(pipeline, "_ba_clean_memory_source_tensor", None)
-        if memory_source is not reference_latents:
-            memory_processors = [
-                processor
-                for processor in pipeline.unet.attn_processors.values()
-                if getattr(processor, "hardcase_mode", "off") == "clean_memory"
-            ]
-            if not memory_processors:
-                raise RuntimeError("Clean-memory mode installed no memory processors")
-            for processor in memory_processors:
-                processor.clear_clean_memory()
-                processor.set_clean_memory_capture(True)
-            clean_timestep = torch.ones(
-                batched_latents.shape[0], device=device, dtype=t_batched.dtype
-            )
-            clean_reference = reference_latents.to(dtype=latent_model_input.dtype)
-            if clean_reference.shape[0] < batch_size:
-                clean_reference = clean_reference.expand(
-                    batch_size, -1, -1, -1
-                )
-            clean_batched = torch.cat([clean_reference, clean_reference], dim=0)
-            null_encoder = torch.zeros_like(encoder_hidden_states)
-            null_kwargs = {
-                key: (torch.zeros_like(value) if torch.is_tensor(value) else value)
-                for key, value in doubled_kwargs.items()
-            }
-            try:
-                # 11 Aug 2026 - The cache is an identity source, not a second
-                # trainable U-Net trajectory. Detaching it also bounds memory.
-                with torch.no_grad():
-                    pipeline.unet(
-                        clean_batched,
-                        clean_timestep,
-                        encoder_hidden_states=null_encoder,
-                        timestep_cond=(
-                            None
-                            if timestep_cond_doubled is None
-                            else torch.zeros_like(timestep_cond_doubled)
-                        ),
-                        added_cond_kwargs=null_kwargs,
-                        return_dict=False,
-                    )
-            finally:
-                for processor in memory_processors:
-                    processor.set_clean_memory_capture(False)
-            if any(
-                processor.clean_reference_memory is None
-                for processor in memory_processors
-            ):
-                raise RuntimeError("Clean-memory capture missed a configured processor")
-            pipeline._ba_clean_memory_source_tensor = reference_latents
 
     # Runtime knobs for branched processors via call kwargs
     base_cross_attention_kwargs = getattr(pipeline, "_cross_attention_kwargs", None)
@@ -1421,7 +572,7 @@ def two_branch_predict(
 
     # --- quick check of cosine sim between halves
     # Split UNet output into halves (noise/merged vs face-pure)
-    B2 = noise_pred.shape[0] // 2
+    B2 = batch_size
     first, second = noise_pred[:B2].float(), noise_pred[B2:].float()
 
     if full_debug:
@@ -1434,8 +585,9 @@ def two_branch_predict(
         else:
             print(f"[2BP]   out halves: first σ={first.std().item():.4f}  second σ={second.std().item():.4f}")
 
-        # Mean cosine sim between halves → should NOT be ~1.0
-        cos = torch.nn.functional.cosine_similarity(first.flatten(1), second.flatten(1), dim=1).mean().item()
+        # Mean cosine sim between branches → should NOT be ~1.0
+        second_for_debug = second[: first.shape[0]]
+        cos = torch.nn.functional.cosine_similarity(first.flatten(1), second_for_debug.flatten(1), dim=1).mean().item()
         print(f"[2BP]   cos(first,second)={cos:.3f}")
     # --- end of quick check
 
@@ -1444,11 +596,6 @@ def two_branch_predict(
     
     # Extract merged result (first half)
     noise_pred_merged = noise_pred[:batch_size]
-
-    # Training consumes only the merged prediction. Keep the historical
-    # branch tensors available by default for validation/debug callers.
-    if not bool(getattr(pipeline, "compute_branch_debug_outputs", True)):
-        return noise_pred_merged, None, None
     
     USE_SOFT_BLENDING = True
     

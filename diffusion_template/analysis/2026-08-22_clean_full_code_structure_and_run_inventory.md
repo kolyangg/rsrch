@@ -12,11 +12,20 @@
 ## Finding
 
 `clean_full` supports 17 selected experiment configurations from one checkout,
-one training entry point, one trainer, one model, one validation pipeline, and
+one active training entry point, one active trainer/model/pipeline stack, and
 one Serv launcher. Scientific behavior is selected by the Hydra config; the
 launcher accepts no ad-hoc Hydra arguments. The selected set covers the plain
 PhotoMaker control, CL14/19/23/27/39, the latest six CL40-CL45 configs, E13,
 BigCelebs E13, and the three scheduled BigCelebs dataset arms. [code][record]
+
+The familiar core filenames are no longer the accumulating implementation.
+`train.py`, `lora2.py`, `attn_processor_cleanest.py`, `branched_runtime.py`,
+`lora2_helpers.py`, `base_trainer.py`, `sdxl_trainers.py`, and
+`br_pipeline_helpers.py` are exact byte copies of `main_clean` commit
+`2157eada14824d14019e80f9416e6d736c837306` in the local `rsrch_2Jun`
+checkout. Supported configs instead target explicitly named `clean_full_*`
+modules. Recent CL39-CL44 operations and CL45 PCGrad are further isolated in
+small defaults-off extension modules. [code]
 
 The old branch mixed active code with sealed per-job packages, archived
 implementations, external model mirrors, generated reports, and broad Hydra
@@ -31,6 +40,48 @@ Configuration composition and object-selection parity are verified for all 17
 configs. A GPU forward/backward replay against every historical sealed source
 snapshot was not run, so bitwise or numerical trajectory parity is **not
 established**. [not established]
+
+## 2 June compatibility boundary
+
+The refactor uses two visible source layers. This is deliberate: an engineer
+can open any traditional filename and see the exact 2 June implementation,
+while an allowlisted run always enters the audited unified layer. [code]
+
+| 2 June file retained byte-for-byte | Active supported replacement | Why the 2 June implementation is not the active base |
+|---|---|---|
+| `train.py` | `train_clean_full.py` | The active entry point must enforce the resolved trainable contract, validation-only PM0 path, and optimized collector controls before construction. |
+| `src/model/photomaker_branched/lora2.py` | `clean_full_model.py` | The active class has fundamentally different hard-v1 ownership, batched reference conditioning, schema-v2 checkpoint manifests, alternate-base validation synchronization, telemetry/objective collection, and CL39-CL44 state. Subclassing the June class would hide replacements of `__init__`, training preparation, checkpointing, and most of `forward()` behind fragile overrides. |
+| `src/model/photomaker_branched/attn_processor_cleanest.py` | `clean_full_attention_processor.py` | The supported processor uses audited target-Q/reference-KV hard routing, full-query soft routing, temporal-frequency routing, surface loss, and later independent arms; the June `__call__()` and batch/routing semantics are not a safe reusable core. |
+| `src/model/photomaker_branched/branched_runtime.py` | `clean_full_branched_runtime.py` | Processor selection, install-time ownership, config propagation, and validation-time processor restoration changed as one contract. |
+| `src/model/photomaker_branched/lora2_helpers.py` | `clean_full_model_helpers.py` | Trainable-name ownership, batched conditioning/cache, optimized processor lookup, telemetry, and auxiliary-loss collection changed together. |
+| `src/trainer/base_trainer.py` | `clean_full_base_trainer.py` | The active loop adds step-zero/every-2,000 fixed-96 scheduling, validation-only execution, deferred face-quality handling, and strict checkpoint/Comet behavior. |
+| `src/trainer/sdxl_trainers.py` | `clean_full_trainers.py` | The active trainer consumes BA telemetry/objectives, role-aware gradients, and the CL45 hook; its main `process_batch()` is no longer the June method plus a small local edit. |
+| `src/pipelines/br_pipeline_helpers.py` | `clean_full_pipeline_helpers.py` | The active validation helper must install and synchronize the same audited processor/checkpoint semantics used by training. |
+
+These are the cases where retaining the June implementation as an active
+superclass would not be honest or maintainable. Exact copies remain importable
+for historical investigation, but the clean launcher and config validator do
+not select them. `model_v2_NS.py` remains unchanged from 2 June, and
+`photomaker_branched_clean.py` remains close to its June structure because its
+pipeline class contract is still reusable; only its helper import is redirected
+to the active clean validation module. [code]
+
+The recent config-specific code is split as follows:
+
+| New module | Selected behavior |
+|---|---|
+| `clean_full_model_contract.py` | Shared training preparation, trainable-role ownership, manifest construction, and schema-v2 checkpoint save/load. |
+| `clean_full_excluded_objectives.py` | Quarantine mixin for older frozen-teacher, boundary-distillation, and predicted-x0 identity helpers; no allowlisted config enables them. |
+| `clean_full_attention_extension_config.py` | Fail-closed selection and constructor wiring for mutually exclusive CL39-CL44 arms; also contains the retained-but-forbidden CL38 wiring. |
+| `clean_full_attention_extensions.py` | Parameter-free CL39 null-key confidence, CL41 landmark canonical K/V, CL42 component-token memory, CL44 semantic-window gate, and the shared ramp used by CL40/43. |
+| `clean_full_identity_conditioning.py` | CL40 `IdentityMotionProjector`, CL43 `IDAdaptiveModulation`, and CL41 landmark similarity-grid construction. |
+| `src/trainer/clean_full_pcgrad.py` | CL45-only BA PCGrad projection; all other configs return before graph surgery. |
+
+CL14/19/23/27 are the shared hard-v1 progression and remain in the active
+processor/model stack. Moving that progression into subclasses without a
+fixed-batch parity harness would risk changing checkpoint parameter names or
+floating-point operation order; such parity is **not established**, so this
+revision does not claim that deeper split. [code][not established]
 
 ## Supported run allowlist
 
@@ -86,9 +137,9 @@ The execution flow is:
 run_clean_full_config_1gpu.sh
   -> validate_clean_full_config.py (allowlist + resolved-config contract)
   -> dataset-specific fail-closed preflight
-  -> train.py --config-name=<selected config>
-  -> PhotomakerLoraTrainer
-  -> PhotomakerBranchedLora
+  -> train_clean_full.py --config-name=<selected config>
+  -> clean_full_trainers.PhotomakerLoraTrainer
+  -> clean_full_model.PhotomakerBranchedLora
   -> MaskedDiffusionLoss + BranchedAttnProcessor
   -> fixed manual_val96 validation pipeline
   -> CometMLWriter immutable-key record
@@ -156,20 +207,25 @@ rows. [code]
 
 | File | Selected classes/functions | Runs |
 |---|---|---|
-| `train.py` | `main()`, `_assert_expected_trainable_contract()`, `_print_trainable_summary()` | all; PM0 takes validation-only trainer branch |
+| `train_clean_full.py` | `main()`, `_assert_expected_trainable_contract()`, `_print_trainable_summary()` | all; PM0 takes validation-only trainer branch |
 | `tools/validate_clean_full_config.py` | `load_manifest()`, `compose_and_validate()`, `selected()`, `write_run_record()`, `main()` | all launcher starts |
 | `launchers/active/run_clean_full_config_1gpu.sh` | config resolution, dataset dispatch, Accelerate launch, Comet polling, deferred finalization | all |
 | `src/datasets/data_utils.py` | `get_dataloaders()`, `move_batch_transforms_to_device()`, `inf_loop()` | all |
 | `src/datasets/collate.py` | `collate_fn()`, `collate_fn_val()` | all |
 | `src/datasets/base_dataset.py` | `BaseDataset.__init__()`, `__len__()`, `preprocess_data()`, `_shuffle_and_limit_index()` | all training datasets |
-| `src/trainer/base_trainer.py` | `BaseTrainer.train()`, `_train_process()`, `_train_epoch()`, `_should_run_periodic_validation()`, `_evaluation_epoch()`, `_log_per_image_id_sim_table()`, checkpoint/logging methods; `_validate_only()` and `_validation_only_schedule()` for PM0 | all |
-| `src/trainer/sdxl_trainers.py` | `PhotomakerLoraTrainer.__init__()`, `process_batch()`, `process_evaluation_batch()`, `_record_active_gradient_norms()`; inherited `SDXLTrainer._log_batch()` | all; training methods bypassed by PM0 |
+| `src/trainer/clean_full_base_trainer.py` | `BaseTrainer.train()`, `_train_process()`, `_train_epoch()`, `_should_run_periodic_validation()`, `_evaluation_epoch()`, `_log_per_image_id_sim_table()`, checkpoint/logging methods; `_validate_only()` and `_validation_only_schedule()` for PM0 | all |
+| `src/trainer/clean_full_trainers.py` | `PhotomakerLoraTrainer.__init__()`, `process_batch()`, `process_evaluation_batch()`, `_record_active_gradient_norms()`; inherited `SDXLTrainer._log_batch()` | all; training methods bypassed by PM0 |
+| `src/trainer/clean_full_pcgrad.py` | `apply_ba_pcgrad_surrogate()` | CL45 only; imported but immediately inactive for every other config |
 | `src/model/sdxl/original.py` | `SDXL.__init__()`, `compute_time_ids()`, `encode_prompt()` | all |
 | `src/model/photomaker_path.py` | `resolve_photomaker_path()` | all |
-| `src/model/photomaker_branched/lora2.py` | `PhotomakerBranchedLora.__init__()`, `prepare_for_training()`, `get_trainable_params()`, `assert_trainable_contract()`, `forward()`, `_sample_training_timesteps()`, prompt/bbox/reference-latent helpers, schema-v2 save/load methods | all; `forward()` only training configs |
-| `src/model/photomaker_branched/lora2_helpers.py` | trainable-name/role selection, `configure_branched_trainables()`, `assert_branched_trainable_contract()`, processor installation, `prepare_branched_training_inputs()`, `_prepare_branched_training_inputs_batched()`, `run_branched_forward_pass()`, telemetry and selected auxiliary collection | all BA training configs |
-| `src/model/photomaker_branched/branched_runtime.py` | `select_branched_processor_names()`, `patch_unet_attention_processors()`, `two_branch_predict()` | all BA training and BA validation paths |
-| `src/model/photomaker_branched/attn_processor_cleanest.py` | `BranchLoRALinear`, `_clone_effective_linear()`, `BranchedAttnProcessor.__init__()`, `init_from_attention()`, `__call__()`, Q/K/V helpers, mask/router helpers | all BA configs |
+| `src/model/photomaker_branched/clean_full_model.py` | `PhotomakerBranchedLora.__init__()`, `forward()`, `_sample_training_timesteps()`, prompt/bbox/reference-latent helpers | all; `forward()` only training configs |
+| `src/model/photomaker_branched/clean_full_model_contract.py` | `CleanFullModelContractMixin.prepare_for_training()`, `get_trainable_params()`, `assert_trainable_contract()`, architecture manifest, and schema-v2 save/load methods | all |
+| `src/model/photomaker_branched/clean_full_model_helpers.py` | trainable-name/role selection, `configure_branched_trainables()`, `assert_branched_trainable_contract()`, processor installation, `prepare_branched_training_inputs()`, `_prepare_branched_training_inputs_batched()`, `run_branched_forward_pass()`, telemetry and selected auxiliary collection | all BA training configs |
+| `src/model/photomaker_branched/clean_full_branched_runtime.py` | `select_branched_processor_names()`, `patch_unet_attention_processors()`, `two_branch_predict()` | all BA training and BA validation paths |
+| `src/model/photomaker_branched/clean_full_attention_processor.py` | `BranchLoRALinear`, `_clone_effective_linear()`, `BranchedAttnProcessor.__init__()`, `init_from_attention()`, `__call__()`, Q/K/V helpers, mask/router helpers | all BA configs |
+| `src/model/photomaker_branched/clean_full_attention_extension_config.py` | `resolve_attention_extensions()`, `attention_extension_kwargs()` | all processor installation calls; only CL39-CL44 returns an enabled recent arm |
+| `src/model/photomaker_branched/clean_full_attention_extensions.py` | `RecentAttentionExtensionsMixin` selected helpers | CL39-CL44 according to config |
+| `src/model/photomaker_branched/clean_full_identity_conditioning.py` | `IdentityMotionProjector`, `IDAdaptiveModulation`, `similarity_grid_from_landmarks()` | CL40, CL43, and CL41 respectively |
 | `src/model/photomaker_branched/model_v2_NS.py` | `PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken`, `QFormerPerceiver`, `FacePerceiverResampler`, `PerceiverAttention`, `FuseModule`, `MLP` and forwards | all |
 | `src/model/photomaker_branched/resampler.py` | `FacePerceiverResampler`, `PerceiverAttention`, `FeedForward()`, `reshape_tensor()` | all |
 | `src/model/photomaker_branched/insightface_package.py` | `FaceAnalysis2`, `create_face_analyzer()`, `analyze_faces()` | PhotoMaker identity conditioning in all |
@@ -183,7 +239,7 @@ rows. [code]
 | `src/utils/model_utils.py` | `import_model_class_from_model_name_or_path()`, `cos_sim()` | startup and ID metrics |
 | `src/utils/io_utils.py` | `read_json()` | startup logging config |
 
-`MaskedDiffusionLoss` is the only permitted loss class. `train.py` rejects any
+`MaskedDiffusionLoss` is the only permitted loss class. `train_clean_full.py` rejects any
 other `loss_kind`. The trainable contract is 2,240 tensors / 219,217,920
 parameters except CL40 (2,348 / 223,272,960) and CL43 (2,384 / 222,596,736),
 whose selected modules add parameters. [code]
@@ -212,13 +268,13 @@ rows, not run-name shell cases, select the ds1/ds2/ds3 target/reference source.
 | CL19 | `_call_hardcase()`, `_normalized_halves()`, `_binary_mask()`, `_soft_router_mask()`, `_full_target_lanes()`, `_reference_target_out()`, `_finish_full_router()` |
 | CL23 | CL19 functions plus `_gaussian_split()` and `_progress()` |
 | CL27 | CL23 functions plus `_frequency_surface_loss()`, `_masked_mean_square()` and `collect_frequency_surface_aux_loss()` |
-| CL39 | CL27 plus `_null_key_confidence()` in `up_blocks.0/1` |
-| CL40 | CL27 plus `IdentityMotionProjector.forward()` and `_step_ramp()` in `up_blocks.0/1` |
-| CL41 | CL27 plus `_landmark_rows()`, `_canonical_reference_out()`, and `similarity_grid_from_landmarks()` |
-| CL42 | CL27 plus `_landmark_rows()` and `_component_memory_correction()` |
-| CL43 | CL27 plus `IDAdaptiveModulation.forward()` and `_step_ramp()` |
-| CL44 | CL27 plus semantic-window progress/agreement calculations inside `_call_hardcase()` |
-| CL45 | CL27 model path plus `PhotomakerLoraTrainer._apply_ba_pcgrad_surrogate()` and `_gradient_norm()` |
+| CL39 | CL27 plus `RecentAttentionExtensionsMixin._null_key_confidence()` in `up_blocks.0/1` |
+| CL40 | CL27 plus `IdentityMotionProjector.forward()` and the extension mixin's `_step_ramp()` in `up_blocks.0/1` |
+| CL41 | CL27 plus the extension mixin's `_landmark_rows()`/`_canonical_reference_out()` and `similarity_grid_from_landmarks()` |
+| CL42 | CL27 plus the extension mixin's `_landmark_rows()` and `_component_memory_correction()` |
+| CL43 | CL27 plus `IDAdaptiveModulation.forward()` and the extension mixin's `_step_ramp()` |
+| CL44 | CL27 plus `RecentAttentionExtensionsMixin._semantic_window_scale()` |
+| CL45 | CL27 model path plus `clean_full_pcgrad.apply_ba_pcgrad_surrogate()` and trainer `_gradient_norm()` |
 | PM0 | no branched processor call and no optimizer step; validation pipeline uses the PhotoMaker V2 path |
 
 The recent extension validator permits only the selected CL39-CL44 extension
@@ -231,7 +287,7 @@ parameter-free extensions. [code]
 | File | Used objects |
 |---|---|
 | `src/pipelines/photomaker_branched_clean.py` | `PhotomakerBranchedPipeline.from_pretrained()`, `PhotoMakerStableDiffusionXLPipeline.__call__()`, `encode_prompt_with_trigger_word()`, `retrieve_timesteps()` |
-| `src/pipelines/br_pipeline_helpers.py` | pipeline construction; face analyzer/ID setup; reference latent/mask, generated mask and ID preparation; validation U-Net adapter mode; branched setup/step; denoising step; cleanup |
+| `src/pipelines/clean_full_pipeline_helpers.py` | pipeline construction; face analyzer/ID setup; reference latent/mask, generated mask and ID preparation; validation U-Net adapter mode; branched setup/step; denoising step; cleanup |
 | `src/model/photomaker_branched/branch_helpers.py` | `prepare_mask4()` |
 | `src/utils/auto_bbox_gen.py` | `AutoGenBboxStore.get()` and `ensure()` when an automatic bbox cache entry is missing |
 | `bbox_utils/generate_bboxes.py`, `bbox_utils/visualize_bboxes.py` | YOLO face detector load, face record, and annotated bbox output for an automatic-bbox miss |
@@ -271,26 +327,37 @@ a supported run:
 The removed source remains in Git history. “Removed” means out of this runtime
 branch, not destroyed historical evidence. [code]
 
-### Retained modules with inactive branches
+### Retained 2 June reference modules
+
+The eight exact 2 June files in the compatibility table are not selected by
+any supported config or by the unified launcher. They are retained at their
+traditional import paths as readable historical reference code, not as a
+second supported runtime. Directly invoking `train.py` is therefore outside
+the `clean_full` support contract; use `train_clean_full.py` only through the
+validated launcher. [code]
+
+### Active modules with inactive branches
 
 Some scientific history remains inside the large active model and processor
 modules because extracting it while guaranteeing checkpoint and numerical
 parity is a separate architecture refactor. These branches are not selected by
 any of the 17 allowlisted configs:
 
-- `BranchedCrossAttnProcessor` in `attn_processor_cleanest.py`; all configs
+- `BranchedCrossAttnProcessor` in `clean_full_attention_processor.py`; all configs
   require unchanged Diffusers cross-attention;
 - residual-v2, anchored-v3, and query-adaptive-v4 constructor branches in
-  `branched_runtime.py`; the runtime rejects every architecture except
+  `clean_full_branched_runtime.py`; the runtime rejects every architecture except
   `hard_replace_v1` before processor selection;
 - CL38 visibility-ownership-v2 and earlier CL28-CL37 helpers within
   `BranchedAttnProcessor`: learnable frequency schedule, low-band contrastive/
   positive objectives, attention ownership, ROI teacher, visibility-balanced
   routing, clean memory, and high-resolution/anchored ROI routes;
-- `PhotomakerBranchedLora` boundary-teacher, frozen-CL19 prediction,
-  native-PhotoMaker prediction, low-noise identity reward, ArcFace/DINO/patch
-  identity auxiliary, wrong-reference, and related predicted-x0 helpers;
-- `lora2_helpers.py` collectors for visibility ownership, schedule anchor,
+- `clean_full_excluded_objectives.ExcludedObjectiveCompatibilityMixin`
+  boundary-teacher, frozen-CL19 prediction, native-PhotoMaker prediction,
+  low-noise identity reward, ArcFace/DINO/patch identity auxiliary,
+  wrong-reference, and related predicted-x0 helpers. The active class retains
+  this mixin only so fail-closed compatibility branches still resolve;
+- `clean_full_model_helpers.py` collectors for visibility ownership, schedule anchor,
   low-band contrastive/positive, attention ownership, and ROI teacher;
 - inactive generic methods inherited from `SDXL` and `SDXLTrainer` that are
   overridden by PhotoMaker subclasses;
@@ -298,7 +365,7 @@ any of the 17 allowlisted configs:
   training-loop methods for PM0;
 - pipeline wrapper methods `_prepare_*`, `_select_*`, `_run_*`, and
   `_save_step_previews()`; the active call path uses the equivalent free
-  functions in `br_pipeline_helpers.py`;
+  functions in `clean_full_pipeline_helpers.py`;
 - `rescale_noise_cfg()` because `guidance_rescale=0`;
 - debug-preview work in `debug_helpers.py` because `val_debug=false`;
 - in-process PyIQA scoring because every config selects deferred scoring;
@@ -349,17 +416,20 @@ immutability as provenance while removing source forks:
    batch of conditioning/masks/timesteps/loss/gradients/update, checkpoint
    save/load, and fixed-seed step-zero validation. A full rerun must retain the
    standard step-0/every-2,000 manual_val96 contract.
-7. **Extract remaining monolith branches only after parity.** Move CL27 core
-   routing and CL39-CL44 behavior into explicit extension objects with stable
-   checkpoint names. Then delete the retained inactive branches. Adding a new
-   parity-test suite requires separate approval under repository policy.
+7. **Keep config-specific extensions explicit.** CL39-CL44 helper operations,
+   their install-time selection, CL40/43 trainable identity modules, and CL45
+   optimizer projection are now separate defaults-off modules. A later phase
+   may move the CL27 core and delete older inactive branches only after a
+   fixed-batch parity harness is approved and passes without changing
+   checkpoint parameter names or operation order.
 8. **Rollback remains Git, not copied runtime trees.** Exact excluded-run
    recovery uses branch `test` or the recorded historical commit. It does not
    reintroduce sealed packages into `clean_full`.
 
-The first four steps are implemented in this branch. Step 5 is implemented for
-the core record/key but not the proposed expanded provenance asset. GPU parity
-gates and monolith extraction remain future work. [code][not established]
+The first four steps and the recent-arm part of step 7 are implemented in this
+branch. Step 5 is implemented for the core record/key but not the proposed
+expanded provenance asset. GPU parity gates and the deeper CL27 extraction
+remain future work. [code][not established]
 
 ## Verification performed
 
@@ -369,7 +439,20 @@ From `diffusion_template/`:
 bash -n launchers/active/run_clean_full_config_1gpu.sh
 
 /home/kolyangg/anaconda3/envs/photomaker/bin/python -m py_compile \
-  train.py $(find src tools bbox_utils -type f -name '*.py' -print)
+  train.py train_clean_full.py \
+  $(find src tools bbox_utils -type f -name '*.py' -print)
+
+for path in \
+  train.py \
+  src/model/photomaker_branched/lora2.py \
+  src/model/photomaker_branched/attn_processor_cleanest.py \
+  src/model/photomaker_branched/branched_runtime.py \
+  src/model/photomaker_branched/lora2_helpers.py \
+  src/trainer/base_trainer.py \
+  src/trainer/sdxl_trainers.py \
+  src/pipelines/br_pipeline_helpers.py; do
+  cmp "$path" "/home/kolyangg/rsrch_2Jun/diffusion_template/$path"
+done
 
 while IFS= read -r config; do
   /home/kolyangg/anaconda3/envs/photomaker/bin/python \
@@ -378,10 +461,14 @@ done < <(/home/kolyangg/anaconda3/envs/photomaker/bin/python \
   tools/validate_clean_full_config.py --list)
 ```
 
-All 17 configurations returned `status: ok`; shell syntax and Python
-compilation succeeded. These checks do not download model weights, instantiate
-a full GPU U-Net, process a real dataset batch, submit an MLS job, or compare
-generated images. [code][not established]
+All eight compatibility files matched the local 2 June checkout byte-for-byte.
+The method bodies moved into the model-contract, excluded-objective, and recent
+attention mixins also matched their pre-refactor `clean_full` sources after
+normalizing trailing blank lines.
+All 17 configurations returned `status: ok`; shell syntax, active-module
+imports, and Python compilation succeeded. These checks do not download model
+weights, instantiate a full GPU U-Net, process a real dataset batch, submit an
+MLS job, or compare generated images. [code][not established]
 
 ## Confidence and limitations
 
@@ -390,6 +477,8 @@ generated images. [code][not established]
 | Support allowlist, canonical run names, and immutable keys | High | machine-readable manifest and experiment records |
 | Resolved object targets, dataset classes, invariants, trainable counts, and validation cadence | High | all 17 configs composed and passed exact checks |
 | Current source import/syntax integrity | High | retained-tree compile plus targeted imports |
+| Traditional core files equal the 2 June local baseline | High | byte-for-byte `cmp` against `rsrch_2Jun` commit `2157eada...` |
+| Recent-arm selection remains mutually exclusive and config-driven | High | resolved-config validator plus separate defaults-off modules |
 | Common and config-specific call paths | High | direct source inspection and config predicates |
 | Historical sealed-snapshot numerical equivalence | Not established | no paired GPU replay was run |
 | Exact data-dependent optional branch frequency | Not established | requires dataset/cache/runtime trace |

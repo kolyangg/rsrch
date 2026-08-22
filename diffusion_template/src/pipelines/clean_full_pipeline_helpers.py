@@ -1,3 +1,5 @@
+"""Validation helpers aligned with the active clean_full training runtime."""
+
 from __future__ import annotations
 
 import os
@@ -11,7 +13,7 @@ import torch.nn.functional as F
 from diffusers import DDIMScheduler
 from transformers import CLIPImageProcessor
 
-from src.model.photomaker_branched.branched_runtime import (
+from src.model.photomaker_branched.clean_full_branched_runtime import (
     encode_face_prompt,
     two_branch_predict,
 )
@@ -24,6 +26,7 @@ from src.model.photomaker_branched.debug_helpers import (
     save_debug_ref_mask_overlay,
 )
 from src.model.photomaker_branched.insightface_package import analyze_faces, create_face_analyzer
+from src.face_subject_selector import LEGACY_FIRST, select_subject_face
 
 
 def _val_debug_enabled(pipeline) -> bool:
@@ -146,9 +149,9 @@ def ensure_face_analyzer(pipeline) -> None:
     if hasattr(pipeline, "_face_analyzer"):
         return
     pipeline._face_analyzer = create_face_analyzer(
-        providers=["CPUExecutionProvider"],
+        providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
         allowed_modules=["detection", "recognition"],
-        ctx_id=-1,
+        ctx_id=0,
         det_size=(640, 640),
         fallback_ctx_id=-1,
         quiet=True,
@@ -160,6 +163,8 @@ def ensure_id_embeds(
     *,
     id_embeds: Optional[torch.FloatTensor],
     input_id_images: Sequence[Any],
+    face_bbox_ref: Optional[Sequence[float] | Sequence[Sequence[float]]],
+    face_subject_selection_policy: str,
     device: torch.device,
     dtype: torch.dtype,
 ) -> torch.FloatTensor:
@@ -173,8 +178,16 @@ def ensure_id_embeds(
             raise ValueError(f"Unsupported id_embeds shape: {tuple(x.shape)}")
         return x.to(device=device, dtype=dtype)
 
-    if id_embeds is not None:
-        return _normalize_id_embeds(id_embeds)
+    normalized_provided = None if id_embeds is None else _normalize_id_embeds(id_embeds)
+    needs_landmarks = bool(
+        getattr(pipeline, "ba_landmark_canonical_kv_enabled", False)
+        or getattr(pipeline, "ba_component_token_memory_enabled", False)
+    )
+    needs_raw_identity = bool(
+        getattr(pipeline, "ba_id_adaptive_modulation_enabled", False)
+    )
+    if normalized_provided is not None and not (needs_landmarks or needs_raw_identity):
+        return normalized_provided
 
     ensure_face_analyzer(pipeline)
 
@@ -193,8 +206,29 @@ def ensure_id_embeds(
     else:
         refs = list(input_id_images)
 
+    if is_per_prompt:
+        if (
+            isinstance(face_bbox_ref, (list, tuple))
+            and len(face_bbox_ref) == len(refs)
+            and all(
+                bbox is None
+                or (isinstance(bbox, (list, tuple)) and len(bbox) == 4)
+                for bbox in face_bbox_ref
+            )
+        ):
+            declared_bboxes = list(face_bbox_ref)
+        else:
+            declared_bboxes = [face_bbox_ref] * len(refs)
+    else:
+        declared_bboxes = [None] * len(refs)
+        if declared_bboxes:
+            declared_bboxes[0] = face_bbox_ref
+
     embeddings = []
-    for ref in refs:
+    landmarks = []
+    landmark_confidences = []
+    selections = []
+    for ref, declared_bbox in zip(refs, declared_bboxes):
         if isinstance(ref, torch.Tensor):
             ref_img = ref.detach().cpu()
             if ref_img.dim() == 3:
@@ -208,10 +242,42 @@ def ensure_id_embeds(
 
         faces = analyze_faces(pipeline._face_analyzer, img_np)
         if faces:
-            embedding = torch.from_numpy(faces[0]["embedding"]).float()
+            selected, audit = select_subject_face(
+                faces,
+                declared_bbox=declared_bbox,
+                policy=face_subject_selection_policy,
+            )
+            embedding = torch.from_numpy(selected["embedding"]).float()
+            keypoints = selected.get("kps")
+            if keypoints is None:
+                normalized_keypoints = torch.full((5, 2), float("nan"))
+                confidence = 0.0
+            else:
+                height, width = img_np.shape[:2]
+                normalized_keypoints = torch.from_numpy(np.asarray(keypoints)).float()
+                normalized_keypoints[:, 0] /= max(float(width), 1.0)
+                normalized_keypoints[:, 1] /= max(float(height), 1.0)
+                confidence = float(selected.get("det_score", 1.0))
+            selections.append(audit.to_dict())
         else:
+            if str(face_subject_selection_policy).lower() != LEGACY_FIRST:
+                raise RuntimeError(
+                    "Subject-v2 identity conditioning found no face in a reference image"
+                )
             embedding = torch.zeros(512, dtype=torch.float32)
+            normalized_keypoints = torch.full((5, 2), float("nan"))
+            confidence = 0.0
+            selections.append(
+                {
+                    "selection_reason": "legacy_no_face_zero_vector",
+                    "face_count": 0,
+                }
+            )
         embeddings.append(embedding)
+        landmarks.append(normalized_keypoints)
+        landmark_confidences.append(confidence)
+
+    pipeline._face_subject_selections = selections
 
     stacked = torch.stack(embeddings, dim=0)
     if is_per_prompt:
@@ -219,6 +285,16 @@ def ensure_id_embeds(
     else:
         stacked = stacked.unsqueeze(0)
     #### 08 MAR - FIX BATCHED VALIDATION ####
+    pipeline._ba_identity_embedding_512 = stacked.mean(dim=1).to(
+        device=device, dtype=torch.float32
+    )
+    pipeline._ba_reference_landmarks_5 = torch.stack(landmarks).to(device)
+    pipeline._ba_reference_landmark_confidence = torch.tensor(
+        landmark_confidences, device=device, dtype=torch.float32
+    )
+    if normalized_provided is not None:
+        pipeline._ba_identity_embedding_512 = normalized_provided.mean(dim=1).float()
+        return normalized_provided
     return stacked.to(device=device, dtype=dtype)
 
 
@@ -266,17 +342,12 @@ def prepare_ref_mask(
     width: int,
 ) -> Optional[str]:
     if auto_mask_ref:
-        from src.model.photomaker_branched.create_mask_ref import compute_face_mask_from_pil
-
-        os.makedirs(debug_dir, exist_ok=True)
-        auto_ref_path = os.path.join(debug_dir, "auto_ref_mask.png")
-        mask_array = compute_face_mask_from_pil(pil)
-        PIL.Image.fromarray(mask_array).save(auto_ref_path)
-        log_debug_image(f"[DebugImage] auto_ref_mask → {auto_ref_path}")
-        import_mask_ref = auto_ref_path
-        print(f"[AutoMaskRef] Generated ref mask → {auto_ref_path}")
-    else:
-        print(f"[AutoMaskRef] Using existing ref mask at {import_mask_ref}")
+        # 22 Aug 2026 - clean_full always uses sealed reference boxes. The
+        # segmentation-based fallback was unused and made validation mutable.
+        raise RuntimeError(
+            "clean_full does not support auto_mask_ref; use the sealed bbox mask"
+        )
+    print(f"[AutoMaskRef] Using existing ref mask at {import_mask_ref}")
 
     if (not auto_mask_ref) and use_bbox_mask_ref and face_bbox_ref is None:
         raise RuntimeError(
@@ -335,12 +406,76 @@ def prepare_gen_mask(
     use_dynamic_mask: bool,
     use_bbox_mask_gen: bool,
     face_bbox_gen: Optional[List[float]],
+    ba_target_visibility_mask: Optional[Any] = None,
     mask_expansion_ratio: float,
     mask_softness: float,
     height: int,
     width: int,
     batch_size: int = 1,
 ) -> None:
+    def apply_visibility_mask(gen_mask: np.ndarray) -> np.ndarray:
+        if ba_target_visibility_mask is None:
+            pipeline._ba_target_visibility_mask = None
+            return gen_mask
+
+        value = ba_target_visibility_mask
+        if isinstance(value, torch.Tensor):
+            visibility = value.detach().float().cpu()
+        else:
+            if isinstance(value, PIL.Image.Image):
+                value = np.asarray(value.convert("L"), dtype=np.float32) / 255.0
+            elif isinstance(value, (list, tuple)) and value and isinstance(
+                value[0], PIL.Image.Image
+            ):
+                value = np.stack(
+                    [
+                        np.asarray(item.convert("L"), dtype=np.float32) / 255.0
+                        for item in value
+                    ],
+                    axis=0,
+                )
+            visibility = torch.as_tensor(np.asarray(value), dtype=torch.float32)
+
+        if visibility.ndim == 2:
+            visibility = visibility[None, None]
+        elif visibility.ndim == 3:
+            visibility = visibility[:, None]
+        elif visibility.ndim == 4 and visibility.shape[1] == 1:
+            pass
+        else:
+            raise ValueError(
+                "ba_target_visibility_mask must have shape HxW, BxHxW, or Bx1xHxW"
+            )
+        if visibility.shape[0] == 1 and batch_size > 1:
+            visibility = visibility.expand(batch_size, -1, -1, -1)
+        if visibility.shape[0] != batch_size:
+            raise ValueError(
+                "ba_target_visibility_mask batch mismatch: "
+                f"got {visibility.shape[0]}, expected {batch_size}"
+            )
+        if visibility.shape[-2:] != (height, width):
+            visibility = F.interpolate(
+                visibility,
+                size=(height, width),
+                mode="nearest",
+            )
+        if not bool(torch.isfinite(visibility).all()):
+            raise ValueError("ba_target_visibility_mask contains non-finite values")
+        if bool(torch.any((visibility < 0.0) | (visibility > 1.0))):
+            raise ValueError("ba_target_visibility_mask values must be in [0, 1]")
+
+        visibility_np = visibility[:, 0].numpy().astype(np.float32)
+        base = np.asarray(gen_mask, dtype=np.float32)
+        if base.ndim == 2:
+            base = base[None]
+        # 10 Aug 2026 - AICODE-NOTE: Visibility can only remove target queries
+        # from the existing reference-owned face mask. Excluded pixels fall
+        # through to the unchanged native/background lane; reference K/V and
+        # the reference mask are deliberately untouched.
+        result = base * visibility_np
+        pipeline._ba_target_visibility_mask = visibility_np
+        return result if np.asarray(gen_mask).ndim == 3 else result[0]
+
     #### 08 MAR - FIX BATCHED VALIDATION ####
     if (not use_dynamic_mask) and use_bbox_mask_gen and face_bbox_gen is not None:
         per_sample_boxes = (
@@ -373,6 +508,7 @@ def prepare_gen_mask(
                 )
             pipeline._face_bbox_gen_original = [list(box) for box in boxes]
             pipeline._face_bbox_gen_expanded = expanded_boxes
+            gen_mask = apply_visibility_mask(gen_mask)
             pipeline._face_mask = gen_mask
             pipeline._face_mask_t = torch.from_numpy(gen_mask.astype(np.float32))[:, None]
             return
@@ -393,6 +529,7 @@ def prepare_gen_mask(
         )
         pipeline._face_bbox_gen_original = list(face_bbox_gen)
         pipeline._face_bbox_gen_expanded = list(expanded_bbox_gen)
+        gen_mask = apply_visibility_mask(gen_mask)
         pipeline._face_mask = gen_mask
         pipeline._face_mask_t = torch.from_numpy(gen_mask.astype(np.float32))[None, None]
     elif (not use_dynamic_mask) and use_bbox_mask_gen and face_bbox_gen is None:
@@ -488,6 +625,7 @@ def run_branched_setup(
     use_dynamic_mask: bool,
     use_bbox_mask_gen: bool,
     face_bbox_gen: Optional[List[float]],
+    ba_target_visibility_mask: Optional[Any] = None,
     generator: Optional[torch.Generator],
     device: torch.device,
     face_embed_strategy: str,
@@ -496,95 +634,35 @@ def run_branched_setup(
     id_embeds: Optional[torch.Tensor],
     class_tokens_mask: torch.LongTensor,
 ) -> None:
-    # ### 05 APR - FIX VALIDATION REF BATCHING ISSUE ###
-    def _clone_generator_for_device(cand: Any) -> Optional[torch.Generator]:
-        if not isinstance(cand, torch.Generator):
-            return None
-        if hasattr(cand, "device") and cand.device.type == device.type:
-            return cand
-        try:
-            gen = torch.Generator(device=device)
-            gen.set_state(cand.get_state())
-            return gen
-        except Exception:
-            return None
-
     if use_branched_attention and input_id_images:
-        per_prompt_refs = (
-            batch_size > 1
-            and isinstance(input_id_images, (list, tuple))
-            and len(input_id_images) == batch_size
+        pil = input_id_images[0] if isinstance(input_id_images, (list, tuple)) else input_id_images
+        pipeline._ref_latents_all = prepare_ref_latents(
+            pipeline,
+            pil=pil,
+            height=height,
+            width=width,
+            latents_dtype=latents.dtype,
         )
-        if per_prompt_refs:
-            per_prompt_boxes = (
-                isinstance(face_bbox_ref, (list, tuple))
-                and len(face_bbox_ref) == batch_size
-                and all(box is None or isinstance(box, (list, tuple)) for box in face_bbox_ref)
-            )
-            ref_boxes = list(face_bbox_ref) if per_prompt_boxes else [face_bbox_ref] * batch_size
-            ref_latents = []
-            ref_masks = []
-            for ref_idx, pil in enumerate(input_id_images):
-                ref_latents.append(
-                    prepare_ref_latents(
-                        pipeline,
-                        pil=pil,
-                        height=height,
-                        width=width,
-                        latents_dtype=latents.dtype,
-                    )
-                )
-                for mask_attr in ("_face_mask_ref", "_face_mask_t_ref"):
-                    if hasattr(pipeline, mask_attr):
-                        delattr(pipeline, mask_attr)
-                prepare_ref_mask(
-                    pipeline,
-                    pil=pil,
-                    auto_mask_ref=auto_mask_ref,
-                    use_bbox_mask_ref=use_bbox_mask_ref,
-                    face_bbox_ref=ref_boxes[ref_idx],
-                    mask_expansion_ratio=mask_expansion_ratio,
-                    mask_softness=mask_softness,
-                    import_mask_ref=import_mask_ref,
-                    debug_dir=debug_dir,
-                    height=height,
-                    width=width,
-                )
-                if hasattr(pipeline, "_face_mask_ref"):
-                    ref_masks.append(np.array(pipeline._face_mask_ref, copy=True))
-            pipeline._ref_latents_all = torch.cat(ref_latents, dim=0)
-            if len(ref_masks) == batch_size:
-                stacked_masks = np.stack(ref_masks, axis=0)
-                pipeline._face_mask_ref = stacked_masks
-                pipeline._face_mask_t_ref = torch.from_numpy(stacked_masks.astype(np.float32))[:, None]
-        else:
-            pil = input_id_images[0] if isinstance(input_id_images, (list, tuple)) else input_id_images
-            pipeline._ref_latents_all = prepare_ref_latents(
-                pipeline,
-                pil=pil,
-                height=height,
-                width=width,
-                latents_dtype=latents.dtype,
-            )
-            prepare_ref_mask(
-                pipeline,
-                pil=pil,
-                auto_mask_ref=auto_mask_ref,
-                use_bbox_mask_ref=use_bbox_mask_ref,
-                face_bbox_ref=face_bbox_ref,
-                mask_expansion_ratio=mask_expansion_ratio,
-                mask_softness=mask_softness,
-                import_mask_ref=import_mask_ref,
-                debug_dir=debug_dir,
-                height=height,
-                width=width,
-            )
+        prepare_ref_mask(
+            pipeline,
+            pil=pil,
+            auto_mask_ref=auto_mask_ref,
+            use_bbox_mask_ref=use_bbox_mask_ref,
+            face_bbox_ref=face_bbox_ref,
+            mask_expansion_ratio=mask_expansion_ratio,
+            mask_softness=mask_softness,
+            import_mask_ref=import_mask_ref,
+            debug_dir=debug_dir,
+            height=height,
+            width=width,
+        )
 
     prepare_gen_mask(
         pipeline,
         use_dynamic_mask=use_dynamic_mask,
         use_bbox_mask_gen=use_bbox_mask_gen,
         face_bbox_gen=face_bbox_gen,
+        ba_target_visibility_mask=ba_target_visibility_mask,
         mask_expansion_ratio=mask_expansion_ratio,
         mask_softness=mask_softness,
         height=height,
@@ -598,30 +676,24 @@ def run_branched_setup(
     pipeline._ref_img = id_pixel_values[0] if id_pixel_values.dim() == 5 else id_pixel_values
 
     if use_branched_attention and hasattr(pipeline, "_ref_latents_all") and not hasattr(pipeline, "_ref_noise"):
-        if isinstance(generator, (list, tuple)) and len(generator) == pipeline._ref_latents_all.shape[0]:
-            pipeline._ref_noise = torch.cat(
-                [
-                    torch.randn(
-                        ref_lat.shape,
-                        generator=_clone_generator_for_device(cand),
-                        device=device,
-                        dtype=ref_lat.dtype,
-                    )[None]
-                    for ref_lat, cand in zip(pipeline._ref_latents_all, generator)
-                ],
-                dim=0,
-            )
-        else:
-            gen = None
-            if generator is not None:
-                cand = generator[0] if isinstance(generator, (list, tuple)) and len(generator) > 0 else generator
-                gen = _clone_generator_for_device(cand)
-            pipeline._ref_noise = torch.randn(
-                pipeline._ref_latents_all.shape,
-                generator=gen,
-                device=device,
-                dtype=pipeline._ref_latents_all.dtype,
-            )
+        gen = None
+        if generator is not None:
+            cand = generator[0] if isinstance(generator, (list, tuple)) and len(generator) > 0 else generator
+            if isinstance(cand, torch.Generator):
+                if hasattr(cand, "device") and cand.device.type == device.type:
+                    gen = cand
+                else:
+                    try:
+                        gen = torch.Generator(device=device)
+                        gen.set_state(cand.get_state())
+                    except Exception:
+                        gen = None
+        pipeline._ref_noise = torch.randn(
+            pipeline._ref_latents_all.shape,
+            generator=gen,
+            device=device,
+            dtype=pipeline._ref_latents_all.dtype,
+        )
 
     fes = (face_embed_strategy or "face").lower()
     if fes in {"faceanalysis"}:
@@ -673,7 +745,6 @@ def select_mode_and_prompts(
     i: int,
     photomaker_start_step: int,
     branched_attn_start_step: int,
-    branched_attn_end_step: Optional[int],
     prompt_embeds_text_only: torch.Tensor,
     pooled_prompt_embeds_text_only: torch.Tensor,
     prompt_embeds: torch.Tensor,
@@ -702,28 +773,17 @@ def select_mode_and_prompts(
             )
             pose_relaxed_logged = True
 
+    sm = photomaker_start_step
+    bs = branched_attn_start_step
+    a = min(sm, bs)
+    b = max(sm, bs)
     bsm = getattr(pipeline, "branched_start_mode", "both").lower()
-    if branched_attn_end_step is None:
-        sm = photomaker_start_step
-        bs = branched_attn_start_step
-        a = min(sm, bs)
-        b = max(sm, bs)
-        if i < a:
-            mode = "NO_ID"
-        elif sm < bs:
-            mode = "PHOTOMAKER" if i < b else ("BOTH" if bsm == "both" else "BRANCHED")
-        else:
-            mode = ("BOTH" if bsm == "both" else "BRANCHED") if i < b else "PHOTOMAKER"
+    if i < a:
+        mode = "NO_ID"
+    elif sm < bs:
+        mode = "PHOTOMAKER" if i < b else ("BOTH" if bsm == "both" else "BRANCHED")
     else:
-        branched_mode = "BOTH" if bsm == "both" else "BRANCHED"
-        if i < photomaker_start_step:
-            mode = "NO_ID"
-        elif i < branched_attn_start_step:
-            mode = "PHOTOMAKER"
-        elif i < branched_attn_end_step:
-            mode = branched_mode
-        else:
-            mode = "PHOTOMAKER"
+        mode = ("BOTH" if bsm == "both" else "BRANCHED") if i < b else "PHOTOMAKER"
 
     if mode in ("PHOTOMAKER", "BOTH"):
         base_prompt = prompt_embeds
@@ -929,7 +989,6 @@ def run_denoising_step(
     prev_mode: Optional[str],
     photomaker_start_step: int,
     branched_attn_start_step: int,
-    branched_attn_end_step: Optional[int],
     prompt_embeds_text_only: torch.Tensor,
     pooled_prompt_embeds_text_only: torch.Tensor,
     prompt_embeds: torch.Tensor,
@@ -959,7 +1018,6 @@ def run_denoising_step(
         i=i,
         photomaker_start_step=photomaker_start_step,
         branched_attn_start_step=branched_attn_start_step,
-        branched_attn_end_step=branched_attn_end_step,
         prompt_embeds_text_only=prompt_embeds_text_only,
         pooled_prompt_embeds_text_only=pooled_prompt_embeds_text_only,
         prompt_embeds=prompt_embeds,
@@ -970,16 +1028,10 @@ def run_denoising_step(
     )
 
     if mode != prev_mode:
-        end_part = (
-            f", branched_attn_end_step={int(branched_attn_end_step)}"
-            if branched_attn_end_step is not None
-            else ""
-        )
         print(
             f"[Switch] step {int(i)} → {mode}  "
             f"(photomaker_start_step={int(photomaker_start_step)}, "
-            f"branched_attn_start_step={int(branched_attn_start_step)}"
-            f"{end_part})"
+            f"branched_attn_start_step={int(branched_attn_start_step)})"
         )
         prev_mode = mode
 
