@@ -1,6 +1,6 @@
 # Current project handoff
 
-**Last updated:** 19 August 2026
+**Last updated:** 28 August 2026
 
 **Repository:** `/home/kolyangg/rsrch_apr_test`
 
@@ -15,6 +15,21 @@ This is the required starting document for a new agent. It summarizes the
 research question, experiment history, reliable results, current code and
 machine state, and the highest-value next work. Detailed evidence remains in
 the linked reports.
+
+## 28 August CL39 update
+
+The requested consolidated post-CL39 lookup and the decision-relevant setup
+and analysis documents are collected under `analysis/28Aug/`. Start with
+`analysis/28Aug/2026-08-28_post_cl39_experiment_index.md` and its companion
+`README.md`.
+
+The latest measured conclusions are that corrected seed-specific automatic
+masks preserve a positive spatial-BA identity effect across inference seeds,
+PhotoMaker tokens remain the dominant identity source, and starting BA at
+denoising step 10 is not promoted over the original step 15. All five CL39-R2
+training arms completed 24k; R2-B has the strongest numerical R2 endpoint but
+still requires paired image-level and visual promotion analysis. INIT-R-NATIVE
+was still running at the report snapshot, so its endpoint was not established.
 
 ## Read this first
 
