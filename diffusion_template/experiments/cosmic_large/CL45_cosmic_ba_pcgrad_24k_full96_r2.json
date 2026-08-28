@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "run_name": "CL45_cosmic_ba_pcgrad_24k_full96_r2",
+  "plan": {
+    "status": "superseded_unsubmitted",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 8,
+    "objective": "Prevent CL27 main-versus-frequency-auxiliary gradient conflict without changing inference.",
+    "baseline": "CL27_cosmic_frequency_surface_energy_24k_full96_r3",
+    "single_scientific_change": "Asymmetric PCGrad on BA tensors only.",
+    "config": "src/configs/CL45_cosmic_ba_pcgrad_24k.yaml",
+    "launcher": "launchers/active/run_CL38_CL45_cl27_architecture_1gpu.sh",
+    "comet_project": "aug-large-ds"
+  },
+  "runtime": {
+    "source_revision": "cl38-cl45-v2-preflightfix-20260819",
+    "failure": "superseded by corrected r3 before submission"
+  }
+}

@@ -1,0 +1,48 @@
+--- src/model/photomaker_branched/lora2.py
++++ src/model/photomaker_branched/lora2.py
+@@ -47,5 +47,23 @@
+ from .model_v2_NS import PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken
+ ##### BRANCHED ATTENTION - ADDITIONAL IMPORTS #####
+ 
++
++def _normalize_branched_manifest_defaults(manifest):
++    """Return a comparison copy with historically equivalent defaults filled."""
++    if not isinstance(manifest, dict):
++        return manifest
++    normalized = copy.deepcopy(manifest)
++    hard_v1 = normalized.get("hard_v1_extensions")
++    if isinstance(hard_v1, dict):
++        hardcase_route = hard_v1.get("hardcase_route")
++        if isinstance(hardcase_route, dict):
++            # 26 Aug 2026 - AICODE-NOTE: CL23 serialized the explicit default
++            # fallback_mode="off"; later manifests omit that scientifically
++            # identical default. Normalize only this representation difference
++            # so strict routing/tensor/ownership comparisons remain fail-closed.
++            hardcase_route.setdefault("fallback_mode", "off")
++    return normalized
++
++
+ ### PhotomakerLora upgraged for BA ###
+ class PhotomakerBranchedLora(SDXL):
+@@ -2075,7 +2093,9 @@
+             )
+         saved_manifest = state_dict.get("architecture")
+         current_manifest = self._branched_architecture_manifest()
+-        manifests_match = saved_manifest == current_manifest
++        saved_comparable = _normalize_branched_manifest_defaults(saved_manifest)
++        current_comparable = _normalize_branched_manifest_defaults(current_manifest)
++        manifests_match = saved_comparable == current_comparable
+         if (
+             not manifests_match
+             and self.ba_allow_objective_only_checkpoint_init
+@@ -2085,8 +2105,8 @@
+             # Permit only training-objective metadata to differ; routing,
+             # tensor names/shapes, validation semantics, and ownership remain
+             # protected by the complete residual manifest comparison below.
+-            saved_comparable = dict(saved_manifest)
+-            current_comparable = dict(current_manifest)
++            saved_comparable = copy.deepcopy(saved_comparable)
++            current_comparable = copy.deepcopy(current_comparable)
+             for key in ("identity_auxiliary", "low_noise_id_reward"):
+                 saved_comparable.pop(key, None)
+                 current_comparable.pop(key, None)

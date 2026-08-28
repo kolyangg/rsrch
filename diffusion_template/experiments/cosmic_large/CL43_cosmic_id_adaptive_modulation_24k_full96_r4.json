@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "run_name": "CL43_cosmic_id_adaptive_modulation_24k_full96_r4",
+  "plan": {
+    "status": "failed_first_training_batch_telemetry_schema",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 4,
+    "objective": "Calibrate the explicit spatial reference delta to the subject identity embedding.",
+    "baseline": "CL27_cosmic_frequency_surface_energy_24k_full96_r3",
+    "single_scientific_change": "Zero-start bottleneck-32 modulation from the existing 512-D ID vector.",
+    "config": "src/configs/CL43_cosmic_id_adaptive_modulation_24k.yaml",
+    "launcher": "launchers/active/run_CL38_CL45_cl27_architecture_1gpu.sh",
+    "comet_project": "aug-large-ds"
+  },
+  "runtime": {
+    "source_revision": "cl38-cl45-v4-mixedprecisionfix-20260819",
+    "serv_job_id": "lm-mpi-job-37b98966-0902-41d4-9707-c4772b4014ca",
+    "comet_experiment_key": "83b72e3bcc4e4551b6b1220b156c91a8",
+    "startup_verified": true,
+    "startup_evidence": "sealed source, Hydra/spec validation, 64-sample dataset preflight, fixed manual_val path, bf16 helper preflight, immutable Comet key",
+    "failure": "Step-0 validation completed; first training forward failed in detached telemetry aggregation because zero-only CL27 collectors were installed outside their declared groups. Superseded by CL43 r5."
+  }
+}

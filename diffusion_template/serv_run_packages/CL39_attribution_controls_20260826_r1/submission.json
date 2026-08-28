@@ -1,0 +1,40 @@
+{
+  "submitted_at": "2026-08-27",
+  "runs": {
+    "CL39_16k_all70_actual_then_ba_off": {
+      "final_mls_job": "lm-mpi-job-8a1e80fe-4ae5-4ae1-b3a9-f7ab2c8e945f",
+      "launcher": "package/run_cl39_all70_16k_1gpu.yaml",
+      "source": "Byte-exact copy of BA_lineage_branch_audit_serv_r1/source/diffusion_template",
+      "startup_evidence": "Running in actual-arm fixed-96 validation; first batch of 12 images written."
+    },
+    "CL39_24k_pm_spatial_identity_crossing_2x2": {
+      "final_mls_job": "lm-mpi-job-b890b097-0eab-40c0-854e-999e54617119",
+      "launcher": "package/run_cl39_identity_crossing_24k_1gpu.yaml",
+      "source": "Same historical source with only the validation-only PM/spatial crossing hook overlaid",
+      "source_revision": "historical-cl39-byte-exact-plus-crossing-hook-r2-20260827",
+      "startup_evidence": "Running in A/correct-correct fixed-96 validation after reaching denoising step 0."
+    }
+  },
+  "replay_gate": {
+    "panel": "manual_val fixed-96",
+    "maximum_per_image_rgb_mae": 0.002,
+    "policy": "Fail closed before any counterfactual arm; threshold was not weakened."
+  },
+  "superseded_attempts": {
+    "missing_console_writer": [
+      "lm-mpi-job-d43d7d99-e0dd-4a47-a16a-c0517e0d5999",
+      "lm-mpi-job-f41e0589-bfd1-41cf-950c-6bf1277d0da9"
+    ],
+    "missing_cosmic_environment": [
+      "lm-mpi-job-cf7262e0-4070-446d-915f-7c9cc03bb8c2",
+      "lm-mpi-job-5193e8af-5fd9-4eb5-a548-24a6b304e74d"
+    ],
+    "rejected_runtime_drift": [
+      "lm-mpi-job-9e97ad36-fc86-4ff3-86ea-2b75eb37c03c",
+      "lm-mpi-job-c4a15e46-f268-4092-bc97-c68a5308af32"
+    ],
+    "historical_crossing_hook_placement": [
+      "lm-mpi-job-d3521c5d-b115-4d35-b19c-eb8c01afd150"
+    ]
+  }
+}

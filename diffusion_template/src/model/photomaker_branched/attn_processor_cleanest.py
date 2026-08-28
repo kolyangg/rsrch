@@ -8,6 +8,12 @@ import torch.nn.functional as F
 from typing import Optional
 import math
 
+from .extensions.valid_kv_attention import valid_key_sdpa
+from .extensions.correspondence_confidence import compute_cycle_confidence
+from .extensions.ot_reference_transport import StageSplitReferenceTransport
+from .extensions.roi_reference_route import FaceRoiReferenceRoute
+from .extensions.global_local_balancer import compute_global_appearance_delta
+
 
 class BranchLoRALinear(nn.Module):
     def __init__(
@@ -158,6 +164,13 @@ class BranchedAttnProcessor(nn.Module):
         hardcase_roi_gate_min: float = 0.05,
         hardcase_roi_progress_min: float = 0.60,
         hardcase_roi_rms_cap: float = 0.25,
+        null_key_router_enabled: bool = False,
+        null_key_entropy_threshold: float = 0.75,
+        null_key_temperature: float = 0.08,
+        null_key_max_abstention: float = 0.75,
+        null_key_min_reference_fraction: float = 0.25,
+        cl39x_settings: Optional[dict] = None,
+        processor_name: Optional[str] = None,
     ):
         super().__init__()
 
@@ -203,6 +216,50 @@ class BranchedAttnProcessor(nn.Module):
         self.hardcase_frequency_low_late = float(hardcase_frequency_low_late)
         self.hardcase_frequency_high_early = float(hardcase_frequency_high_early)
         self.hardcase_frequency_high_late = float(hardcase_frequency_high_late)
+        self.null_key_router_enabled = bool(null_key_router_enabled)
+        self.null_key_entropy_threshold = float(null_key_entropy_threshold)
+        self.null_key_temperature = float(null_key_temperature)
+        self.null_key_max_abstention = float(null_key_max_abstention)
+        self.null_key_min_reference_fraction = float(null_key_min_reference_fraction)
+        if self.null_key_temperature <= 0.0:
+            raise ValueError("null-key temperature must be positive")
+        if not 0.0 <= self.null_key_max_abstention <= 1.0:
+            raise ValueError("null-key max abstention must be in [0,1]")
+        if not 0.0 < self.null_key_min_reference_fraction <= 1.0:
+            raise ValueError("null-key minimum reference fraction must be in (0,1]")
+        self.processor_name = processor_name
+        self.cl39x_settings = dict(cl39x_settings or {})
+        selected = lambda prefix: bool(self.cl39x_settings.get(f"{prefix}_enabled", False)) and any(
+            str(processor_name).startswith(f"{group}.")
+            for group in self.cl39x_settings.get(f"{prefix}_groups", ())
+        )
+        self.valid_kv_enabled = selected("ba_valid_kv")
+        self.cycle_confidence_enabled = selected("ba_cycle_confidence")
+        self.ot_transport_enabled = selected("ba_ot_transport")
+        self.roi_route_enabled = selected("ba_roi_route")
+        self.automask_os_enabled = bool(self.cl39x_settings.get("ba_automask_os_enabled", False))
+        self.global_local_enabled = selected("ba_global_local")
+        self._latest_cl39x = {}
+        self._route_eligible = None
+        self.ot_transport = None
+        if self.ot_transport_enabled:
+            s = self.cl39x_settings
+            self.ot_transport = StageSplitReferenceTransport(
+                grid_size=s["ba_ot_grid_size"], epsilon=s["ba_ot_epsilon"],
+                iterations=s["ba_ot_iterations"], coordinate_weight=s["ba_ot_coordinate_weight"],
+                transition_start=s["ba_ot_transition_start"], transition_end=s["ba_ot_transition_end"],
+                late_top_k=s["ba_ot_late_top_k"], min_valid_tokens=s["ba_ot_min_valid_tokens"],
+                detach_plan=s["ba_ot_detach_plan"],
+            )
+        self.roi_route = None
+        if self.roi_route_enabled:
+            s = self.cl39x_settings
+            self.roi_route = FaceRoiReferenceRoute(
+                roi_size=s["ba_roi_size"], face_area_threshold=s["ba_roi_face_area_threshold"],
+                box_expansion=s["ba_roi_box_expansion"], gate_max=s["ba_roi_gate_max"],
+                delta_native_cap=s["ba_roi_delta_native_cap"],
+                boundary_ring_cells=s["ba_roi_boundary_ring_cells"],
+            )
         self.hardcase_telemetry_enabled = bool(hardcase_telemetry_enabled)
         self.frequency_surface_experiment_enabled = bool(
             frequency_surface_experiment_enabled
@@ -650,6 +707,20 @@ class BranchedAttnProcessor(nn.Module):
         result = result * image
         return result.flatten(2).transpose(1, 2).to(dtype=dtype)
 
+    def _soft_probability_mask(self, mask, length: int, batch: int, dtype):
+        if mask is None:
+            raise RuntimeError("AutoMask-OS requires cached ownership masks")
+        value = torch.as_tensor(mask, device=self.mask.device, dtype=torch.float32)
+        if value.ndim == 3:
+            value = value.unsqueeze(1)
+        side = int(math.isqrt(length))
+        value = F.interpolate(value, (side, side), mode="bilinear", align_corners=False)
+        if value.shape[0] == 1 and batch > 1:
+            value = value.expand(batch, -1, -1, -1)
+        if value.shape[0] != batch or value.shape[1] != 1:
+            raise RuntimeError("AutoMask-OS mask batch/channel mismatch")
+        return value.flatten(2).transpose(1, 2).clamp(0, 1).to(dtype=dtype)
+
     @staticmethod
     def _masked_rms(tensor: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         denom = (mask.float().sum(dim=(1, 2)) * tensor.shape[-1]).clamp_min(1.0)
@@ -659,20 +730,57 @@ class BranchedAttnProcessor(nn.Module):
     def _reference_target_out(self, attn, q, reference, mask_ref=None):
         batch, length, _ = reference.shape
         heads = int(attn.heads)
-        ref_mask = self._binary_mask(
-            self.mask_ref if mask_ref is None else mask_ref,
-            length,
-            batch,
-            reference.dtype,
+        source_mask = self.mask_ref if mask_ref is None else mask_ref
+        ref_mask = (
+            self._soft_probability_mask(source_mask, length, batch, reference.dtype)
+            if self.automask_os_enabled
+            else self._binary_mask(source_mask, length, batch, reference.dtype)
         )
         reference_face = reference * ref_mask
-        message = F.scaled_dot_product_attention(
-            q,
-            self._reshape_heads(self._k_ref(attn, reference_face), heads),
-            self._reshape_heads(self._v_ref(attn, reference_face), heads),
-            dropout_p=0.0,
-            is_causal=False,
-        )
+        keys = self._reshape_heads(self._k_ref(attn, reference if self.valid_kv_enabled else reference_face), heads)
+        values = self._reshape_heads(self._v_ref(attn, reference if self.valid_kv_enabled else reference_face), heads)
+        self._route_eligible = None
+        self._latest_cl39x = {}
+        if self.valid_kv_enabled:
+            threshold = float(self.cl39x_settings["ba_valid_kv_threshold"])
+            result = valid_key_sdpa(
+                q, keys, values, ref_mask.squeeze(-1).gt(threshold),
+                fallback=torch.zeros_like(q), return_entropy=True,
+                entropy_chunk_size=int(self.cl39x_settings["ba_valid_kv_entropy_chunk_size"]),
+            )
+            message = result.message
+            self._route_eligible = result.eligible.flatten().view(batch, 1, 1)
+            self._valid_key_entropy = result.entropy
+            self._latest_cl39x.update(
+                **{
+                    "valid_kv/valid_fraction": result.valid_fraction.mean(),
+                    "valid_kv/valid_count": result.valid_count.float().mean(),
+                    "valid_kv/all_invalid_fraction": 1.0 - result.eligible.float().mean(),
+                    "valid_kv/entropy_valid": result.entropy.float().mean(),
+                }
+            )
+        else:
+            message = F.scaled_dot_product_attention(
+                q, keys, values, dropout_p=0.0, is_causal=False
+            )
+        if self.ot_transport_enabled:
+            target_mask = self._binary_mask(self.mask, length, batch, reference.dtype)
+            result = self.ot_transport(
+                query_heads=q, key_heads=keys, value_heads=values,
+                target_mask=target_mask, reference_mask=ref_mask,
+                progress=self._progress(reference), fallback=message,
+            )
+            message = result.message
+            self._latest_cl39x.update(
+                **{
+                    "ot/valid_fraction": result.valid_fraction,
+                    "ot/plan_entropy": result.plan_entropy,
+                    "ot/displacement": result.displacement,
+                    "ot/row_error": result.row_error,
+                    "ot/col_error": result.col_error,
+                    "ot/late_fraction": result.late_fraction,
+                }
+            )
         message = self._merge_heads(message)
         return (
             self.face_to_out(message)
@@ -699,12 +807,99 @@ class BranchedAttnProcessor(nn.Module):
         native_message = self._merge_heads(native)
         native_out = attn.to_out[0](native_message)
         reference_out = self._reference_target_out(attn, q, reference)
+        if self._route_eligible is not None:
+            reference_out = torch.where(
+                self._route_eligible.to(device=reference_out.device, dtype=torch.bool),
+                reference_out,
+                native_out,
+            )
         if self._attention_ownership_capture:
             self._capture_attention_ownership(attn, q, reference)
         if self._lowband_contrastive_mode == "anchor":
             self._lowband_anchor_q = q.detach()
             self._lowband_anchor_native_out = native_out.detach()
         return native_out, reference_out, q
+
+    def _null_key_confidence(self, attn, q, reference, router):
+        batch, length, _ = reference.shape
+        ref_mask = (
+            self._soft_probability_mask(self.mask_ref, length, batch, torch.float32)
+            if self.automask_os_enabled
+            else self._binary_mask(self.mask_ref, length, batch, torch.float32)
+        )
+        valid = ref_mask.squeeze(-1).gt(
+            float(self.cl39x_settings.get("ba_valid_kv_threshold", 0.5))
+        )
+        keys = self._reshape_heads(
+            self._k_ref(attn, reference * ref_mask.to(reference.dtype)), int(attn.heads)
+        )
+        if self.cycle_confidence_enabled:
+            s = self.cl39x_settings
+            result = compute_cycle_confidence(
+                q, keys, router, valid, floor=s["ba_cycle_confidence_floor"],
+                margin_center=s["ba_cycle_confidence_margin_center"],
+                margin_temperature=s["ba_cycle_confidence_margin_temperature"],
+                cycle_sigma_cells=s["ba_cycle_confidence_cycle_sigma_cells"],
+                chunk_size=s["ba_cycle_confidence_chunk_size"],
+                entropy_weight=s["ba_cycle_confidence_entropy_weight"],
+                margin_weight=s["ba_cycle_confidence_margin_weight"],
+                cycle_weight=s["ba_cycle_confidence_cycle_weight"],
+            )
+            face_denom = router.float().sum().clamp_min(1.0)
+            confidence_face = (
+                result.confidence.float() * router.float()
+            ).sum() / face_denom
+            object_minus_visible = result.confidence.new_zeros(())
+            if self.ownership_target_mask is not None:
+                top = self._binary_mask(
+                    self.ownership_target_mask, length, batch, torch.float32
+                ) * router.float()
+                visible = (router.float() - top).clamp(0, 1)
+                object_minus_visible = (
+                    (result.confidence.float() * top).sum() / top.sum().clamp_min(1.0)
+                    - (result.confidence.float() * visible).sum()
+                    / visible.sum().clamp_min(1.0)
+                )
+            self._latest_cl39x.update(
+                **{
+                    "cycle_confidence/confidence_face": confidence_face,
+                    "cycle_confidence/entropy": result.entropy.mean(),
+                    "cycle_confidence/margin": result.margin.mean(),
+                    "cycle_confidence/cycle_score": result.cycle_score.mean(),
+                    "cycle_confidence/cycle_distance": result.cycle_distance.mean(),
+                    "cycle_confidence/eligible_fraction": result.eligible.mean(),
+                    "cycle_confidence/high_confidence_fraction": (
+                        result.confidence.float().gt(0.75) * router.float()
+                    ).sum() / face_denom,
+                    "cycle_confidence/object_minus_visible_confidence": object_minus_visible,
+                }
+            )
+            null_mass = 1.0 - result.confidence
+            return result.confidence.to(q.dtype), null_mass
+        if self.valid_kv_enabled and getattr(self, "_valid_key_entropy", None) is not None:
+            entropy = self._valid_key_entropy.float()
+        else:
+            entropy_parts = []
+            width = q.shape[-1]
+            for start in range(0, q.shape[2], 256):
+                logits = torch.matmul(
+                    q[:, :, start:start + 256].detach().float(),
+                    keys.detach().float().transpose(-1, -2),
+                ) / math.sqrt(width)
+                probability = torch.softmax(logits, dim=-1)
+                value = -(probability * probability.clamp_min(1e-12).log()).sum(-1)
+                entropy_parts.append((value / math.log(max(length, 2))).mean(1).unsqueeze(-1))
+            entropy = torch.cat(entropy_parts, dim=1)
+        null_mass = torch.sigmoid(
+            (entropy - self.null_key_entropy_threshold) / self.null_key_temperature
+        )
+        confidence = (1.0 - self.null_key_max_abstention * null_mass).clamp(
+            min=self.null_key_min_reference_fraction, max=1.0
+        )
+        eligible = valid.any(-1)[:, None, None]
+        confidence = torch.where(eligible, confidence, torch.zeros_like(confidence))
+        null_mass = torch.where(eligible, null_mass, torch.ones_like(null_mass))
+        return confidence.to(q.dtype), null_mass
 
     def _capture_attention_ownership(self, attn, q, reference) -> None:
         """Chunk Q/K probabilities so CL31 never retains a full all-layer map."""
@@ -1298,8 +1493,14 @@ class BranchedAttnProcessor(nn.Module):
             )
 
         if mode == "temporal_frequency":
-            router = self._soft_router_mask(
-                self.mask, target.shape[1], target.shape[0], native_out.dtype
+            router = (
+                self._soft_probability_mask(
+                    self.mask, target.shape[1], target.shape[0], native_out.dtype
+                )
+                if self.automask_os_enabled
+                else self._soft_router_mask(
+                    self.mask, target.shape[1], target.shape[0], native_out.dtype
+                )
             )
             low, high = self._gaussian_split(reference_out - native_out)
             progress = self._progress(target)
@@ -1371,8 +1572,75 @@ class BranchedAttnProcessor(nn.Module):
                 )
             low_component = router * low_scale * low
             high_component = router * high_scale * high
+            null_mass = None
+            if self.null_key_router_enabled:
+                confidence, null_mass = self._null_key_confidence(
+                    attn, q, reference, router
+                )
+                low_component = low_component * confidence
+                high_component = high_component * confidence
             routed_delta = low_component + high_component
             target_out = native_out + routed_delta
+            if self.roi_route_enabled:
+                target_mask = self._binary_mask(
+                    self.mask, target.shape[1], target.shape[0], target.dtype
+                )
+                reference_mask = self._binary_mask(
+                    self.mask_ref, reference.shape[1], reference.shape[0], reference.dtype
+                )
+                roi = self.roi_route(
+                    target_hidden=target, reference_hidden=reference,
+                    target_mask=target_mask, reference_mask=reference_mask,
+                    native_out=native_out, heads=int(attn.heads),
+                    project_q=lambda value: self._q_noise(attn, value),
+                    project_native_k=lambda value: self._k_noise(attn, value),
+                    project_native_v=lambda value: self._v_noise(attn, value),
+                    project_reference_k=lambda value: self._k_ref(attn, value),
+                    project_reference_v=lambda value: self._v_ref(attn, value),
+                    project_output=attn.to_out[0],
+                )
+                target_out = target_out + roi.delta.to(target_out.dtype)
+                self._latest_cl39x.update(
+                    **{
+                        "roi/eligible_fraction": roi.eligible_fraction,
+                        "roi/face_area": roi.face_area,
+                        "roi/gate": roi.gate,
+                        "roi/delta_rms": roi.delta_rms,
+                        "roi/boundary_energy": roi.boundary_energy,
+                    }
+                )
+            if self.global_local_enabled:
+                target_mask = self._binary_mask(
+                    self.mask, target.shape[1], target.shape[0], target.dtype
+                )
+                reference_mask = self._binary_mask(
+                    self.mask_ref, reference.shape[1], reference.shape[0], reference.dtype
+                )
+                heads = int(attn.heads)
+                global_result = compute_global_appearance_delta(
+                    query_heads=q,
+                    reference_key_heads=self._reshape_heads(self._k_ref(attn, reference), heads),
+                    reference_value_heads=self._reshape_heads(self._v_ref(attn, reference), heads),
+                    target_face_mask=target_mask, reference_face_mask=reference_mask,
+                    native_message=native_out, native_out=native_out,
+                    project_output=attn.to_out[0], progress=progress,
+                    dilation_cells=self.cl39x_settings["ba_global_dilation_cells"],
+                    early_scale=self.cl39x_settings["ba_global_early_scale"],
+                    late_scale=self.cl39x_settings["ba_global_late_scale"],
+                    native_cap=self.cl39x_settings["ba_global_native_cap"],
+                    local_exclusion=self.cl39x_settings["ba_global_local_exclusion"],
+                )
+                target_out = target_out + global_result.delta.to(target_out.dtype)
+                self._latest_cl39x.update(
+                    **{
+                        "global_local/global_coverage": global_result.global_mask.float().mean(),
+                        "global_local/scale": global_result.scale.float().mean(),
+                        "global_local/delta_rms": global_result.delta_rms,
+                        "global_local/delta_native_ratio": global_result.delta_native_ratio,
+                        "global_local/local_overlap_rms": global_result.local_overlap_rms,
+                        "global_local/outside_leakage_rms": global_result.leakage_rms,
+                    }
+                )
             self._latest_ba_telemetry = None
             if self.hardcase_telemetry_enabled:
                 # 16 Aug 2026 - Full-activation fp32 reductions are optional;
@@ -1387,6 +1655,32 @@ class BranchedAttnProcessor(nn.Module):
                         / native_out.detach().float().square().mean().clamp_min(1e-12).sqrt()
                     ),
                 }
+            if self.null_key_router_enabled:
+                if self._latest_ba_telemetry is None:
+                    self._latest_ba_telemetry = {}
+                object_minus_visible = null_mass.new_zeros(())
+                if self.ownership_target_mask is not None:
+                    face = self._binary_mask(
+                        self.mask, target.shape[1], target.shape[0], torch.float32
+                    )
+                    top = self._binary_mask(
+                        self.ownership_target_mask,
+                        target.shape[1], target.shape[0], torch.float32,
+                    ) * face
+                    visible = (face - top).clamp(0, 1)
+                    object_minus_visible = (
+                        (null_mass * top).sum() / top.sum().clamp_min(1.0)
+                        - (null_mass * visible).sum() / visible.sum().clamp_min(1.0)
+                    )
+                self._latest_ba_telemetry.update({
+                    "null_key/null_mass": null_mass.detach().float().mean(),
+                    "null_key/reference_fraction": confidence.detach().float().mean(),
+                    "null_key/object_minus_visible_mass": object_minus_visible.detach(),
+                })
+            if self._latest_cl39x:
+                if self._latest_ba_telemetry is None:
+                    self._latest_ba_telemetry = {}
+                self._latest_ba_telemetry.update(self._latest_cl39x)
             if self.frequency_learnable_schedule_enabled and self._latest_ba_telemetry is not None:
                 raw_abs = self.frequency_schedule_raw.detach().float().abs()
                 self._latest_ba_telemetry.update(

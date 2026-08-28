@@ -1,0 +1,16 @@
+defaults:
+  - E13_large_ds_joint_shadow_sa128_24k
+  - _self_
+
+# Controlled BC_E13 dataset transfer: keep the complete E13 architecture,
+# optimizer, schedule, and validation contract; change only the train loader.
+train_dataset_name: big_celebs
+
+writer:
+  experiment_comment: >-
+    BC_E13 BigCelebs v2 dataset transfer: jointly train hard spatial BA rank128,
+    the effective generic rank32 adapter, and effective PhotoMaker default
+    rank64 at 1e-4; schema-v2 checkpoints save all paths while full-96
+    validation restores the pretrained PhotoMaker default. Relative to E13,
+    only the training dataset changes to the sealed BigCelebs v2 min-face-192
+    release with uniform distinct same-identity references.

@@ -1,0 +1,50 @@
+defaults:
+  - CL39_cosmic_null_key_confidence_router_24k
+  - override writer: cometml
+  - _self_
+
+# Validation-only trajectory: seeded step 0, then every saved CL39 checkpoint.
+validation_only: true
+validation_epochs: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+validation_checkpoint_paths:
+  - null
+  - ${oc.env:CL39_CHECKPOINT_ROOT}/checkpoint-epoch1.pth
+  - ${oc.env:CL39_CHECKPOINT_ROOT}/checkpoint-epoch2.pth
+  - ${oc.env:CL39_CHECKPOINT_ROOT}/checkpoint-epoch3.pth
+  - ${oc.env:CL39_CHECKPOINT_ROOT}/checkpoint-epoch4.pth
+  - ${oc.env:CL39_CHECKPOINT_ROOT}/checkpoint-epoch5.pth
+  - ${oc.env:CL39_CHECKPOINT_ROOT}/checkpoint-epoch6.pth
+  - ${oc.env:CL39_CHECKPOINT_ROOT}/checkpoint-epoch7.pth
+  - ${oc.env:CL39_CHECKPOINT_ROOT}/checkpoint-epoch8.pth
+  - ${oc.env:CL39_CHECKPOINT_ROOT}/checkpoint-epoch9.pth
+  - ${oc.env:CL39_CHECKPOINT_ROOT}/checkpoint-epoch10.pth
+  - ${oc.env:CL39_CHECKPOINT_ROOT}/checkpoint-epoch11.pth
+  - ${oc.env:CL39_CHECKPOINT_ROOT}/checkpoint-epoch12.pth
+val_datasets_names: [manual_val]
+
+# Keep the checkpoint architecture contract unchanged. Only inference starts BA
+# at the same denoising boundary as PhotoMaker.
+validation_args:
+  branched_attn_start_step: 10
+
+trainer:
+  from_pretrained: null
+  save_dir: ${oc.env:CL39_BA10_ALL_SAVE_DIR}
+  log_per_image_id_sim_table: true
+  face_quality:
+    enabled: true
+    expected_images: 96
+
+writer:
+  project_name: aug-large-ds
+  run_name: CL39_ba_start10_all_checkpoints_full96_r1
+  require_online_registration: true
+  tags: [CL39, validation-only, BA-start-10, checkpoint-trajectory, fixed96]
+  experiment_comment: >-
+    Validation-only replay of the immutable CL39 trajectory at seeded step 0
+    and checkpoints 2k through 24k every 2k. All 13 fixed manual_val-96 events
+    use the accepted seed-0 prompts, references, masks, RealVisXL V4.0, DDIM50,
+    CFG 5 and metrics. The only inference change is branched attention starting
+    at denoising step 10 instead of the accepted step 15; PhotoMaker remains 10.
+
+validation_debug_timing: true

@@ -1,0 +1,10 @@
+job:
+  description: "CL23 five-arm replay-gated recovery for BA lineage audit #nasilaev"
+  environment:
+    image: cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36
+  resource:
+    instance_type: a100.1gpu.8C.243G
+    processes: 1
+    workers: 5
+  script: "mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/BA_lineage_branch_audit_serv_r1 && TORCH_SHOW_CPP_STACKTRACES=1 TORCH_DISABLE_ADDR2LINE=1 TORCH_NCCL_ASYNC_ERROR_HANDLING=1 bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/analysis_jobs/BA_lineage_branch_audit_serv_r1/package/dispatch_BA_lineage_CL23_recovery_5workers.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/BA_lineage_branch_audit_serv_r1/cl23_recovery_dispatch.stdout.log 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/BA_lineage_branch_audit_serv_r1/cl23_recovery_dispatch.stderr.log"
+  type: binary

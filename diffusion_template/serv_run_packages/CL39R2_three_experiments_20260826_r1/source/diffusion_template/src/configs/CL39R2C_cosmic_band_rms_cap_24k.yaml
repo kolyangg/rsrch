@@ -1,0 +1,29 @@
+defaults:
+  - CL39_cosmic_null_key_confidence_router_24k
+  - _self_
+
+model:
+  ba_band_rms_cap_enabled: true
+  ba_band_rms_cap_groups: [up_blocks.0, up_blocks.1]
+  ba_band_rms_cap_low_ratio: 0.90
+  ba_band_rms_cap_high_ratio: 0.45
+  ba_band_rms_cap_epsilon: 1.0e-6
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_frequency_surface
+    - ba/null_key/null_mass/all
+    - ba/null_key/null_mass/up0
+    - ba/null_key/null_mass/up1
+    - ba/null_key/reference_fraction/all
+    - ba/null_key/object_minus_visible_mass/all
+    - ba/r2/rms_cap/low_scale/all
+    - ba/r2/rms_cap/high_scale/all
+    - ba/r2/rms_cap/low_active_fraction/all
+    - ba/r2/rms_cap/high_active_fraction/all
+    - ba/r2/rms_cap/correction_native_ratio/all
+  experiment_comment: >-
+    CL39-R2-C vs CL39 adds only fixed per-sample low/high face-RMS tail caps in
+    up0/up1, before the existing gains and confidence.

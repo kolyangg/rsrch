@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "run_name": "CL42_cosmic_component_token_memory_24k_full96_r4",
+  "plan": {
+    "status": "failed_first_training_batch_telemetry_schema",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 5,
+    "objective": "Retain discriminative eye, nose and mouth details at small face scales.",
+    "baseline": "CL27_cosmic_frequency_surface_energy_24k_full96_r3",
+    "single_scientific_change": "Five parameter-free landmark-pooled facial component tokens.",
+    "config": "src/configs/CL42_cosmic_component_token_memory_24k.yaml",
+    "launcher": "launchers/active/run_CL38_CL45_cl27_architecture_1gpu.sh",
+    "comet_project": "aug-large-ds"
+  },
+  "runtime": {
+    "source_revision": "cl38-cl45-v4-mixedprecisionfix-20260819",
+    "supersedes": "CL42_cosmic_component_token_memory_24k_full96_r3",
+    "reason": "Fresh immutable run identity after r3's Comet SDK disabled logging because its experiment identity was already uploaded. Scientific configuration is unchanged.",
+    "serv_job_id": "lm-mpi-job-78796506-be68-478f-b9f1-dd8fd9ba7dc1",
+    "comet_experiment_key": "ef5ef56815f0481fb811f89f3dab3118",
+    "startup_verified": true,
+    "startup_evidence": "sealed source, Hydra/spec validation, 64-sample dataset preflight, fixed manual_val path, fresh immutable Comet key, no duplicate-identity SDK error, entered step-0 manual_val generation",
+    "failure": "Step-0 validation completed; first training forward failed in detached telemetry aggregation because zero-only CL27 collectors were installed outside their declared groups. Superseded by CL42 r5."
+  }
+}

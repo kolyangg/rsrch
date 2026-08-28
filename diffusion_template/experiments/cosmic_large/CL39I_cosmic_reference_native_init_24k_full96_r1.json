@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "run_name": "CL39I_cosmic_reference_native_init_24k_full96_r1",
+  "plan": {
+    "status": "running",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 2,
+    "objective": "Test whether CL39 can learn its explicit reference route from native SDXL reference Q/K/V bases.",
+    "baseline": "CL39_cosmic_null_key_confidence_router_24k_full96_r4",
+    "single_scientific_change": "Set the PhotoMaker-default delta scale to zero only for ref_to_q/k/v frozen base initialization.",
+    "config": "src/configs/CL39I_cosmic_reference_native_init_24k.yaml",
+    "launcher": "launchers/active/run_clean_full_config_1gpu.sh",
+    "comet_project": "aug-large-ds"
+  },
+  "runtime": {
+    "source_revision": "clean_full-cl39i-init-r-native-20260827-r1",
+    "source_manifest_sha256": "b4c7d50b12448c95ab59fad542e02e8071c053bfc887f6df458d014ee0b7ed58",
+    "mls_job_id": "lm-mpi-job-621c875f-378c-46e5-af0a-fc51598b4f5d",
+    "submitted_at": "2026-08-27T21:54:22+01:00",
+    "startup_status": "running_after_step_8000_validation",
+    "status_snapshot_at": "2026-08-28T09:45:00+01:00",
+    "latest_logged_position": "epoch 5 batch 1150 (approximately global step 9150)",
+    "latest_completed_validation": {
+      "step": 8000,
+      "manual_val_id_sim": 0.5456001777201891,
+      "current_peak_id_sim": 0.5475307876865069,
+      "current_peak_step": 6000
+    },
+    "comet_experiment_key": "110a9dab669a4bffb5e403fe446fd618",
+    "startup_gates": {
+      "platform_error_code": 0,
+      "dataset_preflight": "ok",
+      "ba_processors": 70,
+      "noise_native_ratio": 0.05252258,
+      "reference_native_ratio": 0.0,
+      "branch_lora_B_nonzero_at_init": 0,
+      "trainable_tensors": 2240,
+      "trainable_parameters": 219217920,
+      "step0_validation_images": 96
+    },
+    "failed_attempts": [
+      {
+        "mls_job_id": "lm-mpi-job-d61ebc45-9155-4706-aea8-23938043f225",
+        "platform_error_code": 0,
+        "failure_stage": "dataset_preflight_before_model_or_comet",
+        "reason": "The fail-closed dataset preflight did not yet recognize the exact CL39I arm token.",
+        "recovery": "Added CL39I only to the inherited CL39 canvas/face-scale and semantic-occlusion gates; the remote preflight then passed."
+      }
+    ]
+  }
+}

@@ -1,0 +1,43 @@
+defaults:
+  - CL39_cosmic_null_key_confidence_router_24k
+  - _self_
+
+model:
+  ba_band_reliability_gate_enabled: true
+  ba_band_reliability_gate_groups: [up_blocks.0, up_blocks.1]
+  ba_band_reliability_gate_feature_version: detached_v1
+  ba_band_reliability_gate_hidden_dim: 16
+  ba_band_reliability_gate_max_delta: 0.20
+  ba_band_reliability_gate_init_seed: 390216
+
+expected_trainable_contract:
+  enabled: true
+  total_tensors: 2384
+  total_parameters: 219223176
+  optimizer_tensors: 2384
+  optimizer_parameters: 219223176
+  categories:
+    branched_sa_r128: {name_substring: ".attn1.processor.", tensors: 984, parameters: 127800456}
+    generic_effective_adapter_r32: {name_substring: ".lora_adapter.", tensors: 700, parameters: 30474240}
+    photomaker_default_effective_adapter_r64: {name_substring: ".default.", tensors: 700, parameters: 60948480}
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_frequency_surface
+    - ba/null_key/null_mass/all
+    - ba/null_key/null_mass/up0
+    - ba/null_key/null_mass/up1
+    - ba/null_key/reference_fraction/all
+    - ba/null_key/object_minus_visible_mass/all
+    - ba/r2/reliability/valid_mass/all
+    - ba/r2/reliability/conditional_entropy/all
+    - ba/r2/reliability/confidence_low/all
+    - ba/r2/reliability/confidence_high/all
+    - ba/r2/reliability/low_minus_base/all
+    - ba/r2/reliability/high_minus_base/all
+    - ba/r2/reliability/correction_native_ratio/all
+  experiment_comment: >-
+    CL39-R2-B vs CL39 adds only a zero-initialized bounded low/high reliability
+    correction in up0/up1; the CL39 entropy confidence remains the base gate.

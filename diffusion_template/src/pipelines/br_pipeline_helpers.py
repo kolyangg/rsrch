@@ -382,6 +382,22 @@ def prepare_gen_mask(
     width: int,
     batch_size: int = 1,
 ) -> None:
+    automask = getattr(pipeline, "_ba_automask_target_mask", None)
+    if automask is not None:
+        value = torch.as_tensor(automask, dtype=torch.float32)
+        if value.ndim == 3:
+            value = value[:, None]
+        if value.ndim != 4 or value.shape[1] != 1:
+            raise ValueError("AutoMask-OS target router must be [B,1,H,W]")
+        if value.shape[0] == 1 and batch_size > 1:
+            value = value.expand(batch_size, -1, -1, -1)
+        if value.shape[0] != batch_size:
+            raise ValueError("AutoMask-OS validation target batch mismatch")
+        value = F.interpolate(value, (height, width), mode="bilinear", align_corners=False).clamp(0, 1)
+        pipeline._face_mask_t = value
+        pipeline._face_mask = value[:, 0].numpy()
+        return
+
     def apply_visibility_mask(gen_mask: np.ndarray) -> np.ndarray:
         if ba_target_visibility_mask is None:
             pipeline._ba_target_visibility_mask = None

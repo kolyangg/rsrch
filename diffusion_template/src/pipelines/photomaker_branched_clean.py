@@ -586,6 +586,8 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
         face_bbox_ref: Optional[List[float]] = None, # Optional per-sample face boxes (x0,y0,x1,y1) in pixel space
         face_bbox_gen: Optional[List[float]] = None, # Optional per-sample face boxes (x0,y0,x1,y1) in pixel space
         ba_target_visibility_mask: Optional[Any] = None,
+        ba_ownership_target: Optional[Any] = None,
+        ba_ownership_reference: Optional[Any] = None,
         mask_expansion_ratio: float = 1.0,
         mask_softness: float = 0.0,
         import_mask: Optional[str] = "../compare/testing/ref2_masks/keanu_gen_mask.png",        
@@ -836,6 +838,7 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             device=device,
             dtype=dtype,
         )
+        self._ba_raw_id_embeds = id_embeds[:, 0].to(device=device, dtype=torch.float32)
         prompt_embeds = self.id_encoder(id_pixel_values, prompt_embeds, class_tokens_mask, id_embeds)
         ##### BRANCHED ATTENTION - ALWAYS NEED ID EMBEDS #####
         
@@ -898,6 +901,34 @@ class PhotoMakerStableDiffusionXLPipeline(StableDiffusionXLPipeline):
             id_embeds=id_embeds,
             class_tokens_mask=class_tokens_mask,
         )
+        self._ba_automask_target_mask = None
+        if bool(getattr(self, "ba_automask_os_enabled", False)) and use_branched_attention:
+            if ba_ownership_target is None or ba_ownership_reference is None:
+                raise RuntimeError("CL39-X05 validation requires cached two-pass ownership maps")
+            from src.model.photomaker_branched.masking.ownership_maps import routing_masks
+
+            def batch_ownership(value):
+                return (
+                    value.float()
+                    if isinstance(value, torch.Tensor)
+                    else torch.stack([torch.as_tensor(item).float() for item in value])
+                )
+
+            target_values = batch_ownership(ba_ownership_target)
+            reference_values = batch_ownership(ba_ownership_reference)
+            if target_values.ndim == 3:
+                target_values = target_values.unsqueeze(0)
+            if reference_values.ndim == 3:
+                reference_values = reference_values.unsqueeze(0)
+            target_router, _, _ = routing_masks(
+                target_values, getattr(self, "ba_automask_reference_hair_weight", 0.35)
+            )
+            _, reference_router, _ = routing_masks(
+                reference_values, getattr(self, "ba_automask_reference_hair_weight", 0.35)
+            )
+            self._ba_automask_target_mask = target_router.cpu()
+            self._face_mask_t_ref = reference_router.cpu()
+            self._face_mask_ref = reference_router[:, 0].cpu().numpy()
         ##### BRANCHED ATTENTION - BIG BA BLOCK #####
 
         # 9. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline

@@ -1,0 +1,10 @@
+job:
+  description: "BA lineage audit parallel CL27/CL39 shards, authorized 10-GPU exception #nasilaev"
+  environment:
+    image: cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36
+  resource:
+    instance_type: a100.1gpu.8C.243G
+    processes: 1
+    workers: 4
+  script: "mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/BA_lineage_branch_audit_serv_r1 && TORCH_SHOW_CPP_STACKTRACES=1 NCCL_ASYNC_ERROR_HANDLING=1 bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/analysis_jobs/BA_lineage_branch_audit_serv_r1/package/dispatch_BA_lineage_branch_audit_parallel_4workers.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/BA_lineage_branch_audit_serv_r1/parallel_dispatch.stdout.log 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/BA_lineage_branch_audit_serv_r1/parallel_dispatch.stderr.log"
+  type: binary

@@ -1,0 +1,15 @@
+defaults:
+  - CL39_cosmic_null_key_confidence_router_24k
+  - _self_
+
+# INIT-R-NATIVE removes only the PhotoMaker-default delta from the explicit
+# reference branch Q/K/V base. Target/noise Q/K/V remain PM-effective.
+model:
+  ba_reference_qkv_pm_delta_scale: 0.0
+
+writer:
+  experiment_comment: >-
+    CL39 INIT-R-NATIVE: ref_to_q/k/v start from native SDXL weights while
+    noise_to_q/k/v retain SDXL plus PhotoMaker-default weights. Branch LoRA B
+    remains zero-initialized; all CL39 routing, objectives, trainables, data,
+    optimization, validation controls and the 24k budget are unchanged.

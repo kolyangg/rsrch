@@ -76,6 +76,10 @@ def patch_unet_attention_processors(
     from .residual_identity_ca_processor_v3 import (
         ResidualIdentityCrossAttnProcessorV3,
     )
+    from .extensions.intrinsic_identity_sidecar import (
+        IntrinsicIDTokenProjector,
+        IntrinsicIdentityCrossAttnProcessor,
+    )
 
     identity_ca_v2_enabled = bool(
         getattr(pipeline, "ba_identity_ca_v2_enabled", False)
@@ -83,8 +87,14 @@ def patch_unet_attention_processors(
     residual_identity_ca_v3_enabled = bool(
         getattr(pipeline, "ba_residual_identity_ca_v3_enabled", False)
     )
-    if identity_ca_v2_enabled and residual_identity_ca_v3_enabled:
-        raise RuntimeError("Hard and residual identity CA cannot both be enabled")
+    intrinsic_identity_ca_enabled = bool(
+        getattr(pipeline, "ba_intrinsic_id_sidecar_enabled", False)
+    )
+    if sum((identity_ca_v2_enabled, residual_identity_ca_v3_enabled, intrinsic_identity_ca_enabled)) > 1:
+        raise RuntimeError("Only one corrected identity CA may be enabled")
+    cl39x_settings = dict(getattr(pipeline, "cl39x_settings", {}) or {})
+    null_key_enabled = bool(getattr(pipeline, "ba_null_key_router_enabled", False))
+    null_key_groups = tuple(getattr(pipeline, "ba_null_key_router_groups", ()) or ())
 
     hardcase_mode = str(getattr(pipeline, "ba_hardcase_mode", "off") or "off").lower()
     hardcase_fallback_mode = str(
@@ -265,6 +275,7 @@ def patch_unet_attention_processors(
         BranchedCrossAttnProcessor,
         HardIdentityCrossAttnProcessorV2,
         ResidualIdentityCrossAttnProcessorV3,
+        IntrinsicIdentityCrossAttnProcessor,
     )
 
     # print(f'[TEMP DEBUG] mask in patch_unet_attention_processors: {mask}')
@@ -332,6 +343,20 @@ def patch_unet_attention_processors(
                 bool(processor.attention_ownership_enabled),
                 bool(processor.frequency_shared_schedule_enabled),
                 bool(processor.roi_teacher_enabled),
+                bool(processor.null_key_router_enabled),
+                bool(processor.valid_kv_enabled),
+                bool(processor.cycle_confidence_enabled),
+                bool(processor.ot_transport_enabled),
+                bool(processor.roi_route_enabled),
+                bool(processor.automask_os_enabled),
+                bool(processor.global_local_enabled),
+            )
+            in_null_group = null_key_enabled and any(
+                name.startswith(f"{group}.") for group in null_key_groups
+            )
+            selected_x = lambda prefix: bool(cl39x_settings.get(f"{prefix}_enabled", False)) and any(
+                name.startswith(f"{group}.")
+                for group in cl39x_settings.get(f"{prefix}_groups", ())
             )
             expected = (
                 expected_surface,
@@ -344,6 +369,13 @@ def patch_unet_attention_processors(
                 roi_teacher_enabled and any(
                     name.startswith(f"{group}.") for group in roi_teacher_groups
                 ),
+                in_null_group,
+                selected_x("ba_valid_kv"),
+                selected_x("ba_cycle_confidence"),
+                selected_x("ba_ot_transport"),
+                selected_x("ba_roi_route"),
+                bool(cl39x_settings.get("ba_automask_os_enabled", False)),
+                selected_x("ba_global_local"),
             )
             if actual != expected:
                 mismatched_frequency_extensions.append((name, actual, expected))
@@ -486,7 +518,11 @@ def patch_unet_attention_processors(
     setattr(pipeline, "_ba_semantic_processor_names", tuple(patchable_sa_names))
 
     identity_ca_names: list[str] = []
-    identity_ca_enabled = identity_ca_v2_enabled or residual_identity_ca_v3_enabled
+    identity_ca_enabled = (
+        identity_ca_v2_enabled
+        or residual_identity_ca_v3_enabled
+        or intrinsic_identity_ca_enabled
+    )
     if identity_ca_enabled:
         if architecture_version != "hard_replace_v1":
             raise RuntimeError("Corrected identity CA requires hard_replace_v1")
@@ -501,9 +537,9 @@ def patch_unet_attention_processors(
                 "Corrected identity CA forbids PhotoMaker/native face-output mixing"
             )
         group_attribute = (
-            "ba_identity_ca_v2_groups"
-            if identity_ca_v2_enabled
-            else "ba_residual_identity_ca_v3_groups"
+            "ba_identity_ca_v2_groups" if identity_ca_v2_enabled else
+            "ba_residual_identity_ca_v3_groups" if residual_identity_ca_v3_enabled else
+            "ba_intrinsic_id_sidecar_groups"
         )
         identity_groups = tuple(
             str(group)
@@ -537,9 +573,10 @@ def patch_unet_attention_processors(
             )
     identity_ca_name_set = set(identity_ca_names)
     setattr(pipeline, "_ba_identity_ca_processor_names", tuple(identity_ca_names))
+    intrinsic_tokens = None
 
     identity_token_indices = None
-    if identity_ca_enabled and class_tokens_mask is not None:
+    if (identity_ca_v2_enabled or residual_identity_ca_v3_enabled) and class_tokens_mask is not None:
         token_mask = class_tokens_mask.detach().to(dtype=torch.bool)
         if token_mask.ndim == 1:
             token_mask = token_mask.unsqueeze(0)
@@ -568,7 +605,8 @@ def patch_unet_attention_processors(
         for name, processor in current_procs.items()
         if isinstance(
             processor,
-            (HardIdentityCrossAttnProcessorV2, ResidualIdentityCrossAttnProcessorV3),
+            (HardIdentityCrossAttnProcessorV2, ResidualIdentityCrossAttnProcessorV3,
+             IntrinsicIdentityCrossAttnProcessor),
         )
     }
     if has_branched and installed_identity_ca_names != identity_ca_name_set:
@@ -587,6 +625,18 @@ def patch_unet_attention_processors(
         cross_attention_dim = pipeline.unet.config.cross_attention_dim
         if isinstance(cross_attention_dim, (list, tuple)):
             cross_attention_dim = cross_attention_dim[0]
+        if intrinsic_identity_ca_enabled:
+            projector = getattr(pipeline.unet, "ba_intrinsic_id_projector", None)
+            if projector is None:
+                projector = IntrinsicIDTokenProjector(
+                    input_dim=512,
+                    token_dim=int(getattr(pipeline, "ba_intrinsic_id_token_dim", 2048)),
+                    num_tokens=int(getattr(pipeline, "ba_intrinsic_id_num_tokens", 4)),
+                    hidden_dim=int(getattr(pipeline, "ba_intrinsic_id_projector_hidden", 2048)),
+                ).to(pipeline.device, dtype=torch.float32)
+                pipeline.unet.add_module("ba_intrinsic_id_projector", projector)
+            raw_id = getattr(pipeline, "_ba_raw_id_embeds", None)
+            intrinsic_tokens = None if raw_id is None else projector(raw_id)
         
         for name in pipeline.unet.attn_processors.keys():
             # Get hidden size
@@ -1014,6 +1064,25 @@ def patch_unet_attention_processors(
                             hardcase_roi_rms_cap=float(
                                 getattr(pipeline, "ba_hardcase_roi_rms_cap", 0.25)
                             ),
+                            null_key_router_enabled=(
+                                null_key_enabled and any(
+                                    name.startswith(f"{group}.") for group in null_key_groups
+                                )
+                            ),
+                            null_key_entropy_threshold=float(
+                                getattr(pipeline, "ba_null_key_entropy_threshold", 0.75)
+                            ),
+                            null_key_temperature=float(
+                                getattr(pipeline, "ba_null_key_temperature", 0.08)
+                            ),
+                            null_key_max_abstention=float(
+                                getattr(pipeline, "ba_null_key_max_abstention", 0.75)
+                            ),
+                            null_key_min_reference_fraction=float(
+                                getattr(pipeline, "ba_null_key_min_reference_fraction", 0.25)
+                            ),
+                            cl39x_settings=cl39x_settings,
+                            processor_name=name,
                         )
                     proc.init_from_attention(_resolve_attn_module(pipeline.unet, name))
                     if architecture_version in {
@@ -1047,6 +1116,7 @@ def patch_unet_attention_processors(
                         torch.float32
                         if (
                             residual_identity_ca_v3_enabled
+                            or intrinsic_identity_ca_enabled
                             or trainable_dtype_name in {"fp32", "float32"}
                         )
                         else None
@@ -1060,7 +1130,7 @@ def patch_unet_attention_processors(
                             ),
                             trainable_dtype=identity_trainable_dtype,
                         )
-                    else:
+                    elif residual_identity_ca_v3_enabled:
                         proc = ResidualIdentityCrossAttnProcessorV3(
                             hidden_size=hidden_size,
                             cross_attention_dim=int(cross_attention_dim),
@@ -1089,6 +1159,15 @@ def patch_unet_attention_processors(
                                 identity_trainable_dtype or torch.float32
                             ),
                         )
+                    else:
+                        proc = IntrinsicIdentityCrossAttnProcessor(
+                            hidden_size=hidden_size,
+                            cross_attention_dim=int(cross_attention_dim),
+                            rank=int(getattr(pipeline, "ba_intrinsic_id_residual_rank", 64)),
+                            gate_init=float(getattr(pipeline, "ba_intrinsic_id_gate_init", 0.01)),
+                            gate_max=float(getattr(pipeline, "ba_intrinsic_id_gate_max", 0.15)),
+                            trainable_dtype=torch.float32,
+                        )
                     proc.init_from_attention(
                         _resolve_attn_module(pipeline.unet, name)
                     )
@@ -1100,10 +1179,10 @@ def patch_unet_attention_processors(
                             dtype=pipeline.unet.dtype,
                         )
                     proc.set_masks(_mask, _mref)
-                    proc.set_class_tokens_mask(
-                        class_tokens_mask,
-                        identity_token_indices,
-                    )
+                    if isinstance(proc, IntrinsicIdentityCrossAttnProcessor):
+                        proc.set_intrinsic_id_tokens(intrinsic_tokens)
+                    else:
+                        proc.set_class_tokens_mask(class_tokens_mask, identity_token_indices)
                     new_procs[name] = proc
                     patched_proc_names.append(name)
                 elif disable_ca:
@@ -1147,6 +1226,12 @@ def patch_unet_attention_processors(
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
     else:
         patched_proc_names: list[str] = []
+        if intrinsic_identity_ca_enabled:
+            raw_id = getattr(pipeline, "_ba_raw_id_embeds", None)
+            intrinsic_tokens = (
+                None if raw_id is None
+                else pipeline.unet.ba_intrinsic_id_projector(raw_id)
+            )
         # Update masks on existing processors
         for name, proc in pipeline.unet.attn_processors.items():
             if isinstance(
@@ -1156,6 +1241,7 @@ def patch_unet_attention_processors(
                     BranchedCrossAttnProcessor,
                     HardIdentityCrossAttnProcessorV2,
                     ResidualIdentityCrossAttnProcessorV3,
+                    IntrinsicIdentityCrossAttnProcessor,
                 ),
             ):
                 patched_proc_names.append(name)
@@ -1171,14 +1257,15 @@ def patch_unet_attention_processors(
                     (
                         HardIdentityCrossAttnProcessorV2,
                         ResidualIdentityCrossAttnProcessorV3,
+                        IntrinsicIdentityCrossAttnProcessor,
                     ),
                 ):
                     # 4 Aug 2026 - ID-token membership changes with the current
                     # prompt/CFG batch and must be refreshed on every forward.
-                    proc.set_class_tokens_mask(
-                        class_tokens_mask,
-                        identity_token_indices,
-                    )
+                    if isinstance(proc, IntrinsicIdentityCrossAttnProcessor):
+                        proc.set_intrinsic_id_tokens(intrinsic_tokens)
+                    else:
+                        proc.set_class_tokens_mask(class_tokens_mask, identity_token_indices)
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
 
     pose_adapt_ratio = float(getattr(pipeline, "pose_adapt_ratio", 0.0))

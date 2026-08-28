@@ -1,0 +1,35 @@
+{
+  "scope": "CL39 24k fixed-96 A/B/C/D identity-source crossing at inference seeds 1, 2, and 3",
+  "submitted_at": "2026-08-27",
+  "ten_gpu_exception": {
+    "authorized": true,
+    "scope": "these three one-GPU multiseed validation jobs",
+    "expected_project_gpu_total_after_submission": 8
+  },
+  "immutable_parent_comet_key": "b1ca0b3da679401c85b991f1bbdf0b2a",
+  "checkpoint_sha256": "74f61d03ccb94cae9569c158d2f9369eb3dd5274070ef74ee254b926656fbd07",
+  "source_manifest_sha256": "9566862387800eded64c8972461b873ddd9ac9c86fd1cd27ae23425a27a2d10f",
+  "jobs": {
+    "seed_1": {
+      "launcher": "package/run_seed1_1gpu.yaml",
+      "mls_job": "lm-mpi-job-f1f0c20e-4941-4499-bd0b-14d823bbc7eb",
+      "submission_status": "Completed; platform error code 0; A/B/C/D gates accepted with 96/96 images per arm"
+    },
+    "seed_2": {
+      "launcher": "package/run_seed2_1gpu.yaml",
+      "mls_job": "lm-mpi-job-91332acd-1a05-4fd2-8f8c-345b79f2e50a",
+      "submission_status": "Completed; platform error code 0; A/B/C/D gates accepted with 96/96 images per arm"
+    },
+    "seed_3": {
+      "launcher": "package/run_seed3_1gpu.yaml",
+      "mls_job": "lm-mpi-job-7086f60e-f2b4-49fb-b367-7cd379379470",
+      "submission_status": "Completed; platform error code 0; A/B/C/D gates accepted with 96/96 images per arm"
+    }
+  },
+  "superseded_pre_generation_failures": {
+    "cause": "The first package reused a scientifically unchanged but runtime-dirty source directory; fail-closed manifest verification rejected prior Hydra/debug outputs.",
+    "seed_1": "lm-mpi-job-b70138a6-0c03-4a7b-8d4b-f9f94491a0c1",
+    "seed_2": "lm-mpi-job-632bf50f-3c94-445c-ad4a-6481898f9b5d",
+    "seed_3": "lm-mpi-job-28c2f8f9-589b-468c-9dc4-66761e8cf0ef"
+  }
+}

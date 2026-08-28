@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "run_name": "CL45_cosmic_ba_pcgrad_24k_full96_r3",
+  "plan": {
+    "status": "running",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 8,
+    "objective": "Prevent CL27 main-versus-frequency-auxiliary gradient conflict without changing inference.",
+    "baseline": "CL27_cosmic_frequency_surface_energy_24k_full96_r3",
+    "single_scientific_change": "Asymmetric PCGrad on BA tensors only.",
+    "config": "src/configs/CL45_cosmic_ba_pcgrad_24k.yaml",
+    "launcher": "launchers/active/run_CL38_CL45_cl27_architecture_1gpu.sh",
+    "comet_project": "aug-large-ds"
+  },
+  "runtime": {
+    "source_revision": "cl38-cl45-v3-datasetlink-20260819",
+    "serv_job_id": "lm-mpi-job-ee3e0930-1b66-46bf-a4be-3bcae58a0208",
+    "comet_experiment_key": "bfb129031773494f881ea629ced3fe60",
+    "startup_verified": true,
+    "startup_evidence": "sealed source, Hydra/spec validation, 64-sample dataset preflight, fixed manual_val path, immutable Comet key"
+  }
+}

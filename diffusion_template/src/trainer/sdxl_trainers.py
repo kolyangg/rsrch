@@ -611,6 +611,14 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         # (bs==sm is a valid "start from step 0" configuration.)
         branched_expected = bool(use_branched_attention) and (bs < nsteps)
         auto_bbox_enabled = bool(automatic_bboxes and use_gen_mask and branched_expected)
+        automask_validation = bool(
+            getattr(getattr(self, "pipe", None), "ba_automask_os_enabled", False)
+        )
+        if automask_validation:
+            if not auto_bbox_enabled or not automatic_bboxes_every_val:
+                raise RuntimeError(
+                    "CL39-X05 requires a BA-disabled preview at every validation event"
+                )
         force_cached_auto_bbox_log = bool(
             auto_bbox_enabled
             and (not automatic_bboxes_every_val)
@@ -775,6 +783,7 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         ]
         debug_dir = self.config.validation_args.get("debug_dir", None) if val_debug else None
         sample_mask_images = [None] * batch_size
+        automask_target_maps = [None] * batch_size
 
         # Match infer.py: if a filename-keyed bbox map is provided, override face_bbox_gen by exact output name
         keys = [None] * batch_size
@@ -810,6 +819,8 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                     manual_entry = None
 
                 force_manual = bool(isinstance(manual_entry, dict) and manual_entry.get("force_manual", False))
+                if automask_validation and force_manual:
+                    raise RuntimeError("CL39-X05 forbids manual validation-mask overrides")
                 if force_manual:
                     entry = manual_entry
 
@@ -890,6 +901,31 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                     self._gen_bbox_by_name[key] = entry
                     entries[idx] = entry
 
+                    if automask_validation:
+                        from src.model.photomaker_branched.masking.automask_os import (
+                            PinnedAutoMaskBuilder,
+                        )
+                        if not hasattr(self, "_automask_os_validation_builder"):
+                            self._automask_os_validation_builder = PinnedAutoMaskBuilder(
+                                device=self.device,
+                                policy_version=str(getattr(
+                                    self.pipe, "ba_automask_os_policy_version", "automask_os_v1"
+                                )),
+                                score_threshold=float(getattr(
+                                    self.pipe, "ba_automask_subject_score_threshold", 0.35
+                                )),
+                                margin_threshold=float(getattr(
+                                    self.pipe, "ba_automask_subject_margin_threshold", 0.05
+                                )),
+                            )
+                        expected = entry.get("face_crop_new") or entry.get("face_crop_old")
+                        refs = get_sample_refs(idx)
+                        refs = list(refs) if isinstance(refs, (list, tuple)) else [refs]
+                        maps = self._automask_os_validation_builder.build(
+                            pm_img, refs[0], expected_location=expected,
+                        )
+                        automask_target_maps[idx] = maps.probabilities
+
                     try:
                         line_w = int(getattr(self._auto_bbox_store, "line_width", 4))
                         face_box_orig = (
@@ -965,6 +1001,18 @@ class PhotomakerLoraTrainer(SDXLTrainer):
             subject_policy = subject_policies
         if subject_policy is not None:
             val_kwargs["face_subject_selection_policy"] = str(subject_policy)
+        ownership_target = get_value("ba_ownership_target", None)
+        ownership_reference = get_value("ba_ownership_reference", None)
+        if automask_validation:
+            if any(value is None for value in automask_target_maps):
+                raise RuntimeError("CL39-X05 preview ownership map was not built")
+            ownership_target = automask_target_maps
+            if ownership_reference is None:
+                raise RuntimeError("CL39-X05 requires precomputed reference ownership maps")
+        if ownership_target is not None:
+            val_kwargs["ba_ownership_target"] = ownership_target
+        if ownership_reference is not None:
+            val_kwargs["ba_ownership_reference"] = ownership_reference
         val_kwargs["debug_idx"] = int(batch_debug_idx)
         val_kwargs["debug_total"] = int(batch_debug_total)
         val_kwargs["val_debug"] = val_debug

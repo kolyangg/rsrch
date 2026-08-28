@@ -1,0 +1,31 @@
+defaults: [CL39_cosmic_null_key_confidence_router_24k, _self_]
+automatic_bboxes_every_val: true
+force_log_first_auto_bbox: false
+model:
+  cl39x_settings:
+    ba_automask_os_enabled: true
+    ba_automask_os_policy_version: automask_os_v1
+    ba_automask_reference_hair_weight: 0.35
+    ba_automask_subject_score_threshold: 0.35
+    ba_automask_subject_margin_threshold: 0.05
+    ba_automask_uncertain_native: true
+    ba_automask_two_pass_validation: true
+datasets:
+  train:
+    cosmic_large_adapted:
+      ownership_cache_root: ${oc.env:AUTOMASK_OS_CACHE_ROOT,../dataset_full/cache/automask_os_v1}
+      ownership_cache_required: true
+      ownership_policy_version: automask_os_v1
+  val:
+    manual_val:
+      ownership_cache_root: ${oc.env:AUTOMASK_OS_VAL_CACHE_ROOT,../dataset_full/cache/automask_os_val_v1}
+      ownership_cache_required: true
+      ownership_policy_version: automask_os_v1
+writer:
+  loss_names: [loss, loss_ba_aux, loss_ba_frequency_surface,
+    ba/automask/visible_face_fraction, ba/automask/hair_head_fraction,
+    ba/automask/accessory_fraction, ba/automask/occluder_fraction,
+    ba/automask/uncertain_fraction, ba/null_key/reference_fraction/all]
+  experiment_comment: >-
+    CL39-X05 changes only mask ownership: cached training/reference maps plus
+    a current-checkpoint BA-disabled preview replace bbox target routing.

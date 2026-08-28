@@ -1,0 +1,26 @@
+defaults:
+  - CL27_cosmic_frequency_surface_energy_24k
+  - _self_
+
+model:
+  ba_hardcase_telemetry_enabled: false
+  ba_landmark_canonical_kv_enabled: true
+  ba_landmark_canonical_kv_groups: [up_blocks.0, up_blocks.1]
+  ba_landmark_canonical_kv_mix: 0.50
+  ba_landmark_canonical_kv_min_confidence: 0.80
+
+trainer:
+  active_grad_norm_mode: requested_only
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_frequency_surface
+    - ba/canonical_kv/applied_fraction/all
+    - ba/canonical_kv/landmark_confidence/all
+    - ba/canonical_kv/native_vs_canonical_cosine/all
+    - ba/canonical_kv/correction_rms/all
+  experiment_comment: >-
+    CL41 vs CL27 adds only parameter-free five-landmark canonicalization of
+    reference K/V; missing or invalid metadata falls back to CL27.

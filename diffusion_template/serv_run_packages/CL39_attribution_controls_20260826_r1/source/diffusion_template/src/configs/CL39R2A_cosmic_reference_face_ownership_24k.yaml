@@ -1,0 +1,29 @@
+defaults:
+  - CL39_cosmic_null_key_confidence_router_24k
+  - _self_
+
+model:
+  ba_reference_face_ownership_enabled: true
+  ba_reference_face_ownership_groups: [up_blocks.0, up_blocks.1]
+  ba_reference_face_ownership_probability: 0.125
+  ba_reference_face_ownership_seed: 390024
+  ba_reference_face_ownership_ramp_start_step: 2000
+  ba_reference_face_ownership_ramp_end_step: 6000
+  ba_reference_face_ownership_max_strength: 1.0
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_frequency_surface
+    - ba/null_key/null_mass/all
+    - ba/null_key/null_mass/up0
+    - ba/null_key/null_mass/up1
+    - ba/null_key/reference_fraction/all
+    - ba/null_key/object_minus_visible_mass/all
+    - ba/r2/ownership/selected_fraction/all
+    - ba/r2/ownership/strength/all
+    - ba/r2/ownership/raw_delta_native_ratio/all
+  experiment_comment: >-
+    CL39-R2-A vs CL39 adds only deterministic training-time reference-face
+    ownership exposure in up0/up1; validation and inference remain exact CL39.

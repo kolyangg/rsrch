@@ -25,6 +25,7 @@ CONFIG_DIR = Path(__file__).resolve().parents[2] / "src" / "configs"
 # Reference-face area band observed on large_dataset targets (7.32% median).
 SCENE_REF_AREA_BAND = (2.0, 22.0)
 MAX_TRUNCATED_PROMPT_FRACTION = 0.05
+CL39_CHILDREN = {f"CL39X0{index}" for index in range(1, 9)}
 
 
 def short_side(bbox) -> float:
@@ -187,7 +188,7 @@ def main() -> None:
         "CL15", "CL16", "CL17", "CL18", "CL19", "CL21", "CL22",
         "CL23", "CL24", "CL25", "CL26", "CL27", "CL28", "CL29",
         "CL30", "CL31", "CL32", "CL33", "CL34", "CL35", "CL36", "CL37",
-    ):
+    ) or arm in CL39_CHILDREN:
         if ref_sizes != {(1024, 1024)}:
             failures.append(f"{arm} canvases must be 1024x1024, saw {ref_sizes}")
         med = report["reference_face_area_pct"]["median"] / 100.0
@@ -261,7 +262,7 @@ def main() -> None:
     if arm in {
         "CL17", "CL22", "CL24", "CL27", "CL30", "CL31", "CL32",
         "CL33", "CL34", "CL35", "CL36", "CL37",
-    }:
+    } | CL39_CHILDREN:
         report["synthetic_occluder_fraction"] = supervised_occluders / len(picks)
         if not 0.10 <= report["synthetic_occluder_fraction"] <= 0.40:
             failures.append(

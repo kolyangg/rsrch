@@ -1,0 +1,33 @@
+{
+  "submitted_at": "2026-08-26",
+  "gpu_policy": "User-authorized project ceiling of 10 A100 GPUs for the five blueprint experiments and two attribution controls.",
+  "runs": {
+    "CL39R2D_cosmic_pm_target_condition_dropout_24k_full96_r1": {
+      "final_mls_job": "lm-mpi-job-8465ba02-25ef-480e-a5df-90cad9d9a25c",
+      "immutable_comet_key": "effe322abe4e4a56adc63c7b7e516464",
+      "source_revision": "4ac98179dc9f9d78f969954da22e975fa8bdc2e2+clean_full-cl39-blueprint-e2e3-20260826-r2",
+      "launcher": "run_CL39R2D_pm_target_condition_dropout_1gpu.yaml",
+      "startup_evidence": "Step-zero fixed-96 validation completed; training logged batch 50."
+    },
+    "CL39R2E_cosmic_valid_key_attention_24k_full96_r1": {
+      "final_mls_job": "lm-mpi-job-d4a31f03-36a3-40c3-a8e9-e4e44acaf765",
+      "immutable_comet_key": "858267db7062457cbe7ed476484e4a27",
+      "source_revision": "4ac98179dc9f9d78f969954da22e975fa8bdc2e2+clean_full-cl39-blueprint-e2e3-20260826-r3",
+      "launcher": "run_CL39R2E_valid_key_attention_1gpu.yaml",
+      "startup_evidence": "Final startup monitoring recorded in docs/handoffs/LATEST.md."
+    }
+  },
+  "superseded_attempts": {
+    "missing_checkpoint_manifest_provenance": [
+      "lm-mpi-job-d2339e2b-319a-4816-98fb-08baa2e05d22",
+      "lm-mpi-job-9246d178-452a-471b-a55f-0f7fd97e1e14"
+    ],
+    "unsealed_generated_source_files": [
+      "lm-mpi-job-dd48f449-6541-4c1d-b9d2-10ebe9baebd6",
+      "lm-mpi-job-5b805d5c-b927-41f5-8e70-0073cd2a7a97"
+    ],
+    "e3_mask_support_consistency_audit": [
+      "lm-mpi-job-051af5dc-eb74-411c-8737-fc44d40e1294"
+    ]
+  }
+}

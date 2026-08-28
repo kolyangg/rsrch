@@ -1,0 +1,21 @@
+defaults: [CL39_cosmic_null_key_confidence_router_24k, _self_]
+model:
+  cl39x_settings:
+    ba_counterfactual_enabled: true
+    ba_counterfactual_probability: 0.25
+    ba_counterfactual_wrong_fraction: 0.50
+    ba_counterfactual_null_fraction: 0.50
+    ba_counterfactual_outside_weight: 0.02
+    ba_counterfactual_rank_weight: 0.02
+    ba_counterfactual_rank_margin: 0.01
+writer:
+  loss_names: [loss, loss_ba_aux, loss_ba_frequency_surface,
+    loss_ba_counterfactual, ba/counterfactual/applied_fraction,
+    ba/counterfactual/outside_loss, ba/counterfactual/rank_loss,
+    ba/counterfactual/correct_face_error,
+    ba/counterfactual/counterfactual_face_error,
+    ba/counterfactual/outside_delta, ba/counterfactual/wrong_fraction,
+    ba/counterfactual/null_fraction]
+  experiment_comment: >-
+    CL39-X06 changes only training supervision: a deterministic 25-percent
+    wrong/null spatial-reference objective; inference is exactly CL39.

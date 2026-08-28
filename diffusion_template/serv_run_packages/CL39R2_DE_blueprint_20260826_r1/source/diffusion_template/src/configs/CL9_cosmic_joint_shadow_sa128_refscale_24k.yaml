@@ -1,0 +1,34 @@
+defaults:
+  - CL4_cosmic_joint_shadow_sa128_hygiene_24k
+  - _self_
+
+# CL9 = CL4 + reference face scale calibrated to the inference range.
+#
+# The model renders a face at the scale its training references had. Cosmic
+# crops put the face at ~42% of the reference frame; the validation references
+# span 6.2%-50.4%. Every undersized face in every CL arm belongs to the three
+# identities whose reference face is below 8% (jensen, jisoo, keanu); E13,
+# trained at ~8.6%, has none.
+#
+# CL2 proved scale control fixes it (1 undersized vs 6-12) but collapsed on
+# id_sim, plausibly because it locked the reference face to exactly the target's
+# scale AND position - letting the branch learn an in-place copy that does not
+# transfer. CL9 keeps the scale control and removes both degeneracies: sample
+# the face fraction across the inference range, and jitter the position.
+datasets:
+  train:
+    cosmic_large_adapted:
+      reference_crop_margin: null
+      reference_content_size: null
+      reference_canvas_size: null
+      reference_frame_mode: target_face_frame
+      reference_frame_fill: edge
+      reference_scale_jitter: [0.06, 0.30]
+      reference_position_jitter: 0.15
+
+writer:
+  experiment_comment: >-
+    CL9 vs CL4 composites the reference into a 1024 canvas with its face sampled
+    across the 6-30% inference range and a jittered position, calibrating render
+    scale without CL2's fixed-scale/in-place-copy degeneracy. Primary metric is
+    face scale (undersized count), id_sim secondary.

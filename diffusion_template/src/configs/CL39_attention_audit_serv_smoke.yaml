@@ -1,0 +1,29 @@
+defaults:
+  - CL39_cosmic_null_key_confidence_router_24k
+  - override writer: console
+  - _self_
+
+# Evaluation-only replay through the exact trainer validation path.
+validation_only: true
+validation_epoch: 12
+val_datasets_names: [manual_val]
+
+datasets:
+  val:
+    manual_val:
+      _target_: src.datasets.manual_val_subset.IndexedManualPhotoMakerValDataset
+      # Preserve the sealed 12-image per-identity batch; subsetting to a single
+      # item changes the Diffusers batched execution trajectory.
+      indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+
+trainer:
+  from_pretrained: ${oc.env:CL39_CHECKPOINT}
+  save_dir: ${oc.env:CL39_AUDIT_SAVE_DIR}
+  face_quality:
+    enabled: false
+  log_per_image_id_sim_table: false
+
+writer:
+  run_name: CL39_attention_audit_serv_trainer_smoke
+
+validation_debug_timing: true

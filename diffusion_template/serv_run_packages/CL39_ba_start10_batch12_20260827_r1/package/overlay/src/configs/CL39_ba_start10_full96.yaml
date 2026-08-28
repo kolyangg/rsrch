@@ -1,0 +1,27 @@
+defaults:
+  - CL39_cosmic_null_key_confidence_router_24k
+  - override writer: console
+  - _self_
+
+# Explicit validation-only full-96 BA-start timing comparison.
+validation_only: true
+validation_epoch: 12
+val_datasets_names: [manual_val]
+inference_metrics: []
+
+# Keep the model/checkpoint architecture contract unchanged (PM=10, BA=15).
+# Only the inference call receives the experimental BA=10 boundary.
+validation_args:
+  branched_attn_start_step: 10
+
+trainer:
+  from_pretrained: ${oc.env:CL39_CHECKPOINT}
+  save_dir: ${oc.env:CL39_BA10_SAVE_DIR}
+  face_quality:
+    enabled: false
+  log_per_image_id_sim_table: false
+
+writer:
+  run_name: CL39_24k_full96_ba_start10_r1
+
+validation_debug_timing: true

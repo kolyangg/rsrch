@@ -1,0 +1,28 @@
+{
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "9c85785791367eaed43e69181e946db193319d82817ae8686131dd733362985b"
+    },
+    {
+      "path": "package/run_seed1_1gpu.yaml",
+      "sha256": "650cfce13eb47b1247a6a8f68ff1d73eb83c2731f83b1a6e222b6dac0224376a"
+    },
+    {
+      "path": "package/run_seed2_1gpu.yaml",
+      "sha256": "7d2f727160da9a6416d117b25f162121848092aa2ffd14ad285a0a845cdabe4d"
+    },
+    {
+      "path": "package/run_seed3_1gpu.yaml",
+      "sha256": "de58b224007f20084ca092d39e32b22fcc5b02523d465f79d41c19aa702d90e0"
+    },
+    {
+      "path": "package/setup_cl39_crossing_multiseed.sh",
+      "sha256": "3647b23732d9ea628014efbac8732666dd9de26571f389238c4d9a3772e3c868"
+    },
+    {
+      "path": "package/start_cl39_identity_crossing_seed.sh",
+      "sha256": "83f9cb458d93041c8263bf258b6eeb2df17b2df45c9982174d057c31a1e53ed3"
+    }
+  ]
+}

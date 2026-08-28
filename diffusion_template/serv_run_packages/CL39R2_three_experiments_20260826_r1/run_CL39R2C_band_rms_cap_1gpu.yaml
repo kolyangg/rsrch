@@ -1,0 +1,10 @@
+job:
+  description: "CL39-R2-C fixed low-high face-RMS caps 24k fixed96 r1 one A100 #nasilaev"
+  environment:
+    image: cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36
+  resource:
+    instance_type: a100.1gpu.8C.243G
+    processes: 1
+    workers: 1
+  script: "mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL39R2C_cosmic_band_rms_cap_24k_full96_r1 && RUN_NAME=CL39R2C_cosmic_band_rms_cap_24k_full96_r1 CONFIG_NAME=CL39R2C_cosmic_band_rms_cap_24k bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_sources_cl39r2_v1/package/start_cl39r2_1gpu.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL39R2C_cosmic_band_rms_cap_24k_full96_r1/stdout_1gpu.log 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL39R2C_cosmic_band_rms_cap_24k_full96_r1/stderr_1gpu.log"
+  type: binary

@@ -1,0 +1,24 @@
+defaults:
+  - CL27_cosmic_frequency_surface_energy_24k
+  - _self_
+
+model:
+  ba_hardcase_telemetry_enabled: false
+  ba_null_key_router_enabled: true
+  ba_null_key_router_groups: [up_blocks.0, up_blocks.1]
+  ba_null_key_entropy_threshold: 0.75
+  ba_null_key_temperature: 0.08
+  ba_null_key_max_abstention: 0.75
+  ba_null_key_min_reference_fraction: 0.25
+
+trainer:
+  active_grad_norm_mode: requested_only
+
+writer:
+  loss_names: [loss, loss_ba_aux, loss_ba_frequency_surface,
+    ba/null_key/null_mass/all, ba/null_key/null_mass/up0,
+    ba/null_key/null_mass/up1, ba/null_key/reference_fraction/all,
+    ba/null_key/object_minus_visible_mass/all]
+  experiment_comment: >-
+    CL39 vs CL27 adds only parameter-free entropy abstention from unmatched
+    reference K/V, with native target self-attention as fallback.

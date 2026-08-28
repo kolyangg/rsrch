@@ -1,0 +1,21 @@
+defaults: [CL39_cosmic_null_key_confidence_router_24k, _self_]
+model:
+  cl39x_settings:
+    ba_ot_transport_enabled: true
+    ba_ot_transport_groups: [up_blocks.0, up_blocks.1]
+    ba_ot_grid_size: 16
+    ba_ot_epsilon: 0.05
+    ba_ot_iterations: 20
+    ba_ot_coordinate_weight: 0.15
+    ba_ot_transition_start: 0.50
+    ba_ot_transition_end: 0.70
+    ba_ot_late_top_k: 4
+    ba_ot_min_valid_tokens: 8
+    ba_ot_detach_plan: true
+writer:
+  loss_names: [loss, loss_ba_aux, loss_ba_frequency_surface,
+    ba/ot/valid_fraction/all, ba/ot/plan_entropy/all, ba/ot/displacement/all,
+    ba/ot/row_error/all, ba/ot/col_error/all, ba/ot/late_fraction/all]
+  experiment_comment: >-
+    CL39-X03 changes only reference-message construction: detached early OT
+    transitions to late top-k refinement; CL39 confidence/losses are unchanged.

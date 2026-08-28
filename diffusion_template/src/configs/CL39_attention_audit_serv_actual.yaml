@@ -1,0 +1,29 @@
+defaults:
+  - CL39_cosmic_null_key_confidence_router_24k
+  - override writer: console
+  - _self_
+
+# Exact 96-image sealed replay with analysis-only processor telemetry enabled.
+validation_only: true
+validation_epoch: 12
+val_datasets_names: [manual_val]
+inference_metrics: []
+
+trainer:
+  from_pretrained: ${oc.env:CL39_CHECKPOINT}
+  save_dir: ${oc.env:CL39_AUDIT_SAVE_DIR}
+  face_quality:
+    enabled: false
+  log_per_image_id_sim_table: false
+
+writer:
+  run_name: CL39_attention_audit_serv_actual
+
+validation_args:
+  cl39_analysis_enabled: true
+  cl39_analysis_capture: true
+  cl39_analysis_output_dir: ${oc.env:CL39_TELEMETRY_DIR}
+  cl39_analysis_selected_indices: [1, 7, 13, 17, 33, 35, 38, 40, 51, 55, 63, 69, 78, 80, 87, 93]
+  cl39_analysis_delta_scale: 1.0
+
+validation_debug_timing: true

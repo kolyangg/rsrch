@@ -11,6 +11,7 @@ from src.metrics.face_quality_validation import FaceQualityValidationSession
 from src.metrics.tracker import MetricTracker
 from src.utils.io_utils import ROOT_PATH
 from hydra.utils import instantiate
+from src.model.photomaker_branched.cl39x_contract import cl39x_runtime_attributes
 
 import os
 import time
@@ -1016,6 +1017,14 @@ class BaseTrainer:
                         "ba_hardcase_roi_gate_min",
                         "ba_hardcase_roi_progress_min",
                         "ba_hardcase_roi_rms_cap",
+                        "ba_null_key_router_enabled",
+                        "ba_null_key_router_groups",
+                        "ba_null_key_entropy_threshold",
+                        "ba_null_key_temperature",
+                        "ba_null_key_max_abstention",
+                        "ba_null_key_min_reference_fraction",
+                        "cl39x_settings",
+                        *cl39x_runtime_attributes(),
                     ):
                         if hasattr(_val_model, attribute):
                             setattr(
@@ -1143,6 +1152,11 @@ class BaseTrainer:
                 ),
             )
             self._log_scalars(self.evaluation_metrics, part)
+
+        if hasattr(self, "_automask_os_validation_builder"):
+            del self._automask_os_validation_builder
+            gc.collect()
+            torch.cuda.empty_cache()
 
         if validation_pose_restore is not None and hasattr(self, "pipe"):
             self.pipe.pose_adapt_ratio = validation_pose_restore

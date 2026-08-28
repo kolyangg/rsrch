@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "run_name": "CL39_cosmic_null_key_confidence_router_24k_full96_r3",
+  "plan": {
+    "status": "failed_first_training_batch_telemetry_schema",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 2,
+    "objective": "Let target queries abstain from unmatched reference K/V and retain native SA.",
+    "baseline": "CL27_cosmic_frequency_surface_energy_24k_full96_r3",
+    "single_scientific_change": "Parameter-free normalized-entropy virtual-null confidence router.",
+    "config": "src/configs/CL39_cosmic_null_key_confidence_router_24k.yaml",
+    "launcher": "launchers/active/run_CL38_CL45_cl27_architecture_1gpu.sh",
+    "comet_project": "aug-large-ds"
+  },
+  "runtime": {
+    "source_revision": "cl38-cl45-v3-datasetlink-20260819",
+    "serv_job_id": "lm-mpi-job-5e48d8fd-466d-46c8-92bb-b5cc89a8ced7",
+    "comet_experiment_key": "6075c6f907bb4e81a1b436d8839b572f",
+    "startup_verified": true,
+    "startup_evidence": "sealed source, Hydra/spec validation, 64-sample dataset preflight, fixed manual_val path, immutable Comet key",
+    "failure": "Step-0 validation completed; first training forward failed in detached telemetry aggregation because zero-only CL27 collectors were installed outside their declared groups. Superseded by CL39 r4."
+  }
+}

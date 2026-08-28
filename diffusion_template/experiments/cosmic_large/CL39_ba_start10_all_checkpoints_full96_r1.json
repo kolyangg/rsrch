@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "run_name": "CL39_ba_start10_all_checkpoints_full96_r1",
+  "plan": {
+    "status": "completed",
+    "machine": "serv",
+    "gpus": 1,
+    "validation_only": true,
+    "single_comet_run": true,
+    "parent_run": "CL39_cosmic_null_key_confidence_router_24k_full96_r4",
+    "parent_comet_key": "b1ca0b3da679401c85b991f1bbdf0b2a",
+    "validation_steps": [0, 2000, 4000, 6000, 8000, 10000, 12000, 14000, 16000, 18000, 20000, 22000, 24000],
+    "images_per_step": 96,
+    "single_scientific_change": "At validation, start branched attention at denoising step 10 instead of 15; PhotoMaker remains at step 10.",
+    "config": "serv_run_packages/CL39_ba_start10_all_checkpoints_20260827_r1/package/overlay/src/configs/CL39_ba_start10_all_checkpoints_full96.yaml",
+    "mls_yaml": "serv_run_packages/CL39_ba_start10_all_checkpoints_20260827_r1/run_CL39_ba_start10_all_checkpoints_1gpu.yaml",
+    "comet_project": "aug-large-ds"
+  },
+  "runtime": {
+    "source_revision": "CL39-attribution-plus-equal-start-multicheckpoint-comet-r1-20260827",
+    "source_manifest_sha256": "2c3df3293cd81421d582435e28d80bdfe3263dfbf562a72c6e7d2c01e9e8edbe",
+    "checkpoint_manifest_sha256": "9d5cc8518c9fe2834177898dcb0b496c4af9f9e0df40e6daa193831ca1ca3fd8",
+    "mls_job_id": "lm-mpi-job-f356f502-4f6d-49b4-8661-fd4009ff6595",
+    "submitted_at": "2026-08-27T22:28:21+01:00",
+    "startup_status": "completed_13_of_13_validations",
+    "completed_at": "2026-08-28T06:38:00+01:00",
+    "comet_experiment_key": "b854b0d17dd64f82ae5b5b969d70be4c",
+    "startup_gates": {
+      "platform_error_code": 0,
+      "source_files_verified": 1088,
+      "checkpoint_hashes_verified": 12,
+      "selector_contract": "passed",
+      "first_validation_step": 0,
+      "first_validation_images": 96,
+      "runtime_switch_proof": "step 10 -> BOTH"
+    },
+    "results": {
+      "validation_events": 13,
+      "images_per_event": 96,
+      "id_sim_peak": 0.565369,
+      "id_sim_peak_step": 16000,
+      "id_sim_step_24000": 0.558638,
+      "decision": "Retain the original BA start at denoising step 15."
+    }
+  }
+}

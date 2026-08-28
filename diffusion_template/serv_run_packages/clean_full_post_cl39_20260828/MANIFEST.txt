@@ -1,0 +1,22 @@
+# Clean-full post-CL39 working-tree patch
+
+This package preserves the compatible source delta that remained in the
+separate `clean_full` worktree while the consolidated reports and active
+CL39X implementation were committed on `test`.
+
+- Source branch/head: `clean_full` at
+  `4ac98179dc9f9d78f969954da22e975fa8bdc2e2`
+- Patch: `working_tree.patch`
+- Patch SHA-256:
+  `5230bcd9a9c435dccb4757b4cefdd3911c19f1351998ccdba4c742489d13a66b`
+- Patch size: `197887` bytes
+
+The patch is retained rather than overlaid onto `test` because `test` also
+contains the newer CL39X core changes in the same files. Blind replacement
+would discard those changes. Apply it only to a checkout of the recorded
+`clean_full` head, then use the focused validators documented in the 28 August
+report bundle.
+
+The experiment configs, immutable records, Serv launch packages, and analysis
+utilities referenced by the reports are committed separately in the same
+`test` commit; large generated images and checkpoints remain outside Git.

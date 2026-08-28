@@ -1,0 +1,30 @@
+_target_: src.trainer.sdxl_trainers.PhotomakerLoraTrainer
+device_tensors: ["pixel_values"]
+cfg_step: 10
+masked_loss_step: 2
+log_step: 50
+n_epochs: 10000
+epoch_len: 2000
+validation_interval_steps: 2000
+skip_initial_validation: false
+log_per_image_id_sim_table: true
+resume_from: null # null or path to the checkpoint dir with *.pth and config.yaml
+from_pretrained: null
+save_period: 1 # checkpoint each save_period epochs in addition to the best epoch
+save_dir: "saved"
+seed: 0
+max_grad_norm: null
+face_quality:
+  enabled: true
+  scorer_python: ${oc.env:FACE_QUALITY_SCORER_PYTHON,python}
+  scorer_script: tools/inference/calculate_face_quality_metrics.py
+  models: [topiq_nr-face, topiq_nr, musiq, maniqa-pipal]
+  device: auto
+  batch_size: 8
+  crop_padding: 0.25
+  crop_size: 512
+  expected_images: null
+  namespace: face_quality
+  include_partition_in_metric_name: auto
+  log_per_image_asset: true
+  keep_inputs: false

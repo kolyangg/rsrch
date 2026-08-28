@@ -1,0 +1,58 @@
+{
+  "job_name": "lm-mpi-job-a64df24d-350d-4cae-bdf5-8b31d2a5af29",
+  "submitted_status": "Pending",
+  "startup_status": "Running",
+  "created_at": 1787691630,
+  "gpu_count": 1,
+  "instance_type": "a100.1gpu.8C.243G",
+  "project_gpu_count_before_submission": 5,
+  "project_gpu_count_after_submission": 6,
+  "first_arm": "BA_lineage_CL19_actual",
+  "startup_checks": {
+    "package_manifest": "ok",
+    "source_manifest": "ok",
+    "checkpoint_hashes": "ok",
+    "attached_processor_count": 70,
+    "stderr_error_signature": false
+  },
+  "parallel_acceleration": {
+    "authorized_project_gpu_ceiling": 10,
+    "job_name": "lm-mpi-job-46454c8f-2967-4d12-9a28-a75d7232cf86",
+    "submitted_status": "Pending",
+    "startup_status": "Running",
+    "created_at": 1787692667,
+    "gpu_count": 4,
+    "project_gpu_count_before_submission": 6,
+    "project_gpu_count_after_submission": 10,
+    "shards": [
+      "CL27 actual/native/reference_face",
+      "CL27 low_only/high_only after actual replay gate",
+      "CL39 actual/native/reference_face",
+      "CL39 low_only/high_only/confidence_one after actual replay gate"
+    ]
+  },
+  "final_status": {
+    "status": "complete",
+    "completed_on": "2026-08-26",
+    "arm_count": 18,
+    "images_per_arm": 96,
+    "generated_image_count": 1728,
+    "actual_replay_parity": {
+      "CL19": "exact",
+      "CL23": "exact",
+      "CL27": "exact",
+      "CL39": "exact"
+    },
+    "cl23_recovery_job": "lm-mpi-job-c7456c95-415d-4ce4-9d3e-5026b5196440",
+    "cl23_checkpoint_sha256": "70201f0e82c9cb24aeb5adc27ad660e5e11aea8d29b6969c449ec39e3c8b379c",
+    "cl23_immutable_comet_key": "a9ec9c59d1624c68acb98737dcd65298",
+    "cl23_rejected_clean_branch_replay": {
+      "job": "lm-mpi-job-80541ec2-6f30-4292-9ca3-506255088b30",
+      "mean_rgb_mae": 0.00712213,
+      "maximum_image_mae": 0.01548564,
+      "maximum_absolute_difference": 1.0
+    },
+    "selected_scoring_archive_sha256": "7d0aaea3569b7397e6f9cabfa5d5664984aecc1e8cfcfe786e1825fbae6fcaf4",
+    "report": "analysis/2026-08-26_ba_lineage_r_frequency_confidence_audit.md"
+  }
+}

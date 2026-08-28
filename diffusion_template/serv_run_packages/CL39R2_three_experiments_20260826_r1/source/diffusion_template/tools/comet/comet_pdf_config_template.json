@@ -1,0 +1,71 @@
+{
+  "export_json": "../../comet_data/comet_runs_export.json",
+  "output_format": "pdf",
+  "max_columns": 6,
+  "max_rows": 4,
+  "ignore_mask": true,
+  "image_dpi_percent": null,
+  "run_name_max_chars_per_line": 16,
+  "markdown_source": null,
+  "page_order": [
+    "full_images",
+    "face_closeups",
+    "metric_charts",
+    "group_average_tables",
+    "hyperparameters"
+  ],
+  "hyperparameter_page_title": "Key Hyperparameters",
+  "face_closeups": {
+    "enabled": false,
+    "bbox_json": null,
+    "expected_sha256": null,
+    "bbox_field": "face_crop_new",
+    "bbox_coordinate_size": [1024, 1024],
+    "padding_ratio": 0.45,
+    "require_exact_keys": true,
+    "title": "Comet Run Face Region Comparison"
+  },
+  "metric_point_labels": {
+    "enabled": false,
+    "decimals": 3
+  },
+  "metric_reference_lines": {},
+  "per_image_metric": {
+    "enabled": false,
+    "column": "id_sim",
+    "label": "ID",
+    "decimals": 3
+  },
+  "group_average_tables": {
+    "enabled": false,
+    "metric_column": "id_sim",
+    "metric_label": "Subject-v2 ID Similarity",
+    "decimals": 3
+  },
+  "key_metrics": [
+    "one_id_val/id_sim",
+    "one_id_val/text_sim"
+  ],
+  "key_hyperparameters": [
+    "step_shown",
+    "model.weight_dtype",
+    "model.rank",
+    "dataloaders.train.batch_size",
+    "branched_attn_weight_mode",
+    "branched_attn_new_weight_kind",
+    "train_branched_ca_lora",
+    "lr_for_lora",
+    "loss_kind",
+    "lambda_face",
+    "strict_face_routing",
+    "trainer.masked_loss_step"
+  ],
+  "hyperparameter_labels": {},
+  "runs": [
+    {
+      "run_id": "REPLACE_WITH_COMET_EXPERIMENT_KEY",
+      "run_name": "optional short report label",
+      "hyperparameter_overrides": {}
+    }
+  ]
+}

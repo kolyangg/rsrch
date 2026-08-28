@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "run_name": "CL44_cosmic_semantic_window_gate_24k_full96_r3",
+  "plan": {
+    "status": "failed_step0_validation_dtype",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 6,
+    "objective": "Reduce risky high-frequency reference transfer outside useful time/agreement windows.",
+    "baseline": "CL27_cosmic_frequency_surface_energy_24k_full96_r3",
+    "single_scientific_change": "Parameter-free sample/time gate on only the high-frequency lane.",
+    "config": "src/configs/CL44_cosmic_semantic_window_gate_24k.yaml",
+    "launcher": "launchers/active/run_CL38_CL45_cl27_architecture_1gpu.sh",
+    "comet_project": "aug-large-ds"
+  },
+  "runtime": {
+    "source_revision": "cl38-cl45-v3-datasetlink-20260819",
+    "serv_job_id": "lm-mpi-job-216a104a-cf05-498e-9b36-3813dd8ccd31",
+    "comet_experiment_key": "1b99fc9dffc34cddbbffbfbb2437c697",
+    "startup_verified": true,
+    "startup_evidence": "sealed source, Hydra/spec validation, 64-sample dataset preflight, fixed manual_val path, immutable Comet key",
+    "failure": "per-sample fp32 semantic gate promoted BA residual and broke downstream bf16 SDXL LayerNorm during step-0 validation"
+  }
+}

@@ -1,0 +1,142 @@
+_target_: src.model.photomaker_branched.lora2.PhotomakerBranchedLora ### Modified to make attn_processor trainable in branched version ###
+pretrained_model_name_or_path: stabilityai/stable-diffusion-xl-base-1.0
+# pretrained_model_name_or_path: SG161222/RealVisXL_V4.0
+photomaker_path: ${oc.env:HOME}/.cache/huggingface/hub/models--TencentARC--PhotoMaker-V2/snapshots/f5a1e5155dc02166253fa7e29d13519f5ba22eac/photomaker-v2.bin
+weight_dtype: bf32
+target_size: 1024
+rank: 16
+photomaker_lora_rank: 64
+lora_modules:
+  - to_q
+  - to_k
+  - to_v
+  - to_out.0
+init_lora_weights: gaussian
+trigger_word: img
+pose_adapt_ratio: ${pipeline.pose_adapt_ratio}
+ca_mixing_for_face: ${pipeline.ca_mixing_for_face}
+face_embed_strategy: ${pipeline.face_embed_strategy}
+train_branch_mode: ${pipeline.train_branch_mode}
+photomaker_start_step: 10
+merge_start_step: 10
+branched_attn_start_step: 15
+num_inference_steps: 50
+# Runtime optimizations default to legacy behavior. Experiments opt in after
+# validating that their reference preprocessing is deterministic.
+skip_unused_text_conditioning: false
+conditioning_cache_enabled: false
+conditioning_cache_max_entries: 512
+face_subject_selection_policy: legacy_first
+cache_prepared_masks: false
+compute_branch_debug_outputs: true
+
+# Versioned attention architecture. Historical configs retain hard replacement
+# and inherited trainable precision unless they explicitly opt into BA-v2/v3.
+ba_architecture_version: hard_replace_v1
+branched_trainable_dtype: inherit
+ba_ref_kv_rank: null
+ba_output_rank: null
+ba_branch_q_rank: 16
+ba_face_fusion_mode: hard_reference_replace
+ba_face_branch_scale: 1.0
+ba_gate_init: 0.10
+ba_gate_max: 1.0
+ba_gate_timestep: true
+ba_gate_face_area: true
+# Anchored-mix v3 controls are inert for historical architectures.
+ba_mix_init: 0.50
+ba_mix_floor: 0.0
+ba_mix_max: 1.0
+ba_mix_timestep: true
+ba_mix_face_area: true
+ba_reference_rms_match: false
+ba_reference_rms_clip_min: 0.50
+ba_reference_rms_clip_max: 2.00
+ba_mix_override: null
+ba_telemetry_enabled: false
+ba_telemetry_interval: 50
+ba_reference_loss_mode: detached_diagnostic
+ba_require_denoise_progress: true
+ba_self_attention_groups: null
+ba_training_timestep_policy: uniform_all
+ba_spatial_reference_shuffle_probability: 0.0
+ba_install_on_device: false
+
+# Audited hard-v1 controls. All are defaults-off so historical checkpoints and
+# configs retain their original processor equation and manifest.
+ba_enforce_reference_only_hard_route: false
+ba_hard_v1_true_reference_key_mask: false
+ba_hard_v1_branch_output_rank: null
+ba_hard_v1_reference_roi_warp: false
+ba_hard_v1_lora_rank: null
+
+# CL15-CL19 hard-case routes. Every field is inert while mode=off.
+ba_hardcase_mode: "off"
+ba_hardcase_groups: null
+ba_hardcase_rank: 64
+ba_hardcase_gate_max: 0.20
+ba_hardcase_roi_size: 32
+ba_hardcase_face_threshold_px: 256
+ba_hardcase_transition_cells: 2
+ba_hardcase_ownership_hidden_dim: 128
+ba_hardcase_visible_face_floor: 0.20
+ba_semantic_ownership_loss_weight: 0.05
+ba_crossview_consistency_enabled: false
+ba_crossview_consistency_probability: 0.25
+ba_crossview_consistency_weight: 0.05
+
+# Corrected hard target-query/active-ID-token CA. This is separate from the
+# legacy branched CA toggle and defaults off for every historical run.
+ba_identity_ca_v2_enabled: false
+ba_identity_ca_v2_groups: null
+ba_identity_ca_v2_rank: 16
+
+# Bounded additive identity-token CA. Unlike E12, native CA is never replaced.
+ba_residual_identity_ca_v3_enabled: false
+ba_residual_identity_ca_v3_groups: null
+ba_residual_identity_ca_v3_rank: 64
+ba_residual_identity_ca_v3_gate_init: 0.02
+ba_residual_identity_ca_v3_gate_max: 0.20
+
+# Differentiable predicted-x0 identity supervision. Historical E16 keeps the
+# PhotoMaker CLIP backend; new runs may explicitly select a hash-pinned frozen
+# ArcFace graph. Every extension remains defaults-off.
+identity_aux_enabled: false
+identity_aux_cadence: 4
+identity_aux_max_timestep: 400
+identity_aux_ramp_start_step: 2000
+identity_aux_ramp_end_step: 6000
+identity_aux_max_weight: 0.05
+identity_aux_crop_padding: 0.25
+identity_aux_backend: photomaker_clip_v1
+identity_aux_model_path: null
+identity_aux_model_sha256: null
+identity_aux_dynamic_weight: false
+identity_aux_grad_target_ratio: 0.075
+identity_aux_grad_norm_interval: 200
+
+# 26 Aug 2026 - CL39-R2 independent experiments. Every switch defaults off so
+# historical CL39 keeps its exact processor equation and trainable manifest.
+ba_reference_face_ownership_enabled: false
+ba_reference_face_ownership_groups: null
+ba_reference_face_ownership_probability: 0.125
+ba_reference_face_ownership_seed: 390024
+ba_reference_face_ownership_ramp_start_step: 2000
+ba_reference_face_ownership_ramp_end_step: 6000
+ba_reference_face_ownership_max_strength: 1.0
+ba_band_reliability_gate_enabled: false
+ba_band_reliability_gate_groups: null
+ba_band_reliability_gate_feature_version: detached_v1
+ba_band_reliability_gate_hidden_dim: 16
+ba_band_reliability_gate_max_delta: 0.20
+ba_band_reliability_gate_init_seed: 390216
+ba_band_rms_cap_enabled: false
+ba_band_rms_cap_groups: null
+ba_band_rms_cap_low_ratio: 0.90
+ba_band_rms_cap_high_ratio: 0.45
+ba_band_rms_cap_epsilon: 1.0e-6
+
+# Defaults-off audited ownership extensions. Hard-v1 experiments may opt in to
+# historically effective outer adapter sites without reopening generic SA Q/K/V.
+generic_adapter_train_scope: none
+photomaker_default_train_scope: none

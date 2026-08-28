@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "run_name": "CL41_cosmic_landmark_canonical_kv_24k_full96_r2",
+  "plan": {
+    "status": "failed_startup_validation_path",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 3,
+    "objective": "Normalize reference geometry before target-query/reference-KV attention.",
+    "baseline": "CL27_cosmic_frequency_surface_energy_24k_full96_r3",
+    "single_scientific_change": "Parameter-free five-landmark canonical reference K/V mix.",
+    "config": "src/configs/CL41_cosmic_landmark_canonical_kv_24k.yaml",
+    "launcher": "launchers/active/run_CL38_CL45_cl27_architecture_1gpu.sh",
+    "comet_project": "aug-large-ds"
+  },
+  "runtime": {
+    "source_revision": "cl38-cl45-v2-preflightfix-20260819",
+    "serv_job_id": "lm-mpi-job-35e5c13e-8c4e-49a9-ae4d-8b79ef4f037b",
+    "comet_experiment_key": "85786e45a12440019cbef88326375dfa",
+    "failure": "sealed snapshot did not expose rsrch_test/dataset_full as ../dataset_full; manual_val construction failed before step 0"
+  }
+}

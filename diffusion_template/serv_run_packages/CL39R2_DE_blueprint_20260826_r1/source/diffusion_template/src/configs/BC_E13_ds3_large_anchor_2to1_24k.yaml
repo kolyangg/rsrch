@@ -1,0 +1,13 @@
+defaults:
+  - BC_E13_big_celebs_joint_shadow_sa128_24k
+  - _self_
+
+train_dataset_name: bc_e13_ds3
+
+writer:
+  experiment_comment: >-
+    E13 base; dataset-only BC_E13_ds3 change: deterministic 2:1
+    Large-to-BigCelebs mixture, with the BigCelebs share using ds2
+    scene-target/canonical-reference sampling and flip-safe captions.
+    Architecture, optimization, loss, seeds, and fixed-96 validation are
+    unchanged from E13/BC_E13.

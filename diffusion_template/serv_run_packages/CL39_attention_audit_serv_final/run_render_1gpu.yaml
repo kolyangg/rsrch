@@ -1,0 +1,10 @@
+job:
+  description: "CL39 24k attention audit assemble+render full16 #nasilaev"
+  environment:
+    image: cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36
+  resource:
+    instance_type: a100.1gpu.8C.243G
+    processes: 1
+    workers: 1
+  script: "mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL39_attention_audit_serv_render && TORCH_SHOW_CPP_STACKTRACES=1 bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/analysis_jobs/CL39_attention_audit_serv_final_actual/package/start_CL39_attention_audit_render.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL39_attention_audit_serv_render/stdout_1gpu.log 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL39_attention_audit_serv_render/stderr_1gpu.log"
+  type: binary

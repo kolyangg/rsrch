@@ -1,0 +1,27 @@
+defaults:
+  - CL27_cosmic_frequency_surface_energy_24k
+  - _self_
+
+model:
+  ba_hardcase_telemetry_enabled: false
+
+trainer:
+  ba_pcgrad_enabled: true
+  ba_pcgrad_scope: branched_sa_only
+  ba_pcgrad_interval: 1
+  ba_pcgrad_eps: 1.0e-12
+  active_grad_norm_mode: requested_only
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_frequency_surface
+    - ba/pcgrad/gradient_cosine
+    - ba/pcgrad/conflict_fraction
+    - ba/pcgrad/projection_norm
+    - ba/pcgrad/main_norm
+    - ba/pcgrad/aux_norm
+  experiment_comment: >-
+    CL45 vs CL27 changes only optimization: conflicting frequency-surface
+    gradients are projected on BA tensors while the main gradient is unchanged.

@@ -16,6 +16,11 @@ from PIL import Image, ImageDraw, ImageOps
 from src.datasets.base_dataset import BaseDataset
 from src.datasets.reference_frame import compose_target_frame_reference
 from src.datasets.reference_policy import apply_reference_policy, valid_bbox
+from src.model.photomaker_branched.masking.ownership_maps import (
+    load_cache_index,
+    load_indexed_ownership_maps,
+)
+from src.datasets.ownership_transforms import compose_target_frame_ownership
 
 
 logger = logging.getLogger(__name__)
@@ -152,6 +157,9 @@ class CosmicLargeAdaptedTrain(BaseDataset):
         semantic_occlusion_seed: int = 150017,
         same_identity_dual_reference: bool = False,
         min_reference_candidates_for_target: int = 3,
+        ownership_cache_root: str | None = None,
+        ownership_cache_required: bool = False,
+        ownership_policy_version: str = "automask_os_v1",
         *args,
         **kwargs,
     ):
@@ -274,6 +282,21 @@ class CosmicLargeAdaptedTrain(BaseDataset):
         )
         if self.min_reference_candidates_for_target < 2:
             raise ValueError("min_reference_candidates_for_target must be >= 2")
+        self.ownership_cache_root = (
+            None if ownership_cache_root is None else Path(ownership_cache_root)
+        )
+        self.ownership_cache_required = bool(ownership_cache_required)
+        self.ownership_policy_version = str(ownership_policy_version)
+        if self.ownership_cache_required and (
+            self.ownership_cache_root is None or not self.ownership_cache_root.is_dir()
+        ):
+            raise FileNotFoundError(
+                f"AutoMask-OS ownership cache is required: {self.ownership_cache_root}"
+            )
+        self.ownership_cache_index = (
+            load_cache_index(self.ownership_cache_root, self.ownership_policy_version)
+            if self.ownership_cache_root is not None else {}
+        )
 
         with self.manifest_path.open("r", encoding="utf-8") as handle:
             records = json.load(handle)
@@ -726,6 +749,53 @@ class CosmicLargeAdaptedTrain(BaseDataset):
                 self.dataset_root / alternate_record["path"]
             )
         instance_data = self.preprocess_data(instance_data)
+        if self.ownership_cache_root is not None:
+            target_cache_source = str(Path(target_path).absolute())
+            reference_cache_source = str(Path(resolved_reference_path).absolute())
+            target_identity = {
+                "kind": "target", "path": target_cache_source,
+                "policy": self.ownership_policy_version,
+            }
+            reference_identity = {
+                "kind": "reference_source", "path": reference_cache_source,
+                "policy": self.ownership_policy_version,
+            }
+            try:
+                target_maps = load_indexed_ownership_maps(
+                    self.ownership_cache_root, target_identity,
+                    self.ownership_policy_version, self.ownership_cache_index,
+                ).probabilities
+                reference_maps = load_indexed_ownership_maps(
+                    self.ownership_cache_root, reference_identity,
+                    self.ownership_policy_version, self.ownership_cache_index,
+                ).probabilities
+            except FileNotFoundError:
+                if self.ownership_cache_required:
+                    raise
+            else:
+                if self.reference_frame_mode != "target_face_frame":
+                    raise RuntimeError(
+                        "AutoMask-OS currently requires CL39 target-face reference framing"
+                    )
+                reference_maps, ownership_bbox = compose_target_frame_ownership(
+                    reference_maps,
+                    reference_record["bbox"],
+                    target_bbox,
+                    canvas_size=1024,
+                    target_face_fraction=requested_fraction,
+                    position_offset=position_offset,
+                )
+                if max(
+                    abs(float(a)-float(b))
+                    for a, b in zip(ownership_bbox, reference_bbox)
+                ) > 1.1:
+                    raise RuntimeError("Ownership/reference frame geometry drifted")
+                if target_flipped:
+                    target_maps = target_maps.flip(-1)
+                if reference_flipped:
+                    reference_maps = reference_maps.flip(-1)
+                instance_data["ba_ownership_target"] = target_maps
+                instance_data["ba_ownership_reference"] = reference_maps
         if not valid_bbox(instance_data["face_bbox"], (1024, 1024)):
             raise ValueError(
                 f"Invalid transformed target bbox: {instance_data['face_bbox']}"

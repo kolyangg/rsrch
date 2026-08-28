@@ -1,0 +1,23 @@
+defaults:
+  - CL39_cosmic_null_key_confidence_router_24k
+  - _self_
+
+# 25 Aug 2026 - Controlled CL39 dataset transfer: preserve the complete CL39
+# architecture, optimization, fixed-96 validation contract, and CL27 semantic
+# ownership augmentation while selecting the sealed BigCelebs v2 loader.
+train_dataset_name: big_celebs
+
+datasets:
+  train:
+    big_celebs:
+      semantic_occlusion_probability: 0.25
+      semantic_occlusion_seed: 150017
+
+writer:
+  experiment_comment: >-
+    BC39 transfers the CL39 null-key confidence router from Cosmic to the
+    sealed BigCelebs v2 min-face-192 dataset. All CL39 architecture,
+    optimization, schedule, and fixed-96 validation controls are preserved;
+    the training loader changes to uniform distinct same-identity full-scene
+    references and emits CL27-compatible deterministic semantic ownership
+    masks with probability 0.25 and seed 150017.

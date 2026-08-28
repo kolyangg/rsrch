@@ -1,0 +1,18 @@
+{
+  "arm": "A_correct_pm_correct_spatial",
+  "validation_seed": 2,
+  "configured_seeds": [
+    2
+  ],
+  "pm_identity_shift": 0,
+  "spatial_identity_shift": 0,
+  "wrong_identity_rule": "next identity in sorted fixed-panel order",
+  "run_name": "CL39_24k_seed2_cross_A_correct_pm_correct_spatial_r1",
+  "generated_count": 96,
+  "checkpoint_sha256": "74f61d03ccb94cae9569c158d2f9369eb3dd5274070ef74ee254b926656fbd07",
+  "immutable_parent_comet_key": "b1ca0b3da679401c85b991f1bbdf0b2a",
+  "source_manifest_sha256": "9566862387800eded64c8972461b873ddd9ac9c86fd1cd27ae23425a27a2d10f",
+  "processor_scope": "all_hardcase",
+  "validation_step": 24000,
+  "validation_panel": "manual_val fixed-96"
+}

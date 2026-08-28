@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "run_name": "CL40_cosmic_identity_motion_projector_24k_full96_r4",
+  "plan": {
+    "status": "failed_first_training_batch_telemetry_schema",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 7,
+    "objective": "Separate identity from mutable pose and expression in the routed reference delta.",
+    "baseline": "CL27_cosmic_frequency_surface_energy_24k_full96_r3",
+    "single_scientific_change": "Zero-start rank-32 processor-local identity-motion projector.",
+    "config": "src/configs/CL40_cosmic_identity_motion_projector_24k.yaml",
+    "launcher": "launchers/active/run_CL38_CL45_cl27_architecture_1gpu.sh",
+    "comet_project": "aug-large-ds"
+  },
+  "runtime": {
+    "source_revision": "cl38-cl45-v4-mixedprecisionfix-20260819",
+    "serv_job_id": "lm-mpi-job-5ce02477-e093-49f1-a3e0-322e6ba33821",
+    "comet_experiment_key": "3cb62599de594a3dad5dbc9e57ab99c2",
+    "startup_verified": true,
+    "startup_evidence": "sealed source, Hydra/spec validation, 64-sample dataset preflight, fixed manual_val path, bf16 helper preflight, immutable Comet key",
+    "failure": "Step-0 validation completed; first training forward failed in detached telemetry aggregation because zero-only CL27 collectors were installed outside their declared groups. Superseded by CL40 r5."
+  }
+}

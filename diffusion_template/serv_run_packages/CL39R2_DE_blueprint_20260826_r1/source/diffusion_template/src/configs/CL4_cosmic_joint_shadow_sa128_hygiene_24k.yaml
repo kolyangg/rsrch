@@ -1,0 +1,40 @@
+defaults:
+  - E13_large_ds_joint_shadow_sa128_24k
+  - _self_
+
+# CL4: the control that makes CL2 and CL3 interpretable. CL2/CL3 each bundle
+# three deltas versus CL0 - reference mirroring off, pose-first captions capped
+# at 50 words, and a geometry fix. CL4 applies only the first two, keeping the
+# native reference frame and no ROI warp, so the ladder decomposes cleanly:
+#
+#   CL0 -> CL4 : cost of mirroring + caption truncation (dataset hygiene)
+#   CL4 -> CL2 : value of pre-encoder target-face-frame compositing
+#   CL4 -> CL3 : value of post-encoder feature-space ROI warping
+#
+# Without CL4 a CL2 gain cannot be separated from simply having fixed captions.
+train_dataset_name: cosmic_large_adapted
+val_datasets_names: [manual_val]
+
+datasets:
+  train:
+    cosmic_large_adapted:
+      min_face_res: 192
+      # Complete existing 256px asset, unchanged geometry - same as CL3.
+      reference_crop_margin: null
+      reference_content_size: 256
+      reference_canvas_size: null
+      reference_frame_mode: native
+      random_horizontal_flip: true
+      random_reference_flip: false
+      prompt_mode: pose_first
+      prompt_max_words: 50
+  val:
+    manual_val:
+      limit: 96
+
+writer:
+  experiment_comment: >-
+    CL4 hygiene control: exact E13 route on cosmic_large with reference
+    mirroring disabled and pose-first captions capped at 50 words, but the
+    native 256px reference frame and no ROI warp. Isolates dataset hygiene from
+    the CL2/CL3 geometry corrections.

@@ -1,0 +1,10 @@
+job:
+  description: "CL39-24k fixed96 2x2 identity crossing inference seed 3 source-isolated r2 #nasilaev"
+  environment:
+    image: cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36
+  resource:
+    instance_type: a100.1gpu.8C.243G
+    processes: 1
+    workers: 1
+  script: "mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL39_identity_crossing_multiseed_20260827_r1 && EVAL_SEED=3 bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/analysis_jobs/CL39_identity_crossing_multiseed_20260827_r1/package/start_cl39_identity_crossing_seed.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL39_identity_crossing_multiseed_20260827_r1/seed3_r2.stdout.log 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL39_identity_crossing_multiseed_20260827_r1/seed3_r2.stderr.log"
+  type: binary

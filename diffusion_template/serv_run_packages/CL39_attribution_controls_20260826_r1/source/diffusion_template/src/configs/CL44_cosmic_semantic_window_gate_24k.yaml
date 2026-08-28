@@ -1,0 +1,31 @@
+defaults:
+  - CL27_cosmic_frequency_surface_energy_24k
+  - _self_
+
+model:
+  ba_hardcase_telemetry_enabled: false
+  ba_semantic_window_gate_enabled: true
+  ba_semantic_window_gate_groups: [up_blocks.0, up_blocks.1]
+  ba_semantic_window_gate_progress_start: 0.20
+  ba_semantic_window_gate_progress_end: 0.85
+  ba_semantic_window_gate_progress_temperature: 0.08
+  ba_semantic_window_gate_agreement_threshold: 0.15
+  ba_semantic_window_gate_agreement_temperature: 0.08
+  ba_semantic_window_gate_min_scale: 0.60
+  ba_semantic_window_gate_max_scale: 1.15
+
+trainer:
+  active_grad_norm_mode: requested_only
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_frequency_surface
+    - ba/semantic_window/agreement/all
+    - ba/semantic_window/time_weight/all
+    - ba/semantic_window/high_scale/all
+    - ba/semantic_window/object_minus_visible_scale/all
+  experiment_comment: >-
+    CL44 vs CL27 adds only a parameter-free sample/time gate on the risky
+    high-frequency reference lane; the low band stays unchanged.

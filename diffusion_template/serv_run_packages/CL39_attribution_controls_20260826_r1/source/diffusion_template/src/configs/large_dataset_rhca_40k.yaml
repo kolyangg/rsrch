@@ -1,0 +1,37 @@
+defaults:
+  - cosmic_large_initial_usage_rhca
+  - _self_
+
+# The architecture and optimizer inherit unchanged from the recent eligible
+# Cosmic Large matrix. Only the identity-aware training dataset changes.
+train_dataset_name: large_dataset
+val_datasets_names: [manual_val]
+
+datasets:
+  val:
+    manual_val:
+      limit: 96
+
+dataloaders:
+  train:
+    batch_size: 2
+    num_workers: 2
+  manual_val:
+    batch_size: 12
+    num_workers: 1
+    pin_memory: false
+
+trainer:
+  epoch_len: 2000
+  n_epochs: 20
+  validation_interval_steps: 2000
+  save_period: 1
+  face_quality:
+    expected_images: 96
+
+weights_only_save_period: 1
+
+# Required eligible branched-attention invariants.
+pipeline:
+  pose_adapt_ratio: 0.0
+  ca_mixing_for_face: false

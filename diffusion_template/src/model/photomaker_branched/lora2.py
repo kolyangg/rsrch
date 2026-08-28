@@ -44,6 +44,7 @@ from .lora2_helpers import (
     ensure_branched_after_eval as ensure_branched_after_eval_helper,
 )
 from .model_v2_NS import PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken
+from .cl39x_contract import configure_cl39x
 ##### BRANCHED ATTENTION - ADDITIONAL IMPORTS #####
 
 ### PhotomakerLora upgraged for BA ###
@@ -275,6 +276,13 @@ class PhotomakerBranchedLora(SDXL):
         ba_low_noise_id_reward_last_steps: int = 4,
         ba_low_noise_id_reward_kl_weight: float = 1.0,
         ba_allow_objective_only_checkpoint_init: bool = False,
+        ba_null_key_router_enabled: bool = False,
+        ba_null_key_router_groups: Optional[Sequence[str]] = None,
+        ba_null_key_entropy_threshold: float = 0.75,
+        ba_null_key_temperature: float = 0.08,
+        ba_null_key_max_abstention: float = 0.75,
+        ba_null_key_min_reference_fraction: float = 0.25,
+        cl39x_settings: Optional[dict] = None,
         ##### BRANCHED ATTENTION - NEW PARAMS 1 #####
     ):
         """NEW PARAMS 1: define BA training controls (strategy, processor variant, ID mixing, and BA-only toggles)."""
@@ -637,6 +645,23 @@ class PhotomakerBranchedLora(SDXL):
             ba_hardcase_frequency_high_late
         )
         self.ba_hardcase_telemetry_enabled = bool(ba_hardcase_telemetry_enabled)
+        self.ba_null_key_router_enabled = bool(ba_null_key_router_enabled)
+        self.ba_null_key_router_groups = tuple(
+            str(group) for group in (ba_null_key_router_groups or ())
+        )
+        self.ba_null_key_entropy_threshold = float(ba_null_key_entropy_threshold)
+        self.ba_null_key_temperature = float(ba_null_key_temperature)
+        self.ba_null_key_max_abstention = float(ba_null_key_max_abstention)
+        self.ba_null_key_min_reference_fraction = float(
+            ba_null_key_min_reference_fraction
+        )
+        if self.ba_null_key_router_enabled and not (
+            self.ba_null_key_router_groups
+            and self.ba_null_key_temperature > 0.0
+            and 0.0 <= self.ba_null_key_max_abstention <= 1.0
+            and 0.0 < self.ba_null_key_min_reference_fraction <= 1.0
+        ):
+            raise ValueError("Invalid CL39 null-key confidence configuration")
         self.ba_frequency_surface_loss_enabled = bool(
             ba_frequency_surface_loss_enabled
         )
@@ -1264,6 +1289,7 @@ class PhotomakerBranchedLora(SDXL):
             raise ValueError("Low-noise ID reward requires ArcFace, KL anchor, and explicit checkpoint init")
         self._ba_frozen_teacher_unet = None
         self._ba_frozen_teacher_original_processors = None
+        configure_cl39x(self, cl39x_settings)
         if self.ba_architecture_version != "hard_replace_v1" and any(
             (
                 self.ba_enforce_reference_only_hard_route,
@@ -1429,6 +1455,7 @@ class PhotomakerBranchedLora(SDXL):
                     ".attn1.processor." in name
                     or ".attn2.processor." in name
                     or name == "ba_frequency_shared_schedule_raw"
+                    or name.startswith("ba_intrinsic_id_projector.")
                 ):
                     role = "ba"
                 else:
@@ -1641,6 +1668,19 @@ class PhotomakerBranchedLora(SDXL):
                 for name in trainable_names
             },
         }
+        if self._cl39x_manifest:
+            manifest["cl39x"] = self._cl39x_manifest
+        if self.ba_null_key_router_enabled:
+            # 24 Aug 2026 - AICODE-NOTE: CL39 is the scientific parent for all
+            # CL39-X arms, so its parameter-free confidence router is part of
+            # checkpoint compatibility even when no child arm is active.
+            manifest["null_key_confidence_router"] = {
+                "groups": list(self.ba_null_key_router_groups),
+                "entropy_threshold": self.ba_null_key_entropy_threshold,
+                "temperature": self.ba_null_key_temperature,
+                "max_abstention": self.ba_null_key_max_abstention,
+                "min_reference_fraction": self.ba_null_key_min_reference_fraction,
+            }
         if (
             self.generic_adapter_train_scope != "none"
             or self.photomaker_default_train_scope != "none"
@@ -2717,6 +2757,8 @@ class PhotomakerBranchedLora(SDXL):
         reference_cache_key: Sequence[str] | None = None,
         identity_id: Sequence[str] | None = None,
         ba_occluder_mask: Sequence[torch.Tensor] | None = None,
+        ba_ownership_target: torch.Tensor | None = None,
+        ba_ownership_reference: torch.Tensor | None = None,
         spatial_ref_images_alt: Sequence[Sequence[Image.Image]] | None = None,
         face_bbox_ref_alt: Sequence[Sequence[float]] | None = None,
         global_step: int = 0,
@@ -2761,6 +2803,7 @@ class PhotomakerBranchedLora(SDXL):
             mask4,
             mask4_ref,
             reference_latents,
+            raw_id_embeds,
         ) = prepare_branched_training_inputs(
             self,
             prompts=prompts,
@@ -2771,6 +2814,7 @@ class PhotomakerBranchedLora(SDXL):
             pixel_values=pixel_values,
             noisy_latents=noisy_latents,
         )
+        self._ba_raw_id_embeds = raw_id_embeds
         ##### BRANCHED ATTENTION - NEW BLOCK 4 #####
 
         ##### BRANCHED ATTENTION - NEW BLOCK 5 #####
@@ -2787,6 +2831,41 @@ class PhotomakerBranchedLora(SDXL):
         }
 
         self._ba_ownership_target_mask = None
+        automask_probabilities = None
+        if self.ba_automask_os_enabled:
+            if ba_ownership_target is None or ba_ownership_reference is None:
+                raise RuntimeError("CL39-X05 requires cached target/reference ownership maps")
+            from .masking.ownership_maps import resize_probabilities, routing_masks
+
+            def batch_ownership(value):
+                return (
+                    value
+                    if isinstance(value, torch.Tensor)
+                    else torch.stack([torch.as_tensor(item) for item in value])
+                )
+
+            target_probabilities = batch_ownership(ba_ownership_target)
+            reference_probabilities = batch_ownership(ba_ownership_reference)
+            if target_probabilities.ndim != 4 or reference_probabilities.ndim != 4:
+                raise ValueError("Ownership maps must be batched [B,6,H,W]")
+            target_probabilities = torch.stack([
+                resize_probabilities(value, mask4.shape[-2:], dtype=noisy_latents.dtype, device=self.device)
+                for value in target_probabilities
+            ])
+            reference_probabilities = torch.stack([
+                resize_probabilities(value, mask4_ref.shape[-2:], dtype=noisy_latents.dtype, device=self.device)
+                for value in reference_probabilities
+            ])
+            mask4, _unused_reference, top_mask = routing_masks(
+                target_probabilities,
+                hair_weight=self.ba_automask_reference_hair_weight,
+            )
+            _unused_target, mask4_ref, _unused_top = routing_masks(
+                reference_probabilities,
+                hair_weight=self.ba_automask_reference_hair_weight,
+            )
+            self._ba_ownership_target_mask = top_mask
+            automask_probabilities = target_probabilities
         if ba_occluder_mask is not None:
             prepared_occluders = []
             for value in ba_occluder_mask:
@@ -2805,9 +2884,17 @@ class PhotomakerBranchedLora(SDXL):
                     size=mask4.shape[-2:],
                     mode="nearest",
                 )
-            self._ba_ownership_target_mask = ownership_mask.to(
-                dtype=noisy_latents.dtype
-            )
+            ownership_mask = ownership_mask.to(dtype=noisy_latents.dtype)
+            if self.ba_automask_os_enabled:
+                # CL27's deterministic overlay is created after offline mask
+                # parsing; merge it as foreground ownership instead of letting
+                # the reference route paint through the synthetic hard case.
+                mask4 = mask4 * (1.0 - ownership_mask)
+                self._ba_ownership_target_mask = torch.maximum(
+                    self._ba_ownership_target_mask, ownership_mask
+                )
+            else:
+                self._ba_ownership_target_mask = ownership_mask
 
         ### MEMO: INITIAL LORA UNet pass ###
         # model_pred = self.unet(
@@ -3031,6 +3118,12 @@ class PhotomakerBranchedLora(SDXL):
         # pass. The latter is deliberately suppressed so it cannot overwrite
         # the actual production-path sample.
         ba_telemetry = collect_branched_telemetry(self)
+        if automask_probabilities is not None:
+            names = ("visible_face", "hair_head", "accessory", "occluder", "uncertain")
+            ba_telemetry.update({
+                f"ba/automask/{name}_fraction": automask_probabilities[:, index].float().mean().detach()
+                for index, name in enumerate(names)
+            })
         ownership_loss = collect_hardcase_aux_loss(self)
         if ownership_loss is None:
             ownership_loss = noise_pred.float().new_tensor(0.0)
@@ -3536,6 +3629,68 @@ class PhotomakerBranchedLora(SDXL):
             ba_telemetry["ba/id_reward_trajectory_divergence"] = (
                 anchor_loss.detach().sqrt()
             )
+
+        counterfactual_loss = noise_pred.float().new_zeros(())
+        if self.ba_counterfactual_enabled:
+            from .objectives.counterfactual_reference import (
+                compute_counterfactual_reference_loss,
+                deterministic_mode,
+                derangement,
+                empty_result,
+            )
+
+            rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+            mode = deterministic_mode(
+                global_step=int(global_step), rank=rank, batch_size=batch_size,
+                probability=self.ba_counterfactual_probability,
+                wrong_fraction=self.ba_counterfactual_wrong_fraction,
+            ) if self.training and torch.is_grad_enabled() else None
+            counterfactual = empty_result(noise_pred)
+            if mode is not None:
+                if mode == "wrong":
+                    permutation = derangement(batch_size, reference_latents.device)
+                    cf_latents = reference_latents.index_select(0, permutation)
+                    cf_mask = mask4_ref.index_select(0, permutation)
+                else:
+                    cf_latents = torch.zeros_like(reference_latents)
+                    cf_mask = torch.zeros_like(mask4_ref)
+                previous_suppression = bool(getattr(self, "_ba_suppress_telemetry", False))
+                self._ba_suppress_telemetry = True
+                try:
+                    pred_cf = run_branched_forward_pass(
+                        self, noisy_latents=noisy_latents, timesteps=timesteps,
+                        prompt_embeds=prompt_embeds, added_cond_kwargs=added_cond_kwargs,
+                        mask4=mask4, mask4_ref=cf_mask, reference_latents=cf_latents,
+                        face_prompt_embeds=face_prompt_embeds,
+                        class_tokens_mask=class_tokens_mask, id_features=id_features,
+                        reference_noise=getattr(self, "_ref_noise", None),
+                    )
+                finally:
+                    self._ba_suppress_telemetry = previous_suppression
+                    for processor in self.unet.attn_processors.values():
+                        setter = getattr(processor, "set_masks", None)
+                        if setter is not None:
+                            setter(mask4, mask4_ref)
+                counterfactual = compute_counterfactual_reference_loss(
+                    pred_correct=noise_pred, pred_counterfactual=pred_cf,
+                    target_noise=noise, target_mask=mask4,
+                    outside_weight=self.ba_counterfactual_outside_weight,
+                    rank_weight=self.ba_counterfactual_rank_weight,
+                    rank_margin=self.ba_counterfactual_rank_margin, mode=mode,
+                )
+                counterfactual_loss = counterfactual.loss
+                hardcase_aux_loss = hardcase_aux_loss + counterfactual_loss
+            ba_telemetry.update({
+                "loss_ba_counterfactual": counterfactual_loss.detach(),
+                "ba/counterfactual/applied_fraction": counterfactual.applied.detach(),
+                "ba/counterfactual/outside_loss": counterfactual.outside_loss.detach(),
+                "ba/counterfactual/rank_loss": counterfactual.rank_loss.detach(),
+                "ba/counterfactual/correct_face_error": counterfactual.correct_face_error,
+                "ba/counterfactual/counterfactual_face_error": counterfactual.counterfactual_face_error,
+                "ba/counterfactual/outside_delta": counterfactual.outside_delta.detach(),
+                "ba/counterfactual/wrong_fraction": counterfactual.mode_wrong_fraction,
+                "ba/counterfactual/null_fraction": counterfactual.mode_null_fraction,
+            })
 
         result = {
             'model_pred': noise_pred,

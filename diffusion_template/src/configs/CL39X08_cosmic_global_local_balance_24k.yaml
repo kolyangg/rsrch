@@ -1,0 +1,19 @@
+defaults: [CL39_cosmic_null_key_confidence_router_24k, _self_]
+model:
+  cl39x_settings:
+    ba_global_local_enabled: true
+    ba_global_local_groups: [up_blocks.0, up_blocks.1]
+    ba_global_dilation_cells: 4
+    ba_global_early_scale: 0.30
+    ba_global_late_scale: 0.10
+    ba_global_native_cap: 0.20
+    ba_global_local_exclusion: 0.50
+writer:
+  loss_names: [loss, loss_ba_aux, loss_ba_frequency_surface,
+    ba/global_local/global_coverage/all, ba/global_local/scale/all,
+    ba/global_local/delta_rms/all, ba/global_local/delta_native_ratio/all,
+    ba/global_local/local_overlap_rms/all,
+    ba/global_local/outside_leakage_rms/all]
+  experiment_comment: >-
+    CL39-X08 adds only a deterministic low-frequency global/head correction
+    around the unchanged local CL39 route; no trainables or losses are added.

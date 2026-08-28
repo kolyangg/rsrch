@@ -1,0 +1,34 @@
+defaults:
+  - CL27_cosmic_frequency_surface_energy_24k
+  - _self_
+
+model:
+  ba_hardcase_telemetry_enabled: false
+  ba_visibility_ownership_v2_enabled: true
+  ba_visibility_ownership_v2_groups: [up_blocks.0, up_blocks.1]
+  ba_visibility_ownership_v2_top_native_weight: 0.020
+  ba_visibility_ownership_v2_contact_native_weight: 0.010
+  ba_visibility_ownership_v2_dilate_cells: 1
+  ba_visibility_ownership_v2_min_top_area: 0.002
+  ba_visibility_ownership_v2_stopgrad_native: true
+  # Corrected replay: keep the anchor target fixed without updating the shared native path.
+  ba_visibility_ownership_v2_delta_only: true
+  ba_visibility_ownership_v2_ramp_start_step: 1000
+  ba_visibility_ownership_v2_ramp_end_step: 4000
+
+trainer:
+  active_grad_norm_mode: requested_only
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_frequency_surface
+    - loss_ba_visibility_ownership_v2
+    - ba/visibility_ownership_v2/top_native_l1
+    - ba/visibility_ownership_v2/contact_native_l1
+    - ba/visibility_ownership_v2/top_area
+    - ba/visibility_ownership_v2/applied_fraction
+  experiment_comment: >-
+    CL38 vs CL27 adds only a training-time native anchor on synthetic
+    top-object and contact pixels; inference remains CL27.

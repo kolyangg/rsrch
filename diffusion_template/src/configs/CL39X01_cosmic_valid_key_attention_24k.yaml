@@ -1,0 +1,15 @@
+defaults: [CL39_cosmic_null_key_confidence_router_24k, _self_]
+model:
+  cl39x_settings:
+    ba_valid_kv_enabled: true
+    ba_valid_kv_groups: [up_blocks.0, up_blocks.1]
+    ba_valid_kv_threshold: 0.5
+    ba_valid_kv_entropy_chunk_size: 256
+writer:
+  loss_names: [loss, loss_ba_aux, loss_ba_frequency_surface,
+    ba/valid_kv/valid_fraction/all, ba/valid_kv/valid_count/all,
+    ba/valid_kv/all_invalid_fraction/all, ba/valid_kv/entropy_valid/all,
+    ba/null_key/reference_fraction/all]
+  experiment_comment: >-
+    CL39-X01 changes only reference attention support: invalid reference keys
+    are excluded from SDPA and entropy; CL39 routing and losses are unchanged.

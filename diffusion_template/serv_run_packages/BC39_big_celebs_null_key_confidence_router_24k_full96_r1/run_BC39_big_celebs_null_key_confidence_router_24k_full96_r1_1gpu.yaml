@@ -1,0 +1,10 @@
+job:
+  description: "BC39 CL39 null-key router on sealed BigCelebs v2 #nasilaev"
+  environment:
+    image: cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36
+  resource:
+    instance_type: a100.1gpu.8C.243G
+    processes: 1
+    workers: 1
+  script: "mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/BC39_big_celebs_null_key_confidence_router_24k_full96_r1 && TORCH_SHOW_CPP_STACKTRACES=1 NCCL_ASYNC_ERROR_HANDLING=1 bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_test/diffusion_template/serv_run_packages/BC39_big_celebs_null_key_confidence_router_24k_full96_r1/start_BC39_big_celebs_null_key_confidence_router_24k_full96_r1_1gpu.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/BC39_big_celebs_null_key_confidence_router_24k_full96_r1/stdout_1gpu.log 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/BC39_big_celebs_null_key_confidence_router_24k_full96_r1/stderr_1gpu.log"
+  type: binary

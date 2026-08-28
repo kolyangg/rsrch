@@ -72,6 +72,11 @@ def _branched_trainable_context(model) -> dict:
                 "is_residual_identity_ca_v3",
                 False,
             )
+            or getattr(
+                model.unet.attn_processors.get(name),
+                "is_intrinsic_identity_ca",
+                False,
+            )
         )
     )
     all_trainable_processor_names = tuple(
@@ -101,6 +106,9 @@ def _branched_trainable_context(model) -> dict:
         "non_ba_attn_prefixes": non_ba_attn_prefixes,
         "selected_proc_names": tuple(selected_proc_names),
         "identity_ca_proc_names": identity_ca_proc_names,
+        "intrinsic_id_sidecar": bool(
+            getattr(model, "ba_intrinsic_id_sidecar_enabled", False)
+        ),
     }
 
 
@@ -180,6 +188,7 @@ def _is_expected_branched_trainable(name: str, context: dict) -> bool:
                 ".attn1.processor.ownership_scale_raw",
                 ".attn1.processor.ownership_mlp.",
                 ".attn1.processor.frequency_schedule_raw",
+                ".attn1.processor.roi_route.gate_raw",
             )
             expected = any(marker in name for marker in hardcase_markers)
         if not expected and is_selected_proc and any(
@@ -233,6 +242,8 @@ def _is_expected_branched_trainable(name: str, context: dict) -> bool:
         adapter_marker=".default.",
         scope=context["photomaker_default_train_scope"],
     )
+    if bool(context.get("intrinsic_id_sidecar", False)):
+        expected = expected or name.startswith("ba_intrinsic_id_projector.")
     return bool(expected)
 
 
@@ -321,6 +332,14 @@ def expected_branched_trainable_names(model) -> tuple[str, ...]:
                         f"{processor_name}"
                     )
                 expected.add(global_name)
+    if context["intrinsic_id_sidecar"]:
+        projector_names = {
+            name for name, _ in model.unet.named_parameters()
+            if name.startswith("ba_intrinsic_id_projector.")
+        }
+        if not projector_names:
+            raise RuntimeError("Intrinsic-ID projector is not installed under the U-Net")
+        expected.update(projector_names)
     return tuple(sorted(expected))
 
 
@@ -386,6 +405,7 @@ def collect_branched_telemetry(model) -> dict[str, torch.Tensor]:
     identity_ca_enabled = bool(
         getattr(model, "ba_identity_ca_v2_enabled", False)
         or getattr(model, "ba_residual_identity_ca_v3_enabled", False)
+        or getattr(model, "ba_intrinsic_id_sidecar_enabled", False)
     )
     hardcase_telemetry_enabled = str(
         getattr(model, "ba_hardcase_mode", "off") or "off"
@@ -425,11 +445,17 @@ def collect_branched_telemetry(model) -> dict[str, torch.Tensor]:
     grouped["all"] = all_entries
     aggregated: dict[str, torch.Tensor] = {}
     for group, entries in grouped.items():
-        metric_names = set(entries[0])
-        if any(set(entry) != metric_names for entry in entries):
-            raise RuntimeError(f"Inconsistent BA telemetry schema in group {group}")
+        # 25 Aug 2026 - AICODE-NOTE: CL39-X extensions are intentionally active
+        # only in selected U-Net groups. Aggregate each diagnostic over the
+        # processors that emit it; requiring one global schema crashes the
+        # first training batch without changing the model or objective.
+        metric_names = set().union(*(entry.keys() for entry in entries))
         for metric_name in sorted(metric_names):
-            values = [entry[metric_name].detach().float() for entry in entries]
+            values = [
+                entry[metric_name].detach().float()
+                for entry in entries
+                if metric_name in entry
+            ]
             aggregated[f"ba/{metric_name}/{group}"] = torch.stack(values).mean()
     return aggregated
 
@@ -775,6 +801,7 @@ def prepare_branched_training_inputs(
     ref_mask_list = []
     ref_latents_list = []
     pm_feature_list = []
+    raw_id_embed_list = []
 
     image_h, image_w = pixel_values.shape[-2:]
     latent_h, latent_w = noisy_latents.shape[-2:]
@@ -869,6 +896,7 @@ def prepare_branched_training_inputs(
                 id_embeds = id_embeds.to(
                     device=model.device, dtype=model.id_encoder.dtype
                 )
+                raw_id_embed = id_embeds[:, 0]
 
                 prompt_embeds = model.id_encoder(
                     id_pixel_values,
@@ -906,6 +934,7 @@ def prepare_branched_training_inputs(
                     class_tokens_mask.detach(),
                     reference_latent.detach(),
                     None if pm_features is None else pm_features.detach(),
+                    id_embeds[:, 0].detach(),
                     target_mask.detach(),
                     ref_mask.detach(),
                 )
@@ -923,6 +952,7 @@ def prepare_branched_training_inputs(
                 class_tokens_mask,
                 reference_latent,
                 pm_features,
+                raw_id_embed,
                 target_mask,
                 ref_mask,
             ) = cached
@@ -933,6 +963,7 @@ def prepare_branched_training_inputs(
         mask_list.append(target_mask)
         if pm_features is not None:
             pm_feature_list.append(pm_features)
+        raw_id_embed_list.append(raw_id_embed)
         prompt_embeds_list.append(prompt_embeds)
         pooled_prompt_embeds_list.append(pooled_prompt_embeds)
 
@@ -958,6 +989,9 @@ def prepare_branched_training_inputs(
     mask4 = torch.cat(mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
     mask4_ref = torch.cat(ref_mask_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
     reference_latents = torch.cat(ref_latents_list, dim=0).to(device=model.device, dtype=noisy_latents.dtype)
+    raw_id_embeds = torch.cat(raw_id_embed_list, dim=0).to(
+        device=model.device, dtype=torch.float32
+    )
 
     model._ref_latents_all = reference_latents
     model._face_prompt_embeds = prompt_embeds
@@ -974,6 +1008,7 @@ def prepare_branched_training_inputs(
         mask4,
         mask4_ref,
         reference_latents,
+        raw_id_embeds,
     )
 
 
@@ -1145,6 +1180,7 @@ def _prepare_branched_training_inputs_batched(
         mask4,
         mask4_ref,
         reference_latents,
+        id_embeds[:, 0].to(device=model.device, dtype=torch.float32),
     )
 
 

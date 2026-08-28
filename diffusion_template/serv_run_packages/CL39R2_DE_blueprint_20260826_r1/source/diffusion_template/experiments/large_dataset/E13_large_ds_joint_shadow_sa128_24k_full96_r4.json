@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "run_name": "E13_large_ds_joint_shadow_sa128_24k_full96_r4",
+  "plan": {
+    "status": "running_deferred_face_quality_retry",
+    "priority": 1,
+    "machine": "serv",
+    "gpus": 1,
+    "objective": "Reconstruct the historical shadow-coadapter mechanism with wider spatial BA and complete checkpoints.",
+    "baseline": "E0_large_ds_base_historical_r4_20k_full96_r1",
+    "config": "src/configs/E13_large_ds_joint_shadow_sa128_24k.yaml",
+    "launcher": "launchers/active/run_E13_E18_large_ds_24k_1gpu.sh",
+    "serv_yaml": "serv_run_packages/E13_large_ds_joint_shadow_sa128_24k_full96_r4/run_E13_large_ds_joint_shadow_sa128_24k_full96_r4_1gpu.yaml",
+    "comet_project": "aug-large-ds",
+    "retry_of": "E13_large_ds_joint_shadow_sa128_24k_full96_r3",
+    "fixed_contract": "24k steps, batch 2, one A100, fixed full96 at step 0/every 2k, pose_adapt_ratio=0, ca_mixing_for_face=false; exact validation images staged locally and canonical face quality scored non-fatally only after training"
+  },
+  "execution": {
+    "gate_checked_at": "2026-08-05T19:20:50+01:00",
+    "submission_attempted_at": "2026-08-05T19:20:56+01:00",
+    "submission_gate": "workspace 16/16 A100s; project 4/8 authorized A100s",
+    "submission_result": "rejected before job creation: WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE",
+    "retry_reauthorized_at": "2026-08-05T19:43:00+01:00",
+    "reauthorized_gate": "workspace 15/16 A100s; project 3/8 authorized A100s",
+    "first_reauthorized_attempted_at": "2026-08-05T19:44:45+01:00",
+    "first_reauthorized_mls_job_name": "lm-mpi-job-62127e33-1dec-4daa-a9ed-02e30b9b0f8f",
+    "first_reauthorized_result": "failed before Comet creation or training: interrupted runtime fast-forward left ebf1ac8 tree staged over 84fb6e9 HEAD, triggering the clean-checkout guard",
+    "runtime_repair": "verified index/worktree tree exactly matched ebf1ac8, then atomically completed the test ref fast-forward without changing files",
+    "corrected_attempted_at": "2026-08-05T19:46:59+01:00",
+    "final_no_retry": false,
+    "mls_job_name": "lm-mpi-job-57f10bf3-5010-4c97-aac6-26164c84defb",
+    "comet_experiment_key": "1cc0a02371094b24a6a02a4cc649f10c",
+    "runtime_worktree": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/runtime_worktrees/rsrch_test_E13_E14_deferred_20260805",
+    "required_startup_checks": {
+      "config_contract": "24000 optimizer steps / 219217920 trainable parameters",
+      "dataset_preflight": "64/64 decoded",
+      "onnxruntime": "1.20.1 with CUDAExecutionProvider",
+      "face_quality": "PyIQA 0.1.15 import only at startup; no scorer/model execution before or during training",
+      "trainable_and_optimizer_contract": "exact match: 2240 tensors / 219217920 parameters; processor params 840/840 in optimizer"
+    }
+  }
+}

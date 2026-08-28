@@ -1,0 +1,14 @@
+diff --git a/src/pipelines/br_pipeline_helpers.py b/src/pipelines/br_pipeline_helpers.py
+--- a/src/pipelines/br_pipeline_helpers.py
++++ b/src/pipelines/br_pipeline_helpers.py
+@@ -786,6 +786,10 @@ def select_mode_and_prompts(
+     bsm = getattr(pipeline, "branched_start_mode", "both").lower()
+     if i < a:
+         mode = "NO_ID"
++    # 27 Aug 2026 - AICODE-NOTE: Equal PM/BA starts must enter BOTH at the
++    # shared boundary; the ordered fallback otherwise stays PM-only forever.
++    elif sm == bs:
++        mode = "BOTH" if bsm == "both" else "BRANCHED"
+     elif sm < bs:
+         mode = "PHOTOMAKER" if i < b else ("BOTH" if bsm == "both" else "BRANCHED")
+     else:

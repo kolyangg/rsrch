@@ -1,0 +1,61 @@
+{
+  "scope": "Corrected CL39 24k fixed-96 A/B/C/D crossing at inference seeds 1-3 with seed-specific PhotoMaker-only automatic bboxes",
+  "submitted_at": "2026-08-27",
+  "ten_gpu_exception": {
+    "authorized": true,
+    "running_project_gpus_before_submission": 5,
+    "pending_project_gpus_before_submission": 0,
+    "accepted_project_gpu_total": 8
+  },
+  "supersedes": {
+    "task": "CL39_identity_crossing_multiseed_20260827_r1",
+    "reason": "The shared automatic bbox cache had 96/96 seed-0 metadata records and was silently reused for seeds 1-3. The generated-face mask was therefore wrong during both BA generation and scoring."
+  },
+  "stale_shared_bbox_cache": {
+    "path": "/mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/rsrch_test/dataset_full/val_dataset/pm96_bboxes_new_auto.json",
+    "entries": 96,
+    "seed_0_entries": 96,
+    "sha256": "b33cf02665cd875a738fba8f20c2ea95fcb0585358436e32691af0013a2f1c7d"
+  },
+  "immutable_parent_comet_key": "b1ca0b3da679401c85b991f1bbdf0b2a",
+  "checkpoint_sha256": "74f61d03ccb94cae9569c158d2f9369eb3dd5274070ef74ee254b926656fbd07",
+  "source_manifest_sha256": "e1022d515296892ab6c46a36a51db37bcf9dead4798c30502660138b5b0d7643",
+  "source_revision": "historical-cl39-byte-exact-plus-crossing-hook-dynamic-bbox-r1-20260827",
+  "jobs": {
+    "seed_1": {
+      "launcher": "package/run_seed1_1gpu.yaml",
+      "mls_job": "lm-mpi-job-ee43b350-de5c-44e3-9cab-d694e9f5806e",
+      "submission_status": "Running"
+    },
+    "seed_2": {
+      "launcher": "package/run_seed2_1gpu.yaml",
+      "mls_job": "lm-mpi-job-9c599a15-1d97-49a9-8609-81f38d03ca85",
+      "submission_status": "Running"
+    },
+    "seed_3": {
+      "launcher": "package/run_seed3_1gpu.yaml",
+      "mls_job": "lm-mpi-job-f04b6ebf-aded-4da2-ad5d-206a65534f15",
+      "submission_status": "Pending"
+    }
+  },
+  "acceleration": {
+    "requested_at": "2026-08-27T14:14:00+01:00",
+    "project_gpus_before_submission": 8,
+    "strategy": "Use isolated sealed sources and outputs; worker 1 runs seed-1 D then seed-3 C while the original sequential jobs retain A/B/C/D fail-closed gates.",
+    "source_manifest_sha256": "e1022d515296892ab6c46a36a51db37bcf9dead4798c30502660138b5b0d7643",
+    "worker_1": {
+      "launcher": "package/run_accel1_1gpu.yaml",
+      "mls_job": "lm-mpi-job-d2a306cb-e84d-4eff-af6a-c374f59f12c5",
+      "submission_status": "Pending",
+      "platform_error_code": 0
+    },
+    "worker_2": {
+      "launcher": "package/run_accel2_1gpu.yaml",
+      "mls_job": null,
+      "submission_status": "Rejected before job creation",
+      "platform_error_code": 1,
+      "platform_error_message": "WORKSPACE_GPU_LIMIT_REACHED_ONLY_0_FREE, internal error",
+      "retry_policy": "Do not retry without a new user request."
+    }
+  }
+}

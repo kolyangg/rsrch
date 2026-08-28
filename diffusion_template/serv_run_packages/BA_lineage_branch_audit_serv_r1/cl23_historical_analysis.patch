@@ -1,0 +1,101 @@
+--- src/model/photomaker_branched/attn_processor_cleanest.py
++++ src/model/photomaker_branched/attn_processor_cleanest.py
+@@ -837,7 +837,8 @@
+             router = self._soft_router_mask(
+                 self.mask, target.shape[1], target.shape[0], native_out.dtype
+             )
+-            low, high = self._gaussian_split(reference_out - native_out)
++            raw_delta = reference_out - native_out
++            low, high = self._gaussian_split(raw_delta)
+             progress = self._progress(target)
+             low_scale = self.hardcase_frequency_low_early + progress * (
+                 self.hardcase_frequency_low_late - self.hardcase_frequency_low_early
+@@ -845,7 +846,24 @@
+             high_scale = self.hardcase_frequency_high_early + progress * (
+                 self.hardcase_frequency_high_late - self.hardcase_frequency_high_early
+             )
+-            routed_delta = router * (low_scale * low + high_scale * high)
++            branch_mode = getattr(self, "_cl39_analysis_branch_mode", "actual")
++            # 26 Aug 2026 - AICODE-NOTE: historical CL23 replay keeps the
++            # original arithmetic expression byte-for-byte in actual mode;
++            # only evaluation counterfactuals enter the additional branches.
++            if branch_mode == "actual":
++                routed_delta = router * (low_scale * low + high_scale * high)
++            elif branch_mode == "reference_face":
++                routed_delta = router * raw_delta
++            elif branch_mode == "native":
++                routed_delta = torch.zeros_like(native_out)
++            elif branch_mode == "low_only":
++                routed_delta = router * low_scale * low
++            elif branch_mode == "high_only":
++                routed_delta = router * high_scale * high
++            else:
++                raise RuntimeError(
++                    f"Unsupported CL23 analysis branch mode: {branch_mode!r}"
++                )
+             target_out = native_out + routed_delta
+             self._latest_ba_telemetry = {
+                 "frequency_low_scale": low_scale.detach().float().mean(),
+@@ -891,7 +909,15 @@
+             )
+         else:
+             raise RuntimeError(f"Unhandled hard-case mode {mode!r}")
+-        target_out = native_out * (1.0 - router) + reference_out * router
++        branch_mode = getattr(self, "_cl39_analysis_branch_mode", "actual")
++        if branch_mode in {"actual", "reference_face"}:
++            target_out = native_out * (1.0 - router) + reference_out * router
++        elif branch_mode == "native":
++            target_out = native_out
++        else:
++            raise RuntimeError(
++                f"Unsupported soft-router analysis branch mode: {branch_mode!r}"
++            )
+         return self._finish_full_router(
+             attn, residual, target_out, reference, input_ndim, spatial
+         )
+--- src/trainer/sdxl_trainers.py
++++ src/trainer/sdxl_trainers.py
+@@ -872,6 +872,43 @@
+             val_refs.append(refs_list)
+ 
+         val_kwargs = dict(self.config.validation_args)
++        cl23_analysis_enabled = bool(
++            val_kwargs.pop("cl39_analysis_enabled", False)
++        )
++        val_kwargs.pop("cl39_analysis_capture", None)
++        val_kwargs.pop("cl39_analysis_output_dir", None)
++        val_kwargs.pop("cl39_analysis_selected_indices", None)
++        val_kwargs.pop("cl39_analysis_confidence_override", None)
++        val_kwargs.pop("cl39_analysis_delta_scale", None)
++        branch_mode = str(
++            val_kwargs.pop("cl39_analysis_branch_mode", "actual")
++        )
++        val_kwargs.pop("cl39_analysis_processor_scope", None)
++        if cl23_analysis_enabled:
++            attached = 0
++            processor_map = getattr(
++                self.pipe, "_branched_attn_processors", None
++            )
++            if processor_map is None:
++                processor_map = self.pipe.unet.attn_processors
++            for processor in processor_map.values():
++                if getattr(processor, "hardcase_mode", "off") not in {
++                    "soft_router",
++                    "temporal_frequency",
++                }:
++                    continue
++                # 26 Aug 2026 - Evaluation-only CL23 overlay. The default
++                # actual mode is unchanged; no checkpoint key is added.
++                processor._cl39_analysis_branch_mode = branch_mode
++                attached += 1
++            if attached != 70:
++                raise RuntimeError(
++                    f"Expected 70 CL23 analysis processors, attached {attached}"
++                )
++            print(
++                f"[CL23 Historical Analysis] processors={attached} "
++                f"branch_mode={branch_mode}"
++            )
+         subject_policies = get_value("face_subject_selection_policy", None)
+         if isinstance(subject_policies, list):
+             normalized_policies = {str(value) for value in subject_policies}

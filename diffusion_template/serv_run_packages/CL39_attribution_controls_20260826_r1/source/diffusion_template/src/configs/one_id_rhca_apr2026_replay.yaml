@@ -1,0 +1,72 @@
+defaults:
+  - one_id_09Feb_testing
+  - _self_
+
+# Reconstructed replay of the 3–4 April 2026 Comet run
+# `rhca_1e-4_ml_step2_allst_trref_diff`.
+#
+# This file changes configuration only. Model/trainer/runtime code remains the
+# historical implementation from launch-time commit aede146.
+train_on_separate_image: true
+train_ba_all_steps: true
+
+train_ba_only: true
+branched_attn_weight_mode: noise_and_ref
+branched_attn_new_weight_kind: lora
+train_branched_ca_lora: true
+ba_patch_top_k: 1.0
+ba_train_top_k: 1.0
+non_ba_train: false
+
+loss_kind: masked_alternating
+lr_for_lora: 1e-4
+
+model:
+  rank: 32
+  weight_dtype: bf16
+  train_branched_ca_lora: ${train_branched_ca_lora}
+  # These datasets emit reference cache keys that include reference-side
+  # augmentation state. Target VAE posterior sampling remains per step.
+  skip_unused_text_conditioning: true
+  conditioning_cache_enabled: true
+  conditioning_cache_max_entries: 512
+  cache_prepared_masks: true
+  compute_branch_debug_outputs: false
+
+pipeline:
+  variant: null
+
+trainer:
+  # 28 Jul 2026 - New runs use one 2,000-step epoch per standard validation
+  # gate. Historical checkpoint/evaluation launchers pin 500 explicitly.
+  epoch_len: 2000
+  n_epochs: 2
+  masked_loss_step: 2
+  post_backward_parameter_touch: false
+  grad_norm_log_only: true
+  face_quality:
+    expected_images: 12
+
+dataloaders:
+  train:
+    # Verified from both the historical Comet export and epoch-34 checkpoint.
+    batch_size: 2
+    num_workers: 12
+  one_id_val:
+    batch_size: 12
+    num_workers: 1
+
+datasets:
+  val:
+    one_id_val:
+      limit: 12
+
+lr_scheduler:
+  # The exact historical run reached full 1e-4 LR after 20 optimizer steps.
+  warmup_steps: 20
+
+validation_args:
+  num_images_per_prompt: 1
+
+val_debug: false
+automatic_bboxes_every_val: false

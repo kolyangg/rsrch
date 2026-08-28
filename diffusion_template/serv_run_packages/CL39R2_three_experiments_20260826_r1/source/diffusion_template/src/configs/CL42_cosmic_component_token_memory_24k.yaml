@@ -1,0 +1,30 @@
+defaults:
+  - CL27_cosmic_frequency_surface_energy_24k
+  - _self_
+
+model:
+  ba_hardcase_telemetry_enabled: false
+  ba_component_token_memory_enabled: true
+  ba_component_token_memory_groups: [up_blocks.0, up_blocks.1]
+  ba_component_token_memory_scale: 0.15
+  ba_component_token_memory_sigma_cells: 1.75
+  ba_component_token_memory_min_confidence: 0.80
+
+trainer:
+  active_grad_norm_mode: requested_only
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_frequency_surface
+    - ba/component_memory/applied_fraction/all
+    - ba/component_memory/left_eye_mass/all
+    - ba/component_memory/right_eye_mass/all
+    - ba/component_memory/nose_mass/all
+    - ba/component_memory/mouth_mass/all
+    - ba/component_memory/global_mass/all
+    - ba/component_memory/correction_rms/all
+  experiment_comment: >-
+    CL42 vs CL27 adds only five parameter-free semantic component tokens
+    pooled from the landmark-indexed reference face.

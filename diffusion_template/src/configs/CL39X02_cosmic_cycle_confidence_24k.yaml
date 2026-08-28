@@ -1,0 +1,23 @@
+defaults: [CL39_cosmic_null_key_confidence_router_24k, _self_]
+model:
+  cl39x_settings:
+    ba_cycle_confidence_enabled: true
+    ba_cycle_confidence_groups: [up_blocks.0, up_blocks.1]
+    ba_cycle_confidence_floor: 0.25
+    ba_cycle_confidence_margin_center: 0.04
+    ba_cycle_confidence_margin_temperature: 0.02
+    ba_cycle_confidence_cycle_sigma_cells: 1.5
+    ba_cycle_confidence_chunk_size: 256
+    ba_cycle_confidence_entropy_weight: 0.25
+    ba_cycle_confidence_margin_weight: 0.25
+    ba_cycle_confidence_cycle_weight: 0.50
+writer:
+  loss_names: [loss, loss_ba_aux, loss_ba_frequency_surface,
+    ba/cycle_confidence/confidence_face/all, ba/cycle_confidence/entropy/all,
+    ba/cycle_confidence/margin/all, ba/cycle_confidence/cycle_score/all,
+    ba/cycle_confidence/cycle_distance/all, ba/cycle_confidence/eligible_fraction/all,
+    ba/cycle_confidence/high_confidence_fraction/all,
+    ba/cycle_confidence/object_minus_visible_confidence/all]
+  experiment_comment: >-
+    CL39-X02 replaces only CL39 entropy confidence with detached
+    entropy-margin-cycle reliability; message, data and losses are unchanged.

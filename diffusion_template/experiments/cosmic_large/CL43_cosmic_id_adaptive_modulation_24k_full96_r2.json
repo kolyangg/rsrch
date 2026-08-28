@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "run_name": "CL43_cosmic_id_adaptive_modulation_24k_full96_r2",
+  "plan": {
+    "status": "failed_startup_validation_path",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 4,
+    "objective": "Calibrate the explicit spatial reference delta to the subject identity embedding.",
+    "baseline": "CL27_cosmic_frequency_surface_energy_24k_full96_r3",
+    "single_scientific_change": "Zero-start bottleneck-32 modulation from the existing 512-D ID vector.",
+    "config": "src/configs/CL43_cosmic_id_adaptive_modulation_24k.yaml",
+    "launcher": "launchers/active/run_CL38_CL45_cl27_architecture_1gpu.sh",
+    "comet_project": "aug-large-ds"
+  },
+  "runtime": {
+    "source_revision": "cl38-cl45-v2-preflightfix-20260819",
+    "serv_job_id": "lm-mpi-job-7a98a911-b9e8-448c-9948-1f8a295b7cbb",
+    "comet_experiment_key": "ca4a189f42254eebb4effd8a13f15bf3",
+    "failure": "sealed snapshot did not expose rsrch_test/dataset_full as ../dataset_full; manual_val construction failed before step 0"
+  }
+}

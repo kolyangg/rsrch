@@ -1,0 +1,10 @@
+job:
+  description: "CL39-24k fixed96 crossing seed3 dynamic PM bbox r1 one A100 #nasilaev"
+  environment:
+    image: cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36
+  resource:
+    instance_type: a100.1gpu.8C.243G
+    processes: 1
+    workers: 1
+  script: "mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL39_identity_crossing_dynamic_masks_20260827_r1 && EVAL_SEED=3 bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/analysis_jobs/CL39_identity_crossing_dynamic_masks_20260827_r1/package/start_cl39_identity_crossing_dynamic_masks.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL39_identity_crossing_dynamic_masks_20260827_r1/seed3.stdout.log 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL39_identity_crossing_dynamic_masks_20260827_r1/seed3.stderr.log"
+  type: binary

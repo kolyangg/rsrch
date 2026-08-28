@@ -1,0 +1,40 @@
+defaults:
+  - CL27_cosmic_frequency_surface_energy_24k
+  - _self_
+
+model:
+  ba_hardcase_telemetry_enabled: false
+  ba_id_adaptive_modulation_enabled: true
+  ba_id_adaptive_modulation_groups: [up_blocks.0, up_blocks.1]
+  ba_id_adaptive_modulation_embedding_dim: 512
+  ba_id_adaptive_modulation_bottleneck: 32
+  ba_id_adaptive_modulation_scale_max: 0.20
+  ba_id_adaptive_modulation_ramp_start_step: 1000
+  ba_id_adaptive_modulation_ramp_end_step: 6000
+
+trainer:
+  active_grad_norm_mode: requested_only
+
+expected_trainable_contract:
+  enabled: true
+  total_tensors: 2384
+  total_parameters: 222596736
+  optimizer_tensors: 2384
+  optimizer_parameters: 222596736
+  categories:
+    branched_sa_r128: {name_substring: ".attn1.processor.", tensors: 984, parameters: 131174016}
+    generic_effective_adapter_r32: {name_substring: ".lora_adapter.", tensors: 700, parameters: 30474240}
+    photomaker_default_effective_adapter_r64: {name_substring: ".default.", tensors: 700, parameters: 60948480}
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_frequency_surface
+    - ba/id_modulation/gamma_rms/all
+    - ba/id_modulation/beta_rms/all
+    - ba/id_modulation/output_rms/all
+    - ba/id_modulation/active_fraction/all
+  experiment_comment: >-
+    CL43 vs CL27 adds only zero-start AdaLN-style modulation of the explicit
+    routed reference delta from the existing 512-D InsightFace embedding.

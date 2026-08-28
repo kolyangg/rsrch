@@ -1,0 +1,28 @@
+defaults: [CL39_cosmic_null_key_confidence_router_24k, _self_]
+model:
+  cl39x_settings:
+    ba_roi_route_enabled: true
+    ba_roi_route_groups: [up_blocks.0, up_blocks.1]
+    ba_roi_size: 16
+    ba_roi_face_area_threshold: 0.035
+    ba_roi_box_expansion: 0.20
+    ba_roi_gate_max: 0.20
+    ba_roi_delta_native_cap: 0.35
+    ba_roi_boundary_ring_cells: 1
+expected_trainable_contract:
+  enabled: true
+  total_tensors: 2276
+  total_parameters: 219217956
+  optimizer_tensors: 2276
+  optimizer_parameters: 219217956
+  categories:
+    branched_sa_r128: {name_substring: ".attn1.processor.", tensors: 876, parameters: 127795236}
+    generic_effective_adapter_r32: {name_substring: ".lora_adapter.", tensors: 700, parameters: 30474240}
+    photomaker_default_effective_adapter_r64: {name_substring: ".default.", tensors: 700, parameters: 60948480}
+writer:
+  loss_names: [loss, loss_ba_aux, loss_ba_frequency_surface,
+    ba/roi/eligible_fraction/all, ba/roi/face_area/all, ba/roi/gate/all,
+    ba/roi/delta_rms/all, ba/roi/boundary_energy/all]
+  experiment_comment: >-
+    CL39-X04 adds only a bounded zero-effect-init 16x16 face ROI correction
+    for small target faces; the complete full-grid CL39 path is unchanged.

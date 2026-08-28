@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "run_name": "CL43_cosmic_id_adaptive_modulation_24k_full96_r5",
+  "plan": {
+    "status": "running_startup",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 4,
+    "objective": "Calibrate the explicit spatial reference delta to the subject identity embedding.",
+    "baseline": "CL27_cosmic_frequency_surface_energy_24k_full96_r3",
+    "single_scientific_change": "Zero-start bottleneck-32 modulation from the existing 512-D ID vector.",
+    "config": "src/configs/CL43_cosmic_id_adaptive_modulation_24k.yaml",
+    "launcher": "launchers/active/run_CL38_CL45_cl27_architecture_1gpu.sh",
+    "comet_project": "aug-large-ds"
+  },
+  "runtime": {
+    "source_revision": "cl38-cl45-v5-frequencycollector-scope-20260820",
+    "supersedes": "CL43_cosmic_id_adaptive_modulation_24k_full96_r4",
+    "reason": "Unchanged science; group-scope the disabled CL27 surface collectors so detached telemetry has a uniform declared schema.",
+    "mls_job_id": "lm-mpi-job-7959efc6-26fa-4714-9280-84e9a94cbf24",
+    "submitted_at": "2026-08-20T06:22:17+01:00",
+    "startup_status": "comet_key_verified",
+    "comet_experiment_key": "d29cbfa7927547c9ac71a8da0b583e33",
+    "smoke_evidence": "r4 reached the shared post-forward telemetry gate; isolated smoke2 was stopped after an infrastructure cache stall before model construction"
+  }
+}

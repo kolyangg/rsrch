@@ -1,0 +1,21 @@
+defaults:
+  - CL19_cosmic_true_soft_fullquery_router_24k
+  - _self_
+
+model:
+  ba_hardcase_mode: temporal_frequency
+  ba_hardcase_groups: [down_blocks.0, down_blocks.1, down_blocks.2, mid_block, up_blocks.0, up_blocks.1, up_blocks.2]
+  ba_hardcase_frequency_low_early: 0.50
+  ba_hardcase_frequency_low_late: 0.85
+  ba_hardcase_frequency_high_early: 0.75
+  ba_hardcase_frequency_high_late: 1.25
+
+writer:
+  loss_names:
+    - loss
+    - ba/frequency_low_scale/all
+    - ba/frequency_high_scale/all
+    - ba/frequency_low_delta_rms/all
+    - ba/frequency_high_delta_rms/all
+    - ba/frequency_merged_native_ratio/all
+  experiment_comment: CL23 applies a fixed denoising-progress schedule to low/high bands of CL19 reference-minus-native messages.

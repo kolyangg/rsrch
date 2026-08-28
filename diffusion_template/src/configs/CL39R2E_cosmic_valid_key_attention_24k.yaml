@@ -1,0 +1,28 @@
+defaults:
+  - CL39_cosmic_null_key_confidence_router_24k
+  - _self_
+
+model:
+  ba_valid_key_attention_enabled: true
+  ba_valid_key_attention_groups: [up_blocks.0, up_blocks.1]
+  ba_valid_key_attention_warmup_steps: 2000
+  ba_valid_key_attention_logit_floor: -20.0
+  ba_valid_key_attention_entropy_support: valid_keys_only
+  ba_valid_key_attention_entropy_normalization: log_valid_count
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_frequency_surface
+    - ba/null_key/null_mass/all
+    - ba/null_key/null_mass/up0
+    - ba/null_key/null_mass/up1
+    - ba/null_key/reference_fraction/all
+    - ba/null_key/object_minus_visible_mass/all
+    - ba/r2/valid_key/mask_strength/all
+    - ba/r2/valid_key/valid_fraction/all
+  experiment_comment: >-
+    Blueprint E3 vs CL39 excludes invalid reference keys in up0/up1 with a 2k
+    additive-logit warmup and computes confidence entropy only over valid keys,
+    normalized by log valid-key count.

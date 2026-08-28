@@ -1,0 +1,39 @@
+defaults:
+  - CL27_cosmic_frequency_surface_energy_24k
+  - _self_
+
+model:
+  ba_hardcase_telemetry_enabled: false
+  ba_identity_motion_projector_enabled: true
+  ba_identity_motion_projector_groups: [up_blocks.0, up_blocks.1]
+  ba_identity_motion_projector_rank: 32
+  ba_identity_motion_projector_gate_max: 0.35
+  ba_identity_motion_projector_ramp_start_step: 1000
+  ba_identity_motion_projector_ramp_end_step: 6000
+
+trainer:
+  active_grad_norm_mode: requested_only
+
+expected_trainable_contract:
+  enabled: true
+  total_tensors: 2348
+  total_parameters: 223272960
+  optimizer_tensors: 2348
+  optimizer_parameters: 223272960
+  categories:
+    branched_sa_r128: {name_substring: ".attn1.processor.", tensors: 948, parameters: 131850240}
+    generic_effective_adapter_r32: {name_substring: ".lora_adapter.", tensors: 700, parameters: 30474240}
+    photomaker_default_effective_adapter_r64: {name_substring: ".default.", tensors: 700, parameters: 60948480}
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_frequency_surface
+    - ba/id_motion/cosine_before/all
+    - ba/id_motion/cosine_after/all
+    - ba/id_motion/correction_rms/all
+    - ba/id_motion/gate/all
+  experiment_comment: >-
+    CL40 vs CL27 adds only a zero-start rank-32 identity-motion projector on
+    the routed reference delta.

@@ -24,6 +24,9 @@ class ManualPhotoMakerValDataset(Dataset):
         seeds: Sequence[int] = (0, 1, 2),
         limit: int | None = None,
         face_subject_selection_policy: str = "legacy_first",
+        ownership_cache_root: str | None = None,
+        ownership_cache_required: bool = False,
+        ownership_policy_version: str = "automask_os_v1",
         instance_transforms=None,
     ):
         self.images_dir = Path(images_dir)
@@ -31,6 +34,24 @@ class ManualPhotoMakerValDataset(Dataset):
         self.seeds = list(seeds)
         self.instance_transforms = instance_transforms  # unused; kept for config compatibility
         self.face_subject_selection_policy = str(face_subject_selection_policy).lower()
+        self.ownership_cache_root = (
+            None if ownership_cache_root is None else Path(ownership_cache_root)
+        )
+        self.ownership_cache_required = bool(ownership_cache_required)
+        self.ownership_policy_version = str(ownership_policy_version)
+        if self.ownership_cache_required and (
+            self.ownership_cache_root is None or not self.ownership_cache_root.is_dir()
+        ):
+            raise FileNotFoundError(
+                f"AutoMask-OS validation cache is required: {self.ownership_cache_root}"
+            )
+        if self.ownership_cache_root is not None:
+            from src.model.photomaker_branched.masking.ownership_maps import load_cache_index
+            self.ownership_cache_index = load_cache_index(
+                self.ownership_cache_root, self.ownership_policy_version
+            )
+        else:
+            self.ownership_cache_index = {}
         if self.face_subject_selection_policy not in {"legacy_first", "bbox_overlap_v2"}:
             raise ValueError(
                 "face_subject_selection_policy must be legacy_first or bbox_overlap_v2"
@@ -140,7 +161,7 @@ class ManualPhotoMakerValDataset(Dataset):
             record = self._bbox_gen_json.get(key)
             if isinstance(record, dict):
                 face_bbox_gen = record.get("face_crop_new") or record.get("face_crop_old")
-        return {
+        result = {
             "ref_images": [ref_img],
             "prompt": sample["prompt"],
             "seed": sample["seed"],
@@ -149,3 +170,24 @@ class ManualPhotoMakerValDataset(Dataset):
             "face_bbox_gen": face_bbox_gen,
             "face_subject_selection_policy": self.face_subject_selection_policy,
         }
+        if self.ownership_cache_root is not None:
+            from src.model.photomaker_branched.masking.ownership_maps import (
+                load_indexed_ownership_maps,
+            )
+            from src.pipelines.validation_automask import (
+                validation_reference_identity,
+            )
+            from src.model.photomaker_branched.masking.automask_os import image_sha256
+            reference_hash = image_sha256(ref_img)
+            reference_identity = validation_reference_identity(
+                sample["id"], self.ownership_policy_version, reference_hash
+            )
+            try:
+                result["ba_ownership_reference"] = load_indexed_ownership_maps(
+                    self.ownership_cache_root, reference_identity,
+                    self.ownership_policy_version, self.ownership_cache_index,
+                ).probabilities
+            except FileNotFoundError:
+                if self.ownership_cache_required:
+                    raise
+        return result

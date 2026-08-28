@@ -1,0 +1,27 @@
+defaults:
+  - CL39_cosmic_null_key_confidence_router_24k
+  - _self_
+
+model:
+  ba_pm_condition_dropout_enabled: true
+  ba_pm_condition_dropout_probability: 0.25
+  ba_pm_condition_dropout_seed: 390224
+  ba_pm_condition_dropout_start_step: 2000
+  ba_pm_condition_dropout_end_step: 16000
+  ba_pm_condition_dropout_scope: target_prompt_only
+
+writer:
+  loss_names:
+    - loss
+    - loss_ba_aux
+    - loss_ba_frequency_surface
+    - ba/null_key/null_mass/all
+    - ba/null_key/null_mass/up0
+    - ba/null_key/null_mass/up1
+    - ba/null_key/reference_fraction/all
+    - ba/null_key/object_minus_visible_mass/all
+    - ba/r2/pm_dropout/selected_fraction
+  experiment_comment: >-
+    Blueprint E2 vs CL39 drops only target PhotoMaker-fused prompt states on a
+    deterministic 25% of training steps from 2k through 16k; the reference
+    half and all validation/inference conditioning remain exact CL39.

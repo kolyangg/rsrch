@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "run_name": "CL40_cosmic_identity_motion_projector_24k_full96_r3",
+  "plan": {
+    "status": "failed_step0_validation_dtype",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 7,
+    "objective": "Separate identity from mutable pose and expression in the routed reference delta.",
+    "baseline": "CL27_cosmic_frequency_surface_energy_24k_full96_r3",
+    "single_scientific_change": "Zero-start rank-32 processor-local identity-motion projector.",
+    "config": "src/configs/CL40_cosmic_identity_motion_projector_24k.yaml",
+    "launcher": "launchers/active/run_CL38_CL45_cl27_architecture_1gpu.sh",
+    "comet_project": "aug-large-ds"
+  },
+  "runtime": {
+    "source_revision": "cl38-cl45-v3-datasetlink-20260819",
+    "serv_job_id": "lm-mpi-job-c581dc88-9fc7-46ec-b7d0-0322c173ba15",
+    "comet_experiment_key": "1d462997e89a43a88ac55651efbc6d36",
+    "startup_verified": true,
+    "startup_evidence": "sealed source, Hydra/spec validation, 64-sample dataset preflight, fixed manual_val path, immutable Comet key",
+    "failure": "fp32 normalized activations entered bf16 projector Linear during step-0 validation"
+  }
+}

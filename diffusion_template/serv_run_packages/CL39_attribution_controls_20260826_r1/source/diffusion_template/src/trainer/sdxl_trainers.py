@@ -1,0 +1,1369 @@
+import time
+import os
+from pathlib import Path  # --- MODIFIED For training integration ---
+import torch
+from omegaconf import OmegaConf  # --- MODIFIED For training integration ---
+from PIL import Image
+
+DEBUG_LOG_DEBUG_IMAGES = os.environ.get("PM_DEBUG_IMAGES", "1") not in {"0", "false", "False", ""}
+
+from src.metrics.tracker import MetricTracker
+from src.trainer.base_trainer import BaseTrainer
+
+
+class SDXLTrainer(BaseTrainer):
+    """
+    Trainer class. Defines the logic of batch logging and processing.
+    """
+
+    def process_batch(self, batch, train_metrics: MetricTracker):
+        """
+        Run batch through the model, compute loss,
+        and do training step.
+
+        The function expects that criterion aggregates all losses
+        (if there are many) into a single one defined in the 'loss' key.
+
+        Args:
+            batch (dict): dict-based batch containing the data from
+                the dataloader.
+            train_metrics (MetricTracker): MetricTracker object that computes
+                and aggregates training losses.
+        Returns:
+            batch (dict): dict-based batch containing the data from
+                the dataloader (possibly transformed via batch transform),
+                model outputs, and losses.
+        """
+        self.optimizer.zero_grad()
+            
+        do_cfg =  (batch["batch_idx"] % self.cfg_step == 0)
+        output = self.model(**batch, do_cfg=do_cfg)
+        batch.update(output)
+
+        all_losses = self.criterion(**batch)
+        batch.update(all_losses)
+        
+        if self.is_train:
+            assert torch.isfinite(batch["loss"]) # sum of all losses is always called loss
+            self.accelerator.backward(batch["loss"]) 
+            # One-time check: print grads for a few processor params
+            if not hasattr(self, "_printed_proc_grad_check"):
+                try:
+                    unwrapped = self.accelerator.unwrap_model(self.model)
+                except Exception:
+                    unwrapped = self.model
+                to_check = []
+                for name, p in unwrapped.named_parameters():
+                    if (
+                        "unet.down_blocks" in name
+                        and ".attn1.processor.id_to_hidden.weight" in name
+                    ):
+                        to_check.append((name, p))
+                    if len(to_check) >= 3:
+                        break
+                if to_check and self.accelerator.is_main_process:
+                    lines = []
+                    for n, p in to_check:
+                        has_grad = (p.grad is not None)
+                        lines.append(f"{n}: grad={'OK' if has_grad else 'None'}")
+                    msg = "[Check] Processor id_to_hidden grads after first backward:\n  " + "\n  ".join(lines)
+                    if getattr(self, "logger", None) is not None:
+                        self.logger.info(msg)
+                    else:
+                        print(msg)
+                self._printed_proc_grad_check = True
+            self._clip_grad_norm()
+            self.optimizer.step()
+            if self.lr_scheduler is not None:
+                self.lr_scheduler.step()
+
+        # update metrics for each loss (in case of multiple losses)
+        for loss_name in self.config.writer.loss_names:
+            batch[loss_name] = self.accelerator.gather(batch[loss_name]).mean()
+            train_metrics.update(loss_name, batch[loss_name].item())
+
+        return batch
+
+    @torch.no_grad()
+    def process_evaluation_batch(self, batch, eval_metrics):
+        seed = batch.get("seed", self.config.validation_args.get("seed", 0))
+        generator = torch.Generator(device='cpu').manual_seed(seed)
+        validation_kwargs = OmegaConf.to_container(self.config.validation_args, resolve=True)
+        if not isinstance(validation_kwargs, dict):
+            validation_kwargs = dict(validation_kwargs)
+        val_debug = bool(validation_kwargs.get("val_debug", getattr(self.config, "val_debug", True)))
+        validation_kwargs["val_debug"] = val_debug
+        debug_base = validation_kwargs.get("debug_dir", "hm_debug")
+        debug_idx = batch.get("debug_idx", 0)
+        debug_total = batch.get("debug_total")
+        validation_kwargs["debug_dir"] = str(Path(debug_base) / f"{int(debug_idx):02d}")
+        validation_kwargs["debug_idx"] = int(debug_idx)
+        if debug_total is not None:
+            validation_kwargs["debug_total"] = int(debug_total)
+        if DEBUG_LOG_DEBUG_IMAGES and val_debug:
+            print(f"[DebugImage] validation batch idx={debug_idx} → debug_dir={validation_kwargs['debug_dir']}")
+        generated_images = self.pipe(
+            prompt=batch['prompt'],
+            generator=generator,
+            **validation_kwargs
+        ).images
+
+        batch['generated'] = generated_images
+
+        for metric in self.metrics:
+            metric_result = metric(**batch)
+            for k, v in metric_result.items():
+                eval_metrics.update(k, v)
+                
+        return batch
+        
+    def _log_batch(self, batch_idx, batch, mode="train"):
+        """
+        Log data from batch. Calls self.writer.add_* to log data
+        to the experiment tracker.
+
+        Args:
+            batch_idx (int): index of the current batch.
+            batch (dict): dict-based batch after going through
+                the 'process_batch' function.
+            mode (str): train or inference. Defines which logging
+                rules to apply.
+        """
+        # method to log data from you batch
+        # such as audio, text or images, for example
+
+        # logging scheme might be different for different partitions
+        if mode == "train":  # the method is called only every self.log_step steps
+            # Log Stuff
+            pass
+        else:
+            # Log Stuff
+            # --- MODIFIED For training integration ---
+            prompts = batch.get('prompt')
+            if isinstance(prompts, str):
+                prompts = [prompts]
+            elif isinstance(prompts, list):
+                flat_prompts = []
+                for item in prompts:
+                    if isinstance(item, list):
+                        flat_prompts.extend(item)
+                    else:
+                        flat_prompts.append(item)
+                prompts = flat_prompts 
+            else: 
+                prompts = []
+
+            generated = batch.get('generated')
+            if not generated:
+                return
+            images = []
+            if isinstance(generated, list):
+                for item in generated:
+                    if isinstance(item, list):
+                        images.extend(item)
+                    else:
+                        images.append(item)
+            else:
+                images = [generated]
+            if not images:
+                return 
+            # --- MODIFIED For training integration ---
+
+            generated_masks = batch.get("generated_masks")
+            mask_images = []
+            if generated_masks is not None:
+                if isinstance(generated_masks, list):
+                    for item in generated_masks:
+                        if isinstance(item, list):
+                            mask_images.extend(item)
+                        else:
+                            mask_images.append(item)
+                else:
+                    mask_images = [generated_masks]
+            if mask_images and len(mask_images) < len(images):
+                mask_images.extend([None] * (len(images) - len(mask_images)))
+            
+            # --- MODIFIED For training integration ---
+            num_per_prompt = self.config.validation_args.get("num_images_per_prompt", 1)
+
+            # ### To align validation with infer.py generation ###
+            ### Make validation filenames match bbox JSON keys: f"{prompt[:10]}_{id}.png" ###
+            ids = batch.get('id')
+            if isinstance(ids, str):
+                ids = [ids]
+            elif isinstance(ids, list):
+                flat_ids = []
+                for item in ids:
+                    if isinstance(item, list):
+                        flat_ids.extend(item)
+                    else:
+                        flat_ids.append(item)
+                ids = flat_ids
+
+            labels = []
+            if prompts and ids and len(prompts) == len(ids) and (len(prompts) * num_per_prompt == len(images) or len(prompts) == len(images)):
+                for p_idx, (p_text, p_id) in enumerate(zip(prompts, ids)):
+                    base = f"{p_text[:10]}_{p_id}"
+                    if len(prompts) * num_per_prompt == len(images) and num_per_prompt > 1:
+                        for _ in range(num_per_prompt):
+                            labels.append(base)
+                    else:
+                        labels.append(base)
+            else:
+                # Fallback to previous prompt-based naming if alignment is unclear
+                if prompts and len(prompts) * num_per_prompt == len(images):
+                    for p_idx, prompt in enumerate(prompts):
+                        for img_idx in range(num_per_prompt):
+                            labels.append(f"{prompt}_b{batch_idx:03d}_p{p_idx:02d}_img{img_idx}")
+                elif prompts and len(prompts) == len(images):
+                    labels = [f"{p}_b{batch_idx:03d}" for p in prompts]
+                else:
+                    labels = [f"{mode}_{batch_idx}_img{i}" for i in range(len(images))]
+
+            sanitized = [label.replace(" ", "_")[:80] for label in labels]
+            save_root = Path(self.checkpoint_dir) / "val_images" / mode / f"step_{getattr(self.writer, 'step', 0)}_batch_{batch_idx}"
+            save_root.mkdir(parents=True, exist_ok=True)
+
+            for i, (img, name) in enumerate(zip(images, sanitized)):
+                # ### To align validation with infer.py generation ###
+                # Log and save using the exact bbox-JSON-like filename
+                self.writer.add_image(f"{name}.png", img)
+                if hasattr(img, "save"):
+                    img.save(save_root / f"{name}.png")
+                if i < len(mask_images) and mask_images[i] is not None:
+                    self.writer.add_image(f"{name}_mask.png", mask_images[i])
+            ### Make validation filenames match bbox JSON keys: f"{prompt[:10]}_{id}.png" ###
+            # --- MODIFIED For training integration ---
+
+
+class PhotomakerLoraTrainer(SDXLTrainer):
+    def __init__(
+        self,
+        masked_loss_step,
+        *args,
+        ba_pcgrad_enabled: bool = False,
+        ba_pcgrad_scope: str = "branched_sa_only",
+        ba_pcgrad_interval: int = 1,
+        ba_pcgrad_eps: float = 1.0e-12,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.masked_loss_step = masked_loss_step
+        self._identity_aux_calibrated_max_weight = None
+        self.ba_pcgrad_enabled = bool(ba_pcgrad_enabled)
+        self.ba_pcgrad_scope = str(ba_pcgrad_scope)
+        self.ba_pcgrad_interval = int(ba_pcgrad_interval)
+        self.ba_pcgrad_eps = float(ba_pcgrad_eps)
+        if self.ba_pcgrad_enabled and self.ba_pcgrad_scope != "branched_sa_only":
+            raise ValueError("CL45 supports only branched_sa_only PCGrad")
+
+    @staticmethod
+    def _gradient_norm(grads):
+        total = None
+        for grad in grads:
+            if grad is None:
+                continue
+            value = grad.detach().float().square().sum()
+            total = value if total is None else total + value
+        if total is None:
+            return None
+        return total.clamp_min(0.0).sqrt()
+
+    def _calibrate_identity_auxiliary(self, batch):
+        reference = batch["loss"].detach()
+        zero = reference.new_tensor(0.0)
+        metric_names = (
+            "identity_aux_grad_calibrated",
+            "identity_aux_calibrated_max_weight",
+            "identity_aux_grad_ratio_all",
+            "identity_aux_grad_ratio_ba",
+            "identity_aux_grad_ratio_generic_adapter",
+            "identity_aux_grad_ratio_photomaker_default",
+        )
+        for name in metric_names:
+            batch[name] = zero
+        diffusion = batch.get("_loss_diffusion_graph")
+        identity_raw = batch.get("_loss_identity_raw_graph")
+        if diffusion is None or identity_raw is None:
+            return
+
+        try:
+            model = self.accelerator.unwrap_model(self.model)
+        except Exception:
+            model = self.model
+        if not bool(getattr(model, "identity_aux_dynamic_weight", False)):
+            return
+        applied = float(batch["identity_aux_applied"].detach().item()) > 0.5
+        if not applied:
+            return
+
+        max_weight = float(model.identity_aux_max_weight)
+        requested_weight = float(batch["identity_aux_weight"].detach().item())
+        ramp_fraction = min(1.0, max(0.0, requested_weight / max_weight))
+        interval = int(model.identity_aux_grad_norm_interval)
+        global_step = int(batch.get("global_step", 0))
+        recalibrate = (
+            self._identity_aux_calibrated_max_weight is None
+            or global_step % interval == 0
+        )
+
+        role_groups = [
+            (str(group.get("name", "unnamed")), list(group.get("params", ())))
+            for group in self.optimizer.param_groups
+        ]
+        flat_parameters = [parameter for _, params in role_groups for parameter in params]
+        role_sizes = [len(params) for _, params in role_groups]
+        gradient_scope = str(
+            getattr(model, "identity_aux_gradient_scope", "all_trainable")
+        ).lower()
+        identity_graph = identity_raw
+        scoped_parameters = flat_parameters
+        scoped_identity_grads = None
+        if gradient_scope == "branched_sa_only":
+            name_by_id = {
+                id(parameter): name for name, parameter in model.named_parameters()
+            }
+            scoped_parameters = [
+                parameter
+                for parameter in flat_parameters
+                if ".attn1.processor." in name_by_id.get(id(parameter), "")
+            ]
+            if not scoped_parameters:
+                raise RuntimeError("BA-only identity gradient scope selected zero tensors")
+            scoped_identity_grads = torch.autograd.grad(
+                identity_raw,
+                scoped_parameters,
+                retain_graph=True,
+                allow_unused=True,
+            )
+            surrogate = identity_raw.detach()
+            for parameter, grad in zip(scoped_parameters, scoped_identity_grads):
+                if grad is not None:
+                    surrogate = surrogate + (
+                        (parameter - parameter.detach()) * grad.detach()
+                    ).sum()
+            identity_graph = surrogate
+        role_norms = {}
+        calibrated_for_step = self._identity_aux_calibrated_max_weight
+        if recalibrate:
+            calibration_parameters = (
+                scoped_parameters
+                if gradient_scope == "branched_sa_only"
+                else flat_parameters
+            )
+            diffusion_grads = torch.autograd.grad(
+                diffusion,
+                calibration_parameters,
+                retain_graph=True,
+                allow_unused=True,
+            )
+            identity_grads = scoped_identity_grads
+            if identity_grads is None:
+                identity_grads = torch.autograd.grad(
+                    identity_raw,
+                    calibration_parameters,
+                    retain_graph=True,
+                    allow_unused=True,
+                )
+            if gradient_scope == "branched_sa_only":
+                role_norms["ba"] = (
+                    self._gradient_norm(diffusion_grads),
+                    self._gradient_norm(identity_grads),
+                )
+            else:
+                offset = 0
+                for (role, _), size in zip(role_groups, role_sizes):
+                    role_norms[role] = (
+                        self._gradient_norm(diffusion_grads[offset : offset + size]),
+                        self._gradient_norm(identity_grads[offset : offset + size]),
+                    )
+                    offset += size
+            diffusion_norm = self._gradient_norm(diffusion_grads)
+            identity_norm = self._gradient_norm(identity_grads)
+            if (
+                diffusion_norm is None
+                or identity_norm is None
+                or not torch.isfinite(diffusion_norm)
+                or not torch.isfinite(identity_norm)
+            ):
+                raise RuntimeError("ArcFace auxiliary gradient calibration is invalid")
+            identity_norm_value = float(identity_norm.item())
+            if identity_norm_value <= 0.0:
+                if not (
+                    str(getattr(model, "identity_aux_mode", "")).lower()
+                    == "quadratic_hinge"
+                    and float(identity_raw.detach().abs().item()) == 0.0
+                ):
+                    raise RuntimeError(
+                        "ArcFace auxiliary has zero gradient outside the inactive hinge"
+                    )
+                # 17 Aug 2026 - AICODE-NOTE: An already-satisfied quadratic
+                # hinge has exactly zero loss/gradient. It is a valid no-op,
+                # not a calibration failure; leave persistent calibration
+                # unset so the next active hinge sample calibrates normally.
+                calibrated_for_step = (
+                    max_weight
+                    if self._identity_aux_calibrated_max_weight is None
+                    else float(self._identity_aux_calibrated_max_weight)
+                )
+            else:
+                proposed = (
+                    float(model.identity_aux_grad_target_ratio)
+                    * float(diffusion_norm.item())
+                    / identity_norm_value
+                )
+                proposed = min(max_weight, max(0.0, proposed))
+                if self._identity_aux_calibrated_max_weight is None:
+                    calibrated = proposed
+                else:
+                    calibrated = (
+                        0.9 * float(self._identity_aux_calibrated_max_weight)
+                        + 0.1 * proposed
+                    )
+                self._identity_aux_calibrated_max_weight = calibrated
+                calibrated_for_step = calibrated
+                batch["identity_aux_grad_calibrated"] = zero.new_tensor(1.0)
+
+            for role, (base_norm, raw_norm) in role_norms.items():
+                if base_norm is None or raw_norm is None:
+                    continue
+                ratio = calibrated_for_step * float(raw_norm.item()) / max(
+                    float(base_norm.item()), 1.0e-12
+                )
+                key = {
+                    "ba": "identity_aux_grad_ratio_ba",
+                    "generic_adapter": "identity_aux_grad_ratio_generic_adapter",
+                    "photomaker_default": (
+                        "identity_aux_grad_ratio_photomaker_default"
+                    ),
+                }.get(role)
+                if key is not None:
+                    batch[key] = zero.new_tensor(ratio)
+            total_ratio = calibrated_for_step * identity_norm_value / max(
+                float(diffusion_norm.item()), 1.0e-12
+            )
+            batch["identity_aux_grad_ratio_all"] = zero.new_tensor(total_ratio)
+
+        if calibrated_for_step is None:
+            raise RuntimeError("ArcFace auxiliary has no calibrated weight")
+        calibrated_max = float(calibrated_for_step)
+        effective_weight = ramp_fraction * calibrated_max
+        batch["identity_aux_calibrated_max_weight"] = zero.new_tensor(
+            calibrated_max
+        )
+        batch["identity_aux_weight"] = zero.new_tensor(effective_weight)
+        batch["identity_aux_weighted"] = (
+            zero.new_tensor(effective_weight) * identity_raw.detach()
+        )
+        anchor = batch.get("ba_anchor_loss", zero)
+        anchor_weight = batch.get("ba_anchor_weight", zero)
+        # 13 Aug 2026 - CL25 calibration may change only the ArcFace weight;
+        # the frozen-source trajectory anchor remains in the optimized graph.
+        batch["loss"] = (
+            diffusion + effective_weight * identity_graph + anchor_weight * anchor
+        )
+
+    def _record_active_gradient_norms(self, batch):
+        reference = batch["loss"].detach()
+        zero = reference.new_tensor(0.0)
+        role_to_metric = {
+            "ba": "active_grad_norm_ba",
+            "generic_adapter": "active_grad_norm_generic_adapter",
+            "photomaker_default": "active_grad_norm_photomaker_default",
+        }
+        mode = self.active_grad_norm_mode
+        if mode == "off":
+            return
+        if mode == "requested_only":
+            requested = set(self.config.writer.loss_names)
+            role_to_metric = {
+                role: metric
+                for role, metric in role_to_metric.items()
+                if metric in requested
+            }
+            # 16 Aug 2026 - AICODE-NOTE: CL19+ scanned every trainable gradient
+            # tensor after every backward even when no active-norm metric was
+            # requested. This opt-in mode is bit-preserving for the loss/update.
+            if not role_to_metric:
+                return
+        for metric in role_to_metric.values():
+            batch[metric] = zero
+        for group in self.optimizer.param_groups:
+            metric = role_to_metric.get(str(group.get("name", "")))
+            if metric is None:
+                continue
+            norm = self._gradient_norm(
+                [parameter.grad for parameter in group.get("params", ())]
+            )
+            if norm is not None:
+                batch[metric] = norm.detach().to(device=zero.device)
+
+    def _apply_ba_pcgrad_surrogate(self, batch):
+        if not self.ba_pcgrad_enabled:
+            return
+        reference = batch["loss"].detach()
+        zero = reference.new_tensor(0.0)
+        metrics = {
+            "ba/pcgrad/gradient_cosine": zero,
+            "ba/pcgrad/conflict_fraction": zero,
+            "ba/pcgrad/projection_norm": zero,
+            "ba/pcgrad/main_norm": zero,
+            "ba/pcgrad/aux_norm": zero,
+        }
+        batch.update(metrics)
+        if int(batch.get("global_step", 0)) % self.ba_pcgrad_interval:
+            return
+        primary = batch.get("_loss_diffusion_graph")
+        auxiliary = batch.get("_loss_ba_aux_graph")
+        if primary is None or auxiliary is None or not auxiliary.requires_grad:
+            raise RuntimeError("CL45 requires separate live diffusion and BA auxiliary graphs")
+        ba_parameters = [
+            parameter
+            for group in self.optimizer.param_groups
+            if str(group.get("name", "")) == "ba"
+            for parameter in group.get("params", ())
+        ]
+        if len(ba_parameters) != 840:
+            raise RuntimeError(
+                f"CL45 expected 840 CL27 BA tensors, found {len(ba_parameters)}"
+            )
+        main_grads = torch.autograd.grad(
+            primary, ba_parameters, retain_graph=True, allow_unused=True
+        )
+        aux_grads = torch.autograd.grad(
+            auxiliary, ba_parameters, retain_graph=True, allow_unused=True
+        )
+        dot = zero
+        main_sq = zero
+        aux_sq = zero
+        for main, aux in zip(main_grads, aux_grads):
+            if main is not None:
+                main_sq = main_sq + main.detach().float().square().sum()
+            if aux is not None:
+                aux_sq = aux_sq + aux.detach().float().square().sum()
+            if main is not None and aux is not None:
+                dot = dot + (main.detach().float() * aux.detach().float()).sum()
+        main_norm = main_sq.clamp_min(0.0).sqrt()
+        aux_norm = aux_sq.clamp_min(0.0).sqrt()
+        coefficient = (-dot / (main_sq + self.ba_pcgrad_eps)).clamp_min(0.0)
+        surrogate = batch["loss"]
+        for parameter, main in zip(ba_parameters, main_grads):
+            if main is not None:
+                correction = coefficient * main.detach().to(parameter.dtype)
+                surrogate = surrogate + (
+                    (parameter - parameter.detach()) * correction
+                ).sum()
+        batch["loss"] = surrogate
+        batch.update(
+            {
+                "ba/pcgrad/gradient_cosine": (
+                    dot / (main_norm * aux_norm).clamp_min(self.ba_pcgrad_eps)
+                ).detach(),
+                "ba/pcgrad/conflict_fraction": (dot < 0).float().detach(),
+                "ba/pcgrad/projection_norm": (coefficient * main_norm).detach(),
+                "ba/pcgrad/main_norm": main_norm.detach(),
+                "ba/pcgrad/aux_norm": aux_norm.detach(),
+            }
+        )
+        
+    def process_batch(self, batch, train_metrics: MetricTracker):
+        self.optimizer.zero_grad()
+            
+        do_cfg = (batch["batch_idx"] % self.cfg_step == 0)
+        output = self.model(**batch, do_cfg=do_cfg)
+        batch.update(output)
+
+        # 12 Aug 2026 - AICODE-NOTE: BA telemetry is model output, not loss
+        # output. Promote it independently so CL14's unchanged masked loss can
+        # log the residual-CA route without changing the scientific objective.
+        ba_telemetry = output.get("ba_telemetry")
+        if ba_telemetry:
+            batch.update(ba_telemetry)
+
+        batch["is_masked_loss"] = (
+            self.masked_loss_step > 0
+            and batch["batch_idx"] % self.masked_loss_step == 0
+        )
+        all_losses = self.criterion(**batch)
+        batch.update(all_losses)
+        self._calibrate_identity_auxiliary(batch)
+        self._apply_ba_pcgrad_surrogate(batch)
+        
+        if self.is_train:
+            assert torch.isfinite(batch["loss"]) # sum of all losses is always called loss
+            self.accelerator.backward(batch["loss"]) 
+            self._record_active_gradient_norms(batch)
+            self._clip_grad_norm()
+            self.optimizer.step()
+            if self.lr_scheduler is not None:
+                self.lr_scheduler.step()
+
+        batch.pop("_loss_diffusion_graph", None)
+        batch.pop("_loss_identity_raw_graph", None)
+        batch.pop("_loss_ba_aux_graph", None)
+
+        # 2 Aug 2026 - AICODE-NOTE: reference counterfactuals are sampled, so
+        # unconditional Comet curves contain zeros on inactive ranks/batches.
+        # Keep those historical curves and add shuffle-conditional companions.
+        conditional_reference_metrics = {}
+        active_rank = None
+        if "reference_shuffle_applied" in batch:
+            conditional_reference_metrics = {
+                "reference_error_gap": "reference_error_gap_conditional",
+                "reference_error_relative_gap": (
+                    "reference_error_relative_gap_conditional"
+                ),
+                "reference_prediction_delta_ratio": (
+                    "reference_prediction_delta_ratio_conditional"
+                ),
+            }
+            shuffle_by_rank = self.accelerator.gather(
+                batch["reference_shuffle_applied"].detach().reshape(1)
+            ).float()
+            active_rank = shuffle_by_rank > 0.5
+
+        # 12 Aug 2026 - Training optimization: gather every scalar in one
+        # vector and synchronize the GPU once. CL14_CA has 19 diagnostics;
+        # this prevents 19 serialized gather/item synchronization pairs.
+        loss_names = tuple(self.config.writer.loss_names)
+        local_scalars = torch.stack(
+            [batch[name].detach().reshape(()) for name in loss_names]
+        ).float()
+        # 12 Aug 2026 - Training optimization: a one-GPU run needs no NCCL
+        # scalar gather; bypassing it also avoids the vector-gather SIGSEGV.
+        if self.accelerator.num_processes == 1:
+            gathered_matrix = local_scalars.unsqueeze(0)
+        else:
+            gathered_matrix = self.accelerator.gather(local_scalars).reshape(
+                -1, len(loss_names)
+            )
+        mean_scalars = gathered_matrix.mean(dim=0)
+        mean_values = mean_scalars.cpu().tolist()
+        has_active_reference_rank = bool(
+            active_rank is not None and active_rank.any().item()
+        )
+        for metric_index, (loss_name, mean_value) in enumerate(
+            zip(loss_names, mean_values)
+        ):
+            batch[loss_name] = mean_scalars[metric_index]
+            train_metrics.update(loss_name, mean_value)
+            conditional_name = conditional_reference_metrics.get(loss_name)
+            if (
+                conditional_name is not None
+                and has_active_reference_rank
+            ):
+                train_metrics.update(
+                    conditional_name,
+                    gathered_matrix[active_rank, metric_index].mean().item(),
+                )
+        if active_rank is not None:
+            train_metrics.update(
+                "reference_shuffle_rank_fraction",
+                active_rank.float().mean().item(),
+            )
+
+        return batch
+        
+    @torch.no_grad()
+    def process_evaluation_batch(self, batch, eval_metrics):
+        if self.pipe is not None:
+            self.pipe._ba_current_global_step = int(getattr(self.writer, "step", 0))
+        prompts = batch["prompt"]
+        if isinstance(prompts, str):
+            prompts = [prompts]
+
+        batch_size = len(prompts)
+        val_debug = bool(self.config.validation_args.get("val_debug", getattr(self.config, "val_debug", True)))
+
+        # Optional: generate gen-bboxes on-the-fly via an extra PhotoMaker-only pass.
+        # Only makes sense when branched attention is expected to run.
+        automatic_bboxes = bool(getattr(self.config, "automatic_bboxes", False))
+        automatic_bboxes_every_val = bool(getattr(self.config, "automatic_bboxes_every_val", True))
+        force_log_first_auto_bbox = bool(getattr(self.config, "force_log_first_auto_bbox", True))
+        use_gen_mask = bool(self.config.validation_args.get("use_bbox_mask_gen", False))
+        use_branched_attention = bool(self.config.validation_args.get("use_branched_attention", False))
+        mask_expansion_ratio = float(
+            self.config.validation_args.get(
+                "mask_expansion_ratio",
+                getattr(self.config, "mask_expansion_ratio", 1.0),
+            )
+        )
+        try:
+            sm = int(self.config.validation_args.get("photomaker_start_step", 0))
+            bs = int(self.config.validation_args.get("branched_attn_start_step", 0))
+            nsteps = int(self.config.validation_args.get("num_inference_steps", 50))
+        except Exception:
+            sm, bs, nsteps = 0, 1, 50
+
+        # Branched attention is expected to run whenever it is enabled and starts within the denoising horizon.
+        # (bs==sm is a valid "start from step 0" configuration.)
+        branched_expected = bool(use_branched_attention) and (bs < nsteps)
+        auto_bbox_enabled = bool(automatic_bboxes and use_gen_mask and branched_expected)
+        force_cached_auto_bbox_log = bool(
+            auto_bbox_enabled
+            and (not automatic_bboxes_every_val)
+            and force_log_first_auto_bbox
+            and int(getattr(self.writer, "step", 0)) == 0
+        )
+        if auto_bbox_enabled and not hasattr(self, "_printed_auto_bbox"):
+            print("[AutoBboxGen] enabled: will run PhotoMaker-only pass to detect gen bboxes")
+            self._printed_auto_bbox = True
+
+        # Lazily load name-keyed bbox map once, matching infer.py behavior
+        if not hasattr(self, "_gen_bbox_by_name"):
+            gen_bbox = None
+            manual_gen_bbox = None
+
+            if auto_bbox_enabled:
+                # Prefer placing auto JSON next to the configured bbox_mask_gen path.
+                bbox_path = None
+                images_dir = None
+                try:
+                    for _name, _loader in getattr(self, "evaluation_dataloaders", {}).items():
+                        ds = getattr(_loader, "dataset", None)
+                        if ds is None:
+                            continue
+                        images_dir = getattr(ds, "images_dir", None) or images_dir
+                except Exception:
+                    images_dir = None
+
+                try:
+                    val_names = list(getattr(self.config, "val_datasets_names", []))
+                    if val_names:
+                        ds_name = val_names[0]
+                        ds_cfg = self.config.datasets.val.get(ds_name)
+                        bbox_path = getattr(ds_cfg, "bbox_mask_gen", None) if ds_cfg is not None else None
+                except Exception:
+                    bbox_path = None
+
+                if bbox_path:
+                    p = Path(str(bbox_path))
+                    auto_path = p.with_name(p.stem + "_auto.json")
+                    # Load the manual bbox map too (to support per-entry force_manual flags).
+                    try:
+                        import json as _json
+                        with open(str(p), "r", encoding="utf-8") as _fh:
+                            manual_gen_bbox = _json.load(_fh)
+                    except Exception:
+                        manual_gen_bbox = None
+                elif images_dir:
+                    auto_path = Path(str(images_dir)).resolve().parent / "bbox_mask_gen_auto.json"
+                else:
+                    auto_path = Path("bbox_mask_gen_auto.json")
+
+                from src.utils.auto_bbox_gen import AutoGenBboxStore
+                face_detector = getattr(self.config, "face_detector", "mtcnn")
+                face_model = getattr(self.config, "face_model", "yolov8n-face.pt")
+                self._auto_bbox_store = AutoGenBboxStore(
+                    auto_path,
+                    face_detector=face_detector,
+                    face_model=face_model,
+                )
+                gen_bbox = self._auto_bbox_store.data
+            else:
+                # Try to read from the active validation dataset object
+                try:
+                    for _name, _loader in getattr(self, "evaluation_dataloaders", {}).items():
+                        ds = getattr(_loader, "dataset", None)
+                        # Prefer a raw JSON dict if present (ManualPhotoMakerValDataset stores one)
+                        if ds is not None and hasattr(ds, "_bbox_gen_json") and getattr(ds, "_bbox_gen_json") is not None:
+                            gen_bbox = getattr(ds, "_bbox_gen_json")
+                            break
+                except Exception:
+                    gen_bbox = None
+
+                # Fallback to path in config if available
+                if gen_bbox is None:
+                    try:
+                        val_names = list(getattr(self.config, "val_datasets_names", []))
+                        if val_names:
+                            ds_name = val_names[0]
+                            ds_cfg = self.config.datasets.val.get(ds_name)
+                            bbox_path = getattr(ds_cfg, "bbox_mask_gen", None) if ds_cfg is not None else None
+                            if bbox_path:
+                                import json as _json
+                                with open(str(bbox_path), "r", encoding="utf-8") as _fh:
+                                    gen_bbox = _json.load(_fh)
+                    except Exception:
+                        gen_bbox = None
+
+            self._gen_bbox_by_name = gen_bbox if isinstance(gen_bbox, dict) else None
+            self._manual_gen_bbox_by_name = manual_gen_bbox if isinstance(manual_gen_bbox, dict) else None
+
+        # If generation bbox masks are required, enforce presence of the map
+        if use_gen_mask and self._gen_bbox_by_name is None:
+            err = (
+                "use_bbox_mask_gen=True but bbox mask map not loaded. "
+                "Ensure validation dataset provides bbox_mask_gen or config.datasets.val[...] has bbox_mask_gen set."
+            )
+            if getattr(self, "logger", None) is not None:
+                self.logger.error(err)
+            else:
+                print(err)
+            raise RuntimeError(err)
+
+        #### 08 MAR - FIX BATCHED VALIDATION ####
+        def get_value(key, default=None):
+            if key not in batch:
+                return default
+            value = batch[key]
+            if isinstance(value, list) and batch_size > 1 and len(value) == batch_size:
+                return value
+            return value
+
+        ref_images_list = get_value("ref_images")
+        if batch_size == 1 and not isinstance(ref_images_list, list):
+            ref_images_list = [ref_images_list]
+        if batch_size > 1 and not isinstance(ref_images_list, list):
+            ref_images_list = [ref_images_list] * batch_size
+
+        def get_sample_refs(idx):
+            if batch_size == 1:
+                return ref_images_list
+            return ref_images_list[idx]
+
+        ids_list = get_value("id", [None] * batch_size)
+        if not isinstance(ids_list, list):
+            ids_list = [ids_list] * batch_size
+
+        seeds_value = batch.get("seed", None)
+        if isinstance(seeds_value, list) and len(seeds_value) == batch_size:
+            seeds_list = seeds_value
+        else:
+            default_seed = self.config.validation_args.get("seed", 0) if seeds_value is None else seeds_value
+            seeds_list = [default_seed] * batch_size
+
+        def normalize_bbox_list(raw_bbox):
+            if (
+                batch_size > 1
+                and isinstance(raw_bbox, list)
+                and len(raw_bbox) == batch_size
+                and all((x is None) or isinstance(x, (list, tuple)) for x in raw_bbox)
+            ):
+                return raw_bbox
+            return [raw_bbox] * batch_size
+
+        face_bbox_ref_list = normalize_bbox_list(get_value("face_bbox_ref", None))
+        face_bbox_gen_list = normalize_bbox_list(get_value("face_bbox_gen", None))
+
+        batch_debug_idx = batch.get("debug_idx", 0)
+        batch_debug_total = batch.get("debug_total", 0)
+        try:
+            batch_debug_idx = int(batch_debug_idx)
+        except Exception:
+            batch_debug_idx = 0
+        try:
+            batch_debug_total = int(batch_debug_total)
+        except Exception:
+            batch_debug_total = 0
+
+        sample_debug_indices = [
+            batch_debug_idx * batch_size + idx if batch_size > 1 else batch_debug_idx
+            for idx in range(batch_size)
+        ]
+        debug_dir = self.config.validation_args.get("debug_dir", None) if val_debug else None
+        sample_mask_images = [None] * batch_size
+
+        # Match infer.py: if a filename-keyed bbox map is provided, override face_bbox_gen by exact output name
+        keys = [None] * batch_size
+        entries = [None] * batch_size
+        if self._gen_bbox_by_name is not None:
+            for idx in range(batch_size):
+                sample_prompt = prompts[idx]
+                sample_id = ids_list[idx]
+                if isinstance(sample_prompt, str) and sample_id is not None:
+                    base = f"{sample_prompt[:10]}_{sample_id}"
+                    key = f"{base}.png"
+                    keys[idx] = key
+                    entries[idx] = self._gen_bbox_by_name.get(key)
+
+        if use_gen_mask:
+            pending_pm = []
+            for idx in range(batch_size):
+                key = keys[idx]
+                if key is None:
+                    err = "use_bbox_mask_gen=True requires string prompt and id to build bbox key."
+                    if getattr(self, "logger", None) is not None:
+                        self.logger.error(err)
+                    else:
+                        print(err)
+                    raise RuntimeError(err)
+
+                entry = entries[idx]
+                manual_entry = None
+                try:
+                    if auto_bbox_enabled and getattr(self, "_manual_gen_bbox_by_name", None) is not None:
+                        manual_entry = self._manual_gen_bbox_by_name.get(key)
+                except Exception:
+                    manual_entry = None
+
+                force_manual = bool(isinstance(manual_entry, dict) and manual_entry.get("force_manual", False))
+                if force_manual:
+                    entry = manual_entry
+
+                should_recompute_entry = bool(automatic_bboxes_every_val)
+                should_log_cached_entry = bool(
+                    force_cached_auto_bbox_log and (not force_manual) and entry is not None
+                )
+                if (
+                    (not force_manual)
+                    and auto_bbox_enabled
+                    and hasattr(self, "_auto_bbox_store")
+                    and (entry is None or should_recompute_entry or should_log_cached_entry)
+                ):
+                    pending_pm.append(idx)
+
+                entries[idx] = entry
+
+            if pending_pm:
+                from src.pipelines.br_pipeline_helpers import (
+                    annotate_original_and_expanded_bbox,
+                    expand_bbox_xyxy,
+                )
+
+                pm_prompts = [prompts[idx] for idx in pending_pm]
+                pm_refs = []
+                for idx in pending_pm:
+                    refs = get_sample_refs(idx)
+                    refs_list = list(refs) if isinstance(refs, (list, tuple)) else [refs]
+                    if len(refs_list) == 0:
+                        raise RuntimeError(f"Missing reference image for validation sample index {idx}")
+                    pm_refs.append(refs_list)
+
+                pm_face_bbox_ref = [face_bbox_ref_list[idx] for idx in pending_pm]
+                pm_gens = [
+                    torch.Generator(device=self.device).manual_seed(int(seeds_list[idx]))
+                    for idx in pending_pm
+                ]
+
+                pm_kwargs = dict(self.config.validation_args)
+                pm_kwargs["use_branched_attention"] = False
+                pm_kwargs["use_bbox_mask_gen"] = False
+                pm_kwargs["debug_dir"] = None
+                pm_kwargs["debug_idx"] = int(batch_debug_idx)
+                pm_kwargs["debug_total"] = int(batch_debug_total)
+                pm_kwargs["val_debug"] = val_debug
+
+                pm_images = self.pipe(
+                    prompt=pm_prompts if len(pm_prompts) > 1 else pm_prompts[0],
+                    generator=pm_gens if len(pm_gens) > 1 else pm_gens[0],
+                    input_id_images=pm_refs if len(pm_refs) > 1 else pm_refs[0],
+                    face_bbox_ref=pm_face_bbox_ref if len(pm_face_bbox_ref) > 1 else pm_face_bbox_ref[0],
+                    face_bbox_gen=None,
+                    **pm_kwargs,
+                ).images
+                if not isinstance(pm_images, list):
+                    pm_images = [pm_images]
+
+                for local_i, idx in enumerate(pending_pm):
+                    key = keys[idx]
+                    pm_img = pm_images[local_i]
+                    overlay_path = None
+                    if debug_dir:
+                        overlay_path = Path(str(debug_dir)) / f"{int(sample_debug_indices[idx]):02d}" / "auto_bbox_overlay.png"
+                    should_recompute_entry = bool(automatic_bboxes_every_val)
+                    entry = self._auto_bbox_store.ensure(
+                        key,
+                        photomaker_image=pm_img,
+                        meta={
+                            "debug_idx": int(sample_debug_indices[idx]),
+                            "prompt": str(prompts[idx]),
+                            "id": str(ids_list[idx]),
+                            "seed": int(seeds_list[idx]),
+                        },
+                        overlay_path=None,
+                        force_overlay=False,
+                        force_recompute=should_recompute_entry,
+                    )
+                    self._gen_bbox_by_name[key] = entry
+                    entries[idx] = entry
+
+                    try:
+                        line_w = int(getattr(self._auto_bbox_store, "line_width", 4))
+                        face_box_orig = (
+                            entry.get("face_crop_new") or entry.get("face_crop_old")
+                            if isinstance(entry, dict)
+                            else None
+                        )
+                        if face_box_orig is not None:
+                            face_box_expanded = expand_bbox_xyxy(
+                                face_box_orig,
+                                expansion_ratio=mask_expansion_ratio,
+                                width=pm_img.width,
+                                height=pm_img.height,
+                            )
+                            overlay_img = annotate_original_and_expanded_bbox(
+                                pm_img,
+                                original_bbox=face_box_orig,
+                                expanded_bbox=face_box_expanded,
+                                line_width=line_w,
+                            )
+                            sample_mask_images[idx] = overlay_img
+                            if overlay_path is not None:
+                                overlay_path.parent.mkdir(parents=True, exist_ok=True)
+                                overlay_img.save(overlay_path)
+                    except Exception:
+                        sample_mask_images[idx] = None
+
+            for idx in range(batch_size):
+                key = keys[idx]
+                entry = entries[idx]
+                if entry is None:
+                    err = f"No bbox entry in bbox_mask_gen for expected output name '{key}'"
+                    if getattr(self, "logger", None) is not None:
+                        self.logger.error(err)
+                    else:
+                        print(err)
+                    raise RuntimeError(err)
+                fb = entry.get("face_crop_new") or entry.get("face_crop_old") if isinstance(entry, dict) else None
+                if fb is None:
+                    err = f"BBox record for '{key}' missing face_crop_new/old"
+                    if getattr(self, "logger", None) is not None:
+                        self.logger.error(err)
+                    else:
+                        print(err)
+                    raise RuntimeError(err)
+                face_bbox_gen_list[idx] = fb
+        else:
+            for idx in range(batch_size):
+                entry = entries[idx]
+                if isinstance(entry, dict):
+                    fb = entry.get("face_crop_new") or entry.get("face_crop_old")
+                    if fb is not None:
+                        face_bbox_gen_list[idx] = fb
+
+        val_refs = []
+        refs_iterable = [get_sample_refs(idx) for idx in range(batch_size)]
+        for refs in refs_iterable:
+            refs_list = list(refs) if isinstance(refs, (list, tuple)) else [refs]
+            if len(refs_list) == 0:
+                raise RuntimeError("Validation sample has empty reference image list.")
+            val_refs.append(refs_list)
+
+        val_kwargs = dict(self.config.validation_args)
+        subject_policies = get_value("face_subject_selection_policy", None)
+        if isinstance(subject_policies, list):
+            normalized_policies = {str(value) for value in subject_policies}
+            if len(normalized_policies) != 1:
+                raise RuntimeError(
+                    "One validation batch cannot mix face-subject selection policies"
+                )
+            subject_policy = next(iter(normalized_policies))
+        else:
+            subject_policy = subject_policies
+        if subject_policy is not None:
+            val_kwargs["face_subject_selection_policy"] = str(subject_policy)
+        val_kwargs["debug_idx"] = int(batch_debug_idx)
+        val_kwargs["debug_total"] = int(batch_debug_total)
+        val_kwargs["val_debug"] = val_debug
+
+        # 25 Aug 2026 - AICODE-NOTE: CL39 audit interventions are attached to
+        # the already-loaded checkpoint processors. They must never be passed
+        # through as pipeline kwargs or alter the sealed validation batching.
+        cl39_analysis_enabled = bool(
+            val_kwargs.pop("cl39_analysis_enabled", False)
+        )
+        cl39_analysis_capture = bool(
+            val_kwargs.pop("cl39_analysis_capture", False)
+        )
+        cl39_analysis_output_dir = val_kwargs.pop(
+            "cl39_analysis_output_dir", None
+        )
+        cl39_analysis_selected_indices = val_kwargs.pop(
+            "cl39_analysis_selected_indices", None
+        )
+        cl39_confidence_override = val_kwargs.pop(
+            "cl39_analysis_confidence_override", None
+        )
+        cl39_delta_scale = float(
+            val_kwargs.pop("cl39_analysis_delta_scale", 1.0)
+        )
+        cl39_branch_mode = str(
+            val_kwargs.pop("cl39_analysis_branch_mode", "actual")
+        )
+        cl39_processor_scope = str(
+            val_kwargs.pop("cl39_analysis_processor_scope", "null_key")
+        )
+        cl39_pm_identity_shift = int(
+            val_kwargs.pop("cl39_analysis_pm_identity_shift", 0)
+        )
+        cl39_spatial_identity_shift = int(
+            val_kwargs.pop("cl39_analysis_spatial_identity_shift", 0)
+        )
+
+        def _cl39_shifted_references(identity_shift):
+            if identity_shift == 0:
+                return val_refs, face_bbox_ref_list
+            manual_dataset = None
+            for loader in getattr(self, "evaluation_dataloaders", {}).values():
+                candidate = getattr(loader, "dataset", None)
+                if candidate is not None and hasattr(candidate, "images"):
+                    manual_dataset = candidate
+                    break
+            if manual_dataset is None:
+                raise RuntimeError(
+                    "CL39 identity-source crossing requires a validation dataset with images."
+                )
+            identity_paths = list(manual_dataset.images)
+            if len(identity_paths) < 2:
+                raise RuntimeError("CL39 identity-source crossing requires at least two identities.")
+            index_by_id = {path.stem: idx for idx, path in enumerate(identity_paths)}
+            shifted_refs = []
+            shifted_bboxes = []
+            for sample_id in ids_list:
+                sample_id = str(sample_id)
+                if sample_id not in index_by_id:
+                    raise RuntimeError(
+                        f"Validation identity {sample_id!r} is absent from the manual panel."
+                    )
+                shifted_path = identity_paths[
+                    (index_by_id[sample_id] + identity_shift) % len(identity_paths)
+                ]
+                if shifted_path.stem == sample_id:
+                    raise RuntimeError("CL39 identity shift did not select a wrong identity.")
+                shifted_refs.append([Image.open(shifted_path).convert("RGB")])
+                shifted_bboxes.append(
+                    getattr(manual_dataset, "_bbox_map_ref", {}).get(shifted_path.stem)
+                )
+            return shifted_refs, shifted_bboxes
+
+        if (cl39_pm_identity_shift or cl39_spatial_identity_shift) and not cl39_analysis_enabled:
+            raise ValueError("CL39 identity shifts require cl39_analysis_enabled=true.")
+        cl39_pm_refs, cl39_pm_bboxes = _cl39_shifted_references(
+            cl39_pm_identity_shift
+        )
+        cl39_spatial_refs, cl39_spatial_bboxes = _cl39_shifted_references(
+            cl39_spatial_identity_shift
+        )
+        cl39_crossed_sources = cl39_pm_identity_shift != cl39_spatial_identity_shift
+        cl39_collector = None
+        if cl39_analysis_enabled:
+            from tools.analysis.cl39_attention_capture import (
+                CL39BatchedAttentionCollector,
+                attach_cl39_analysis,
+            )
+
+            if cl39_analysis_capture:
+                if not cl39_analysis_output_dir:
+                    raise ValueError(
+                        "cl39_analysis_capture requires "
+                        "cl39_analysis_output_dir"
+                    )
+                cl39_collector = CL39BatchedAttentionCollector(
+                    sample_debug_indices,
+                    keep_indices=cl39_analysis_selected_indices,
+                )
+            attached = attach_cl39_analysis(
+                self.pipe,
+                collector=cl39_collector,
+                confidence_override=cl39_confidence_override,
+                delta_scale=cl39_delta_scale,
+                branch_mode=cl39_branch_mode,
+                processor_scope=cl39_processor_scope,
+            )
+            if batch_debug_idx == 0:
+                print(
+                    "[CL39 Analysis] "
+                    f"processors={len(attached)} "
+                    f"capture={cl39_analysis_capture} "
+                    f"confidence_override={cl39_confidence_override} "
+                    f"delta_scale={cl39_delta_scale} "
+                    f"branch_mode={cl39_branch_mode} "
+                    f"processor_scope={cl39_processor_scope} "
+                    f"pm_identity_shift={cl39_pm_identity_shift} "
+                    f"spatial_identity_shift={cl39_spatial_identity_shift}"
+                )
+
+        callback = None
+        step_durations = []
+        total_pipe_time = 0.0
+        total_metric_time = 0.0
+        total_steps = 0
+        step_max = 0.0
+        pipe_start = time.time()
+        if self.validation_debug_timing:
+            last_time = pipe_start
+
+            def _callback(pipe, step, timestep, callback_kwargs):
+                nonlocal last_time
+                now = time.time()
+                step_duration = now - last_time
+                step_durations.append(step_duration)
+                last_time = now
+                return callback_kwargs
+
+            callback = _callback
+
+        generators = [
+            torch.Generator(device=self.device).manual_seed(int(sample_seed))
+            for sample_seed in seeds_list
+        ]
+
+        generated_flat = self.pipe(
+            prompt=prompts if batch_size > 1 else prompts[0],
+            generator=generators if batch_size > 1 else generators[0],
+            input_id_images=cl39_pm_refs if batch_size > 1 else cl39_pm_refs[0],
+            face_bbox_ref=cl39_pm_bboxes if batch_size > 1 else cl39_pm_bboxes[0],
+            face_bbox_gen=face_bbox_gen_list if batch_size > 1 else face_bbox_gen_list[0],
+            cl39_analysis_spatial_id_images=(
+                cl39_spatial_refs if cl39_crossed_sources and batch_size > 1
+                else cl39_spatial_refs[0] if cl39_crossed_sources
+                else None
+            ),
+            cl39_analysis_spatial_face_bbox_ref=(
+                cl39_spatial_bboxes if cl39_crossed_sources and batch_size > 1
+                else cl39_spatial_bboxes[0] if cl39_crossed_sources
+                else None
+            ),
+            callback_on_step_end=callback,
+            **val_kwargs,
+        ).images
+        if not isinstance(generated_flat, list):
+            generated_flat = [generated_flat]
+
+        if cl39_collector is not None:
+            cl39_collector.save(Path(str(cl39_analysis_output_dir)))
+
+        total_pipe_time += time.time() - pipe_start
+        if self.validation_debug_timing and step_durations:
+            total_steps += len(step_durations)
+            step_max = max(step_max, max(step_durations))
+
+        num_per_prompt = int(self.config.validation_args.get("num_images_per_prompt", 1))
+        if num_per_prompt <= 0:
+            num_per_prompt = 1
+        expected_total = batch_size * num_per_prompt
+        if len(generated_flat) != expected_total:
+            if batch_size == 1:
+                num_per_prompt = len(generated_flat)
+            else:
+                err = (
+                    f"Validation generation returned {len(generated_flat)} images for "
+                    f"batch_size={batch_size}, num_images_per_prompt={num_per_prompt}."
+                )
+                if getattr(self, "logger", None) is not None:
+                    self.logger.error(err)
+                else:
+                    print(err)
+                raise RuntimeError(err)
+
+        generated_collection = []
+        generated_masks_collection = []
+        for idx in range(batch_size):
+            start = idx * num_per_prompt
+            end = start + num_per_prompt
+            sample_images = generated_flat[start:end]
+            generated_collection.append(sample_images)
+
+            # Save final BA images into per-sample hm_debug/<idx>/ folders.
+            try:
+                if debug_dir and sample_images:
+                    out_dir = Path(str(debug_dir)) / f"{int(sample_debug_indices[idx]):02d}"
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    if len(sample_images) == 1:
+                        sample_images[0].save(out_dir / "generated_ba.png")
+                    else:
+                        for j, img in enumerate(sample_images):
+                            img.save(out_dir / f"generated_ba_{j:02d}.png")
+            except Exception:
+                pass
+
+            if sample_mask_images[idx] is None:
+                generated_masks_collection.append([None] * len(sample_images))
+            else:
+                generated_masks_collection.append([sample_mask_images[idx].copy() for _ in range(len(sample_images))])
+
+        for idx in range(batch_size):
+            # 3 Aug 2026 - Use the validation stream ordinal rather than
+            # batch_idx * current_batch_size, which mislabels a short final
+            # batch and can make a supposedly per-image Comet table ambiguous.
+            table_image_index = int(
+                getattr(self, "_validation_per_image_id_next_index", 0)
+            )
+            self._validation_per_image_id_next_index = table_image_index + 1
+            sample = {}
+            for key, value in batch.items():
+                if isinstance(value, list) and batch_size > 1 and len(value) == batch_size:
+                    sample[key] = value[idx]
+                else:
+                    sample[key] = value
+
+            sample["prompt"] = prompts[idx]
+            sample["ref_images"] = get_sample_refs(idx)
+            sample["generated"] = generated_collection[idx]
+            sample["id"] = ids_list[idx]
+            sample["seed"] = seeds_list[idx]
+            # 09 Aug 2026 - AICODE-NOTE: identity ownership must be scored
+            # against the exact resolved box used by BA, not the dataset's
+            # pre-override/index fallback (which is None for filename-keyed
+            # full-96 maps).
+            sample["face_bbox_gen"] = face_bbox_gen_list[idx]
+            sample["face_bbox_ref"] = face_bbox_ref_list[idx]
+
+            metric_time = 0.0
+            id_sim_value = None
+            id_sim_diagnostics = {}
+            for metric in self.metrics:
+                metric_start = time.time()
+                metric_result = metric(**sample)
+                metric_time += time.time() - metric_start
+                for k, v in metric_result.items():
+                    eval_metrics.update(k, v)
+                    if k == "id_sim":
+                        id_sim_value = float(
+                            v.item() if hasattr(v, "item") else v
+                        )
+                    elif k in {
+                        "id_sim_legacy_best",
+                        "id_sim_mask_iou",
+                        "id_sim_face_count",
+                        "id_sim_no_face",
+                        "id_sim_unowned",
+                        "id_sim_ambiguous",
+                    }:
+                        id_sim_diagnostics[k] = float(
+                            v.item() if hasattr(v, "item") else v
+                        )
+            total_metric_time += metric_time
+
+            if id_sim_value is not None and hasattr(
+                self, "_validation_per_image_id_rows"
+            ):
+                seed = seeds_list[idx]
+                if hasattr(seed, "item"):
+                    seed = seed.item()
+                output_key = keys[idx]
+                if output_key is None:
+                    output_key = f"{str(prompts[idx])[:10]}_{ids_list[idx]}.png"
+                row = {
+                        "image_index": table_image_index,
+                        "output_key": str(output_key),
+                        "identity": str(ids_list[idx]),
+                        "prompt": str(prompts[idx]),
+                        "seed": int(seed),
+                        "generated_image_count": len(generated_collection[idx]),
+                        "id_sim": id_sim_value,
+                    }
+                row.update(id_sim_diagnostics)
+                self._validation_per_image_id_rows.append(row)
+
+        batch["generated"] = generated_collection if batch_size > 1 else generated_collection[0]
+        batch["generated_masks"] = generated_masks_collection if batch_size > 1 else generated_masks_collection[0]
+
+        if self.validation_debug_timing and self.accelerator.is_main_process:
+            if total_steps > 0:
+                step_mean = total_pipe_time / total_steps
+                step_stats = f" step_mean={step_mean:.3f}s step_max={step_max:.3f}s steps={total_steps}"
+            else:
+                step_stats = ""
+            msg = (
+                f"[VAL TIMING] pipeline={total_pipe_time:.3f}s "
+                f"metrics={total_metric_time:.3f}s{step_stats}"
+            )
+            if self.logger is not None:
+                self.logger.info(msg)
+            else:
+                print(msg)
+
+        #### 08 MAR - FIX BATCHED VALIDATION ####
+        return batch

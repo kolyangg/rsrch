@@ -1,0 +1,12 @@
+defaults:
+  - BC_E13_big_celebs_joint_shadow_sa128_24k
+  - _self_
+
+train_dataset_name: bc_e13_ds2
+
+writer:
+  experiment_comment: >-
+    E13 base; dataset-only BC_E13_ds2 change: ds1 repeat-depth balancing plus
+    a 2:1 scene-rich target quota and deterministic canonical same-ID
+    references with flip-safe captions. Architecture, optimization, loss,
+    seeds, and fixed-96 validation are unchanged from E13/BC_E13.

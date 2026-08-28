@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "run_name": "CL42_cosmic_component_token_memory_24k_full96_r3",
+  "plan": {
+    "status": "invalid_comet_registration",
+    "machine": "serv",
+    "gpus": 1,
+    "priority": 5,
+    "objective": "Retain discriminative eye, nose and mouth details at small face scales.",
+    "baseline": "CL27_cosmic_frequency_surface_energy_24k_full96_r3",
+    "single_scientific_change": "Five parameter-free landmark-pooled facial component tokens.",
+    "config": "src/configs/CL42_cosmic_component_token_memory_24k.yaml",
+    "launcher": "launchers/active/run_CL38_CL45_cl27_architecture_1gpu.sh",
+    "comet_project": "aug-large-ds"
+  },
+  "runtime": {
+    "source_revision": "cl38-cl45-v3-datasetlink-20260819",
+    "serv_job_id": "lm-mpi-job-7136481c-6a04-453a-a65e-b8d5f0ee70af",
+    "comet_experiment_key": "ff22d03ce4cf48209b81733d3b37b4a2",
+    "startup_verified": false,
+    "startup_evidence": "sealed source, Hydra/spec validation, 64-sample dataset preflight and validation execution passed, but Comet emitted 'Run will not be logged' because this identity was already uploaded",
+    "failure": "Invalid scientific run: training continued locally but the Comet SDK disabled logging for experiment ff22d03ce4cf48209b81733d3b37b4a2. Superseded by fresh CL42 r4.",
+    "serv_disposition": "stopped after CL42 r4 was accepted"
+  }
+}

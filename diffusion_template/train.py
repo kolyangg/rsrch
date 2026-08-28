@@ -9,6 +9,7 @@ from accelerate.utils import InitProcessGroupKwargs, DistributedDataParallelKwar
 
 from src.datasets.data_utils import get_dataloaders
 from src.utils.init_utils import set_random_seed, setup_saving_and_logging
+from src.model.photomaker_branched.cl39x_contract import cl39x_runtime_attributes
 import os
 import datetime
 
@@ -551,6 +552,14 @@ def main(config):
             "ba_hardcase_roi_gate_min",
             "ba_hardcase_roi_progress_min",
             "ba_hardcase_roi_rms_cap",
+            "ba_null_key_router_enabled",
+            "ba_null_key_router_groups",
+            "ba_null_key_entropy_threshold",
+            "ba_null_key_temperature",
+            "ba_null_key_max_abstention",
+            "ba_null_key_min_reference_fraction",
+            "cl39x_settings",
+            *cl39x_runtime_attributes(),
         ):
             # 17 Aug 2026 - AICODE-NOTE: Validation must use the composed experiment flags,
             # even when Accelerate's wrapper does not expose a newly added
