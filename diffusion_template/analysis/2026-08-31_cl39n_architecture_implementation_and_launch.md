@@ -132,6 +132,33 @@ the exact architecture and emits zero placeholders only when those diagnostics
 are unsampled. A focused sampled/unsampled schema check passes. The ONNX CUDA
 fallback warnings and Comet status timeout were not the terminal cause.
 
+Recovery r2 is the proper unchanged 24k fixed-96 run: Serv
+`lm-mpi-job-f599e54b-87a1-49c5-85c4-b29cbac69d12`, Comet
+`e7e614c6f9a84f01a2acdb7ac4da234d`, source commit `8effa14`. `[measured]`
+It passed sealed-source/config/data/Comet startup and is generating the
+step-zero panel. Crossing the former third-batch crash and first later sampled
+diagnostic remain the integrity gates.
+
+## N3 failure and separately named successor
+
+N3R2 r3 completed exact resume and fixed-96 step-2k validation, then failed
+its third hard-reference activity attempt: cadence `9/9`, achieved-margin mean
+`0.009998`, hinge mean `0.000030`, BA/native gradient ratio `0.002311`, and
+calibration saturated at `0.075`. `[measured]` The squared-hinge objective is
+therefore rejected; it was not weakened or silently restarted under N3.
+
+The separately named N3S successor changes only that rank penalty to
+temperature-`0.02` softplus. Its 101-step qualification passed with exact
+applications `11/11`, nonzero losses `11/11`, achieved-margin mean `0.009578`,
+and calibrated weight mean `0.005674`; throughput was `5.05` s/iteration.
+`[measured]` Proper 24k fixed-96 production then started from the exact common
+pre-auxiliary checkpoint SHA-256
+`c995a10102ec746474d6a3bf7652afec0846d72c5a0a45a786b9d0a7f38492aa`:
+Serv `lm-mpi-job-0a9cbd11-cafb-40df-a709-331ca4458472`, Comet
+`aa08052261f74d9bb3aa65334aa36c27`. It passed source/config/data/Comet and
+checkpoint-hash startup checks; fixed-96 validation and production activity
+remain pending.
+
 ## Serv submissions
 
 The pre-submit recount was four Running and zero Pending project A100s. The
