@@ -767,26 +767,34 @@ class BranchedAttnProcessor(nn.Module):
         keys = self._reshape_heads(self._k_ref(attn, reference if self.valid_kv_enabled else reference_face), heads)
         values = self._reshape_heads(self._v_ref(attn, reference if self.valid_kv_enabled else reference_face), heads)
         self._route_eligible = None
-        if self.extension_telemetry_enabled:
-            self._latest_cl39x = {}
+        self._latest_cl39x = {}
+        self._valid_key_entropy = None
         if self.valid_kv_enabled:
             threshold = float(self.cl39x_settings["ba_valid_kv_threshold"])
+            confidence_source = self.cl39x_settings[
+                "ba_valid_kv_confidence_source"
+            ]
             result = valid_key_sdpa(
                 q, keys, values, ref_mask.squeeze(-1).gt(threshold),
-                fallback=torch.zeros_like(q), return_entropy=True,
+                fallback=torch.zeros_like(q),
+                return_entropy=(
+                    confidence_source == "valid_only"
+                    or self.extension_telemetry_enabled
+                ),
                 entropy_chunk_size=int(self.cl39x_settings["ba_valid_kv_entropy_chunk_size"]),
             )
             message = result.message
             self._route_eligible = result.eligible.flatten().view(batch, 1, 1)
             self._valid_key_entropy = result.entropy
-            self._latest_cl39x.update(
-                **{
-                    "valid_kv/valid_fraction": result.valid_fraction.mean(),
-                    "valid_kv/valid_count": result.valid_count.float().mean(),
-                    "valid_kv/all_invalid_fraction": 1.0 - result.eligible.float().mean(),
-                    "valid_kv/entropy_valid": result.entropy.float().mean(),
-                }
-            )
+            if self.extension_telemetry_enabled:
+                self._latest_cl39x.update(
+                    **{
+                        "valid_kv/valid_fraction": result.valid_fraction.mean(),
+                        "valid_kv/valid_count": result.valid_count.float().mean(),
+                        "valid_kv/all_invalid_fraction": 1.0 - result.eligible.float().mean(),
+                        "valid_kv/entropy_valid": result.entropy.float().mean(),
+                    }
+                )
         else:
             message = F.scaled_dot_product_attention(
                 q, keys, values, dropout_p=0.0, is_causal=False
@@ -904,7 +912,14 @@ class BranchedAttnProcessor(nn.Module):
             )
             null_mass = 1.0 - result.confidence
             return result.confidence.to(q.dtype), null_mass
-        if self.valid_kv_enabled and getattr(self, "_valid_key_entropy", None) is not None:
+        confidence_source = self.cl39x_settings.get(
+            "ba_valid_kv_confidence_source", "valid_only"
+        )
+        if (
+            self.valid_kv_enabled
+            and confidence_source == "valid_only"
+            and getattr(self, "_valid_key_entropy", None) is not None
+        ):
             entropy = self._valid_key_entropy.float()
         else:
             entropy_parts = []
@@ -964,6 +979,37 @@ class BranchedAttnProcessor(nn.Module):
             confidence = (1.0 - self.null_key_max_abstention * null_mass).clamp(
                 min=self.null_key_min_reference_fraction, max=1.0
             )
+            if (
+                self.valid_kv_enabled
+                and confidence_source == "legacy_masked_full"
+                and self.extension_telemetry_enabled
+            ):
+                # 31 Aug 2026 - X12 changes only message support: its applied
+                # confidence remains numerically CL39 while valid-only entropy
+                # is retained as a detached diagnostic on telemetry steps.
+                valid_entropy = self._valid_key_entropy.float()
+                valid_null_mass = torch.sigmoid(
+                    (valid_entropy - self.null_key_entropy_threshold)
+                    / self.null_key_temperature
+                )
+                valid_confidence = (
+                    1.0 - self.null_key_max_abstention * valid_null_mass
+                ).clamp(
+                    min=self.null_key_min_reference_fraction, max=1.0
+                )
+                self._latest_cl39x.update(
+                    **{
+                        "valid_kv/entropy_legacy": entropy.mean(),
+                        "valid_kv/entropy_legacy_minus_valid": (
+                            entropy - valid_entropy
+                        ).mean(),
+                        "valid_kv/confidence_legacy": confidence.mean(),
+                        "valid_kv/confidence_valid": valid_confidence.mean(),
+                        "valid_kv/confidence_legacy_minus_valid": (
+                            confidence - valid_confidence
+                        ).mean(),
+                    }
+                )
         eligible = valid.any(-1)[:, None, None]
         confidence = torch.where(eligible, confidence, torch.zeros_like(confidence))
         null_mass = torch.where(eligible, null_mass, torch.ones_like(null_mass))

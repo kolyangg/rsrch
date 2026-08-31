@@ -76,6 +76,41 @@ this is not yet a claim about optimizer progress or final scientific quality.
 The direct-production archive SHA-256 is
 `6d0d2926881b8be4479913b267fb999962d4c3d451d56234798ff0c1f485264d`.
 
+## X12 replacement fourth architecture
+
+N6R's independent seed-1 intervention reduced subject-v2 identity by
+`-0.005748`, increased face SSIM to PhotoMaker by `+0.002140`, and reduced
+TOPIQ-Face by `-0.003733`; pruning a routed band is therefore not promoted.
+`[measured]` X01 valid-key attention was a matched statistical tie rather than
+an improvement, but it established that excluding invalid zero keys is stable.
+Its confidence was recalculated on valid keys, increasing and recalibrating the
+correction budget at the same time. `[report]`
+
+The replacement arm is
+`CL39X12_cosmic_valid_kv_legacy_confidence_24k_full96_r1`. Its single change
+from CL39 is valid-only reference K/V message support; confidence remains the
+original detached CL39 masked-full entropy statistic. `[code]` It adds no
+parameters and retains the exact `2,240 / 219,217,920` trainable contract,
+fixed manual-val96 inputs, scheduler, data, losses, 24k schedule,
+`pose_adapt_ratio=0`, and `ca_mixing_for_face=false`.
+
+Primary decision metric is paired subject-v2 identity versus matched CL39;
+PhotoMaker face SSIM is a dissimilarity constraint, not the optimization
+target. `[hypothesis]` X12 should retain X01's useful message support without
+forcing its larger valid-only confidence budget. Promote only with paired ID
+interval lower bound above zero, Skiing within `0.005`, no identity below
+`-0.015`, and TOPIQ-Face/MANIQA within `0.005` of CL39.
+
+| Claim | Confidence | Basis |
+|---|---|---|
+| X12 message equals X01 | High | Focused tensor gate, maximum absolute difference `0` |
+| X12 confidence equals CL39 | High | Focused tensor gate, maximum absolute difference `0` |
+| X12 will improve identity | Not established | X01 tied CL39 and X12 has not trained |
+| X12 avoids N6R's pruning failure | Medium | It removes no routed band, but final metrics remain unknown |
+
+Not established: X12 has no trained checkpoint, so neither identity gain nor
+visual difference from PhotoMaker can be claimed from its construction gates.
+
 ## Serv submissions
 
 The pre-submit recount was four Running and zero Pending project A100s. The

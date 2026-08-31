@@ -23,6 +23,7 @@ ARMS = {
     "CL39X06_cosmic_counterfactual_reference_24k": ("ba_counterfactual_enabled", 2240, 219217920),
     "CL39X07_cosmic_intrinsic_id_sidecar_24k": ("ba_intrinsic_id_sidecar_enabled", 2353, 242456612),
     "CL39X08_cosmic_global_local_balance_24k": ("ba_global_local_enabled", 2240, 219217920),
+    "CL39X12_cosmic_valid_kv_legacy_confidence_24k": ("ba_valid_kv_enabled", 2240, 219217920),
 }
 
 
@@ -44,8 +45,13 @@ def main():
         raise RuntimeError("Run/config arm mismatch")
     raw = yaml.safe_load((CONFIG_DIR / f"{args.config_name}.yaml").read_text())
     defaults = raw.get("defaults") or []
-    if defaults[0] != "CL39_cosmic_null_key_confidence_router_24k":
-        raise RuntimeError("Every leaf must default directly from CL39")
+    expected_parent = (
+        "CL39X01_cosmic_valid_key_attention_24k"
+        if arm == "CL39X12"
+        else "CL39_cosmic_null_key_confidence_router_24k"
+    )
+    if defaults[0] != expected_parent:
+        raise RuntimeError(f"Unexpected config parent: {defaults[0]!r}")
     with initialize_config_dir(config_dir=str(CONFIG_DIR), version_base=None):
         config = compose(config_name=args.config_name)
     enabled_key, tensors, parameters = ARMS[args.config_name]
@@ -53,6 +59,8 @@ def main():
     active = sorted(key for key, value in settings.items() if key.endswith("_enabled") and value)
     if active != [enabled_key]:
         raise RuntimeError(f"Expected only {enabled_key}, got {active}")
+    if arm == "CL39X12" and settings["ba_valid_kv_confidence_source"] != "legacy_masked_full":
+        raise RuntimeError("X12 must retain CL39 masked-full confidence")
     checks = {
         "trainer.epoch_len": 2000, "trainer.n_epochs": 12,
         "trainer.validation_interval_steps": 2000,

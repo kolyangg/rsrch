@@ -20,7 +20,8 @@ case "${CONFIG_NAME}" in
   CL39X01_cosmic_valid_key_attention_24k|CL39X02_cosmic_cycle_confidence_24k|\
   CL39X03_cosmic_stage_split_ot_transport_24k|CL39X04_cosmic_small_face_roi_route_24k|\
   CL39X05_cosmic_automask_os_24k|CL39X06_cosmic_counterfactual_reference_24k|\
-  CL39X07_cosmic_intrinsic_id_sidecar_24k|CL39X08_cosmic_global_local_balance_24k) ;;
+  CL39X07_cosmic_intrinsic_id_sidecar_24k|CL39X08_cosmic_global_local_balance_24k|\
+  CL39X12_cosmic_valid_kv_legacy_confidence_24k) ;;
   *) echo "Unapproved CL39-X config: ${CONFIG_NAME}" >&2; exit 2 ;;
 esac
 test -s "${COSMIC_LARGE_MANIFEST}" && test -d "${COSMIC_LARGE_ROOT}"

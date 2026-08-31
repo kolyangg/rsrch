@@ -58,6 +58,7 @@ case "${RUN_ID}" in
   CL39X06_*) CONFIG_NAME=CL39X06_cosmic_counterfactual_reference_24k ;;
   CL39X07_*) CONFIG_NAME=CL39X07_cosmic_intrinsic_id_sidecar_24k ;;
   CL39X08_*) CONFIG_NAME=CL39X08_cosmic_global_local_balance_24k ;;
+  CL39X12_*) CONFIG_NAME=CL39X12_cosmic_valid_kv_legacy_confidence_24k ;;
   *) echo "Unknown CL39-X run: ${RUN_ID}" >&2; exit 2 ;;
 esac
 export CONFIG_NAME

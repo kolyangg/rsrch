@@ -13,6 +13,7 @@ DEFAULTS = {
     "ba_valid_kv_groups": (),
     "ba_valid_kv_threshold": 0.5,
     "ba_valid_kv_entropy_chunk_size": 256,
+    "ba_valid_kv_confidence_source": "valid_only",
     "ba_cycle_confidence_enabled": False,
     "ba_cycle_confidence_groups": (),
     "ba_cycle_confidence_floor": 0.25,
@@ -144,6 +145,10 @@ def configure_cl39x(model, supplied) -> dict:
 
     if not 0.0 <= float(settings["ba_valid_kv_threshold"]) <= 1.0:
         raise ValueError("ba_valid_kv_threshold must be in [0,1]")
+    if settings["ba_valid_kv_confidence_source"] not in {
+        "valid_only", "legacy_masked_full"
+    }:
+        raise ValueError("Unknown valid-KV confidence source")
     for key in (
         "ba_valid_kv_entropy_chunk_size", "ba_cycle_confidence_chunk_size",
         "ba_ot_grid_size", "ba_ot_iterations", "ba_ot_late_top_k",
