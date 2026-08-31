@@ -419,9 +419,17 @@ def collect_branched_telemetry(model) -> dict[str, torch.Tensor]:
         architecture_version == "hard_replace_v1" and hardcase_telemetry_enabled
     ):
         return {}
+    n9_parent_telemetry = (
+        architecture_version == "hard_replace_v1"
+        and identity_ca_enabled
+        and str(getattr(model, "ba_intrinsic_id_confidence_source", "none"))
+        == "cl39_complement_detached"
+    )
     processor_names = (
         getattr(model, "_ba_identity_ca_processor_names", ())
-        if architecture_version == "hard_replace_v1" and identity_ca_enabled
+        if architecture_version == "hard_replace_v1"
+        and identity_ca_enabled
+        and not n9_parent_telemetry
         else getattr(model, "_ba_patched_processor_names", ())
     )
     # 16 Aug 2026 - AICODE-NOTE: This property recursively rebuilds the full

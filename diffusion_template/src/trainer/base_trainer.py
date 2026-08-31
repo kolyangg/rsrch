@@ -137,6 +137,7 @@ class BaseTrainer:
         face_quality=None,
         log_per_image_id_sim_table=True,
         skip_initial_validation=False,
+        preserve_training_model_during_validation=False,
     ):
         """
         Args:
@@ -225,6 +226,9 @@ class BaseTrainer:
         self.face_quality_config = face_quality
         self.log_per_image_id_sim_table = bool(log_per_image_id_sim_table)
         self.skip_initial_validation = bool(skip_initial_validation)
+        self.preserve_training_model_during_validation = bool(
+            preserve_training_model_during_validation
+        )
         if (
             not bool(getattr(self.config, "validation_only", False))
             and self.validation_interval_steps is not None
@@ -704,7 +708,10 @@ class BaseTrainer:
                 # In multi-GPU, do NOT offload the DDP-wrapped training model on a single rank.
                 # This avoids desynchronizing DDP parameter buckets across ranks.
                 num_procs = int(getattr(self.accelerator, "num_processes", 1))
-                should_offload_train = (num_procs == 1)
+                should_offload_train = (
+                    num_procs == 1
+                    and not self.preserve_training_model_during_validation
+                )
                 try:
                     if should_offload_train:
                         # Offload training model to CPU to free VRAM (safe on single GPU)
@@ -718,7 +725,15 @@ class BaseTrainer:
                     else:
                         if self.accelerator.is_main_process:
                             try:
-                                print(f"[Base Model Switch] Skipping offload on multi-GPU (num_procs={num_procs})")
+                                reason = (
+                                    "resident-through-validation"
+                                    if self.preserve_training_model_during_validation
+                                    else "multi-GPU"
+                                )
+                                print(
+                                    "[Base Model Switch] Skipping training-model "
+                                    f"offload ({reason}, num_procs={num_procs})"
+                                )
                             except Exception:
                                 pass
                     try:
@@ -1019,10 +1034,14 @@ class BaseTrainer:
                         "ba_hardcase_roi_rms_cap",
                         "ba_null_key_router_enabled",
                         "ba_null_key_router_groups",
+                        "ba_null_key_confidence_mode",
                         "ba_null_key_entropy_threshold",
                         "ba_null_key_temperature",
                         "ba_null_key_max_abstention",
                         "ba_null_key_min_reference_fraction",
+                        "ba_group_band_map_enabled",
+                        "ba_group_band_map",
+                        "ba_group_band_map_sha256",
                         "cl39x_settings",
                         *cl39x_runtime_attributes(),
                     ):

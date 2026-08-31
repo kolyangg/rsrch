@@ -95,6 +95,10 @@ def patch_unet_attention_processors(
     cl39x_settings = dict(getattr(pipeline, "cl39x_settings", {}) or {})
     null_key_enabled = bool(getattr(pipeline, "ba_null_key_router_enabled", False))
     null_key_groups = tuple(getattr(pipeline, "ba_null_key_router_groups", ()) or ())
+    group_band_map_enabled = bool(
+        getattr(pipeline, "ba_group_band_map_enabled", False)
+    )
+    group_band_map = dict(getattr(pipeline, "ba_group_band_map", {}) or {})
 
     hardcase_mode = str(getattr(pipeline, "ba_hardcase_mode", "off") or "off").lower()
     hardcase_fallback_mode = str(
@@ -154,6 +158,11 @@ def patch_unet_attention_processors(
     hardcase_telemetry_enabled = bool(
         getattr(pipeline, "ba_hardcase_telemetry_enabled", True)
     )
+    if group_band_map_enabled and (
+        hardcase_mode != "temporal_frequency"
+        or set(group_band_map) != set(hardcase_groups)
+    ):
+        raise RuntimeError("CL39N6R map must cover the seven temporal-frequency groups")
 
     if configured_architecture_version is None:
         # Validation pipelines reuse the already-installed training U-Net but
@@ -350,6 +359,11 @@ def patch_unet_attention_processors(
                 bool(processor.roi_route_enabled),
                 bool(processor.automask_os_enabled),
                 bool(processor.global_local_enabled),
+                bool(processor.native_orthogonal_enabled),
+                bool(processor.group_band_map_enabled),
+                float(processor.group_band_low_scale),
+                float(processor.group_band_high_scale),
+                str(processor.null_key_confidence_mode),
             )
             in_null_group = null_key_enabled and any(
                 name.startswith(f"{group}.") for group in null_key_groups
@@ -357,6 +371,13 @@ def patch_unet_attention_processors(
             selected_x = lambda prefix: bool(cl39x_settings.get(f"{prefix}_enabled", False)) and any(
                 name.startswith(f"{group}.")
                 for group in cl39x_settings.get(f"{prefix}_groups", ())
+            )
+            semantic_group = next(
+                (group for group in hardcase_groups if name.startswith(f"{group}.")),
+                None,
+            )
+            bands = group_band_map.get(
+                semantic_group, {"low": 1.0, "high": 1.0}
             )
             expected = (
                 expected_surface,
@@ -376,6 +397,11 @@ def patch_unet_attention_processors(
                 selected_x("ba_roi_route"),
                 bool(cl39x_settings.get("ba_automask_os_enabled", False)),
                 selected_x("ba_global_local"),
+                selected_x("ba_native_orthogonal_band"),
+                group_band_map_enabled,
+                float(bands["low"]),
+                float(bands["high"]),
+                str(getattr(pipeline, "ba_null_key_confidence_mode", "entropy_v1")),
             )
             if actual != expected:
                 mismatched_frequency_extensions.append((name, actual, expected))
@@ -430,6 +456,13 @@ def patch_unet_attention_processors(
             proc.set_denoise_progress(ba_denoise_progress)
         if hasattr(proc, "set_hardcase_telemetry_enabled"):
             proc.set_hardcase_telemetry_enabled(hardcase_telemetry_enabled)
+        if hasattr(proc, "set_extension_telemetry_enabled"):
+            step = int(getattr(pipe, "_ba_current_global_step", 0))
+            interval = int(getattr(pipe, "ba_telemetry_interval", 50))
+            proc.set_extension_telemetry_enabled(
+                not bool(getattr(pipe, "_ba_suppress_telemetry", False))
+                and (step < 2 or step % interval == 0)
+            )
         if hasattr(proc, "set_ownership_target_mask"):
             proc.set_ownership_target_mask(
                 getattr(pipe, "_ba_ownership_target_mask", None)
@@ -516,6 +549,20 @@ def patch_unet_attention_processors(
             )
     patchable_sa_name_set = set(patchable_sa_names)
     setattr(pipeline, "_ba_semantic_processor_names", tuple(patchable_sa_names))
+    if group_band_map_enabled:
+        expected_counts = {
+            "down_blocks.0": 0, "down_blocks.1": 4,
+            "down_blocks.2": 20, "mid_block": 10,
+            "up_blocks.0": 30, "up_blocks.1": 6,
+            "up_blocks.2": 0,
+        }
+        counts = {
+            group: sum(name.startswith(f"{group}.") for name in patchable_sa_names)
+            for group in expected_counts
+        }
+        if counts != expected_counts:
+            raise RuntimeError(f"CL39N6R processor topology mismatch: {counts}")
+        setattr(pipeline, "_ba_group_band_processor_counts", counts)
 
     identity_ca_names: list[str] = []
     identity_ca_enabled = (
@@ -570,6 +617,11 @@ def patch_unet_attention_processors(
         if not identity_ca_names:
             raise RuntimeError(
                 f"{group_attribute} selected zero cross-attention processors"
+            )
+        if intrinsic_identity_ca_enabled and len(identity_ca_names) != 36:
+            raise RuntimeError(
+                "Intrinsic-ID sidecar requires exactly 36 up0/up1 attn2 "
+                f"processors, got {len(identity_ca_names)}"
             )
     identity_ca_name_set = set(identity_ca_names)
     setattr(pipeline, "_ba_identity_ca_processor_names", tuple(identity_ca_names))
@@ -1069,6 +1121,9 @@ def patch_unet_attention_processors(
                                     name.startswith(f"{group}.") for group in null_key_groups
                                 )
                             ),
+                            null_key_confidence_mode=str(
+                                getattr(pipeline, "ba_null_key_confidence_mode", "entropy_v1")
+                            ),
                             null_key_entropy_threshold=float(
                                 getattr(pipeline, "ba_null_key_entropy_threshold", 0.75)
                             ),
@@ -1081,6 +1136,25 @@ def patch_unet_attention_processors(
                             null_key_min_reference_fraction=float(
                                 getattr(pipeline, "ba_null_key_min_reference_fraction", 0.25)
                             ),
+                            group_band_low_scale=float(
+                                group_band_map.get(
+                                    next(
+                                        (group for group in hardcase_groups if name.startswith(f"{group}.")),
+                                        "",
+                                    ),
+                                    {"low": 1.0},
+                                )["low"]
+                            ),
+                            group_band_high_scale=float(
+                                group_band_map.get(
+                                    next(
+                                        (group for group in hardcase_groups if name.startswith(f"{group}.")),
+                                        "",
+                                    ),
+                                    {"high": 1.0},
+                                )["high"]
+                            ),
+                            group_band_map_enabled=group_band_map_enabled,
                             cl39x_settings=cl39x_settings,
                             processor_name=name,
                         )
@@ -1166,6 +1240,13 @@ def patch_unet_attention_processors(
                             rank=int(getattr(pipeline, "ba_intrinsic_id_residual_rank", 64)),
                             gate_init=float(getattr(pipeline, "ba_intrinsic_id_gate_init", 0.01)),
                             gate_max=float(getattr(pipeline, "ba_intrinsic_id_gate_max", 0.15)),
+                            confidence_source=str(
+                                getattr(
+                                    pipeline,
+                                    "ba_intrinsic_id_confidence_source",
+                                    "none",
+                                )
+                            ),
                             trainable_dtype=torch.float32,
                         )
                     proc.init_from_attention(
@@ -1267,6 +1348,24 @@ def patch_unet_attention_processors(
                     else:
                         proc.set_class_tokens_mask(class_tokens_mask, identity_token_indices)
         setattr(pipeline, "_ba_patched_processor_names", tuple(patched_proc_names))
+
+    if intrinsic_identity_ca_enabled:
+        processors = pipeline.unet.attn_processors
+        confidence_source = str(
+            getattr(pipeline, "ba_intrinsic_id_confidence_source", "none")
+        )
+        for name in identity_ca_names:
+            processor = processors[name]
+            if not isinstance(processor, IntrinsicIdentityCrossAttnProcessor):
+                continue
+            if confidence_source == "cl39_complement_detached":
+                sa_name = name.replace(".attn2.processor", ".attn1.processor")
+                source = processors.get(sa_name)
+                if not isinstance(source, HardReplaceBranchedAttnProcessor):
+                    raise RuntimeError(
+                        f"CL39N9 paired self-attention processor is absent: {sa_name}"
+                    )
+                processor.set_route_source(source)
 
     pose_adapt_ratio = float(getattr(pipeline, "pose_adapt_ratio", 0.0))
     if (

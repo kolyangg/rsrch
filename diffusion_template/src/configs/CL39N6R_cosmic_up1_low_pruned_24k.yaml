@@ -1,0 +1,25 @@
+defaults: [CL39_cosmic_null_key_confidence_router_24k, _self_]
+
+model:
+  ba_group_band_map_enabled: true
+  ba_group_band_map_path: src/configs/maps/CL39N6R_up1_low_pruned_v1.json
+  ba_group_band_map_sha256: 858c4663083ccffbd461e94215d4e9951f2765b59b4f49ce454de92c5910904f
+  ba_group_band_map_require_binary: true
+  ba_group_band_map_keep_optimizer_membership: true
+
+trainer:
+  preserve_training_model_during_validation: true
+
+datasets:
+  val:
+    manual_val:
+      bbox_mask_gen: ${oc.env:CL39N_BBOX_PATH,../dataset_full/val_dataset/pm96_bboxes_new.json}
+
+writer:
+  loss_names: [loss, loss_ba_aux, loss_ba_frequency_surface,
+    ba/group_band/accepted_low_rms/all, ba/group_band/accepted_high_rms/all,
+    ba/group_band/accepted_low_rms/up1, ba/group_band/accepted_high_rms/up1,
+    ba/null_key/reference_fraction/all]
+  experiment_comment: >-
+    CL39N6R disables only the frozen up_blocks.1 low-frequency route. All high
+    bands, other groups, losses, trainables, data and validation stay CL39.

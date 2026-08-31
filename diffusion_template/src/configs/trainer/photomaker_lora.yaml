@@ -7,6 +7,10 @@ n_epochs: 10000
 epoch_len: 2000
 validation_interval_steps: 2000
 skip_initial_validation: false
+# Opt-in A100 path: keep the prepared training model resident while the
+# temporary alternate-base validation model runs, avoiding a persistent
+# post-validation throughput regression from the CPU round trip.
+preserve_training_model_during_validation: false
 log_per_image_id_sim_table: true
 resume_from: null # null or path to the checkpoint dir with *.pth and config.yaml
 from_pretrained: null

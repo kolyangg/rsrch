@@ -1,0 +1,31 @@
+defaults: [CL39_cosmic_null_key_confidence_router_24k, _self_]
+
+model:
+  cl39x_settings:
+    ba_native_orthogonal_band_enabled: true
+    ba_native_orthogonal_band_groups: [up_blocks.0, up_blocks.1]
+    ba_native_orthogonal_band: high
+    ba_native_orthogonal_mode: remove_positive_parallel
+    ba_native_orthogonal_strength: 1.0
+    ba_native_orthogonal_epsilon: 1.0e-6
+    ba_native_orthogonal_detach_native: true
+
+trainer:
+  preserve_training_model_during_validation: true
+
+datasets:
+  val:
+    manual_val:
+      bbox_mask_gen: ${oc.env:CL39N_BBOX_PATH,../dataset_full/val_dataset/pm96_bboxes_new.json}
+
+writer:
+  loss_names: [loss, loss_ba_aux, loss_ba_frequency_surface,
+    ba/native_orthogonal/pre_cosine/all,
+    ba/native_orthogonal/post_cosine/all,
+    ba/native_orthogonal/removed_energy_fraction/all,
+    ba/native_orthogonal/affected_query_fraction/all,
+    ba/native_orthogonal/high_rms/all,
+    ba/null_key/reference_fraction/all]
+  experiment_comment: >-
+    CL39N8 removes only positive native-aligned energy from the routed up0/up1
+    high band; low bands, native output, confidence and trainables stay CL39.

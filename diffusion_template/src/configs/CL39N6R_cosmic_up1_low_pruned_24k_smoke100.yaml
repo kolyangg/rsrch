@@ -1,0 +1,13 @@
+defaults: [CL39N6R_cosmic_up1_low_pruned_24k, _self_]
+
+trainer:
+  epoch_len: 100
+  n_epochs: 1
+  validation_interval_steps: null
+  skip_initial_validation: true
+  face_quality: {enabled: false}
+
+writer:
+  experiment_comment: >-
+    Sealed 100-step no-validation finite/activity/throughput qualification for
+    CL39N6R; scientific settings are inherited unchanged.

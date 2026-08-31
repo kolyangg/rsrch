@@ -1,5 +1,7 @@
 import time
 import os
+import hashlib
+import json
 from pathlib import Path  # --- MODIFIED For training integration ---
 import torch
 from omegaconf import OmegaConf  # --- MODIFIED For training integration ---
@@ -881,6 +883,13 @@ class PhotomakerLoraTrainer(SDXLTrainer):
                 for local_i, idx in enumerate(pending_pm):
                     key = keys[idx]
                     pm_img = pm_images[local_i]
+                    preview_dir = self.config.validation_args.get(
+                        "automatic_bbox_preview_dir", None
+                    )
+                    if preview_dir:
+                        preview_path = Path(str(preview_dir)) / str(key).replace(" ", "_")
+                        preview_path.parent.mkdir(parents=True, exist_ok=True)
+                        pm_img.save(preview_path)
                     overlay_path = None
                     if debug_dir:
                         overlay_path = Path(str(debug_dir)) / f"{int(sample_debug_indices[idx]):02d}" / "auto_bbox_overlay.png"
@@ -1016,6 +1025,53 @@ class PhotomakerLoraTrainer(SDXLTrainer):
         val_kwargs["debug_idx"] = int(batch_debug_idx)
         val_kwargs["debug_total"] = int(batch_debug_total)
         val_kwargs["val_debug"] = val_debug
+
+        # 31 Aug 2026 - N6R seed-1 confirmation applies the sealed parameter-
+        # free route only after loading CL39 weights, so checkpoint ownership
+        # remains exact and the production routing implementation is reused.
+        map_path = val_kwargs.pop("cl39_group_band_map_path", None)
+        map_sha = val_kwargs.pop("cl39_group_band_map_sha256", None)
+        if map_path and not hasattr(self, "_cl39_group_band_override_applied"):
+            raw = Path(str(map_path)).read_bytes()
+            actual_sha = hashlib.sha256(raw).hexdigest()
+            if actual_sha != str(map_sha):
+                raise RuntimeError("CL39N6R confirmation map SHA-256 mismatch")
+            route = json.loads(raw)["groups"]
+            required = {
+                "down_blocks.0": 0, "down_blocks.1": 4,
+                "down_blocks.2": 20, "mid_block": 10,
+                "up_blocks.0": 30, "up_blocks.1": 6,
+                "up_blocks.2": 0,
+            }
+            disabled = [
+                (group, band) for group, bands in route.items()
+                for band, value in bands.items() if float(value) == 0.0
+            ]
+            if set(route) != set(required) or disabled != [("up_blocks.1", "low")]:
+                raise RuntimeError(f"Invalid CL39N6R confirmation map: {disabled}")
+            counts = {group: 0 for group in required}
+            processors = self.pipe.unet.attn_processors
+            for name, processor in processors.items():
+                group = next(
+                    (value for value in required if name.startswith(f"{value}.")),
+                    None,
+                )
+                if group is None or not hasattr(processor, "group_band_low_scale"):
+                    continue
+                processor.group_band_low_scale = float(route[group]["low"])
+                processor.group_band_high_scale = float(route[group]["high"])
+                processor.group_band_map_enabled = True
+                counts[group] += 1
+            if counts != required:
+                raise RuntimeError(f"CL39N6R processor topology mismatch: {counts}")
+            self.pipe.ba_group_band_map_enabled = True
+            self.pipe.ba_group_band_map = route
+            self.pipe.ba_group_band_map_sha256 = actual_sha
+            self._cl39_group_band_override_applied = actual_sha
+            print(
+                "CL39N6R_CONFIRMATION_ROUTE_ACTIVE "
+                f"map_sha256={actual_sha} processors={counts}"
+            )
 
         callback = None
         step_durations = []

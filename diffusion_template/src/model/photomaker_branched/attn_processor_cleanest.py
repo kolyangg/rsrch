@@ -165,10 +165,14 @@ class BranchedAttnProcessor(nn.Module):
         hardcase_roi_progress_min: float = 0.60,
         hardcase_roi_rms_cap: float = 0.25,
         null_key_router_enabled: bool = False,
+        null_key_confidence_mode: str = "entropy_v1",
         null_key_entropy_threshold: float = 0.75,
         null_key_temperature: float = 0.08,
         null_key_max_abstention: float = 0.75,
         null_key_min_reference_fraction: float = 0.25,
+        group_band_low_scale: float = 1.0,
+        group_band_high_scale: float = 1.0,
+        group_band_map_enabled: bool = False,
         cl39x_settings: Optional[dict] = None,
         processor_name: Optional[str] = None,
     ):
@@ -217,6 +221,9 @@ class BranchedAttnProcessor(nn.Module):
         self.hardcase_frequency_high_early = float(hardcase_frequency_high_early)
         self.hardcase_frequency_high_late = float(hardcase_frequency_high_late)
         self.null_key_router_enabled = bool(null_key_router_enabled)
+        self.null_key_confidence_mode = str(
+            null_key_confidence_mode or "entropy_v1"
+        ).lower()
         self.null_key_entropy_threshold = float(null_key_entropy_threshold)
         self.null_key_temperature = float(null_key_temperature)
         self.null_key_max_abstention = float(null_key_max_abstention)
@@ -227,6 +234,15 @@ class BranchedAttnProcessor(nn.Module):
             raise ValueError("null-key max abstention must be in [0,1]")
         if not 0.0 < self.null_key_min_reference_fraction <= 1.0:
             raise ValueError("null-key minimum reference fraction must be in (0,1]")
+        if self.null_key_confidence_mode not in {
+            "entropy_v1", "posterior_invalid_mass_v1"
+        }:
+            raise ValueError("Unknown null-key confidence mode")
+        self.group_band_low_scale = float(group_band_low_scale)
+        self.group_band_high_scale = float(group_band_high_scale)
+        self.group_band_map_enabled = bool(group_band_map_enabled)
+        if self.group_band_low_scale not in (0.0, 1.0) or self.group_band_high_scale not in (0.0, 1.0):
+            raise ValueError("Group/band scales must be binary")
         self.processor_name = processor_name
         self.cl39x_settings = dict(cl39x_settings or {})
         selected = lambda prefix: bool(self.cl39x_settings.get(f"{prefix}_enabled", False)) and any(
@@ -239,7 +255,11 @@ class BranchedAttnProcessor(nn.Module):
         self.roi_route_enabled = selected("ba_roi_route")
         self.automask_os_enabled = bool(self.cl39x_settings.get("ba_automask_os_enabled", False))
         self.global_local_enabled = selected("ba_global_local")
+        self.native_orthogonal_enabled = selected("ba_native_orthogonal_band")
+        self.extension_telemetry_enabled = True
         self._latest_cl39x = {}
+        self._latest_route_confidence = None
+        self._latest_route_mask = None
         self._route_eligible = None
         self.ot_transport = None
         if self.ot_transport_enabled:
@@ -647,6 +667,13 @@ class BranchedAttnProcessor(nn.Module):
     def set_hardcase_telemetry_enabled(self, enabled: bool) -> None:
         self.hardcase_telemetry_enabled = bool(enabled)
 
+    def set_extension_telemetry_enabled(self, enabled: bool) -> None:
+        self.extension_telemetry_enabled = bool(enabled)
+
+    def latest_route_context(self):
+        """Return the detached CL39 confidence/router for the paired attn2."""
+        return self._latest_route_confidence, self._latest_route_mask
+
     @staticmethod
     def _reshape_heads(tensor: torch.Tensor, heads: int) -> torch.Tensor:
         batch, length, channels = tensor.shape
@@ -740,7 +767,8 @@ class BranchedAttnProcessor(nn.Module):
         keys = self._reshape_heads(self._k_ref(attn, reference if self.valid_kv_enabled else reference_face), heads)
         values = self._reshape_heads(self._v_ref(attn, reference if self.valid_kv_enabled else reference_face), heads)
         self._route_eligible = None
-        self._latest_cl39x = {}
+        if self.extension_telemetry_enabled:
+            self._latest_cl39x = {}
         if self.valid_kv_enabled:
             threshold = float(self.cl39x_settings["ba_valid_kv_threshold"])
             result = valid_key_sdpa(
@@ -880,6 +908,7 @@ class BranchedAttnProcessor(nn.Module):
             entropy = self._valid_key_entropy.float()
         else:
             entropy_parts = []
+            posterior_null_parts = []
             width = q.shape[-1]
             for start in range(0, q.shape[2], 256):
                 logits = torch.matmul(
@@ -889,13 +918,52 @@ class BranchedAttnProcessor(nn.Module):
                 probability = torch.softmax(logits, dim=-1)
                 value = -(probability * probability.clamp_min(1e-12).log()).sum(-1)
                 entropy_parts.append((value / math.log(max(length, 2))).mean(1).unsqueeze(-1))
+                if self.null_key_confidence_mode == "posterior_invalid_mass_v1":
+                    valid_mass = (
+                        probability * valid[:, None, None].to(probability.dtype)
+                    ).sum(-1)
+                    posterior_null_parts.append(
+                        (1.0 - valid_mass).mean(1).unsqueeze(-1)
+                    )
             entropy = torch.cat(entropy_parts, dim=1)
-        null_mass = torch.sigmoid(
-            (entropy - self.null_key_entropy_threshold) / self.null_key_temperature
-        )
-        confidence = (1.0 - self.null_key_max_abstention * null_mass).clamp(
-            min=self.null_key_min_reference_fraction, max=1.0
-        )
+        if self.null_key_confidence_mode == "posterior_invalid_mass_v1":
+            if self.valid_kv_enabled:
+                raise RuntimeError("Posterior-null routing must retain CL39 zero-key SDPA")
+            null_mass = torch.cat(posterior_null_parts, dim=1).clamp(0.0, 1.0)
+            confidence = (1.0 - self.null_key_max_abstention * null_mass).clamp(
+                min=self.null_key_min_reference_fraction, max=1.0
+            )
+            if self.extension_telemetry_enabled:
+                entropy_null = torch.sigmoid(
+                    (entropy - self.null_key_entropy_threshold)
+                    / self.null_key_temperature
+                )
+                entropy_confidence = (
+                    1.0 - self.null_key_max_abstention * entropy_null
+                ).clamp(
+                    min=self.null_key_min_reference_fraction, max=1.0
+                )
+                flat = null_mass.detach().float().flatten()
+                self._latest_cl39x.update(
+                    **{
+                        "posterior_null/null_mass": flat.mean(),
+                        "posterior_null/null_mass_p10": torch.quantile(flat, 0.10),
+                        "posterior_null/null_mass_p50": torch.quantile(flat, 0.50),
+                        "posterior_null/null_mass_p90": torch.quantile(flat, 0.90),
+                        "posterior_null/valid_mass": 1.0 - flat.mean(),
+                        "posterior_null/confidence": confidence.detach().float().mean(),
+                        "posterior_null/confidence_minus_entropy": (
+                            confidence.detach().float() - entropy_confidence
+                        ).mean(),
+                    }
+                )
+        else:
+            null_mass = torch.sigmoid(
+                (entropy - self.null_key_entropy_threshold) / self.null_key_temperature
+            )
+            confidence = (1.0 - self.null_key_max_abstention * null_mass).clamp(
+                min=self.null_key_min_reference_fraction, max=1.0
+            )
         eligible = valid.any(-1)[:, None, None]
         confidence = torch.where(eligible, confidence, torch.zeros_like(confidence))
         null_mass = torch.where(eligible, null_mass, torch.ones_like(null_mass))
@@ -1231,6 +1299,40 @@ class BranchedAttnProcessor(nn.Module):
         low = low.flatten(2).transpose(1, 2)
         return low.to(delta.dtype), (delta.float() - low).to(delta.dtype)
 
+    def _native_orthogonal_high_band(
+        self, high: torch.Tensor, native_out: torch.Tensor
+    ) -> torch.Tensor:
+        settings = self.cl39x_settings
+        native = native_out.detach().float()
+        high_float = high.float()
+        epsilon = float(settings["ba_native_orthogonal_epsilon"])
+        coefficient = F.relu(
+            (high_float * native).sum(-1, keepdim=True)
+            / (native.square().sum(-1, keepdim=True) + epsilon)
+        )
+        projected = high_float - coefficient * native
+        if self.extension_telemetry_enabled:
+            affected = coefficient.gt(0)
+            removed = high_float - projected
+            self._latest_cl39x.update(
+                **{
+                    "native_orthogonal/pre_cosine": F.cosine_similarity(
+                        high_float, native, dim=-1, eps=epsilon
+                    ).mean(),
+                    "native_orthogonal/post_cosine": F.cosine_similarity(
+                        projected, native, dim=-1, eps=epsilon
+                    )[affected.squeeze(-1)].mean()
+                    if bool(affected.any()) else projected.new_zeros(()),
+                    "native_orthogonal/removed_energy_fraction": (
+                        removed.square().sum()
+                        / high_float.square().sum().clamp_min(epsilon)
+                    ),
+                    "native_orthogonal/affected_query_fraction": affected.float().mean(),
+                    "native_orthogonal/high_rms": projected.square().mean().sqrt(),
+                }
+            )
+        return projected.to(high.dtype)
+
     def _progress(self, target: torch.Tensor) -> torch.Tensor:
         progress = getattr(self, "ba_denoise_progress", None)
         if progress is None:
@@ -1503,6 +1605,10 @@ class BranchedAttnProcessor(nn.Module):
                 )
             )
             low, high = self._gaussian_split(reference_out - native_out)
+            if self.native_orthogonal_enabled:
+                # 31 Aug 2026 - N8 removes only positive native-aligned high
+                # frequency energy; the native anchor and low band are intact.
+                high = self._native_orthogonal_high_band(high, native_out)
             progress = self._progress(target)
             if self.frequency_shared_schedule_enabled:
                 raw_parameter = self._frequency_shared_schedule_raw
@@ -1570,8 +1676,19 @@ class BranchedAttnProcessor(nn.Module):
                     self.hardcase_frequency_high_late
                     - self.hardcase_frequency_high_early
                 )
-            low_component = router * low_scale * low
-            high_component = router * high_scale * high
+            low_component = (
+                router * low_scale * self.group_band_low_scale * low
+            )
+            high_component = (
+                router * high_scale * self.group_band_high_scale * high
+            )
+            if self.group_band_map_enabled and self.extension_telemetry_enabled:
+                self._latest_cl39x.update(
+                    **{
+                        "group_band/accepted_low_rms": low_component.detach().float().square().mean().sqrt(),
+                        "group_band/accepted_high_rms": high_component.detach().float().square().mean().sqrt(),
+                    }
+                )
             null_mass = None
             if self.null_key_router_enabled:
                 confidence, null_mass = self._null_key_confidence(
@@ -1579,6 +1696,11 @@ class BranchedAttnProcessor(nn.Module):
                 )
                 low_component = low_component * confidence
                 high_component = high_component * confidence
+                self._latest_route_confidence = confidence.detach()
+                self._latest_route_mask = router.detach()
+            else:
+                self._latest_route_confidence = torch.ones_like(router)
+                self._latest_route_mask = router.detach()
             routed_delta = low_component + high_component
             target_out = native_out + routed_delta
             if self.roi_route_enabled:

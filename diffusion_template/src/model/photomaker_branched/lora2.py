@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import copy
 import time
+from pathlib import Path
 from typing import Optional, Sequence
 
 import numpy as np
@@ -278,10 +280,16 @@ class PhotomakerBranchedLora(SDXL):
         ba_allow_objective_only_checkpoint_init: bool = False,
         ba_null_key_router_enabled: bool = False,
         ba_null_key_router_groups: Optional[Sequence[str]] = None,
+        ba_null_key_confidence_mode: str = "entropy_v1",
         ba_null_key_entropy_threshold: float = 0.75,
         ba_null_key_temperature: float = 0.08,
         ba_null_key_max_abstention: float = 0.75,
         ba_null_key_min_reference_fraction: float = 0.25,
+        ba_group_band_map_enabled: bool = False,
+        ba_group_band_map_path: Optional[str] = None,
+        ba_group_band_map_sha256: Optional[str] = None,
+        ba_group_band_map_require_binary: bool = True,
+        ba_group_band_map_keep_optimizer_membership: bool = True,
         cl39x_settings: Optional[dict] = None,
         ##### BRANCHED ATTENTION - NEW PARAMS 1 #####
     ):
@@ -649,6 +657,9 @@ class PhotomakerBranchedLora(SDXL):
         self.ba_null_key_router_groups = tuple(
             str(group) for group in (ba_null_key_router_groups or ())
         )
+        self.ba_null_key_confidence_mode = str(
+            ba_null_key_confidence_mode or "entropy_v1"
+        ).lower()
         self.ba_null_key_entropy_threshold = float(ba_null_key_entropy_threshold)
         self.ba_null_key_temperature = float(ba_null_key_temperature)
         self.ba_null_key_max_abstention = float(ba_null_key_max_abstention)
@@ -657,11 +668,73 @@ class PhotomakerBranchedLora(SDXL):
         )
         if self.ba_null_key_router_enabled and not (
             self.ba_null_key_router_groups
+            and self.ba_null_key_confidence_mode in {
+                "entropy_v1", "posterior_invalid_mass_v1"
+            }
             and self.ba_null_key_temperature > 0.0
             and 0.0 <= self.ba_null_key_max_abstention <= 1.0
             and 0.0 < self.ba_null_key_min_reference_fraction <= 1.0
         ):
             raise ValueError("Invalid CL39 null-key confidence configuration")
+        if (
+            self.ba_null_key_confidence_mode != "entropy_v1"
+            and not self.ba_null_key_router_enabled
+        ):
+            raise ValueError("Posterior-null confidence requires the CL39 router")
+
+        self.ba_group_band_map_enabled = bool(ba_group_band_map_enabled)
+        self.ba_group_band_map_path = ba_group_band_map_path
+        self.ba_group_band_map_sha256 = (
+            None if ba_group_band_map_sha256 is None
+            else str(ba_group_band_map_sha256).lower()
+        )
+        self.ba_group_band_map_require_binary = bool(
+            ba_group_band_map_require_binary
+        )
+        self.ba_group_band_map_keep_optimizer_membership = bool(
+            ba_group_band_map_keep_optimizer_membership
+        )
+        self.ba_group_band_map = {}
+        if self.ba_group_band_map_enabled:
+            # 31 Aug 2026 - AICODE-NOTE: N6R is valid only with the frozen,
+            # nontrivial seven-group binary map; placeholders fail closed.
+            if not self.ba_group_band_map_path or self.ba_group_band_map_sha256 in {
+                None, "audit_required", "replace_with_confirmed_map_sha256"
+            }:
+                raise ValueError("CL39N6R requires a sealed map and SHA-256")
+            map_path = Path(self.ba_group_band_map_path)
+            if not map_path.is_file():
+                raise FileNotFoundError(f"CL39N6R map is absent: {map_path}")
+            actual_sha = hashlib.sha256(map_path.read_bytes()).hexdigest()
+            if actual_sha != self.ba_group_band_map_sha256:
+                raise RuntimeError("CL39N6R map SHA-256 mismatch")
+            payload = json.loads(map_path.read_text(encoding="utf-8"))
+            route = payload.get("groups", payload)
+            required = {
+                "down_blocks.0", "down_blocks.1", "down_blocks.2",
+                "mid_block", "up_blocks.0", "up_blocks.1", "up_blocks.2",
+            }
+            if set(route) != required or any(
+                set(values) != {"low", "high"}
+                or any(float(value) not in (0.0, 1.0) for value in values.values())
+                for values in route.values()
+            ):
+                raise ValueError("CL39N6R requires seven binary low/high rows")
+            self.ba_group_band_map = {
+                group: {band: float(value) for band, value in values.items()}
+                for group, values in route.items()
+            }
+            disabled = [
+                (group, band)
+                for group, values in self.ba_group_band_map.items()
+                for band, value in values.items()
+                if value == 0.0
+            ]
+            if disabled != [("up_blocks.1", "low")]:
+                raise ValueError(
+                    "CL39N6R must disable only up_blocks.1/low, got "
+                    f"{disabled!r}"
+                )
         self.ba_frequency_surface_loss_enabled = bool(
             ba_frequency_surface_loss_enabled
         )
@@ -1290,6 +1363,24 @@ class PhotomakerBranchedLora(SDXL):
         self._ba_frozen_teacher_unet = None
         self._ba_frozen_teacher_original_processors = None
         configure_cl39x(self, cl39x_settings)
+        cl39_parent_active = (
+            self.ba_hardcase_mode == "temporal_frequency"
+            and self.ba_frequency_surface_loss_enabled
+            and self.ba_null_key_router_enabled
+            and self.ba_null_key_router_groups == ("up_blocks.0", "up_blocks.1")
+            and self.pose_adapt_ratio == 0.0
+            and not self.ca_mixing_for_face
+        )
+        if (
+            self.ba_group_band_map_enabled
+            or self.ba_null_key_confidence_mode != "entropy_v1"
+        ) and not cl39_parent_active:
+            raise ValueError("CL39N6R/N7 require the exact CL39 parent")
+        if self.ba_group_band_map_enabled and not (
+            self.ba_group_band_map_require_binary
+            and self.ba_group_band_map_keep_optimizer_membership
+        ):
+            raise ValueError("CL39N6R must retain binary routing and optimizer ownership")
         if self.ba_architecture_version != "hard_replace_v1" and any(
             (
                 self.ba_enforce_reference_only_hard_route,
@@ -1676,10 +1767,16 @@ class PhotomakerBranchedLora(SDXL):
             # checkpoint compatibility even when no child arm is active.
             manifest["null_key_confidence_router"] = {
                 "groups": list(self.ba_null_key_router_groups),
+                "mode": self.ba_null_key_confidence_mode,
                 "entropy_threshold": self.ba_null_key_entropy_threshold,
                 "temperature": self.ba_null_key_temperature,
                 "max_abstention": self.ba_null_key_max_abstention,
                 "min_reference_fraction": self.ba_null_key_min_reference_fraction,
+            }
+        if self.ba_group_band_map_enabled:
+            manifest["group_band_map"] = {
+                "sha256": self.ba_group_band_map_sha256,
+                "groups": self.ba_group_band_map,
             }
         if (
             self.generic_adapter_train_scope != "none"

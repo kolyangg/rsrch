@@ -62,6 +62,14 @@ ba_training_timestep_policy: uniform_all
 ba_spatial_reference_shuffle_probability: 0.0
 ba_install_on_device: false
 
+# CL39 route leaves. Defaults preserve every historical configuration.
+ba_null_key_confidence_mode: entropy_v1
+ba_group_band_map_enabled: false
+ba_group_band_map_path: null
+ba_group_band_map_sha256: null
+ba_group_band_map_require_binary: true
+ba_group_band_map_keep_optimizer_membership: true
+
 # Audited hard-v1 controls. All are defaults-off so historical checkpoints and
 # configs retain their original processor equation and manifest.
 ba_enforce_reference_only_hard_route: false

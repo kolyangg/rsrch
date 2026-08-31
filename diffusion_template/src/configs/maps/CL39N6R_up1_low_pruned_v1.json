@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "parent_comet_key": "b1ca0b3da679401c85b991f1bbdf0b2a",
+  "selection_evidence": "audit_local_seed0_then_preregistered_seed1_confirmation",
+  "groups": {
+    "down_blocks.0": {"low": 1, "high": 1},
+    "down_blocks.1": {"low": 1, "high": 1},
+    "down_blocks.2": {"low": 1, "high": 1},
+    "mid_block": {"low": 1, "high": 1},
+    "up_blocks.0": {"low": 1, "high": 1},
+    "up_blocks.1": {"low": 0, "high": 1},
+    "up_blocks.2": {"low": 1, "high": 1}
+  }
+}

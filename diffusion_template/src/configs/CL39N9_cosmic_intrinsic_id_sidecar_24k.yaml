@@ -1,0 +1,47 @@
+defaults: [CL39_cosmic_null_key_confidence_router_24k, _self_]
+
+model:
+  cl39x_settings:
+    ba_intrinsic_id_sidecar_enabled: true
+    ba_intrinsic_id_sidecar_groups: [up_blocks.0, up_blocks.1]
+    ba_intrinsic_id_num_tokens: 4
+    ba_intrinsic_id_token_dim: 2048
+    ba_intrinsic_id_projector_hidden: 1024
+    ba_intrinsic_id_residual_rank: 32
+    ba_intrinsic_id_gate_init: 0.01
+    ba_intrinsic_id_gate_max: 0.10
+    ba_intrinsic_id_confidence_source: cl39_complement_detached
+    ba_intrinsic_id_face_router: cl39_soft_face
+    ba_intrinsic_id_missing_policy: exact_zero
+
+trainer:
+  preserve_training_model_during_validation: true
+
+datasets:
+  val:
+    manual_val:
+      bbox_mask_gen: ${oc.env:CL39N_BBOX_PATH,../dataset_full/val_dataset/pm96_bboxes_new.json}
+
+expected_trainable_contract:
+  enabled: true
+  total_tensors: 2497
+  total_parameters: 238261284
+  optimizer_tensors: 2497
+  optimizer_parameters: 238261284
+  categories:
+    branched_sa_r128: {name_substring: ".attn1.processor.", tensors: 840, parameters: 127795200}
+    intrinsic_identity_ca_r32: {name_substring: ".attn2.processor.", tensors: 252, parameters: 10125348}
+    intrinsic_identity_projector: {name_substring: "ba_intrinsic_id_projector.", tensors: 5, parameters: 8918016}
+    generic_effective_adapter_r32: {name_substring: ".lora_adapter.", tensors: 700, parameters: 30474240}
+    photomaker_default_effective_adapter_r64: {name_substring: ".default.", tensors: 700, parameters: 60948480}
+
+writer:
+  loss_names: [loss, loss_ba_aux, loss_ba_frequency_surface,
+    ba/intrinsic_id/token_norm/all, ba/intrinsic_id/gate/all,
+    ba/intrinsic_id/residual_native_ratio/all,
+    ba/intrinsic_id/low_confidence_usage/all,
+    ba/intrinsic_id/active_fraction/all,
+    ba/null_key/reference_fraction/all]
+  experiment_comment: >-
+    CL39N9 adds only a bounded rank-32 raw-InsightFace token residual beside
+    native up0/up1 attn2, weighted by the detached CL39 confidence complement.

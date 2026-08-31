@@ -25,7 +25,10 @@ CONFIG_DIR = Path(__file__).resolve().parents[2] / "src" / "configs"
 # Reference-face area band observed on large_dataset targets (7.32% median).
 SCENE_REF_AREA_BAND = (2.0, 22.0)
 MAX_TRUNCATED_PROMPT_FRACTION = 0.05
-CL39_CHILDREN = {f"CL39X0{index}" for index in range(1, 9)}
+CL39_CHILDREN = (
+    {f"CL39X0{index}" for index in range(1, 9)}
+    | {"CL39N6R", "CL39N7", "CL39N8", "CL39N9"}
+)
 
 
 def short_side(bbox) -> float:

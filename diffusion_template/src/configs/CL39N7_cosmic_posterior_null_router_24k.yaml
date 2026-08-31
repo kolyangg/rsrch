@@ -1,0 +1,22 @@
+defaults: [CL39_cosmic_null_key_confidence_router_24k, _self_]
+
+model:
+  ba_null_key_confidence_mode: posterior_invalid_mass_v1
+
+trainer:
+  preserve_training_model_during_validation: true
+
+datasets:
+  val:
+    manual_val:
+      bbox_mask_gen: ${oc.env:CL39N_BBOX_PATH,../dataset_full/val_dataset/pm96_bboxes_new.json}
+
+writer:
+  loss_names: [loss, loss_ba_aux, loss_ba_frequency_surface,
+    ba/posterior_null/null_mass/all, ba/posterior_null/valid_mass/all,
+    ba/posterior_null/confidence/all,
+    ba/posterior_null/confidence_minus_entropy/all,
+    ba/null_key/reference_fraction/all]
+  experiment_comment: >-
+    CL39N7 preserves CL39 zero-key reference SDPA and changes only confidence
+    from normalized entropy to actual invalid-key posterior mass.

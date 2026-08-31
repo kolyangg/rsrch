@@ -1,0 +1,31 @@
+defaults: [CL39_cosmic_null_key_confidence_router_24k, _self_]
+
+validation_only: true
+validation_epoch: 8
+val_datasets_names: [manual_val]
+inference_metrics: []
+automatic_bboxes: true
+automatic_bboxes_every_val: false
+force_log_first_auto_bbox: false
+val_debug: false
+
+datasets:
+  val:
+    manual_val:
+      seeds: [1]
+      limit: 96
+      bbox_mask_gen: ${oc.env:CL39N6R_SEED1_BBOX_PATH}
+
+trainer:
+  from_pretrained: ${oc.env:CL39_CHECKPOINT_16K}
+  save_dir: ${oc.env:CL39N6R_CONFIRM_SAVE_DIR}
+  face_quality: {enabled: false}
+  log_per_image_id_sim_table: false
+
+writer:
+  run_name: ${oc.env:CL39N6R_CONFIRM_RUN_NAME}
+
+validation_args:
+  automatic_bbox_preview_dir: ${oc.env:CL39N6R_PM_PREVIEW_DIR,}
+
+validation_debug_timing: true

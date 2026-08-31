@@ -64,6 +64,16 @@ DEFAULTS = {
     "ba_intrinsic_id_residual_rank": 64,
     "ba_intrinsic_id_gate_init": 0.01,
     "ba_intrinsic_id_gate_max": 0.15,
+    "ba_intrinsic_id_confidence_source": "none",
+    "ba_intrinsic_id_face_router": "hard_face",
+    "ba_intrinsic_id_missing_policy": "exact_zero",
+    "ba_native_orthogonal_band_enabled": False,
+    "ba_native_orthogonal_band_groups": (),
+    "ba_native_orthogonal_band": "high",
+    "ba_native_orthogonal_mode": "remove_positive_parallel",
+    "ba_native_orthogonal_strength": 1.0,
+    "ba_native_orthogonal_epsilon": 1.0e-6,
+    "ba_native_orthogonal_detach_native": True,
     "ba_global_local_enabled": False,
     "ba_global_local_groups": (),
     "ba_global_dilation_cells": 4,
@@ -124,6 +134,7 @@ def configure_cl39x(model, supplied) -> dict:
         "ba_ot_transport_enabled": "ba_ot_transport",
         "ba_roi_route_enabled": "ba_roi_route",
         "ba_intrinsic_id_sidecar_enabled": "ba_intrinsic_id_sidecar",
+        "ba_native_orthogonal_band_enabled": "ba_native_orthogonal_band",
         "ba_global_local_enabled": "ba_global_local",
     }
     for key in enabled:
@@ -172,6 +183,33 @@ def configure_cl39x(model, supplied) -> dict:
         raise ValueError("counterfactual probability must be in (0,1]")
     if not 0.0 <= float(settings["ba_global_local_exclusion"]) <= 1.0:
         raise ValueError("global local exclusion must be in [0,1]")
+    if settings["ba_native_orthogonal_band_enabled"] and not (
+        settings["ba_native_orthogonal_band"] == "high"
+        and settings["ba_native_orthogonal_mode"] == "remove_positive_parallel"
+        and float(settings["ba_native_orthogonal_strength"]) == 1.0
+        and float(settings["ba_native_orthogonal_epsilon"]) > 0.0
+        and bool(settings["ba_native_orthogonal_detach_native"])
+    ):
+        raise ValueError("CL39N8 requires the sealed detached high-band projection")
+    if settings["ba_intrinsic_id_sidecar_enabled"]:
+        historical_x07 = (
+            int(settings["ba_intrinsic_id_projector_hidden"]) == 2048
+            and int(settings["ba_intrinsic_id_residual_rank"]) == 64
+            and float(settings["ba_intrinsic_id_gate_max"]) == 0.15
+            and settings["ba_intrinsic_id_confidence_source"] == "none"
+            and settings["ba_intrinsic_id_face_router"] == "hard_face"
+        )
+        cl39n9 = (
+            int(settings["ba_intrinsic_id_projector_hidden"]) == 1024
+            and int(settings["ba_intrinsic_id_residual_rank"]) == 32
+            and float(settings["ba_intrinsic_id_gate_max"]) == 0.10
+            and settings["ba_intrinsic_id_confidence_source"]
+            == "cl39_complement_detached"
+            and settings["ba_intrinsic_id_face_router"] == "cl39_soft_face"
+            and settings["ba_intrinsic_id_missing_policy"] == "exact_zero"
+        )
+        if not (historical_x07 or cl39n9):
+            raise ValueError("Intrinsic-ID sidecar must match X07 or sealed CL39N9")
 
     for key, value in settings.items():
         setattr(model, key, value)
