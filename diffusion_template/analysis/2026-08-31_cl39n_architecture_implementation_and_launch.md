@@ -123,6 +123,15 @@ the first item of standard step-zero validation. This is not yet evidence of
 optimizer activity or scientific quality. The source archive SHA-256 is
 `0b0f126a67513db0b38442f316b02eb894fd33fa116a84f3a2efd646c72a0def`.
 
+The r1 job later completed all 96 step-zero images and entered finite training,
+then failed on batch 3 with
+`KeyError: ba/valid_kv/valid_fraction/all`. `[measured][code]` The scientific
+forward was valid; the detached valid-KV diagnostics are cadence sampled, but
+the writer requires every declared scalar on every step. Recovery r2 retains
+the exact architecture and emits zero placeholders only when those diagnostics
+are unsampled. A focused sampled/unsampled schema check passes. The ONNX CUDA
+fallback warnings and Comet status timeout were not the terminal cause.
+
 ## Serv submissions
 
 The pre-submit recount was four Running and zero Pending project A100s. The

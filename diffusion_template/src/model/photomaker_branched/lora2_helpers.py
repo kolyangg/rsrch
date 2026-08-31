@@ -410,6 +410,9 @@ def collect_branched_telemetry(model) -> dict[str, torch.Tensor]:
     hardcase_telemetry_enabled = str(
         getattr(model, "ba_hardcase_mode", "off") or "off"
     ).lower() in {"visibility_order", "temporal_frequency", "anchored_roi"}
+    cl39x_arm = str(
+        getattr(model, "_cl39x_manifest", {}).get("active_arm") or ""
+    )
     if architecture_version not in {
         "anchored_mix_sa_v3",
         "query_adaptive_hard_sa_v4",
@@ -417,6 +420,8 @@ def collect_branched_telemetry(model) -> dict[str, torch.Tensor]:
         architecture_version == "hard_replace_v1" and identity_ca_enabled
     ) and not (
         architecture_version == "hard_replace_v1" and hardcase_telemetry_enabled
+    ) and not (
+        architecture_version == "hard_replace_v1" and bool(cl39x_arm)
     ):
         return {}
     n9_parent_telemetry = (
@@ -465,6 +470,26 @@ def collect_branched_telemetry(model) -> dict[str, torch.Tensor]:
                 if metric_name in entry
             ]
             aggregated[f"ba/{metric_name}/{group}"] = torch.stack(values).mean()
+
+    if cl39x_arm == "valid_kv":
+        # 31 Aug 2026 - AICODE-NOTE: CL39-X diagnostics are cadence sampled,
+        # but writer.loss_names is a per-step schema. Preserve fail-closed
+        # logging by emitting explicit zeros only for unsampled diagnostics.
+        zero = next(iter(aggregated.values())).new_zeros(())
+        valid_kv_metrics = {
+            "valid_fraction", "valid_count", "all_invalid_fraction",
+            "entropy_valid",
+        }
+        if str(
+            getattr(model, "ba_valid_kv_confidence_source", "valid_only")
+        ) == "legacy_masked_full":
+            valid_kv_metrics.update({
+                "entropy_legacy", "entropy_legacy_minus_valid",
+                "confidence_legacy", "confidence_valid",
+                "confidence_legacy_minus_valid",
+            })
+        for metric_name in valid_kv_metrics:
+            aggregated.setdefault(f"ba/valid_kv/{metric_name}/all", zero)
     return aggregated
 
 
