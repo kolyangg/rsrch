@@ -1,8 +1,9 @@
 # CL39N architecture implementation and Serv launch log
 
-Date: 31 August 2026  
-Branch: `test` (pushed through `461c207`)  
-Sealed source revisions: `ff2b01b` (N7–N9 and N6R r1), `cd50401` (N6R recovery)
+Date: 31 August 2026
+Branch: `test` (implementation pushed through `8bb2fb1`)
+Sealed source revisions: `ff2b01b` (first qualifications), `cd50401`
+(N6R recovery), `8bb2fb1` (direct N7–N9 production)
 
 ## Implemented architecture leaves
 
@@ -51,6 +52,30 @@ N8 `4.2–4.5`, and N9 `3.8–4.1` s/iteration after warm-up. These measurements
 show that the direct training hot path is back near its intended range; the
 second gate remains authoritative for the former post-validation slowdown.
 
+The completed fixed-96 qualifications passed every scientific, finite,
+image-count, mechanism-activity, and resident-model check, but failed their
+post-validation speed ceilings: N7 `5.62` s/it (ceiling `5.0`), N8 `5.94`
+(ceiling `5.0`), and N9 `5.63` (ceiling `5.5`). No qualification created a
+Comet experiment. At the user's explicit direction to make the production
+runs live, N7–N9 were submitted directly from a fresh sealed runtime; the
+throughput shortfall remains an operational issue and is not represented as
+fixed.
+
+The current immutable production mappings are:
+
+| Arm | Serv job | Comet key |
+|---|---|---|
+| N7 | `lm-mpi-job-082bb824-370a-4778-8024-f3d6bf746148` | `d8c2aacddd0d465d9892ec19da1a7e06` |
+| N8 | `lm-mpi-job-8df80bfa-1389-4097-b627-d003dc92a4cd` | `78cd414ea37343cc88cf2136b14a9f70` |
+| N9 | `lm-mpi-job-1979ecab-cdc7-407b-8f6a-0c3690cfe212` | `bd29402f968b49ce8a64c31ba380c48b` |
+
+All three were Running and had passed source-manifest, configuration,
+Cosmic-preflight, exact trainable-contract, and immutable-Comet startup gates
+at the final audit. They were executing the standard step-zero validation;
+this is not yet a claim about optimizer progress or final scientific quality.
+The direct-production archive SHA-256 is
+`6d0d2926881b8be4479913b267fb999962d4c3d451d56234798ff0c1f485264d`.
+
 ## Serv submissions
 
 The pre-submit recount was four Running and zero Pending project A100s. The
@@ -91,6 +116,8 @@ and verifies both variables before launch. This is an operational environment
 fix; the N6R architecture, checkpoint, map, prompts, seeds, and validation
 contract are unchanged.
 
-N6R production remains correctly blocked until seed-1 quantitative gates and
-the eight-page visual review both pass. Registration or job state alone is
-not promotion evidence.
+N6R production remains blocked. Its exact seed-1 join completed for all 96
+cells, but the predeclared quantitative gate failed: identity mean delta
+`-0.005748`, PhotoMaker face-SSIM delta `+0.002140`, TOPIQ-face mean delta
+`-0.003733`, and TOPIQ-face p10 delta `-0.025925`. Registration or job state
+alone is not promotion evidence.
