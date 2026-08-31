@@ -1,7 +1,7 @@
 # CL39N architecture implementation and Serv launch log
 
 Date: 31 August 2026  
-Branch: `test`  
+Branch: `test` (pushed through `461c207`)  
 Sealed source revisions: `ff2b01b` (N7–N9 and N6R r1), `cd50401` (N6R recovery)
 
 ## Implemented architecture leaves
@@ -38,6 +38,14 @@ registration:
 3. only after both gates pass, create a fresh immutable Comet experiment and
    begin the 24k run.
 
+The first sealed N7–N9 allocation used `validation_interval_steps: null`,
+which this trainer interprets as periodic validation every epoch rather than
+disabled. Their 100-step timing windows occur before that extra validation and
+remain usable; the live jobs were not stopped or modified. Commit `461c207`
+sets all future smoke intervals to `0` and makes the checker assert the
+mode-specific absence/presence of the validation-start marker. Validated
+smokes retain their initial fixed-96 panel but no longer repeat it at step 100.
+
 At the first live no-validation observation, N7 was approximately `3.9–4.2`,
 N8 `4.2–4.5`, and N9 `3.8–4.1` s/iteration after warm-up. These measurements
 show that the direct training hot path is back near its intended range; the
@@ -55,7 +63,8 @@ the user's run-scoped ten-GPU exception.
 | N7 qualification → production | `lm-mpi-job-8d26b5da-9c18-4216-b8f3-69a7af99e133` | Running; sealed preflight passed and mechanism active | Deliberately deferred until both gates pass |
 | N8 qualification → production | `lm-mpi-job-12ec7cf3-a2ee-4d2f-95ec-df6000849664` | Running; sealed preflight passed and mechanism active | Deliberately deferred until both gates pass |
 | N9 qualification → production | `lm-mpi-job-60ebd9fd-b324-4eb0-b597-1f7bb08344cc` | Running; sealed preflight passed and mechanism active | Deliberately deferred until both gates pass |
-| N6R seed-1 confirmation recovery r2 | `lm-mpi-job-e5450e00-be90-4693-a805-93edcb1cf14d` | Accepted from fresh paths | None (console-only confirmation) |
+| N6R seed-1 confirmation recovery r2 | `lm-mpi-job-e5450e00-be90-4693-a805-93edcb1cf14d` | Failed before model load: inherited Cosmic environment omitted | None (console-only confirmation) |
+| N6R seed-1 confirmation recovery r3 | `lm-mpi-job-20eae07e-5f14-44b9-8e42-3b6f1b4a82f4` | Accepted from fresh paths with complete inherited dataset environment | None (console-only confirmation) |
 
 N7–N9 use sealed archive SHA-256
 `a42fbf071ca63b1d87a4b330000ede173bfad2bcb17a94fd7a6febc0854adb67`.
@@ -70,12 +79,18 @@ router using the historical exact
 CL39 defaults under the explicit `null_key_confidence_router` schema, so strict
 raw manifest equality rejected r1. Commit `cd50401` canonicalizes only that
 exact legacy marker to the immutable full CL39 defaults. Different groups or
-thresholds still fail closed. Recovery r2 uses fresh package, runtime,
-confirmation, and log paths and must emit
+thresholds still fail closed. Each recovery uses fresh package, runtime,
+confirmation, and log paths; r3 must emit
 `CL39_LEGACY_ROUTER_MANIFEST_CANONICALIZED` before checkpoint loading is
 accepted.
+
+Recovery r2 then exposed an independent launch-wrapper omission: a
+validation-only trainer still instantiates the inherited Cosmic train dataset,
+but the wrapper had not exported its root and manifest. Recovery r3 restores
+and verifies both variables before launch. This is an operational environment
+fix; the N6R architecture, checkpoint, map, prompts, seeds, and validation
+contract are unchanged.
 
 N6R production remains correctly blocked until seed-1 quantitative gates and
 the eight-page visual review both pass. Registration or job state alone is
 not promotion evidence.
-
