@@ -21,6 +21,16 @@ CEILING="${CL39N_MAX_MEDIAN_SECONDS:-5.0}"
 NO_VAL_RUN="${RUN_NAME}_qual_noval100"
 VALIDATED_RUN="${RUN_NAME}_qual_validated100"
 
+# 31 Aug 2026 - Qualifications must consume the same sealed architecture and
+# Cosmic records as production; fail before GPU work if either contract drifts.
+python tools/validate_CL39N6R_CL39N9_config.py \
+  --config-name "${CONFIG_NAME}" --run-name "${RUN_NAME}" \
+  --experiment-spec "${EXPERIMENT_SPEC_PATH}"
+mkdir -p "${CL39N_QUAL_ROOT}/preflight"
+python tools/datasets/preflight_cosmic_cl.py --config-name "${CONFIG_NAME}" \
+  --sample-count "${COSMIC_PREFLIGHT_SAMPLES:-64}" \
+  --output "${CL39N_QUAL_ROOT}/preflight/${RUN_NAME}.json"
+
 accelerate launch --config_file=src/configs/ddp/accelerate.yaml --num_processes=1 \
   train.py "--config-name=${NO_VAL_CONFIG_NAME}" writer=console \
   "writer.run_name=${NO_VAL_RUN}" "trainer.save_dir=${CL39N_QUAL_ROOT}/saved" \
