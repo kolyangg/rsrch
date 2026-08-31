@@ -111,6 +111,18 @@ interval lower bound above zero, Skiing within `0.005`, no identity below
 Not established: X12 has no trained checkpoint, so neither identity gain nor
 visual difference from PhotoMaker can be claimed from its construction gates.
 
+X12 was submitted on Serv as
+`lm-mpi-job-b5f9916a-904f-4a66-842d-3c75c43e5f77` from source commit
+`36f6d27ec64b5b570ef7c8ff4e437107da85ff65`; its immutable Comet key is
+`d2e3d71bc1824959886ece2ba6ddb157`. At the startup audit it was Running and
+had passed the source-manifest, CPU architecture, exact trainable-contract,
+64-record Cosmic data, and immutable-Comet gates. Model initialization was in
+progress, and a subsequent audit verified the installed processor/optimizer
+ownership and the intended NO_ID → PhotoMaker → BOTH routing switches during
+the first item of standard step-zero validation. This is not yet evidence of
+optimizer activity or scientific quality. The source archive SHA-256 is
+`0b0f126a67513db0b38442f316b02eb894fd33fa116a84f3a2efd646c72a0def`.
+
 ## Serv submissions
 
 The pre-submit recount was four Running and zero Pending project A100s. The
