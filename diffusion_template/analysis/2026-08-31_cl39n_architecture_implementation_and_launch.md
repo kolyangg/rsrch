@@ -64,7 +64,7 @@ the user's run-scoped ten-GPU exception.
 | N8 qualification → production | `lm-mpi-job-12ec7cf3-a2ee-4d2f-95ec-df6000849664` | Running; sealed preflight passed and mechanism active | Deliberately deferred until both gates pass |
 | N9 qualification → production | `lm-mpi-job-60ebd9fd-b324-4eb0-b597-1f7bb08344cc` | Running; sealed preflight passed and mechanism active | Deliberately deferred until both gates pass |
 | N6R seed-1 confirmation recovery r2 | `lm-mpi-job-e5450e00-be90-4693-a805-93edcb1cf14d` | Failed before model load: inherited Cosmic environment omitted | None (console-only confirmation) |
-| N6R seed-1 confirmation recovery r3 | `lm-mpi-job-20eae07e-5f14-44b9-8e42-3b6f1b4a82f4` | Accepted from fresh paths with complete inherited dataset environment | None (console-only confirmation) |
+| N6R seed-1 confirmation recovery r3 | `lm-mpi-job-20eae07e-5f14-44b9-8e42-3b6f1b4a82f4` | Running; source/data and legacy-manifest gates passed, first all-on validation active | None (console-only confirmation) |
 
 N7–N9 use sealed archive SHA-256
 `a42fbf071ca63b1d87a4b330000ede173bfad2bcb17a94fd7a6febc0854adb67`.
