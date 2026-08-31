@@ -1,0 +1,6 @@
+job:
+  description: "CL39 N3S softplus 101-step activity qualifier r1 #nasilaev"
+  environment: {image: "cr.ai.cloud.ru/aicloud-base-images/cuda12.1-torch2-py311:0.0.36"}
+  resource: {instance_type: "a100.1gpu.8C.243G", processes: 1, workers: 1}
+  script: "mkdir -p /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL39N3S_softplus_qualifier_r1 && bash /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/analysis_jobs/CL39N3S_softplus_20260831_r1/start_qualifier_1gpu.sh >> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL39N3S_softplus_qualifier_r1/stdout.log 2>> /mnt/virtual_ai0001053-01309_SR006-nfs1/nasilaev/logs/CL39N3S_softplus_qualifier_r1/stderr.log"
+  type: binary
