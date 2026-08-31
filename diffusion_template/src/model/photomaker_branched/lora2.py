@@ -49,6 +49,36 @@ from .model_v2_NS import PhotoMakerIDEncoder_CLIPInsightfaceExtendtoken
 from .cl39x_contract import configure_cl39x
 ##### BRANCHED ATTENTION - ADDITIONAL IMPORTS #####
 
+
+def _canonicalize_legacy_cl39_manifest(manifest):
+    """Translate CL39's old parameter-free router marker to its full schema."""
+    if not isinstance(manifest, dict):
+        return manifest
+    canonical = copy.deepcopy(manifest)
+    route = (
+        canonical.get("hard_v1_extensions", {}).get("hardcase_route", {})
+    )
+    legacy = route.get("cl38_cl44_extension")
+    if legacy != {
+        "name": "null_key_router",
+        "groups": ["up_blocks.0", "up_blocks.1"],
+    } or "null_key_confidence_router" in canonical:
+        return canonical
+    # 31 Aug 2026 - Historical CL39 stored only this exact parameter-free
+    # marker. Canonicalize it to the later explicit schema, but only with the
+    # immutable CL39 defaults; changed thresholds still fail closed.
+    route.pop("cl38_cl44_extension")
+    canonical["null_key_confidence_router"] = {
+        "groups": ["up_blocks.0", "up_blocks.1"],
+        "mode": "entropy_v1",
+        "entropy_threshold": 0.75,
+        "temperature": 0.08,
+        "max_abstention": 0.75,
+        "min_reference_fraction": 0.25,
+    }
+    return canonical
+
+
 ### PhotomakerLora upgraged for BA ###
 class PhotomakerBranchedLora(SDXL):
     """
@@ -2100,6 +2130,12 @@ class PhotomakerBranchedLora(SDXL):
         saved_manifest = state_dict.get("architecture")
         current_manifest = self._branched_architecture_manifest()
         manifests_match = saved_manifest == current_manifest
+        if not manifests_match:
+            canonical_saved = _canonicalize_legacy_cl39_manifest(saved_manifest)
+            canonical_current = _canonicalize_legacy_cl39_manifest(current_manifest)
+            manifests_match = canonical_saved == canonical_current
+            if manifests_match:
+                print("CL39_LEGACY_ROUTER_MANIFEST_CANONICALIZED")
         if (
             not manifests_match
             and self.ba_allow_objective_only_checkpoint_init
