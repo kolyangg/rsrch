@@ -66,6 +66,10 @@ def main() -> None:
             line.lower() for line in text.splitlines() if "Step " in line and "train/" in line
         ),
         "validation_images": images == args.expected_images,
+        "validation_contract": (
+            (args.mode == "no_validation")
+            == ("[Base Model Switch] Validation start:" not in text)
+        ),
         "resident_validation_fix": (
             args.mode == "no_validation"
             or "Skipping training-model offload (resident-through-validation" in text

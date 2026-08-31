@@ -3,7 +3,7 @@ defaults: [CL39N9_cosmic_intrinsic_id_sidecar_24k, _self_]
 trainer:
   epoch_len: 100
   n_epochs: 1
-  validation_interval_steps: null
+  validation_interval_steps: 0
   skip_initial_validation: false
 
 writer:
